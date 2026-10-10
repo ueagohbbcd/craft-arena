@@ -49,6 +49,10 @@ async function harness({ failDelivery = false } = {}) {
   const proc = { argv: ["node", "example", "10", "1", "0"], env: {} };
   const done = runInNewContext(`(async () => {${source}\n})()`, {
     connectBot: async () => bot,
+    summarizeTerrain: () => ({
+      freeSpace: { cells: 1 },
+      counts: { unknown: 0 },
+    }),
     loadSelectedPlugins: () => ({
       Movements: class {},
       goals: { Goal: class {} },
@@ -109,6 +113,7 @@ test("stalled goto requests judgment once despite path updates and jitter, then 
   await h.advance(30_000);
   assert.equal(h.reports[0].reason, "no_displacement");
   assert.equal(h.reports[0].path.steps, 2);
+  assert.equal(h.reports[0].terrain.freeSpace.cells, 1);
   assert.match(h.reports[0].activity, /still running/);
   assert.equal(h.events.length, 0);
   await h.advance(180_000);

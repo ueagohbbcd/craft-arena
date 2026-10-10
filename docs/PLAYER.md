@@ -41,6 +41,8 @@ live 常驻模式先等待可信 host 的 `running` 状态，再把公开比赛�
 
 普通 `post` / `upsert` 不会打断工具等待。可能长期不返回的动作，要在 `await` 前安装进展检测，用 `requestJudgment` 请求判断，或用 `wait_seconds` 定期收回控制检查。寻路示例每秒检查位置：30 秒没有至少一格位移，或 120 秒尚未完成，就报告一次目标、位置、路径状态和地形覆盖；寻路继续运行。这些时间是可修改的示例策略，挖掘和绕路也可能触发，不能直接判为失败。收到报告后，继续则用原 `taskId` 和有限的 `task_wait.wait_seconds` 复查；改道则先取消旧任务并检查控制状态，避免两套脚本同时操控。具体回调与清理方式见[编程指南](../examples/SKILL.md#report-useful-facts-from-long-tasks)。
 
+观察小工具见[编程技能](../examples/SKILL.md#keep-a-current-entity-radar)：`entity-radar.mjs` 持续采样、只合并待交付的最新实体状态，空结果也更新；`summarize-terrain.mjs` 给出局部方块数与无碰撞空间连通摘要；`observe-and-render.mjs` 一并输出摘要和两种视图。寻路停滞报告已附局部摘要，空间关系不明确时再调用视觉工具看图。普通雷达不会唤醒模型，且常驻程序会抑制空闲兜底唤醒；继续行动循环并使用有限等待，或自行定义威胁判断回调。
+
 ## 模型预算与等待
 
 主 agent、脚本中的模型调用和子代理统一使用 `OPENAI_BASE_URL` 与本参赛者的 `OPENAI_API_KEY`。网关按配置的官方 API 标价，将未缓存输入、缓存输入和输出 usage 折算为参考成本 `referenceCost`，据此限制个人和队伍在时间窗口内的使用速率。参考成本用于公平计量；实际账单支付以服务商账单为准。

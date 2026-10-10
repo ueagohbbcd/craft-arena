@@ -2,6 +2,7 @@
 import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
+import { summarizeTerrain } from "./summarize-terrain.mjs";
 const args = process.argv.slice(2);
 const noDig = args.includes("--no-dig");
 const xyz = args.filter((arg) => arg !== "--no-dig").map(Number);
@@ -72,6 +73,19 @@ try {
     if (requested || goal.isEnd(position.floored())) return;
     if (now - lastMoved < stallMs && now - started < reviewMs) return;
     requested = true; // One request per goal, including while IPC is in flight.
+    let terrain;
+    try {
+      terrain = summarizeTerrain({
+        blockAt: (p) => bot.blockAt(p),
+        position,
+        sampledAt: bot.sampledAt,
+        sequence: bot.sequence,
+        epoch: bot.epoch,
+        targets: [{ x: xyz[0], y: xyz[1], z: xyz[2] }],
+      });
+    } catch (error) {
+      terrain = { error: error.message }; // Still deliver the stall report.
+    }
     void inbox
       .requestJudgment({
         type: "route.review",
@@ -83,6 +97,9 @@ try {
         path: latestPath,
         loadedColumns: bot.columns.size,
         goalLoaded: bot.blockAt({ x: xyz[0], y: xyz[1], z: xyz[2] }) !== null,
+        terrain,
+        observation:
+          "Use world_minimap for route/entrances and world_render3d for local walls, tunnels or levels when the summary is insufficient; terrain.bounds is a local crop, not the whole route.",
         activity:
           "Pathfinder goto is still running; this report does not stop movement.",
         question:

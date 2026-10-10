@@ -2,6 +2,7 @@
 import { writeFile, mkdir } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { connectBot } from "../packages/bot-sdk/index.mjs";
+import { summarizeTerrain } from "./summarize-terrain.mjs";
 import {
   snapshotFromBot,
   renderMinimap,
@@ -68,7 +69,16 @@ async function main() {
       };
     }
     await mkdir("out", { recursive: true });
-    const result = {};
+    const terrain = summarizeTerrain({
+      blockAt: (p) => bot.blockAt(p),
+      position: bot.entity.position,
+      bounds: bounds.structure,
+      sampledAt: bot.sampledAt,
+      sequence: bot.sequence,
+      epoch: bot.epoch,
+    });
+    await writeFile("out/terrain-summary.json", JSON.stringify(terrain));
+    const result = { terrainSummaryPath: "out/terrain-summary.json", terrain };
     for (const [view, renderer, filename] of [
       ["overview", renderMinimap, "minimap"],
       ["structure", renderOblique, "structural"],

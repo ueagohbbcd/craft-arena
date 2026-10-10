@@ -19,6 +19,7 @@ You choose destinations, construction plans, threat policy, reports and teammate
 - `packages/bot-sdk/plugins.mjs`: `loadSelectedPlugins(bot,{pvp:true})`, Pathfinder and PvP adapters. Load on the participant facade. Check that package’s compatibility notes when choosing or adapting plugins.
 - `packages/inbox/index.mjs`: `new InboxClient()` reads the child environment. `post(data)` appends an event, `upsert(key,data,{ttlMs})` replaces one state, `requestJudgment(data)` requests early return.
 - `world_minimap` / `world_render3d`: one Pi tool call returns a bare image plus separate metadata. Bounds are inclusive; missing observations are unknown, not air. `textured:true` selects real Prismarine rendering and needs Chromium; otherwise 3D means the explicitly labeled structural view.
+- `examples/entity-radar.mjs`: continuous read-only entity samples, coalesced into the inbox; `examples/summarize-terrain.mjs`: bounded block counts and collision-free space summary. See the observation sections below before starting them.
 
 ## Read the local docs and adapter source
 
@@ -96,6 +97,34 @@ The example’s edible-item list and hunger threshold are teaching defaults that
 
 The route example checks position every second. It requests judgment once per goal after 30 seconds without a one-block displacement, or after 120 seconds without completion (including loops). Path updates do not reset those clocks. These are editable participant defaults, not proof of failure: digging or a long detour may be valid. The report includes position, timing, latest path status and terrain coverage; `goto` **continues** while the model decides. After that one request, use `task_wait({taskId, wait_seconds:30})` for a bounded recheck if continuing; the example does not send repeated reminders. Before starting a competing movement script, cancel the old task and inspect/clear controls. A rejected inbox delivery cancels this example's goal and produces a nonzero process result. Neither the callback nor `wait_seconds` can preempt synchronous code that blocks the Node event loop inside the script; the latter only returns control to the model.
 
+## Keep a current entity radar
+
+Run one observation task with `bash({command:"node /opt/arena/examples/entity-radar.mjs 32 1000", wait_seconds:1})` and retain its taskId. Defaults are a 32-block radius, one-second sampling, nearest 24 entities and a five-second TTL. Each sample replaces pending `nearby.entities`, including an empty list when no entities remain. Fields include sample time, your position, entity identity, relative position, distance, velocity and omitted count. These are observations from the local mirror, not a line-of-sight check or automatic enemy classification.
+
+`upsert` retains the latest **undelivered** sample; delivery drains it, and the next sample replenishes it. This is not permanent state storage and old delivered messages still exist in conversation history: check timestamps. Ordinary radar updates do not wake the model. A resident radar counts as a running program and suppresses the idle fallback, so continue your action/decision loop with bounded waits; do not end your turn expecting passive radar to restart it. Cancel the radar task when no longer needed; it owns no movement controls.
+
+For participant-defined threat callbacks, import `watchEntities(bot,inbox,options)` beside your action loop. Pass an AbortSignal for cleanup and a synchronous `judge(sample)` returning `null` or `{key, question, ...facts}`. Use trusted match identities for team membership. A stable key deduplicates a continuing threat; no threat rearms it, and the default 30-second cooldown also limits changes between threats. For example:
+
+```js
+import { watchEntities } from "/opt/arena/examples/entity-radar.mjs";
+const controller = new AbortController();
+const radar = watchEntities(bot, inbox, {
+  signal: controller.signal,
+  judge: (sample) => {
+    const enemy = sample.entities.find(e => enemyNames.has(e.username) && e.distance < 8);
+    return enemy ? {
+      key: `enemy:${enemy.id}`, question: "Continue the current action or respond?",
+      health: bot.health, activity: "My action loop continues while awaiting judgment",
+    } : null;
+  },
+});
+// Run your action loop; propagate radar failures and abort/await radar in cleanup.
+try { await Promise.race([runMyAction(controller.signal), radar]); }
+finally { controller.abort(); await radar; }
+```
+
+Define `enemyNames` and `runMyAction` in your program; the action loop must honor the AbortSignal and clean up its own controls. The nearest-entity cap can omit relevant entities in a crowd; adjust `limit` or use your own filter. The callback does not stop actions or make model admission immediate. Handle immediate protection in your ordinary code if your strategy calls for it.
+
 ## Choose a view for the decision
 
 Start with the existing SDK, selected plugins, tools and examples, and compose the behavior needed for the task.
@@ -103,6 +132,8 @@ Start with the existing SDK, selected plugins, tools and examples, and compose t
 - For route choice, entrances or obstacles, use `world_minimap` over a useful region around the bot and destination. It shows the highest observed surfaces; a local 3D view helps with tunnels and overlapping levels.
 - For elevation, a digging face, placement support or a narrow passage, use `world_render3d` with bounds around that structure. Its default structural view needs no browser; `textured:true` uses Prismarine textures and Chromium when that detail is useful.
 - After a `NoPath`, read the failure reason, current position, movement settings and loaded-terrain coverage first. The route example reports `loadedColumns` and `goalLoaded`; if the destination is outside loaded terrain, inspect the known edge and choose a nearer waypoint or another approach. Check actual arrival before reporting success.
+- On a stall, inspect the attached `terrain` summary and latest radar first. Run `node /opt/arena/examples/summarize-terrain.mjs` for a fresh summary (optional six inclusive bounds coordinates). It samples a local 25×25×25 box, reporting unknown/air/colliding/non-colliding counts, top block names and the size of the six-neighbor collision-free component at your feet. Unknown cells block the flood fill; edge/unknown contact marks possible truncation. Glass is colliding despite transparency; fluids may be non-colliding but dangerous. This geometry does not evaluate body clearance, support, jumping or actual reachability. Large connected space is not proof of a path.
+- If entrances, walls, tunnels or levels remain unclear, call `world_minimap` / `world_render3d` with the summary's `bounds`, adjusting the crop toward the next obstacle. These tools return the image itself and metadata. Use `textured:true` for actual block shapes/materials when the structural full-cube view is insufficient. The summary is a bounded local crop, not a whole-chunk or whole-route census.
 - Read coverage and observation age with the image. Unknown cells remain unknown rather than air; `explored:true` can include earlier observations marked as stale.
 
 Pass an existing snapshot to either visual tool:
@@ -113,7 +144,7 @@ Pass an existing snapshot to either visual tool:
 
 Or pass inclusive `bounds: {min: {x,y,z}, max: {x,y,z}}` to sample the live bridge mirror.
 
-For a ready-made local overview, run `node examples/observe-and-render.mjs` when images are useful. It writes `out/observed-world.json` with `out/minimap.png`/`.json`, and `out/observed-structure.json` with `out/structural.png`/`.json`. Use the overview snapshot with `world_minimap` and the structure snapshot with `world_render3d` to bring those images into model context. Default views are crops around the bot within the loaded-terrain extent and world height; underground, they show a selected Y slice. Read the actual `bounds`, `knownFraction` and `selection` metadata. Optional CLI coordinates `minX minY minZ maxX maxY maxZ` override the overview bounds.
+For a ready-made local overview, run `node examples/observe-and-render.mjs` when images are useful. It writes `out/terrain-summary.json` (also printed as `terrain`), `out/observed-world.json` with `out/minimap.png`/`.json`, and `out/observed-structure.json` with `out/structural.png`/`.json`. Use the overview snapshot with `world_minimap` and the structure snapshot with `world_render3d` to bring those images into model context. Default views are crops around the bot within the loaded-terrain extent and world height; underground, they show a selected Y slice. Read the actual `bounds`, `knownFraction` and `selection` metadata. Optional CLI coordinates `minX minY minZ maxX maxY maxZ` override the overview bounds.
 
 The registered tools return the PNG itself as an image content item plus coordinate/coverage metadata. Forward both when using codemode, as below; a printed file path alone does not show the image to the model.
 
