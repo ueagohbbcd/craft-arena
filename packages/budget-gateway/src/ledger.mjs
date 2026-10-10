@@ -34,7 +34,7 @@ export class BudgetLedger {
     for (const x of [...this.participants.values(), ...this.teams.values()]) {
       for (const key of ["tokens", "tpm", "concurrency"])
         if (
-          !(key === "tokens" && x[key] === null) &&
+          !(["tokens", "tpm"].includes(key) && x[key] === null) &&
           (!Number.isSafeInteger(x[key]) || x[key] <= 0)
         )
           throw new Error(`Invalid ${key}`);
@@ -66,7 +66,9 @@ export class BudgetLedger {
     }
     if (
       accounts.some(
-        (a) => tokens > a.tpm || (a.tokens !== null && tokens > a.tokens),
+        (a) =>
+          (a.tpm !== null && tokens > a.tpm) ||
+          (a.tokens !== null && tokens > a.tokens),
       )
     )
       return Promise.reject(
@@ -117,7 +119,8 @@ export class BudgetLedger {
           (a) =>
             blocked.has(a) ||
             a.active >= a.concurrency ||
-            a.windows.reduce((n, x) => n + x.tokens, 0) + q.tokens > a.tpm,
+            (a.tpm !== null &&
+              a.windows.reduce((n, x) => n + x.tokens, 0) + q.tokens > a.tpm),
         )
       ) {
         q.accounts.forEach((a) => blocked.add(a));
@@ -154,12 +157,11 @@ export class BudgetLedger {
       });
     }
     if (this.queue.length && this.autoWake) {
-      const expiries = [
-        ...this.participants.values(),
-        ...this.teams.values(),
-      ].flatMap((a) =>
-        a.windows.filter((e) => !e.active).map((e) => e.at + this.windowMs),
-      );
+      const expiries = [...this.participants.values(), ...this.teams.values()]
+        .filter((a) => a.tpm !== null)
+        .flatMap((a) =>
+          a.windows.filter((e) => !e.active).map((e) => e.at + this.windowMs),
+        );
       if (expiries.length)
         this.timer = setTimeout(
           () => this.tick(),

@@ -99,3 +99,12 @@ npm run demo:visual
 ```
 
 真实 Pi 的逐项证据见 [INTEGRATION.md](INTEGRATION.md)。容器部署步骤见 [infra/README.md](../infra/README.md)。本包不含 node_modules、真实凭证、地图、世界存档或模型运行日志。
+
+
+## 2026-10-11：限制清理与加载区块镜像
+
+本轮在云端 Node.js 24.19.0 环境执行 `PI_OFFLINE=1 npm run validate`：194 项测试，192 通过，0 失败，2 跳过。跳过项分别为当前执行环境禁止绑定的 Unix socket 测试，以及需要显式启用真实 Chromium 的截图测试。
+
+新增覆盖包括跨三个区块列的 40 格 Pathfinder 路径、原生挖掘移动、区块加载/卸载/维度切换、旧版本世界高度、光照更新、空路径失败退出码、现金速率负债与大上下文请求、模型配置共用、后台任务等待与恢复、原子判胜和逐场结果归档。真实 Pi 进程使用本地可控模型响应；本轮没有调用付费模型。
+
+本轮验证为源码和集成夹具验证。Windows PowerShell 初始化/重置、Docker 构建、真实 Minecraft 动态地形寻路和 PvP 仍需部署后验收；前文 Windows 实战记录属于更早版本。修改的 JavaScript 文件通过格式检查，未批量格式化无关的历史文件。

@@ -52,7 +52,7 @@ services:
       MODEL_UPSTREAM_KEY: ${MODEL_UPSTREAM_KEY:?Provide upstream credential only to gateway}
       RED1_MODEL_TOKEN: ${RED1_MODEL_TOKEN:?Provide scoped operator token}
       BLUE1_MODEL_TOKEN: ${BLUE1_MODEL_TOKEN:?Provide scoped operator token}
-    volumes: ['${BUDGET_CONFIG_PATH:-./budget.cash.example.json}:/config/budget.json:ro']
+    volumes: ['${BUDGET_CONFIG_PATH:-./budget.cash.example.json}:/config/budget.json:ro', './model.example.json:/config/model.example.json:ro']
     networks: [red1, blue1, model-egress]
   participant-red1:
     <<: *restricted
@@ -62,13 +62,10 @@ services:
       ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://budget-gateway:8081/participants/red1/v1
       OPENAI_API_KEY: ${RED1_MODEL_TOKEN}
+      ARENA_MODEL_CONFIG: /config/model.example.json
       TEAM_GIT_DIR: /team-git
-      PI_MAX_TOKENS: '2048'
-      PI_CONTEXT_WINDOW: '32768'
-      PI_MODEL_VISION: 'true'
-      MODEL_ID: ${ARENA_MODEL_ID:?Select model present in budget gateway allowlist}
     networks: [red1]
-    volumes: [red-work:/workspace, red-git:/team-git]
+    volumes: [red-work:/workspace, red-git:/team-git, ./model.example.json:/config/model.example.json:ro]
     tmpfs: ['/tmp:rw,nosuid,size=256m']
     stdin_open: true
     tty: true
@@ -80,13 +77,10 @@ services:
       ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://budget-gateway:8081/participants/blue1/v1
       OPENAI_API_KEY: ${BLUE1_MODEL_TOKEN}
+      ARENA_MODEL_CONFIG: /config/model.example.json
       TEAM_GIT_DIR: /team-git
-      PI_MAX_TOKENS: '2048'
-      PI_CONTEXT_WINDOW: '32768'
-      PI_MODEL_VISION: 'true'
-      MODEL_ID: ${ARENA_MODEL_ID:?Select model present in budget gateway allowlist}
     networks: [blue1]
-    volumes: [blue-work:/workspace, blue-git:/team-git]
+    volumes: [blue-work:/workspace, blue-git:/team-git, ./model.example.json:/config/model.example.json:ro]
     tmpfs: ['/tmp:rw,nosuid,size=256m']
     stdin_open: true
     tty: true
@@ -101,3 +95,4 @@ volumes:
   blue-work: {}
   red-git: {}
   blue-git: {}
+

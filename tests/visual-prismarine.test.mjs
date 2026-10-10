@@ -98,3 +98,14 @@ test(
     }
   },
 );
+
+test("textured capture shares the pixel resource budget before starting Chromium", async () => {
+  await assert.rejects(
+    capturePrismarineSnapshot(fixtureWorld(), {
+      outputPath: "unused.png",
+      width: 8192,
+      height: 8192,
+    }),
+    /16,777,216 pixels/,
+  );
+});

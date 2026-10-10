@@ -79,9 +79,9 @@ export function fakeBot() {
   return bot;
 }
 const token = "test-token-long-enough";
-test("authority rejects protocol, paths, bad args, selectors, remote targets", async () => {
+test("authority rejects protocol escapes, malformed consumed arguments, and unknown targets", async () => {
   const b = fakeBot(),
-    a = createAuthority(b);
+    a = createAuthority(b, { allowChat: false });
   for (const action of [
     "_client.write",
     "eval",
@@ -97,9 +97,9 @@ test("authority rejects protocol, paths, bad args, selectors, remote targets", a
     { action: "attack", args: { entityId: 200 } },
     {
       action: "setControlState",
-      args: { control: "forward", state: true, botId: "other" },
+      args: { control: "constructor", state: true },
     },
-    { action: "clearControlStates", args: {}, botId: "other" },
+    { action: "look", args: [] },
     { action: "chat", args: { message: "/op test" } },
   ])
     await assert.rejects(a.dispatch(req));
@@ -296,7 +296,7 @@ test("health and inventory callbacks observe updated mirrored state without repl
   assert.equal(updated.newItem.count, 2);
   assert.equal(bot.entity, entity);
 });
-test("incoming game chat is bounded untrusted SSE data and approved outgoing chat works", async (t) => {
+test("incoming game chat remains untrusted data without dropping bursts; outgoing commands follow Minecraft permissions", async (t) => {
   const b = fakeBot(),
     service = await startBridge({
       bot: b,
@@ -325,7 +325,8 @@ test("incoming game chat is bounded untrusted SSE data and approved outgoing cha
   bot.chat("On my way");
   await bot.flush();
   assert.deepEqual(b.calls.at(-1), ["chat", "On my way"]);
-  await assert.rejects(bot.action("chat", { message: "/op me" }));
+  await bot.action("chat", { message: "/tell teammate On my way" });
+  assert.deepEqual(b.calls.at(-1), ["chat", "/tell teammate On my way"]);
   const text = new Promise((resolve) =>
     bot.once("messagestr", (...args) => resolve(args)),
   );
@@ -335,9 +336,18 @@ test("incoming game chat is bounded untrusted SSE data and approved outgoing cha
   assert.equal(msg[1], "system");
   assert.equal(msg[3], "server");
   assert.equal(msg[5].source, "minecraft");
-  const dropped = new Promise((resolve) => bot.once("bridgeChatDrop", resolve));
-  for (let i = 0; i < 20; i++) b.emit("chat", "spam", "x".repeat(2048));
-  assert.ok((await dropped).count > 0);
+  const messages = [];
+  const received = new Promise((resolve) =>
+    bot.on("chat", (_sender, message) => {
+      messages.push(message);
+      if (messages.length === 20) resolve();
+    }),
+  );
+  for (let i = 0; i < 20; i++)
+    b.emit("chat", "teammate", `${i}:` + "x".repeat(2048));
+  await received;
+  assert.equal(messages.length, 20);
+  assert.equal(messages[19], "19:" + "x".repeat(2048));
 });
 test("spawn handlers receive current authoritative health/entity snapshot", async (t) => {
   const b = fakeBot(),
@@ -358,4 +368,218 @@ test("spawn handlers receive current authoritative health/entity snapshot", asyn
   b.entity.position.x = 9;
   b.emit("spawn");
   assert.deepEqual(await spawned, { health: 20, x: 9 });
+});
+
+test("extra metadata cannot select another bot or leak into consumed arguments", async () => {
+  const b = fakeBot(),
+    a = createAuthority(b);
+  await a.dispatch({
+    action: "setControlState",
+    botId: "other",
+    host: "attacker.invalid",
+    args: {
+      control: "forward",
+      state: true,
+      botId: "other",
+      method: "_client.write",
+    },
+  });
+  assert.deepEqual(b.calls, [["setControlState", "forward", true]]);
+  await a.dispatch({
+    action: "lookAt",
+    args: { position: { x: 1, y: 2, z: 3, packet: "command" }, force: true },
+  });
+  assert.deepEqual(b.calls.at(-1), ["lookAt", new Vector(1, 2, 3), true]);
+});
+test("finite angles and authoritative targets are not subject to arbitrary arena ranges", async () => {
+  const b = fakeBot(),
+    a = createAuthority(b);
+  await a.dispatch({
+    action: "look",
+    args: { yaw: 20 * Math.PI, pitch: Math.PI },
+  });
+  assert.deepEqual(b.calls.at(-1), ["look", 20 * Math.PI, Math.PI, false]);
+  b.entity.position = new Vector(31_000_000, 100, 0);
+  await a.dispatch({
+    action: "dig",
+    args: { position: { x: 31_000_000, y: 100, z: 0 }, forceLook: "ignore" },
+  });
+  assert.equal(b.calls.at(-1)[1].position.x, 31_000_000);
+  assert.equal(b.calls.at(-1)[2], "ignore");
+  b.entities[2].position = new Vector(31_000_030, 100, 0);
+  await a.dispatch({ action: "attack", args: { entityId: 2 } });
+  assert.equal(b.calls.at(-1)[1], b.entities[2]);
+  const limited = createAuthority(b, { maxReach: 6 });
+  await assert.rejects(
+    limited.dispatch({ action: "attack", args: { entityId: 2 } }),
+    /reach/,
+  );
+  await assert.rejects(
+    limited.dispatch({
+      action: "dig",
+      args: { position: { x: 31_000_030, y: 100, z: 0 } },
+    }),
+    /reach/,
+  );
+  await assert.rejects(
+    a.dispatch({ action: "dig", args: { position: { x: 0, y: 2048, z: 0 } } }),
+    /number/,
+  );
+  for (const value of [NaN, Infinity, -Infinity]) {
+    await assert.rejects(
+      a.dispatch({ action: "look", args: { yaw: value, pitch: 0 } }),
+      /number/,
+    );
+    await assert.rejects(
+      a.dispatch({
+        action: "lookAt",
+        args: { position: { x: value, y: 0, z: 0 } },
+      }),
+      /number/,
+    );
+  }
+});
+test("SDK preserves Mineflayer dig ignore, batch craft and standard inventory clicks through HTTP", async (t) => {
+  const b = fakeBot(),
+    service = await startBridge({ bot: b, token, snapshotRadius: 0 });
+  t.after(() => service.close());
+  const bot = await connectBot({
+    url: service.url,
+    token,
+    loadRegistry: false,
+  });
+  t.after(() => bot.closeBridge());
+  await bot.dig(bot.blockAt(new Vector(0, 0, 0)), "ignore");
+  assert.equal(b.calls.at(-1)[2], "ignore");
+  await bot.craftItem(1, 128);
+  assert.deepEqual(b.calls.at(-1).slice(2), [128, null]);
+  for (const [slot, button, mode] of [
+    [9, 8, 2],
+    [9, 40, 2],
+    [9, 0, 4],
+    [-999, 0, 0],
+    [-999, 0, 5],
+    [9, 0, 6],
+  ]) {
+    await bot.clickWindow(slot, button, mode);
+    assert.deepEqual(b.calls.at(-1), ["clickWindow", slot, button, mode]);
+  }
+  await assert.rejects(bot.clickWindow(99, 0, 0));
+  await assert.rejects(bot.clickWindow(9, 0, 7));
+  await assert.rejects(bot.clickWindow(-1, 0, 0));
+  await assert.rejects(
+    bot.action("_client.write", { name: "chat_command", command: "op me" }),
+  );
+});
+test("snapshot uses the trusted configured radius and includes all observed entities", () => {
+  const b = fakeBot();
+  for (let id = 3; id <= 2050; id++)
+    b.entities[id] = { id, position: new Vector(id, 0, 0) };
+  const a = createAuthority(b, { snapshotRadius: 17 });
+  assert.equal(a.snapshot(false).entities.length, 2050);
+  assert.equal(a.snapshot().blocks.length, 35 * 35 * 9);
+});
+test("HTTP authentication and request-size limits still protect the sole action boundary", async (t) => {
+  const b = fakeBot(),
+    service = await startBridge({ bot: b, token, snapshotRadius: 0 });
+  t.after(() => service.close());
+  const call = (body, bearer = token) =>
+    fetch(service.url + "/v1/action", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${bearer}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify(body),
+    });
+  assert.equal(
+    (
+      await call(
+        { action: "attack", args: { entityId: 2 } },
+        "other-participant-token",
+      )
+    ).status,
+    401,
+  );
+  assert.equal(
+    (
+      await call({
+        action: "clearControlStates",
+        args: { metadata: "x".repeat(16384) },
+      })
+    ).status,
+    400,
+  );
+  assert.equal((await call({ action: "_client.write", args: {} })).status, 400);
+  assert.equal(b.calls.length, 0);
+});
+test("default bridge does not throttle gameplay bursts or reject the fifth observer", async (t) => {
+  const b = fakeBot(),
+    service = await startBridge({
+      bot: b,
+      token,
+      snapshotRadius: 0,
+      allowChat: true,
+    });
+  t.after(() => service.close());
+  const observers = await Promise.all(
+    Array.from({ length: 5 }, () =>
+      connectBot({ url: service.url, token, loadRegistry: false }),
+    ),
+  );
+  t.after(() => observers.forEach((bot) => bot.closeBridge()));
+  await Promise.all(
+    Array.from({ length: 140 }, () =>
+      observers[0].action("setControlState", {
+        control: "forward",
+        state: true,
+      }),
+    ),
+  );
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  b.look = () => gate;
+  const actions = Array.from({ length: 20 }, () => observers[0].look(0, 0));
+  try {
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await observers[0].action("clearControlStates");
+    assert.equal(b.calls.at(-1)[0], "clearControlStates");
+  } finally {
+    release();
+    await Promise.all(actions);
+  }
+  await observers[0].action("chat", {
+    message: "/tell teammate " + "hello ".repeat(100),
+  });
+  assert.ok(b.calls.at(-1)[1].length > 256);
+});
+test("SDK preserves the optional Mineflayer attack, digging and interaction arguments", async (t) => {
+  const b = fakeBot(),
+    service = await startBridge({ bot: b, token, snapshotRadius: 0 });
+  t.after(() => service.close());
+  const bot = await connectBot({
+    url: service.url,
+    token,
+    loadRegistry: false,
+  });
+  t.after(() => bot.closeBridge());
+  bot.attack(bot.entities[2], false);
+  await bot.flush();
+  assert.deepEqual(b.calls.at(-1), ["attack", b.entities[2], false]);
+  const block = bot.blockAt(new Vector(0, 0, 0));
+  await bot.dig(block, false, "raycast");
+  assert.deepEqual(b.calls.at(-1).slice(2), [false, "raycast"]);
+  await bot.dig(block, true, new Vector(0, 1, 0));
+  assert.deepEqual(b.calls.at(-1)[3], new Vector(0, 1, 0));
+  await bot.activateBlock(
+    block,
+    new Vector(1, 0, 0),
+    new Vector(0.25, 0.5, 0.75),
+  );
+  assert.deepEqual(b.calls.at(-1).slice(2), [
+    new Vector(1, 0, 0),
+    new Vector(0.25, 0.5, 0.75),
+  ]);
 });

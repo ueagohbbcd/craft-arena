@@ -4,7 +4,7 @@
       "team": "blue",
       "tokenEnv": "BLUE1_MODEL_TOKEN",
       "tokens": null,
-      "tpm": 1200000,
+      "tpm": null,
       "concurrency": 2,
       "matchStatusUrl": "http://arena-host:8082/v1/match",
       "matchTokenEnv": "BLUE1_BRIDGE_TOKEN",
@@ -14,29 +14,19 @@
   "teams": {
     "blue": {
       "tokens": null,
-      "tpm": 2400000,
+      "tpm": null,
       "concurrency": 2,
       "cashRateLimit": "0.50"
     }
   },
   "upstream": {
     "url": "http://deepseek-adapter:8083/messages",
-    "apiKeyEnv": "DEEPSEEK_ADAPTER_TOKEN",
-    "api": "pi-messages"
+    "apiKeyEnv": "DEEPSEEK_ADAPTER_TOKEN"
   },
-  "models": ["deepseek-flash"],
   "limits": {
-    "maxOutputTokens": 32768,
     "estimator": "approximate",
     "maxBodyBytes": 8388608,
-    "maxImages": 4,
-    "maxImageBytes": 2097152,
-    "maxImageDimension": 4096,
-    "imageTokenAllowance": 4096,
-    "requestTimeoutMs": 600000,
-    "contextWindowTokens": 300000,
-    "contextBytesPerToken": 4,
-    "maxReservationTokens": 1200000
+    "imageTokenAllowance": 4096
   },
   "requireRunningMatch": true,
   "examplePurpose": "Local 1v1: USD 0.50/minute reference-cost rate; 250000-token compaction threshold, 32768 output tokens.",
@@ -54,5 +44,6 @@
         "verifiedAt": "2026-10-10"
       }
     }
-  }
+  },
+  "modelConfig": "model.deepseek.json"
 }

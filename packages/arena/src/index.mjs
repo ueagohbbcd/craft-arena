@@ -50,7 +50,13 @@ export function validateMatchConfig(c) {
 }
 /** Trusted orchestration only. No participant-facing method may submit scoring events. */
 export class MatchHost {
-  constructor({ config, connector, now = Date.now, eventToken }) {
+  constructor({
+    config,
+    connector,
+    now = Date.now,
+    eventToken,
+    runId = randomUUID(),
+  }) {
     const errors = validateMatchConfig(config);
     if (errors.length) throw new Error(errors.join("; "));
     if (
@@ -67,7 +73,7 @@ export class MatchHost {
     this.now = now;
     this.eventToken = eventToken;
     this.state = "created";
-    this.runId = randomUUID();
+    this.runId = runId;
     this.seen = new Set();
     this.events = [];
     this.progress = Object.fromEntries(config.teams.map((t) => [t.id, []]));
@@ -120,7 +126,7 @@ export class MatchHost {
       timingSafeEqual(Buffer.from(token), Buffer.from(this.eventToken))
     );
   }
-  async ingest(event, token, { deferFinish = false } = {}) {
+  async ingest(event, token) {
     if (!this.authenticated(token))
       throw new Error("Unauthorized scoring source");
     if (event.runId !== this.runId || typeof event.id !== "string" || !event.id)
@@ -133,7 +139,7 @@ export class MatchHost {
     }
     if (event.type === "objective" || event.type === "objective-lost") {
       if (
-        !this.progress[event.team] ||
+        !Object.hasOwn(this.progress, event.team) ||
         !this.config.rules.objectives.includes(event.objective)
       )
         throw new Error("Unknown team/objective");
@@ -152,13 +158,53 @@ export class MatchHost {
     } else throw new Error("Unsupported authoritative event");
     this.seen.add(event.id);
     this.events.push({ ...structuredClone(event), receivedAt: this.now() });
-    if (
-      !deferFinish &&
-      event.type === "objective" &&
-      this.progress[event.team].length === this.config.rules.objectives.length
-    )
-      await this.end("objectives-complete", event.team);
+    if (event.type === "objective") await this.#finishObjectives();
     return { accepted: true };
+  }
+  /** Trusted full observation round. All teams are judged after one atomic update. */
+  async observe(observations) {
+    if (this.state !== "running") throw new Error("Match is not running");
+    const receivedAt = this.now();
+    if (receivedAt >= this.startedAt + this.config.durationMs) {
+      await this.checkTimeout();
+      return { late: true };
+    }
+    const next = Object.fromEntries(this.config.teams.map((t) => [t.id, []]));
+    const events = [];
+    for (const { id: team } of this.config.teams) {
+      for (const objective of this.config.rules.objectives) {
+        const complete = observations[team]?.[objective];
+        // A missing observation must never silently clear a scored objective.
+        if (typeof complete !== "boolean")
+          throw new Error("A full observation round is required");
+        if (complete) next[team].push(objective);
+        if (complete === this.progress[team].includes(objective)) continue;
+        events.push({
+          id: randomUUID(),
+          runId: this.runId,
+          type: complete ? "objective" : "objective-lost",
+          team,
+          objective,
+          receivedAt,
+        });
+      }
+    }
+    this.progress = next;
+    for (const event of events) {
+      this.seen.add(event.id);
+      this.events.push(event);
+    }
+    await this.#finishObjectives();
+    return { accepted: true };
+  }
+  async #finishObjectives() {
+    const winners = this.config.teams.filter(
+      (t) => this.progress[t.id].length === this.config.rules.objectives.length,
+    );
+    if (winners.length > 1)
+      return this.#finish("simultaneous-objectives", null);
+    if (winners.length === 1)
+      return this.#finish("objectives-complete", winners[0].id);
   }
   async checkTimeout() {
     if (
@@ -173,7 +219,7 @@ export class MatchHost {
       );
       if (scores[0][1].length > scores[1][1].length) winner = scores[0][0];
     }
-    await this.end("timeout", winner);
+    await this.#finish("timeout", winner);
     return true;
   }
   async end(reason = "abandoned", winner = null) {
@@ -202,6 +248,9 @@ export class MatchHost {
         this.progress[winner].length !== this.config.rules.objectives.length)
     )
       throw new Error("Objective completion not established");
+    return this.#finish(reason, winner);
+  }
+  async #finish(reason, winner) {
     const pendingPhase = this.transition ? this.phaseDone : null;
     this.state = "ending";
     this.endedAt = this.now();

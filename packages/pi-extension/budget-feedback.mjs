@@ -20,14 +20,7 @@ const record = (value) =>
   value !== null && typeof value === "object" && !Array.isArray(value);
 
 export function sanitizeCashRatios(value) {
-  if (
-    !record(value) ||
-    value.mode !== "ratios-only" ||
-    value.basis !== "official-api-list-price-reference" ||
-    value.coverage !== "current-window-priced-usage-only" ||
-    value.enforcement !== "cash-rate-queue"
-  )
-    return undefined;
+  if (!record(value)) return undefined;
   return {
     mode: "ratios-only",
     quality: QUALITIES.has(value.quality) ? value.quality : "unknown",

@@ -55,7 +55,7 @@ If a wait receives the completion, its result contains `status:"completed"`, `ex
 
 The example’s edible-item list and hunger threshold are teaching defaults that participants can change. Participants also choose placement plans and movement decisions.
 
-`examples/plugin-goal.mjs X Y Z` loads the pinned Pathfinder adapter, defines an ordinary custom `Goal`, disables digging in `Movements`, coalesces route updates and executes a goal. `bot.setControlState('forward',true)`, `bot.clearControlStates()` and `await bot.flush()` are also available for ordinary direct control; avoid competing writers to the same controls.
+`examples/plugin-goal.mjs X Y Z` loads the Pathfinder adapter, defines an ordinary custom `Goal`, keeps native `Movements` defaults (including digging), coalesces route updates and executes a goal. Add `--no-dig` only for an explicitly non-destructive route. The SDK supplies all currently loaded chunk columns before planning, without per-node RPC. The example verifies actual arrival, reports loaded-terrain coverage on failure, and exits nonzero; a shell pipeline needs `set -o pipefail` to preserve that status. `bot.setControlState('forward',true)`, `bot.clearControlStates()` and `await bot.flush()` are also available for ordinary direct control; avoid competing writers to the same controls.
 
 ## Render and read in one result
 
@@ -114,3 +114,4 @@ In the supplied team deployment, `TEAM_GIT_DIR=/team-git` holds the operator-ini
 ## Fixture versus real world
 
 `node examples/render-fixture.mjs` writes **synthetic test fixture** images under `out/fixture`, with a deliberately missing corner for deterministic coverage checks. To observe or act in a real game, configure the bridge environment and run the corresponding observation or action script.
+

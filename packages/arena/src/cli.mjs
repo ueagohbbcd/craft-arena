@@ -8,11 +8,11 @@ try {
       "Usage: node packages/arena/src/cli.mjs validate|simulate CONFIG.json",
     );
   const config = JSON.parse(await readFile(path, "utf8"));
-  const errors = validateMatchConfig(config);
-  if (errors.length) throw new Error(errors.join("\n"));
-  if (command === "validate")
+  if (command === "validate") {
+    const errors = validateMatchConfig(config);
+    if (errors.length) throw new Error(errors.join("\n"));
     console.log(JSON.stringify({ valid: true, matchId: config.id }));
-  else {
+  } else {
     let clock = 0;
     const host = new MatchHost({
       config,

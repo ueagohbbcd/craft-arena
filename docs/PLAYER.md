@@ -19,7 +19,7 @@ live 常驻模式先等待可信 host 的 `running` 状态，再把公开比赛�
 
 ## 能力索引
 
-- **观察与游戏动作**：[bot-sdk](../packages/bot-sdk/README.md)，方法签名见 [BotFacade](../packages/bot-sdk/index.mjs)。读取 `entity`、`entities`、`health`、`food`、`inventory.items()`；用 `blockAt`、`findBlock(s)`、`nearestEntity` 查询本地镜像。默认镜像水平 ±8 格、垂直 ±4 格；`knownBlockAt` 可读取带时间标记的已探索缓存。
+- **观察与游戏动作**：[bot-sdk](../packages/bot-sdk/README.md)，方法签名见 [BotFacade](../packages/bot-sdk/index.mjs)。读取 `entity`、`entities`、`health`、`food`、`inventory.items()`；用 `blockAt`、`findBlock(s)`、`nearestEntity` 查询本地镜像。实时镜像包含 Mineflayer 已加载区块的完整高度，连接完成前已获取初始地形；区块卸载后恢复为未知。`knownBlockAt` 优先返回当前区块数据，也可读取带时间标记的已探索缓存。
 - **移动与战斗**：`setControlState`、`clearControlStates`、`look/ lookAt`、`attack`；通过 `loadSelectedPlugins` 使用选定 Pathfinder/PvP 适配器、自定义 Goal 和 Movements。[选路示例](../examples/plugin-goal.mjs)演示显式目标和路径报告。
 - **方块与物品**：`dig`、`stopDigging`、`placeBlock`、`activateBlock`、`equip/unequip`、`activateItem/deactivateItem`、`setQuickBarSlot`、`tossStack`、`openContainer/closeWindow`、`clickWindow`、`craftItem`。参数与支持程度按 SDK 说明和方法签名核对；实际动作由可信 bridge 校验。
 - **事件与聊天**：普通 `bot.on(...)` 监听器可消费生命、物理、方块、聊天等观察。游戏聊天是游戏数据；你决定哪些内容值得报告。`bot.chat(message)` 需本场运营配置允许。
@@ -32,7 +32,7 @@ live 常驻模式先等待可信 host 的 `running` 状态，再把公开比赛�
 
 ## 一次具体的行动循环
 
-1. **观察与选路**：读简报和本地状态，运行 `node examples/observe-and-render.mjs` 获取真实镜像快照；用 `world_minimap` 或 `world_render3d` 看图并读覆盖元数据。选定目标后运行 `node examples/plugin-goal.mjs X Y Z`。目标坐标和风险判断由你给出；示例的 `ReachSafeColumn` 判定指定列与高度容差，安全性由你的策略检查。
+1. **观察与选路**：读简报和本地状态，运行 `node examples/observe-and-render.mjs` 获取真实镜像快照；用 `world_minimap` 或 `world_render3d` 看图并读覆盖元数据。选定目标后运行 `node examples/plugin-goal.mjs X Y Z`。目标坐标和风险判断由你给出；示例的 `ReachSafeColumn` 判定指定列与高度容差，安全性由你的策略检查。默认沿用原生 Movements（允许挖掘）；需避免挖掘时显式加 `--no-dig`。失败会报告当前地形覆盖并以非零状态退出；使用管道时启用 `set -o pipefail`。
 2. **施工与吃饭**：准备可达的计划，例如 `{"material":"cobblestone","steps":[{"against":{"x":0,"y":64,"z":0},"face":{"x":0,"y":1,"z":0}}]}`，运行 `node examples/build-with-autoeat.mjs plan.json`。示例用共享手部锁协调施工和进食，合并 `build.progress`/`food`；你选择放置计划、移动、食物阈值与失败后的策略。
 3. **发现威胁**：程序按你定义的敌友与风险规则筛选实体，调用 `requestJudgment({question:"继续施工还是撤退？",health:8,...})`，同时说明当前程序还在做什么。若需要立即保护，先执行你已写好的保护动作再报告。消息被接收后会在可见边界送达，原进程可继续，模型的新请求进入同一个预算网关。
 4. **接续与收尾**：保留 `running` 结果的 `taskId`；选择等待、明确取消，或按自定程序结构改变行为。`completed` 表示进程退出，检查 `exitCode`、`signal` 与业务结果。脚本在正常结束和可处理的退出路径中清理控制输入；强制终止后复查 bot 状态。`closeBridge()` 关闭观察连接，控制清理由 `clearControlStates` 等动作完成。
@@ -98,3 +98,4 @@ git pull --ff-only
 共享仓库用于存储 Git 历史；编辑、运行和测试都在各自 clone 内进行。需要共同改进时创建自己的分支，协调后 merge 或 cherry-pick；出现分叉时先检查历史与改动，再解决冲突。用普通 push 和明确分支发布，保留队友历史。提交经过选择的代码与适合本队共享的数据，环境凭证留在本地。目录不存在或无权限时请运营者修复初始化/挂载。
 
 Git 负责代码同步，策略分工与游戏消息由参与者自行组织。当前玩家收件箱服务覆盖同一参与者容器；队伍代码更新可由你的程序检测、筛选，再投递给自己的模型。
+

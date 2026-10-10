@@ -1,4 +1,3 @@
-import { once } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { MatchHost } from "./index.mjs";
 import { RconClient } from "./rcon.mjs";
@@ -91,6 +90,7 @@ export async function createLiveMatch(
     startLiveBridge,
     rconFactory = (options) => new RconClient(options),
     now = Date.now,
+    runId,
   } = {},
 ) {
   validateLive(config);
@@ -235,6 +235,7 @@ export async function createLiveMatch(
               authorizeAction: () => host.state === "running",
               getMatchState: () => ({
                 matchId: config.id,
+                runId: host.runId,
                 participantId: p.id,
                 teamId: p.team,
                 teams: config.teams.map((t) => ({ id: t.id })),
@@ -351,55 +352,25 @@ export async function createLiveMatch(
     config,
     connector,
     now,
+    runId,
     eventToken: env[config.live.eventTokenEnv] ?? "internal-observer-only",
   });
   const poll = async () => {
     if (polling || host.state !== "running") return;
     polling = true;
     try {
-      const observations = config.live.goals.map((g) => {
-        const block = read(g);
+      const observations = Object.fromEntries(
+        config.teams.map((t) => [t.id, Object.create(null)]),
+      );
+      for (const goal of config.live.goals) {
+        const block = read(goal);
         if (!block)
           throw new Error(
             "Goal observation became unavailable during running match",
           );
-        return { goal: g, complete: matches(g, block) };
-      });
-      const previous = structuredClone(host.progress);
-      host.progress = Object.fromEntries(
-        config.teams.map((t) => [
-          t.id,
-          observations
-            .filter((x) => x.goal.team === t.id && x.complete)
-            .map((x) => x.goal.objective),
-        ]),
-      );
-      await host.checkTimeout();
-      if (host.state !== "running") return;
-      for (const { goal: g, complete } of observations) {
-        if (host.state !== "running") break;
-        const was = previous[g.team].includes(g.objective);
-        if (complete === was) continue;
-        await host.ingest(
-          {
-            runId: host.runId,
-            id: `goal:${eventCounter++}:${g.team}:${g.objective}`,
-            type: complete ? "objective" : "objective-lost",
-            team: g.team,
-            objective: g.objective,
-          },
-          host.eventToken,
-          { deferFinish: true },
-        );
+        observations[goal.team][goal.objective] = matches(goal, block);
       }
-      if (host.state === "running") {
-        const winners = config.teams.filter(
-          (t) => host.progress[t.id].length === config.rules.objectives.length,
-        );
-        if (winners.length > 1) await host.end("simultaneous-objectives");
-        else if (winners.length === 1)
-          await host.end("objectives-complete", winners[0].id);
-      }
+      await host.observe(observations);
     } catch (e) {
       host.observerError = e.message;
       await host.end("map-fault");

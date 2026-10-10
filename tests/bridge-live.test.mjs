@@ -53,3 +53,19 @@ test("live cleanup reports timeout and invokes bounded force end", async () => {
   assert.ok(b.calls.includes("end"));
   assert.equal(live.server.listening, false);
 });
+
+test("trusted Minecraft options may use Mineflayer defaults and longer cleanup timeouts", async () => {
+  const b = botFixture();
+  let received;
+  const live = await startLiveBridge({
+    ...config,
+    minecraft: { username: "fixture" },
+    closeTimeoutMs: 60_000,
+    createBot: (options) => {
+      received = options;
+      return b;
+    },
+  });
+  assert.deepEqual(received, { username: "fixture" });
+  await live.close();
+});

@@ -22,7 +22,7 @@ const service = await startLiveBridge({
     host: process.env.BRIDGE_HOST ?? "127.0.0.1",
     port: port("BRIDGE_PORT", 8080),
     token: required("BRIDGE_TOKEN"),
-    allowChat: process.env.BRIDGE_ALLOW_CHAT === "true",
+    allowChat: process.env.BRIDGE_ALLOW_CHAT !== "false",
   },
 });
 console.log(`Capability bridge listening at ${service.url}`);

@@ -3,7 +3,7 @@ import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { dirname, join } from "node:path";
 import { mkdir, writeFile } from "node:fs/promises";
-import { normalizeSnapshot } from "./index.mjs";
+import { normalizeSnapshot, validateImageDimensions } from "./index.mjs";
 const require = createRequire(import.meta.url);
 export async function servePrismarineSnapshot(
   snapshot,
@@ -139,6 +139,7 @@ export async function capturePrismarineSnapshot(
   } = {},
 ) {
   if (!outputPath) throw new TypeError("outputPath is required");
+  validateImageDimensions(width, height);
   let chromium;
   try {
     ({ chromium } = require("playwright-core"));

@@ -69,6 +69,7 @@ export class BotFacade extends EventEmitter {
     this.entities = {};
     this.controlState = {};
     this.blocks = new Map();
+    this.columns = new Map();
     this.knownBlocks = new Map();
     this.maxKnownBlocks = 50000;
     this.Vec3 = Vector;
@@ -137,6 +138,7 @@ export class BotFacade extends EventEmitter {
     this.registry = Registry(version);
     this.Block = Block(this.registry);
     this.Item = Item(this.registry);
+    this.Chunk = require("prismarine-chunk")(this.registry);
     this.Vec3 = require("vec3").Vec3;
     this.physics = require("prismarine-physics").Physics(
       this.registry,
@@ -180,6 +182,7 @@ export class BotFacade extends EventEmitter {
       this.sequence = frame.sequence;
       this.entities = {};
       this.blocks.clear();
+      this.columns.clear();
       this.knownBlocks.clear();
       await this._snapshot(frame.data);
       this.emit("bridgeReset");
@@ -198,15 +201,26 @@ export class BotFacade extends EventEmitter {
         if (local[1]) {
           this.blocks.set(key(local[1].position), local[1]);
           this._rememberBlock(local[1], Date.now());
+          this._updateColumn(local[1]);
         }
-      } else if (name === "chunkColumnLoad")
+      } else if (name === "chunkColumnLoad" || name === "chunkColumnUnload") {
         local = args.map((v) => this._vector(v));
+        const x = Math.floor(args[0].x / 16),
+          z = Math.floor(args[0].z / 16);
+        if (name === "chunkColumnLoad") await this._loadColumn(x, z);
+        else this.columns.delete(`${x},${z}`);
+      }
       this.emit(name, ...local);
       if (name === "entityGone" && args[0]) delete this.entities[args[0].id];
     }
   }
   async _snapshot(s) {
     await this.configure(s.version);
+    if (this.game?.dimension !== s.game?.dimension) {
+      this.columns.clear();
+      this.blocks.clear();
+      this.knownBlocks.clear();
+    }
     for (const k of [
       "sampledAt",
       "username",
@@ -245,12 +259,57 @@ export class BotFacade extends EventEmitter {
     this.inventory.inventoryEnd = s.inventory.inventoryEnd;
     this.heldItem = this._item(s.heldItem);
     this.currentWindow = s.currentWindow;
+    this.hasColumnMirror = !!(s.columns && this.Chunk);
+    if (this.hasColumnMirror) {
+      const wanted = new Set(s.columns.map(({ x, z }) => `${x},${z}`));
+      for (const id of this.columns.keys())
+        if (!wanted.has(id)) this.columns.delete(id);
+      // Fetch columns once, in parallel batches. Search never performs a remote read.
+      for (let i = 0; i < s.columns.length; i += 4)
+        await Promise.all(
+          s.columns
+            .slice(i, i + 4)
+            .map(({ x, z }) =>
+              this.columns.has(`${x},${z}`) ? null : this._loadColumn(x, z),
+            ),
+        );
+    }
     if (s.replaceBlocks !== false) this.blocks.clear();
     for (const data of s.blocks) {
       const b = this._block(data);
       this.blocks.set(key(b.position), b);
       this._rememberBlock(b, s.sampledAt ?? Date.now());
+      this._updateColumn(b, s.sampledAt);
     }
+  }
+  async _loadColumn(x, z) {
+    if (!this.Chunk) return;
+    const response = await this.fetch(`${this.url}/v1/chunk?x=${x}&z=${z}`, {
+      headers: { authorization: `Bearer ${this.token}` },
+      signal: this.abort?.signal,
+    });
+    if (!response.ok) throw new Error(`Bridge chunk HTTP ${response.status}`);
+    const { result } = await response.json();
+    if (result && result.dimension !== this.game?.dimension) return;
+    if (result)
+      this.columns.set(`${x},${z}`, {
+        chunk: this.Chunk.fromJson(result.data),
+        sampledAt: result.sampledAt,
+      });
+    else this.columns.delete(`${x},${z}`);
+  }
+  _updateColumn(block, sampledAt = Infinity) {
+    const p = block.position;
+    const column = this.columns.get(
+      `${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`,
+    );
+    if (!column || sampledAt < column.sampledAt) return;
+    const local = this._vector({ x: p.x & 15, y: p.y, z: p.z & 15 });
+    column.chunk.setBlockStateId(local, block.stateId);
+    if (block.light !== undefined)
+      column.chunk.setBlockLight(local, block.light);
+    if (block.skyLight !== undefined)
+      column.chunk.setSkyLight(local, block.skyLight);
   }
   _rememberBlock(block, observedAt) {
     const k = key(block.position);
@@ -260,17 +319,51 @@ export class BotFacade extends EventEmitter {
       this.knownBlocks.delete(this.knownBlocks.keys().next().value);
   }
   knownBlockAt(position) {
-    const entry = this.knownBlocks.get(key(position));
+    let entry = this.knownBlocks.get(key(position));
+    const column = this.columns.get(
+      `${Math.floor(position.x / 16)},${Math.floor(position.z / 16)}`,
+    );
+    const current = column && this.blockAt(position);
+    if (current)
+      entry = {
+        block: current,
+        observedAt: Math.max(column.sampledAt, entry?.observedAt ?? 0),
+        epoch: this.epoch,
+      };
     return entry
       ? {
           ...entry,
-          stale: !this.blocks.has(key(position)),
+          stale: this.blockAt(position) === null,
           ageMs: Date.now() - entry.observedAt,
         }
       : null;
   }
+  *knownBlocksIn(bounds) {
+    for (const block of this._blocksInBounds(bounds))
+      yield this.knownBlockAt(block.position);
+    for (const entry of this.knownBlocks.values()) {
+      const p = entry.block.position;
+      if (!this.columns.has(`${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`))
+        yield entry;
+    }
+  }
   blockAt(position) {
-    return this.blocks.get(key(position)) ?? null;
+    const p = this._vector(position).floored();
+    const column = this.columns.get(
+      `${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`,
+    );
+    if (column) {
+      const chunk = column.chunk;
+      const minY = chunk.minY ?? this.game?.minY ?? 0;
+      const height = chunk.worldHeight ?? this.game?.height ?? 256;
+      if (p.y < minY || p.y >= minY + height) return null;
+      const block = chunk.getBlock(
+        this._vector({ x: p.x & 15, y: p.y, z: p.z & 15 }),
+      );
+      block.position = p;
+      return block;
+    }
+    return this.hasColumnMirror ? null : (this.blocks.get(key(p)) ?? null);
   }
   nearestEntity(predicate = () => true) {
     return (
@@ -296,13 +389,50 @@ export class BotFacade extends EventEmitter {
             Array.isArray(matching)
               ? matching.includes(b.type)
               : b.type === matching;
-    return [...this.blocks.values()]
+    const candidates = this.hasColumnMirror
+      ? this._blocksInBounds({
+          min: this._vector(point).offset(
+            -maxDistance,
+            -maxDistance,
+            -maxDistance,
+          ),
+          max: this._vector(point).offset(
+            maxDistance,
+            maxDistance,
+            maxDistance,
+          ),
+        })
+      : this.blocks.values();
+    return [...candidates]
       .filter((b) => b.position.distanceTo(point) <= maxDistance && match(b))
       .sort(
         (a, b) => a.position.distanceTo(point) - b.position.distanceTo(point),
       )
       .slice(0, count)
       .map((b) => b.position);
+  }
+  *_blocksInBounds({ min, max }) {
+    for (const [id, { chunk }] of this.columns) {
+      const [cx, cz] = id.split(",").map(Number);
+      const minY = chunk.minY ?? this.game?.minY ?? 0;
+      const height = chunk.worldHeight ?? this.game?.height ?? 256;
+      for (
+        let x = Math.max(cx * 16, Math.ceil(min.x));
+        x <= Math.min(cx * 16 + 15, Math.floor(max.x));
+        x++
+      )
+        for (
+          let z = Math.max(cz * 16, Math.ceil(min.z));
+          z <= Math.min(cz * 16 + 15, Math.floor(max.z));
+          z++
+        )
+          for (
+            let y = Math.max(minY, Math.ceil(min.y));
+            y <= Math.min(minY + height - 1, Math.floor(max.y));
+            y++
+          )
+            yield this.blockAt({ x, y, z });
+    }
   }
   findBlock(options) {
     const p = this.findBlocks({ ...options, count: 1 })[0];
@@ -341,13 +471,15 @@ export class BotFacade extends EventEmitter {
   lookAt(position, force = false) {
     return this.action("lookAt", { position: coords(position), force });
   }
-  attack(entity) {
-    this._fire("attack", { entityId: entity.id });
+  attack(entity, swing = true) {
+    this._fire("attack", { entityId: entity.id, swing });
   }
-  dig(block, forceLook = true) {
+  dig(block, forceLook = true, digFace) {
     return this.action("dig", {
       position: coords(block.position),
-      forceLook: typeof forceLook === "boolean" ? forceLook : true,
+      forceLook,
+      digFace:
+        digFace && typeof digFace === "object" ? coords(digFace) : digFace,
     });
   }
   stopDigging() {
@@ -359,8 +491,12 @@ export class BotFacade extends EventEmitter {
       face: coords(face),
     });
   }
-  activateBlock(block) {
-    return this.action("activateBlock", { position: coords(block.position) });
+  activateBlock(block, direction, cursorPos) {
+    return this.action("activateBlock", {
+      position: coords(block.position),
+      direction: direction && coords(direction),
+      cursorPos: cursorPos && coords(cursorPos),
+    });
   }
   getEquipmentDestSlot(destination) {
     return {
@@ -415,7 +551,9 @@ export class BotFacade extends EventEmitter {
   canDigBlock(block) {
     return (
       !!block?.diggable &&
-      block.position.distanceTo(this.entity.position) <= 5.1
+      block.position
+        .offset(0.5, 0.5, 0.5)
+        .distanceTo(this.entity.position.offset(0, 1.65, 0)) <= 5.1
     );
   }
   waitForTicks(ticks) {

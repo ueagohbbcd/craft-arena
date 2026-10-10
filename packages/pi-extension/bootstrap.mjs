@@ -9,7 +9,7 @@ import {
   lstat,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join, resolve, isAbsolute } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import {
@@ -22,7 +22,9 @@ const projectRoot = resolve(dirname(extensionPath), "../..");
 const positiveInteger = (value, fallback) => {
   const n = Number(value ?? fallback);
   if (!Number.isSafeInteger(n) || n < 1)
-    throw new Error("Model limits must be positive integers");
+    throw new Error(
+      "Runtime delays and retry counts must be positive integers",
+    );
   return n;
 };
 
@@ -32,9 +34,9 @@ export async function preparePiProfile({
   directory,
   cwd = process.cwd(),
 } = {}) {
-  if (!env.MODEL_ID || !env.OPENAI_BASE_URL || !env.OPENAI_API_KEY)
+  if (!env.ARENA_MODEL_CONFIG || !env.OPENAI_BASE_URL || !env.OPENAI_API_KEY)
     throw new Error(
-      "MODEL_ID, OPENAI_BASE_URL, and participant-scoped OPENAI_API_KEY are required",
+      "ARENA_MODEL_CONFIG, OPENAI_BASE_URL, and participant-scoped OPENAI_API_KEY are required",
     );
   const base = new URL(env.OPENAI_BASE_URL);
   if (
@@ -47,46 +49,35 @@ export async function preparePiProfile({
     throw new Error(
       "OPENAI_BASE_URL must be an HTTP(S) gateway URL without embedded credentials",
     );
-  const contextWindow = positiveInteger(env.PI_CONTEXT_WINDOW, 32768);
-  const maxTokens = positiveInteger(env.PI_MAX_TOKENS, 2048);
-  const reserveTokens = positiveInteger(
-    env.PI_COMPACTION_RESERVE_TOKENS,
-    Math.min(
+  // The gateway and Pi read the same public capability description. Pi validates
+  // its generated model profile; do not duplicate its capability policy here.
+  const model = JSON.parse(
+    await readFile(resolve(cwd, env.ARENA_MODEL_CONFIG), "utf8"),
+  );
+  const { contextWindow, maxOutputTokens: maxTokens } = model;
+  const compaction = {
+    enabled: true,
+    reserveTokens: Math.min(
       Math.floor(contextWindow / 2),
       Math.max(maxTokens * 2, Math.floor(contextWindow / 4)),
     ),
-  );
-  const keepRecentTokens = positiveInteger(
-    env.PI_COMPACTION_KEEP_RECENT_TOKENS,
-    Math.min(Math.floor(contextWindow / 4), contextWindow - reserveTokens - 1),
-  );
-  if (
-    maxTokens >= contextWindow ||
-    reserveTokens < maxTokens ||
-    reserveTokens >= contextWindow ||
-    keepRecentTokens >= contextWindow - reserveTokens
-  )
-    throw new Error(
-      "Compaction settings must leave response reserve and a smaller recent-history window within PI_CONTEXT_WINDOW",
-    );
-  const compaction = { enabled: true, reserveTokens, keepRecentTokens };
-  const modelApi = env.PI_MODEL_API ?? "openai-completions";
-  if (!["openai-completions", "pi-messages"].includes(modelApi))
-    throw new Error("PI_MODEL_API must be openai-completions or pi-messages");
+    keepRecentTokens: Math.floor(contextWindow / 4),
+    ...model.compaction,
+  };
   const agentDir = directory || (await mkdtemp(join(tmpdir(), "arena-pi-")));
   await mkdir(agentDir, { recursive: true, mode: 0o700 });
   const models = {
     providers: {
       arena: {
         baseUrl: base.toString().replace(/\/$/, ""),
-        api: modelApi,
+        api: model.api,
         apiKey: "${OPENAI_API_KEY}",
         models: [
           {
-            id: env.MODEL_ID,
-            name: env.MODEL_ID,
-            reasoning: env.PI_REASONING === "1",
-            input: env.PI_MODEL_VISION === "0" ? ["text"] : ["text", "image"],
+            id: model.id,
+            name: model.id,
+            reasoning: model.reasoning ?? false,
+            input: model.input ?? ["text", "image"],
             contextWindow,
             maxTokens,
             cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
@@ -105,7 +96,7 @@ export async function preparePiProfile({
     JSON.stringify(
       {
         defaultProvider: "arena",
-        defaultModel: env.MODEL_ID,
+        defaultModel: model.id,
         retry: { enabled: false },
         compaction,
         cacheWarming: "off",
@@ -119,9 +110,6 @@ export async function preparePiProfile({
     .split(",")
     .map((x) => x.trim())
     .filter(Boolean);
-  for (const path of extras)
-    if (!isAbsolute(path))
-      throw new Error("ARENA_EXTRA_EXTENSIONS paths must be absolute");
   // A mounted participant workspace resolves official dependencies through the installed toolkit.
   if (resolve(cwd) !== projectRoot)
     for (const name of ["node_modules", "examples", "packages", "docs"]) {
@@ -135,6 +123,7 @@ export async function preparePiProfile({
     }
   return {
     agentDir,
+    modelId: model.id,
     models,
     extensions: [
       extensionPath,
@@ -153,11 +142,6 @@ export async function launchPi({
     import.meta.resolve("@earendil-works/pi-coding-agent"),
   );
   const packageRoot = resolve(dirname(entry), "..");
-  const pkg = JSON.parse(
-    await readFile(join(packageRoot, "package.json"), "utf8"),
-  );
-  if (pkg.version !== "1.1.0")
-    throw new Error(`This integration requires Pi 1.1.0; found ${pkg.version}`);
   const resident = args.length === 0;
   const waitForMatch = resident && env.ARENA_WAIT_FOR_MATCH === "1";
   const bridgeUrl = env.ARENA_BRIDGE_URL || env.MC_BRIDGE_URL;
@@ -175,7 +159,7 @@ export async function launchPi({
     "--provider",
     "arena",
     "--model",
-    env.MODEL_ID,
+    profile.modelId,
     ...(args.includes("--mode") ? [] : ["--mode", resident ? "rpc" : "json"]),
     ...(args.includes("--tools") ? [] : ["--tools", "+codemode"]),
     "--append-system-prompt",
@@ -191,6 +175,7 @@ export async function launchPi({
   const childEnv = {
     ...env,
     ARENA_TOOLKIT_ROOT: projectRoot,
+    PI_OFFLINE: "1", // Capabilities and extensions are installed locally; skip unrelated startup network.
     PI_CODING_AGENT_DIR: profile.agentDir,
     PI_CODING_AGENT_SESSION_DIR: sessionDir,
     ...(resident
@@ -272,7 +257,6 @@ export async function launchPi({
         report(message) {
           process.stderr.write(`${message}\n`);
         },
-        idleDelayMs: positiveInteger(env.ARENA_CONTINUE_DELAY_MS, 5000),
         retryDelayMs: positiveInteger(env.ARENA_RETRY_DELAY_MS, 2000),
         maxRetries: positiveInteger(env.ARENA_RECOVERY_MAX_RETRIES, 3),
       });

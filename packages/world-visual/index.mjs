@@ -82,6 +82,7 @@ export function normalizeSnapshot(snapshot) {
     throw new RangeError("invalid bounds or more than 4,000,000 voxels");
   const voxels = new Map();
   for (const block of snapshot.blocks) {
+    if (block?.known === false) continue;
     if (
       !block ||
       !["x", "y", "z"].every((a) => Number.isSafeInteger(block[a])) ||
@@ -94,7 +95,6 @@ export function normalizeSnapshot(snapshot) {
       )
     )
       continue;
-    if (block.known === false) continue;
     voxels.set(key(block.x, block.y, block.z), {
       ...block,
       name: nameOf(block),
@@ -131,7 +131,10 @@ export function snapshotFromExplored(
 ) {
   normalizeSnapshot({ blocks: [], bounds });
   const blocks = [];
-  for (const { block, observedAt, epoch } of bot.knownBlocks?.values() ?? []) {
+  const observations = bot.knownBlocksIn
+    ? bot.knownBlocksIn(bounds)
+    : (bot.knownBlocks?.values() ?? []);
+  for (const { block, observedAt, epoch } of observations) {
     const p = block.position;
     if (
       !p ||
@@ -166,14 +169,17 @@ export function snapshotFromExplored(
     source: "explored local mirror cache; stale observations may have changed",
   };
 }
-function dimensions(width, height) {
+export function validateImageDimensions(width, height) {
   if (
-    ![width, height].every((n) => Number.isInteger(n) && n >= 16 && n <= 4096)
+    ![width, height].every((n) => Number.isSafeInteger(n) && n > 0) ||
+    width * height > 16_777_216
   )
-    throw new RangeError("image dimensions must be integers from 16 to 4096");
+    throw new RangeError(
+      "image dimensions must be positive integers totaling at most 16,777,216 pixels",
+    );
 }
 function raster(width, height, bg) {
-  dimensions(width, height);
+  validateImageDimensions(width, height);
   const data = Buffer.alloc(width * height * 4);
   for (let i = 0; i < data.length; i += 4) {
     data[i] = bg[0];
@@ -231,7 +237,7 @@ function pngChunk(type, bytes) {
   return out;
 }
 export function encodePNG(width, height, rgba) {
-  dimensions(width, height);
+  validateImageDimensions(width, height);
   if (rgba.length !== width * height * 4)
     throw new RangeError("wrong RGBA length");
   const header = Buffer.alloc(13);
@@ -381,9 +387,10 @@ export function renderOblique(snapshot, { width = 768, height = 512 } = {}) {
     maxX = Math.max(...corners.map((p) => p[0])),
     minY = Math.min(...corners.map((p) => p[1])),
     maxY = Math.max(...corners.map((p) => p[1]));
+  const padding = Math.min(12, width / 4, height / 4);
   const scale = Math.min(
-    (width - 24) / (maxX - minX),
-    (height - 24) / (maxY - minY),
+    (width - padding * 2) / (maxX - minX),
+    (height - padding * 2) / (maxY - minY),
   );
   const project = (x, y, z) => {
     const p = raw(x - bounds.min.x, y - bounds.min.y, z - bounds.min.z);

@@ -45,14 +45,8 @@ export class ReferenceCostLedger {
     now = Date.now,
     autoWake = true,
   }) {
-    if (config?.mode !== "official-api-list-price")
-      throw new Error("Unsupported reference cost mode");
-    if (!/^[A-Z]{3}$/.test(config.currency ?? ""))
-      throw new Error("Reference currency required");
     this.currency = config.currency;
     this.windowMs = config.windowMs ?? 60000;
-    if (!Number.isSafeInteger(this.windowMs) || this.windowMs <= 0)
-      throw new Error("Invalid cash rate window");
     this.now = now;
     this.prices = new Map();
     this.records = new Map();
@@ -60,15 +54,7 @@ export class ReferenceCostLedger {
     this.participants = participants;
     this.teams = teams;
     for (const model of models) {
-      const p = config.models?.[model];
-      if (
-        !p?.provider ||
-        !/^https:\/\//.test(p.sourceUrl ?? "") ||
-        !/^\d{4}-\d{2}-\d{2}$/.test(p.verifiedAt ?? "")
-      )
-        throw new Error(
-          `Verified operator price metadata required for model ${model}`,
-        );
+      const p = config.models?.[model] ?? {};
       if (
         p.longContext &&
         (!count(p.longContext.thresholdTokens) ||
@@ -134,15 +120,6 @@ export class ReferenceCostLedger {
     );
     return { units, pressure, model };
   }
-  assertFits(id, quote) {
-    this.rateLedger.accounts(id);
-    if (
-      !Number.isSafeInteger(quote?.units) ||
-      quote.units <= 0 ||
-      !this.prices.has(quote.model)
-    )
-      throw new BudgetError("Invalid cost quote", 400);
-  }
   noteWait(id, ms, quote) {
     if (quote)
       this.latest.set(id, {
@@ -152,7 +129,6 @@ export class ReferenceCostLedger {
   }
 
   async acquire(id, quote, { signal, requestId = randomUUID() } = {}) {
-    this.assertFits(id, quote);
     const reservation = await this.rateLedger.acquire(id, quote.units, {
       signal,
     });

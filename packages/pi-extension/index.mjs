@@ -42,13 +42,17 @@ export default function participantInbox(pi) {
   let matchSnapshot;
   let matchRead;
   let idleWakeScheduled = false;
+  let idleTimer;
+  let lastStopReason;
+  const resident = process.env.ARENA_RUNTIME_RESIDENT === "1";
+  const idleDelayMs = Number(process.env.ARENA_CONTINUE_DELAY_MS ?? 5000);
   const bridgeUrl = process.env.ARENA_BRIDGE_URL || process.env.MC_BRIDGE_URL;
   const bridgeToken =
     process.env.ARENA_BRIDGE_TOKEN || process.env.MC_BRIDGE_TOKEN;
-  async function readMatch() {
+  async function readMatch(fresh = false) {
     if (!bridgeUrl || !bridgeToken) return undefined;
     if (matchRead) return matchRead;
-    if (Date.now() - matchReadAt < 2000) return matchSnapshot;
+    if (!fresh && Date.now() - matchReadAt < 2000) return matchSnapshot;
     matchReadAt = Date.now();
     matchRead = (async () => {
       try {
@@ -151,6 +155,7 @@ export default function participantInbox(pi) {
   }
   const idleWake = process.env.MC_INBOX_IDLE_URGENT === "1";
   async function stop() {
+    clearTimeout(idleTimer);
     if (starting) await starting;
     if (!runtime) return;
     const old = runtime;
@@ -206,7 +211,7 @@ export default function participantInbox(pi) {
       lastBudget = "";
       budgetNeedsSnapshot = false;
       lastClockBucket = undefined;
-      inbox.on("urgent", () => {
+      inbox.on("message", () => {
         // Busy tools have already been released by TaskManager's listener. No steer abort is needed.
         if (context?.isIdle()) wakeIdle(runtime);
       });
@@ -218,18 +223,24 @@ export default function participantInbox(pi) {
       starting = undefined;
     }
   }
+  const requestsDecision = (message) =>
+    (idleWake && message.priority === "urgent") ||
+    (resident &&
+      message.source === "runtime" &&
+      message.data?.type === "task.completed");
   function wakeIdle(r) {
     if (
-      !idleWake ||
       !r ||
       r.closed ||
       r.matchEnded ||
       idleWakeScheduled ||
-      !r.inbox.items.some((item) => item.message.priority === "urgent")
+      context?.hasPendingMessages?.() ||
+      !r.inbox.items.some((item) => requestsDecision(item.message))
     )
       return;
     // Synchronous drain is the claim: turn_end and agent_settled cannot schedule this batch twice.
     const batch = r.inbox.drain();
+    clearTimeout(idleTimer);
     idleWakeScheduled = true;
     pi.sendMessage(
       {
@@ -241,12 +252,50 @@ export default function participantInbox(pi) {
       { triggerTurn: true },
     );
   }
+  const genuinelyIdle = (r) =>
+    runtime === r &&
+    !r.closed &&
+    !r.matchEnded &&
+    !idleWakeScheduled &&
+    context?.isIdle() &&
+    !context.hasPendingMessages?.() &&
+    ![...r.tasks.tasks.values()].some((task) => task.status === "running");
+  function checkIdle(r) {
+    clearTimeout(idleTimer);
+    if (!resident || !bridgeUrl || !bridgeToken || !genuinelyIdle(r)) return;
+    idleTimer = setTimeout(async () => {
+      if (!genuinelyIdle(r)) return;
+      const host = await readMatch(true);
+      if (!genuinelyIdle(r) || host?.state === "ended") return;
+      if (host?.state !== "running") return checkIdle(r);
+      // A normal stop with no process or queued turn left to wait for is a
+      // genuine stall. Background programs choose when a new decision is needed.
+      idleWakeScheduled = true;
+      const batch = r.inbox.drain();
+      pi.sendMessage(
+        {
+          customType: "arena-continue",
+          content:
+            "The trusted host still reports a running match, and no background task or queued turn is pending. Check progress and continue the remaining objective." +
+            (batch.messages.length ? `\n${batchText(batch)}` : ""),
+          display: true,
+        },
+        { triggerTurn: true },
+      );
+    }, idleDelayMs);
+  }
   pi.on("agent_start", () => {
+    clearTimeout(idleTimer);
     idleWakeScheduled = false;
+    lastStopReason = undefined;
   });
   pi.on("agent_settled", (event, ctx) => {
     context = ctx;
-    if (!event.aborted && ctx.isIdle()) wakeIdle(runtime);
+    if (!event.aborted && ctx.isIdle()) {
+      wakeIdle(runtime);
+      if (runtime && (!lastStopReason || lastStopReason === "stop"))
+        checkIdle(runtime);
+    }
   });
   pi.on("session_start", async (_event, ctx) => {
     await ensure(ctx);
@@ -315,6 +364,7 @@ export default function participantInbox(pi) {
     };
   });
   pi.on("turn_end", async (event, ctx) => {
+    lastStopReason = event.message?.stopReason ?? event.outcome;
     const r = await ensure(ctx);
     r.tasks.resumeWaits();
     // Pi 1.1.0's OpenAI adapter skips after_provider_response for HTTP errors.
@@ -343,12 +393,11 @@ export default function participantInbox(pi) {
           details: batch,
         },
       ],
-      ...(idleWake &&
-      !r.matchEnded &&
+      ...(!r.matchEnded &&
       event.outcome !== "aborted" &&
       event.outcome !== "error" &&
       !event.toolResults?.length &&
-      batch.messages.some((message) => message.priority === "urgent")
+      batch.messages.some(requestsDecision)
         ? { continue: true }
         : {}),
     };
@@ -359,7 +408,7 @@ export default function participantInbox(pi) {
       message: {
         customType: "mc-inbox-connection",
         display: false,
-        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash waits for completion or urgent input by default. Bash timeout is an explicit kill deadline; wait_seconds is an optional early-return wait budget. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response; urgent program input can request another judgment while idle. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.`,
+        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash waits for completion or urgent input by default. Bash timeout is an explicit kill deadline; wait_seconds is an optional early-return wait budget. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. While a program is running, the model waits for its completion or an urgent judgment request; it does not poll with new model turns. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.`,
       },
     };
   });

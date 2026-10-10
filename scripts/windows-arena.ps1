@@ -7,6 +7,7 @@ param(
   [ValidateRange(1024,65535)][int]$ProxyPort = 18181
 )
 $ErrorActionPreference = 'Stop'
+. "$PSScriptRoot/arena-paths.ps1"
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $deployment = (Resolve-Path -LiteralPath $DeploymentDir).Path
 if (-not (Test-Path -LiteralPath "$deployment/compose.yaml")) { throw 'Initialize the deployment first.' }
@@ -21,11 +22,9 @@ function Invoke-Compose {
   if ($LASTEXITCODE -ne 0) { throw "Docker operation failed: $($CommandArgs[0])" }
 }
 function Find-Node {
-  $path = (Get-Command node -ErrorAction SilentlyContinue).Source
-  if ($path -and (& $path -p 'Number(process.versions.node.split(".")[0]) >= 24') -eq 'true') { return $path }
-  $path = Join-Path $env:USERPROFILE '.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin/node.exe'
-  if (Test-Path -LiteralPath $path) { return $path }
-  throw 'Node.js 24 or newer is required.'
+  $path = (Get-Command node -ErrorAction Stop).Source
+  if ((& $path -p 'Number(process.versions.node.split(".")[0]) >= 24') -ne 'true') { throw 'Node.js 24 or newer is required.' }
+  return $path
 }
 function Start-ProxyRelay {
   $secretFile = Join-Path $deployment 'proxy-secret'
@@ -74,19 +73,6 @@ function Stop-Arena {
   Invoke-Compose @('stop','-t','20','participant-red1','participant-blue1','budget-gateway','budget-blue','codex-adapter','deepseek-adapter','minecraft')
   Stop-ProxyRelay
 }
-function Assert-DeploymentPath([string]$Path, [switch]$Tree) {
-  $full = [IO.Path]::GetFullPath($Path)
-  $root = [IO.Path]::GetFullPath($deployment).TrimEnd('\','/')
-  if (-not $full.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'Reset path must remain inside the deployment.' }
-  # Check all existing ancestors, including the deployment and its parents.
-  $cursor = $full
-  while ($cursor) {
-    if ((Test-Path -LiteralPath $cursor) -and ((Get-Item -LiteralPath $cursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Reset paths may not traverse reparse points.' }
-    $cursor = [IO.Path]::GetDirectoryName($cursor)
-  }
-  if ($Tree -and (Test-Path -LiteralPath $full) -and (Get-ChildItem -LiteralPath $full -Recurse -Force | Where-Object { $_.Attributes -band [IO.FileAttributes]::ReparsePoint })) { throw 'Reset source contains a reparse point.' }
-  return $full
-}
 switch ($Action) {
   'status' { Invoke-Compose @('ps','-a') }
   'build' { Invoke-Compose @('build','minecraft','arena-host','participant-red1') }
@@ -123,32 +109,28 @@ switch ($Action) {
   }
   'start' {
     if ((Read-MatchState) -ne 'prepared') { throw 'Run up and wait for prepared state before start.' }
-    Start-ProxyRelay
-    Invoke-Compose @('up','-d','codex-adapter','deepseek-adapter','budget-gateway','budget-blue','participant-red1','participant-blue1')
     Invoke-Compose @('exec','-T','arena-host','touch','/control/start')
   }
   'stop' { Stop-Arena }
   'reset' {
-    $original = Assert-DeploymentPath (Join-Path $deployment 'map-original/Direct-Fire-Java-1.21') -Tree
-    if (-not (Test-Path -LiteralPath "$original/level.dat")) { throw 'Original world is missing.' }
-    $archive = Assert-DeploymentPath (Join-Path $deployment ('history/' + [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0,8)))
-    $world = Assert-DeploymentPath (Join-Path $deployment 'minecraft-data/world') -Tree
-    if (-not (Test-Path -LiteralPath $world)) { throw 'Current world is missing.' }
-    $archivedWorld = Assert-DeploymentPath (Join-Path $archive 'world')
-    $result = Assert-DeploymentPath (Join-Path $deployment 'results/match-result.json')
-    $start = Assert-DeploymentPath (Join-Path $deployment 'control/start')
-    $archivedResult = Assert-DeploymentPath (Join-Path $archive 'match-result.json')
-    $archivedStart = Assert-DeploymentPath (Join-Path $archive 'start')
+    $original = Assert-ArenaPath (Join-Path $deployment 'map-original/world') -Root $deployment -Tree
+    if (-not (Test-Path -LiteralPath "$original/level.dat" -PathType Leaf)) { throw 'Original world is missing.' }
+    $archiveId = [DateTime]::UtcNow.ToString('yyyyMMdd-HHmmss') + '-' + [Guid]::NewGuid().ToString('N').Substring(0,8)
+    $archive = Assert-ArenaPath (Join-Path $deployment "history/$archiveId") -Root $deployment
+    $world = Assert-ArenaPath (Join-Path $deployment 'minecraft-data/world') -Root $deployment -Tree
+    $result = Assert-ArenaPath (Join-Path $deployment 'results/match-result.json') -Root $deployment
+    $start = Assert-ArenaPath (Join-Path $deployment 'control/start') -Root $deployment
     Stop-Arena
+    foreach ($participant in @('participant-red1','participant-blue1')) {
+      Invoke-Compose @('run','--rm','--no-deps',$participant,'node','/opt/arena/scripts/archive-participant-state.mjs',$archiveId)
+    }
     New-Item -ItemType Directory -Path $archive | Out-Null
-    $world = Assert-DeploymentPath $world -Tree
-    $archivedWorld = Assert-DeploymentPath $archivedWorld
-    Move-Item -LiteralPath $world -Destination $archivedWorld
+    if (Test-Path -LiteralPath $world) { Move-Item -LiteralPath $world -Destination (Join-Path $archive 'world') }
     Copy-Item -LiteralPath $original -Destination $world -Recurse
-    if (Test-Path -LiteralPath $result) { Move-Item -LiteralPath (Assert-DeploymentPath $result) -Destination (Assert-DeploymentPath $archivedResult) }
-    if (Test-Path -LiteralPath $start) { Move-Item -LiteralPath (Assert-DeploymentPath $start) -Destination (Assert-DeploymentPath $archivedStart) }
-    # Removing stopped containers retains volumes and history, but starts fresh ledgers and host state.
+    if (Test-Path -LiteralPath $result) { Move-Item -LiteralPath $result -Destination (Join-Path $archive 'match-result.json') }
+    if (Test-Path -LiteralPath $start) { Move-Item -LiteralPath $start -Destination (Join-Path $archive 'start') }
+    # Remove containers, not volumes: fresh host/ledgers, retained code and run archives.
     Invoke-Compose @('rm','-f','arena-host','budget-gateway','budget-blue','participant-red1','participant-blue1')
-    Write-Output "World reset; previous world/results are in $archive. Team code volumes are retained. Run up next."
+    Write-Output "World reset; previous world/result/start marker are in $archive. Participant sessions and match-artifacts moved to .arena-history/$archiveId in each work volume. Code and team Git are retained. Run up next."
   }
 }

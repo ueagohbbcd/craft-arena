@@ -1,6 +1,8 @@
 #!/usr/bin/env node
-import { readFile, writeFile, access } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { readFile, access } from "node:fs/promises";
 import { createLiveMatch } from "./live.mjs";
+import { writeRunState } from "./run-files.mjs";
 const [path, resultPath = "match-result.json"] = process.argv.slice(2);
 if (!path) {
   console.error(
@@ -8,6 +10,7 @@ if (!path) {
   );
   process.exitCode = 1;
 } else {
+  const run = { config: { id: null }, runId: randomUUID(), state: "created" };
   let match,
     shutdownRequested = false,
     resolveShutdown;
@@ -15,7 +18,10 @@ if (!path) {
     resolveShutdown = r;
   });
   try {
-    match = await createLiveMatch(JSON.parse(await readFile(path, "utf8")));
+    await writeRunState(run, resultPath);
+    run.config = JSON.parse(await readFile(path, "utf8"));
+    match = await createLiveMatch(run.config, { runId: run.runId });
+    await writeRunState(match.host, resultPath);
     for (const signal of ["SIGINT", "SIGTERM"])
       process.once(signal, () => {
         shutdownRequested = true;
@@ -35,9 +41,16 @@ if (!path) {
           "Stale start marker exists; operator must remove it before preparing a new match",
         );
     }
+    if (shutdownRequested)
+      throw new Error("Shutdown requested before preparation");
     await match.prepare();
+    await writeRunState(match.host, resultPath);
     console.log(
-      JSON.stringify({ state: "prepared", matchId: match.host.config.id }),
+      JSON.stringify({
+        state: "prepared",
+        matchId: match.host.config.id,
+        runId: match.host.runId,
+      }),
     );
     const startFile = match.host.config.live.startSignalFile;
     if (startFile) {
@@ -52,19 +65,24 @@ if (!path) {
         await new Promise((r) => setTimeout(r, 100));
       }
     }
-    if (match.host.state === "prepared") {
+    if (!shutdownRequested && match.host.state === "prepared") {
       await match.start();
+      await writeRunState(match.host, resultPath);
       console.log(
-        JSON.stringify({ state: "running", matchId: match.host.config.id }),
+        JSON.stringify({
+          state: match.host.state,
+          matchId: match.host.config.id,
+          runId: match.host.runId,
+        }),
       );
     }
     while (match.host.state !== "ended")
       await new Promise((r) => setTimeout(r, 100));
-    const result = match.host.result();
-    await writeFile(resultPath, JSON.stringify(result, null, 2));
+    const result = await writeRunState(match.host, resultPath);
     console.log(
       JSON.stringify({
         state: "ended",
+        runId: result.runId,
         reason: result.reason,
         winner: result.winner,
         resultPath,
@@ -77,6 +95,7 @@ if (!path) {
         JSON.stringify({
           state: "serving-final-status",
           matchId: result.matchId,
+          runId: result.runId,
         }),
       );
       await shutdown;
@@ -86,6 +105,11 @@ if (!path) {
     try {
       await match?.close("map-fault");
     } catch {}
+    try {
+      await writeRunState(match?.host ?? run, resultPath, e);
+    } catch (writeError) {
+      console.error(`Could not save run state: ${writeError.message}`);
+    }
     process.exitCode = 1;
   }
 }

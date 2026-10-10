@@ -20,8 +20,8 @@ const parameters = Type.Object({
   snapshotPath: Type.Optional(Type.String()),
   bounds: Type.Optional(Type.Object({ min: point, max: point })),
   explored: Type.Optional(Type.Boolean()),
-  width: Type.Optional(Type.Integer({ minimum: 16, maximum: 2048 })),
-  height: Type.Optional(Type.Integer({ minimum: 16, maximum: 2048 })),
+  width: Type.Optional(Type.Integer({ minimum: 1 })),
+  height: Type.Optional(Type.Integer({ minimum: 1 })),
   textured: Type.Optional(Type.Boolean()),
 });
 export async function renderForModel(name, params, { bot: sharedBot } = {}) {
@@ -32,8 +32,9 @@ export async function renderForModel(name, params, { bot: sharedBot } = {}) {
     if (!params.bounds)
       throw new Error("Provide snapshotPath or inclusive bounds");
     if (
-      !(process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL) ||
-      !(process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN)
+      !sharedBot &&
+      (!(process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL) ||
+        !(process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN))
     )
       throw new Error(
         "ARENA_BRIDGE_URL and ARENA_BRIDGE_TOKEN are required for live mirror acquisition",

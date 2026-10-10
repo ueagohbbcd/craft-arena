@@ -3,7 +3,6 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
-import { isContextOverflow } from "@earendil-works/pi-ai/utils/overflow";
 import {
   estimateReservation,
   BudgetLedger,
@@ -22,54 +21,56 @@ const history = {
   ],
   max_tokens: 2048,
 };
-test("gateway overflow is recognized by Pi's automatic compaction recovery", () => {
-  let error;
-  try {
-    estimateReservation(
-      { ...history, messages: [{ role: "user", content: "x".repeat(140000) }] },
-      defaults.limits,
-    );
-  } catch (caught) {
-    error = caught;
-  }
-  assert(error);
-  assert.equal(
-    isContextOverflow(
-      {
-        stopReason: "error",
-        errorMessage: `400 Bad Request: ${error.message}`,
-      },
-      32768,
-    ),
-    true,
+test("accounting heuristics do not reject history or output using a guessed model limit", () => {
+  const estimate = estimateReservation(
+    {
+      ...history,
+      messages: [{ role: "user", content: "x".repeat(140000) }],
+      max_tokens: 65536,
+    },
+    defaults.limits,
   );
+  assert(estimate.estimatedContextTokens > 32768);
+  assert(estimate.total > 131072);
+  assert.equal(estimate.output, 65536);
 });
-test("long ordinary history separates context heuristic from conservative reservation units", () => {
+test("context feedback stays separate from conservative token accounting", () => {
   const estimate = estimateReservation(history, defaults.limits);
-  assert.ok(estimate.textBytes >= 34800);
-  assert.ok(
-    estimate.estimatedContextTokens < defaults.limits.contextWindowTokens,
+  assert(estimate.textBytes >= 34800);
+  assert(estimate.estimatedContextTokens < 32768);
+  assert(estimate.total > 32768);
+});
+test("output defaults are not caps and multiple choices reserve all output", () => {
+  const one = estimateReservation(
+    { ...history, max_tokens: 4096 },
+    { defaultOutputTokens: 100 },
   );
-  assert.ok(estimate.total > defaults.limits.contextWindowTokens);
-  assert.ok(estimate.total <= defaults.limits.maxReservationTokens);
+  const three = estimateReservation(
+    { ...history, max_tokens: 4096, n: 3 },
+    { defaultOutputTokens: 100 },
+  );
+  assert.equal(one.output, 4096);
+  assert.equal(three.output, 12288);
+  assert.equal(three.requestedOutput, 4096);
+  assert.equal(three.estimatedContextTokens, three.contextInputTokens + 4096);
+  for (const value of [0, -1, 0.5, "100", Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(
+      () => estimateReservation({ ...history, max_tokens: value }),
+      /positive integers/,
+    );
+    assert.throws(
+      () => estimateReservation({ ...history, n: value }),
+      /positive integers/,
+    );
+  }
   assert.throws(
     () =>
-      estimateReservation(
-        {
-          ...history,
-          messages: [{ role: "user", content: "x".repeat(140000) }],
-        },
-        defaults.limits,
-      ),
-    /Approximate context estimate/,
-  );
-  assert.throws(
-    () =>
-      estimateReservation(history, {
-        ...defaults.limits,
-        maxReservationTokens: 20000,
+      estimateReservation({
+        ...history,
+        max_tokens: Number.MAX_SAFE_INTEGER,
+        n: 2,
       }),
-    /reservation safety cap/,
+    /integer precision/,
   );
 });
 test("shipped budgets admit long history through real HTTP and settle provider usage", async (t) => {

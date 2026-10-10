@@ -52,9 +52,9 @@ export function permanentResidentError(message = "") {
 }
 
 const continueMessage = (reason) =>
-  `${reason === "length" ? "The previous response reached the output limit. Continue concisely from the saved state and choose the next executable step." : reason === "error" ? "The previous model request failed. Recheck the current state and continue the match objective." : "The trusted host still reports a running match. Check current progress and continue any remaining match objective."} Existing tools or background programs may still be running: inspect their task IDs, use task_wait or observations as appropriate, and do not restart or repeat actions already submitted. Preserve successful work; do not assume an action failed merely because the model response ended.`;
+  `${reason === "length" ? "The previous response reached the output limit. Continue concisely from the saved state and choose the next executable step." : "The previous model request failed. Recheck the current state and continue the match objective."} Existing tools or background programs may still be running: inspect their task IDs, use task_wait or observations as appropriate, and do not restart or repeat actions already submitted. Preserve successful work; do not assume an action failed merely because the model response ended.`;
 
-/** One continuation at a settled RPC boundary, after fresh host and session-state checks. */
+/** Recover failed/truncated requests only. Ordinary decision scheduling belongs to the extension. */
 export function createResidentRecovery({
   send,
   getMatchState,
@@ -62,7 +62,7 @@ export function createResidentRecovery({
   now = Date.now,
   schedule = setTimeout,
   cancel = clearTimeout,
-  idleDelayMs = 5000,
+  checkDelayMs = 2000,
   retryDelayMs = 2000,
   maxRetries = 3,
   stateTimeoutMs = 3000,
@@ -100,7 +100,9 @@ export function createResidentRecovery({
   };
   const prepare = (message) => {
     const reason = message?.stopReason ?? "stop";
-    if (reason === "aborted") {
+    if (reason !== "error" && reason !== "length") {
+      errors = 0;
+      emptyLengths = 0;
       plan = undefined;
       clear();
       return;
@@ -137,7 +139,7 @@ export function createResidentRecovery({
           return;
         }
       } else emptyLengths = 0;
-      plan = { reason, delay: idleDelayMs };
+      plan = { reason, delay: checkDelayMs };
     }
     arm(plan.delay);
   };
@@ -154,7 +156,7 @@ export function createResidentRecovery({
   async function recover() {
     if (closed || active || !plan) return;
     if (recovering) {
-      arm(idleDelayMs);
+      arm(checkDelayMs);
       return;
     }
     const version = generation,
@@ -165,7 +167,7 @@ export function createResidentRecovery({
       if (closed || version !== generation || active || plan !== pending)
         return;
       if (match !== "running") {
-        if (match !== "ended") arm(idleDelayMs);
+        if (match !== "ended") arm(checkDelayMs);
         return;
       }
       const status = await state();
@@ -176,7 +178,7 @@ export function createResidentRecovery({
         status.isCompacting ||
         status.pendingMessageCount > 0
       ) {
-        arm(idleDelayMs);
+        arm(checkDelayMs);
         return;
       }
       plan = undefined;
@@ -191,7 +193,7 @@ export function createResidentRecovery({
       });
     } catch {
       if (!closed && version === generation && plan === pending)
-        arm(idleDelayMs);
+        arm(checkDelayMs);
     } finally {
       recovering = false;
     }

@@ -13,60 +13,37 @@ const equal = (a, b) =>
   Buffer.byteLength(a) === Buffer.byteLength(b) &&
   timingSafeEqual(Buffer.from(a), Buffer.from(b));
 export function estimateReservation(body, limits = {}) {
-  const { maxOutputTokens = 2048, estimator = "conservative" } = limits;
-  const contextWindowTokens =
-    limits.contextWindowTokens ?? limits.contextTokens ?? 32768;
-  const contextBytesPerToken = limits.contextBytesPerToken ?? 4;
-  const maxReservationTokens =
-    limits.maxReservationTokens ?? contextWindowTokens * 4;
-  if (
-    !Number.isSafeInteger(contextWindowTokens) ||
-    contextWindowTokens < 1 ||
-    !Number.isFinite(contextBytesPerToken) ||
-    contextBytesPerToken <= 0 ||
-    !Number.isSafeInteger(maxReservationTokens) ||
-    maxReservationTokens < 1
-  )
-    throw Object.assign(
-      new Error("Invalid configured context/reservation limits"),
-      { status: 500 },
-    );
-  const { copy, imageTokens } = inspectMessages(body, limits);
+  const { defaultOutputTokens = 2048, estimator = "conservative" } = limits;
   const output =
-    body.max_completion_tokens ?? body.max_tokens ?? maxOutputTokens;
-  if (!Number.isSafeInteger(output) || output <= 0 || output > maxOutputTokens)
-    throw Object.assign(new Error("Invalid output token cap"), { status: 400 });
-  const textBytes = Buffer.byteLength(JSON.stringify(copy));
-  // Context fit and financial/token-budget reservation are different estimates.
-  // Neither byte-based heuristic is an exact provider tokenizer or universal bound.
-  const contextInputTokens =
-    Math.ceil(textBytes / contextBytesPerToken) + 256 + imageTokens;
-  const estimatedContextTokens = contextInputTokens + output;
-  if (estimatedContextTokens > contextWindowTokens)
+    body.max_completion_tokens ?? body.max_tokens ?? defaultOutputTokens;
+  const choices = body.n ?? 1;
+  if (![output, choices].every((n) => Number.isSafeInteger(n) && n > 0))
     throw Object.assign(
-      new Error(
-        "context_length_exceeded: Approximate context estimate exceeds configured provider window",
-      ),
+      new Error("Output tokens and n must be positive integers"),
       { status: 400 },
     );
+  const { copy, imageTokens } = inspectMessages(body, limits);
+  const textBytes = Buffer.byteLength(JSON.stringify(copy));
+  // These are accounting estimates, not a provider tokenizer or context admission policy.
+  const contextInputTokens = Math.ceil(textBytes / 4) + 256 + imageTokens;
   const input =
     Math.ceil(textBytes / (estimator === "conservative" ? 1 : 4)) +
     256 +
     imageTokens;
-  const total = input + output;
-  if (total > maxReservationTokens)
+  const reservedOutput = output * choices;
+  const total = input + reservedOutput;
+  if (!Number.isSafeInteger(total) || total < 1)
     throw Object.assign(
-      new Error("Request exceeds configured reservation safety cap"),
+      new Error("Reservation exceeds supported integer precision"),
       { status: 400 },
     );
   return {
     input,
-    output,
+    output: reservedOutput,
+    requestedOutput: output,
     total,
-    estimatedContextTokens,
+    estimatedContextTokens: contextInputTokens + output,
     contextInputTokens,
-    contextWindowTokens,
-    maxReservationTokens,
     textBytes,
   };
 }
@@ -180,77 +157,48 @@ export function createBudgetGateway({
       } catch {
         throw Object.assign(new Error("Invalid JSON"), { status: 400 });
       }
-      const estimationBody = nativePi ? inspectPiRequest(body) : body;
+      if (!body || typeof body !== "object" || !models.includes(body.model))
+        throw Object.assign(new Error("Model is not allowed"), { status: 400 });
+      // Hosted tools carry extra charges/actions that this token-price ledger cannot account for.
+      // Function/custom tools execute in the participant; provider schema details remain upstream's job.
       if (
-        !body ||
-        typeof body !== "object" ||
-        !models.includes(body.model) ||
-        !Array.isArray(estimationBody.messages) ||
-        (body.n !== undefined && body.n !== 1)
-      )
-        throw Object.assign(new Error("Invalid model/messages/n"), {
-          status: 400,
-        });
-      const allowed = new Set([
-        "model",
-        "messages",
-        "stream",
-        "stream_options",
-        "max_tokens",
-        "max_completion_tokens",
-        "n",
-        "user",
-        "temperature",
-        "top_p",
-        "stop",
-        "tools",
-        "tool_choice",
-        "parallel_tool_calls",
-        "response_format",
-        "presence_penalty",
-        "frequency_penalty",
-        "seed",
-        "reasoning_effort",
-        "store",
-      ]);
-      if (!nativePi && Object.keys(body).some((k) => !allowed.has(k)))
-        throw Object.assign(new Error("Unsupported request field"), {
-          status: 400,
-        });
-      if (body.stream !== undefined && typeof body.stream !== "boolean")
-        throw Object.assign(new Error("stream must be boolean"), {
-          status: 400,
-        });
-      if (
-        body.tools !== undefined &&
-        (!Array.isArray(body.tools) ||
-          body.tools.some(
-            (t) =>
-              t?.type !== "function" ||
-              !t.function ||
-              typeof t.function.name !== "string",
-          ))
+        !nativePi &&
+        (body.web_search_options !== undefined ||
+          (Array.isArray(body.tools) &&
+            body.tools.some(
+              (tool) =>
+                tool?.type && !["function", "custom"].includes(tool.type),
+            )))
       )
         throw Object.assign(
-          new Error("Only client-executed function tools are supported"),
+          new Error("Only client-executed tools are budgeted"),
           { status: 400 },
         );
-      if (body.store !== undefined && body.store !== false)
-        throw Object.assign(new Error("Provider storage must be disabled"), {
-          status: 400,
-        });
+      const estimationBody = nativePi ? inspectPiRequest(body) : body;
       const estimate = estimateReservation(estimationBody, limits);
       requestModel = body.model;
       queueStartedAt = Date.now();
       cashQuote = cashLedger?.quote(id, body.model, estimate);
-      if (cashQuote) cashLedger.assertFits(id, cashQuote);
       if (nativePi)
-        body.options = { ...body.options, maxTokens: estimate.output };
+        body.options = { ...body.options, maxTokens: estimate.requestedOutput };
       else {
-        body.max_completion_tokens = estimate.output;
-        delete body.max_tokens;
+        // The shared provider account must not retain participant-created completion resources
+        // or accept participant-selected attribution for another user.
+        body.store = false;
         delete body.user;
-        if (body.stream) body.stream_options = { include_usage: true };
+        delete body.safety_identifier;
+        // Forward exactly the concrete output value we reserved, preserving legacy
+        // max_tokens clients without leaving null or conflicting caps upstream.
+        if (body.max_completion_tokens == null && body.max_tokens != null) {
+          body.max_tokens = estimate.requestedOutput;
+          delete body.max_completion_tokens;
+        } else {
+          body.max_completion_tokens = estimate.requestedOutput;
+          delete body.max_tokens;
+        }
+        if (body.n === null) body.n = 1;
+        if (body.stream)
+          body.stream_options = { ...body.stream_options, include_usage: true };
       }
       reservation = await ledger.acquire(id, estimate.total, {
         signal: abort.signal,
