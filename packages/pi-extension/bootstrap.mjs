@@ -12,6 +12,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve, isAbsolute } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
+import {
+  createResidentRecovery,
+  observeRpcOutput,
+} from "./resident-recovery.mjs";
 
 const extensionPath = fileURLToPath(new URL("./index.mjs", import.meta.url));
 const projectRoot = resolve(dirname(extensionPath), "../..");
@@ -198,11 +202,16 @@ export async function launchPi({
   };
   const child = spawn(
     process.execPath,
-    [join(packageRoot, "dist/bundle/cli.js"), ...cliArgs],
+    [
+      "--import",
+      new URL("./gateway-transport.mjs", import.meta.url).href,
+      join(packageRoot, "dist/bundle/cli.js"),
+      ...cliArgs,
+    ],
     {
       cwd,
       env: childEnv,
-      stdio: resident ? ["pipe", "inherit", "inherit"] : "inherit",
+      stdio: resident ? ["pipe", "pipe", "inherit"] : "inherit",
     },
   );
   let stopping = false;
@@ -212,10 +221,13 @@ export async function launchPi({
   let checkingMatch = false;
   let initialSent = false;
   let startupTimedOut = false;
+  let recovery;
+  let detachRpc;
   const startupAt = Date.now();
   const shutdown = (signal) => {
     if (stopping || child.exitCode !== null) return;
     stopping = true;
+    recovery?.close();
     clearInterval(matchTimer);
     if (resident) child.stdin.end();
     else child.kill(signal || "SIGTERM");
@@ -230,6 +242,45 @@ export async function launchPi({
   process.on("SIGINT", interrupt);
   if (resident) {
     child.stdin.on("error", () => {}); // Startup failure is reported by the child error/exit event.
+    const readMatch = async () => {
+      try {
+        const response = await fetch(
+          `${bridgeUrl.replace(/\/$/, "")}/v1/match`,
+          {
+            headers: { authorization: `Bearer ${token}` },
+            signal: AbortSignal.timeout(1000),
+          },
+        );
+        if (!response.ok) return undefined;
+        const body = await response.json();
+        return body.ok === true ? body.result : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    if (bridgeUrl && token) {
+      recovery = createResidentRecovery({
+        send(command) {
+          if (!stopping && !child.stdin.destroyed)
+            child.stdin.write(`${JSON.stringify(command)}\n`);
+        },
+        async getMatchState() {
+          const host = await readMatch();
+          if (host?.state === "ended") shutdown();
+          return host?.state;
+        },
+        report(message) {
+          process.stderr.write(`${message}\n`);
+        },
+        idleDelayMs: positiveInteger(env.ARENA_CONTINUE_DELAY_MS, 5000),
+        retryDelayMs: positiveInteger(env.ARENA_RETRY_DELAY_MS, 2000),
+        maxRetries: positiveInteger(env.ARENA_RECOVERY_MAX_RETRIES, 3),
+      });
+      detachRpc = observeRpcOutput(child.stdout, (event) =>
+        recovery.receive(event),
+      );
+    }
+    child.stdout.pipe(process.stdout, { end: false });
     const sendInitial = (host) => {
       if (initialSent || stopping) return;
       initialSent = true;
@@ -274,27 +325,16 @@ export async function launchPi({
         }
         checkingMatch = true;
         try {
-          const response = await fetch(
-            `${bridgeUrl.replace(/\/$/, "")}/v1/match`,
-            {
-              headers: { authorization: `Bearer ${token}` },
-              signal: AbortSignal.timeout(1000),
-            },
-          );
-          if (response.ok) {
-            const body = await response.json();
-            if (body.ok && body.result?.state === "ended") {
+          const host = await readMatch();
+          if (host) {
+            if (host.state === "ended") {
               if (!initialSent)
                 process.stderr.write(
                   "Arena ended before the initial prompt was submitted.\n",
                 );
               shutdown();
-            } else if (
-              body.ok &&
-              body.result?.state === "running" &&
-              !initialSent
-            )
-              sendInitial(body.result);
+            } else if (host.state === "running" && !initialSent)
+              sendInitial(host);
           }
         } catch {
           /* The host remains authoritative; temporary unavailability does not invent a match end. */
@@ -316,6 +356,8 @@ export async function launchPi({
       );
     });
   } finally {
+    recovery?.close();
+    detachRpc?.();
     clearInterval(matchTimer);
     clearTimeout(forceTimer);
     clearTimeout(killTimer);

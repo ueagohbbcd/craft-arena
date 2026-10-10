@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { once } from "node:events";
 import { readFile } from "node:fs/promises";
+import { isContextOverflow } from "@earendil-works/pi-ai/utils/overflow";
 import {
   estimateReservation,
   BudgetLedger,
@@ -21,6 +22,28 @@ const history = {
   ],
   max_tokens: 2048,
 };
+test("gateway overflow is recognized by Pi's automatic compaction recovery", () => {
+  let error;
+  try {
+    estimateReservation(
+      { ...history, messages: [{ role: "user", content: "x".repeat(140000) }] },
+      defaults.limits,
+    );
+  } catch (caught) {
+    error = caught;
+  }
+  assert(error);
+  assert.equal(
+    isContextOverflow(
+      {
+        stopReason: "error",
+        errorMessage: `400 Bad Request: ${error.message}`,
+      },
+      32768,
+    ),
+    true,
+  );
+});
 test("long ordinary history separates context heuristic from conservative reservation units", () => {
   const estimate = estimateReservation(history, defaults.limits);
   assert.ok(estimate.textBytes >= 34800);

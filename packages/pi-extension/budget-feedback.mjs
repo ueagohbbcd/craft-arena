@@ -121,7 +121,7 @@ export function budgetFromHeaders(input) {
     participantCash: sanitizeCashRatios(rawCash?.participant),
     teamCash: sanitizeCashRatios(rawCash?.team),
     accounting:
-      "admission reservation snapshot; remaining excludes all in-flight reservations; final settled usage can differ; cash cost shares use official API list-price reference costs for settled priced usage in the current window, not actual payments; cash rate ratios describe settled plus reserved window pressure and pre-wait projected pressure, not cumulative spending or a final settled overrun",
+      "admission reservation snapshot; remaining excludes all in-flight reservations; final settled usage can differ; cash cost shares use official API list-price reference costs for settled priced usage in the current window, not actual payments; cash rate ratios describe continuously repaid settled debt plus in-flight reservation pressure and pre-wait projected pressure, not cumulative spending or a final settled overrun",
   });
 }
 
@@ -135,6 +135,6 @@ export function budgetFromSnapshot(input) {
     participantCash: sanitizeCashRatios(input.participant?.cash),
     teamCash: sanitizeCashRatios(input.team?.cash),
     accounting:
-      "authenticated budget snapshot; token remaining excludes in-flight reservations; cash cost shares use official API list-price reference costs for settled priced usage in the current window, not actual payments; cash rate ratios describe settled plus reserved window pressure and pre-wait projected pressure, not cumulative spending or a final settled overrun",
+      "authenticated budget snapshot; token remaining excludes in-flight reservations; cash cost shares use official API list-price reference costs for settled priced usage in the current window, not actual payments; cash rate ratios describe continuously repaid settled debt plus in-flight reservation pressure and pre-wait projected pressure, not cumulative spending or a final settled overrun",
   });
 }

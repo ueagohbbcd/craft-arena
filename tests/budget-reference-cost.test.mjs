@@ -45,6 +45,89 @@ const cash = (extra = {}, limit = "1") =>
     autoWake: false,
     ...extra,
   });
+test("a 250k context uses its context estimate and a large quote settles with cache discounts", async () => {
+  const l = cash({ now: () => 0 }, "0.50");
+  const q = l.quote("a", "gpt-4.1", {
+    input: 1000000,
+    contextInputTokens: 250000,
+    output: 32768,
+  });
+  assert.equal(q.units, 762144000000);
+  l.assertFits("a", q);
+  const first = await l.acquire("a", q);
+  first.settle({
+    prompt_tokens: 250000,
+    completion_tokens: 1000,
+    total_tokens: 251000,
+    prompt_tokens_details: { cached_tokens: 200000 },
+  });
+  assert.equal(
+    l.operatorSnapshot("a").accounts[0].referenceCostPricedUsage,
+    "0.208",
+  );
+  assert.equal(l.feedback("a").participant.rate.windowLoadRatio, 0.416);
+  const next = await l.acquire("a", q);
+  next.settle(undefined, { dispatched: false });
+  assert.equal(l.operatorSnapshot("a").accounts[0].requestCount, 1);
+  l.close();
+});
+
+test("long-context quotes and actual settlement independently select the prompt price tier", async () => {
+  const config = structuredClone(prices);
+  config.models["gpt-4.1"].longContext = {
+    thresholdTokens: 100,
+    inputPerMillion: "4",
+    cachedInputPerMillion: "1",
+    outputPerMillion: "12",
+  };
+  const l = cash({ config, now: () => 0 });
+  assert.equal(
+    l.quote("a", "gpt-4.1", { input: 100, output: 10 }).units,
+    280000000,
+  );
+  assert.equal(
+    l.quote("a", "gpt-4.1", { input: 101, output: 10 }).units,
+    524000000,
+  );
+  const first = await l.acquire(
+    "a",
+    l.quote("a", "gpt-4.1", { input: 100, output: 10 }),
+  );
+  first.settle({
+    prompt_tokens: 101,
+    completion_tokens: 10,
+    prompt_tokens_details: { cached_tokens: 51 },
+  });
+  assert.deepEqual(l.operatorSnapshot("a").accounts[0].costs, {
+    uncachedInput: "0.0002",
+    cachedInput: "0.000051",
+    output: "0.00012",
+  });
+  const second = await l.acquire(
+    "a",
+    l.quote("a", "gpt-4.1", { input: 101, output: 10 }),
+  );
+  second.settle({
+    prompt_tokens: 100,
+    completion_tokens: 10,
+    prompt_tokens_details: { cached_tokens: 100 },
+  });
+  assert.equal(
+    l.operatorSnapshot("a").accounts[0].referenceCostPricedUsage,
+    "0.000501",
+  );
+  const unknown = await l.acquire(
+    "a",
+    l.quote("a", "gpt-4.1", { input: 101, output: 10 }),
+  );
+  unknown.settle(undefined);
+  assert.equal(
+    l.operatorSnapshot("a").accounts[0].unknownUsageReservationEstimate,
+    "0.000524",
+  );
+  l.close();
+});
+
 test("fixed-point official reference costs subtract cached input and never double-charge reasoning", async () => {
   const l = cash();
   const q = l.quote("a", "gpt-4.1", { input: 1000, output: 100 });
@@ -85,7 +168,7 @@ test("cash-window queue reserves atomically, refunds usage, cancels fairly and e
   );
   let admitted = false;
   const next = l
-    .acquire("a", l.quote("a", "gpt-4.1", { input: 20, output: 0 }), {
+    .acquire("a", l.quote("a", "gpt-4.1", { input: 30, output: 0 }), {
       requestId: "next",
     })
     .then((r) => {
@@ -184,7 +267,7 @@ test("cash mode SSE split usage is priced, provider monetary fields stripped, pa
   const url = await listen(upstream),
     a = accounts(),
     ledger = new BudgetLedger(a),
-    cashLedger = cash(),
+    cashLedger = cash({ now: () => 0 }),
     logs = [];
   const server = createBudgetGateway({
     ...a,
@@ -233,7 +316,7 @@ test("cash mode SSE split usage is priced, provider monetary fields stripped, pa
     "0.0022",
   );
 });
-test("oversized cash request rejects with ratio before any token/cash charge", async (t) => {
+test("oversized cash request dispatches and keeps its full unknown-usage debt", async (t) => {
   const a = accounts("0.000001"),
     ledger = new BudgetLedger(a),
     cashLedger = cash({}, "0.000001");
@@ -266,15 +349,14 @@ test("oversized cash request rejects with ratio before any token/cash charge", a
       messages: [{ role: "user", content: "hello" }],
     }),
   });
-  assert.equal(response.status, 429);
-  const value = await response.json();
-  assert.ok(
-    value.error.cashRatios.participant.rate.overRateRatioBeforeWait > 0,
-  );
-  assert.ok(response.headers.get("x-arena-cash-ratios"));
-  assert.equal(ledger.snapshot("a")[0].usedTokens, 0);
-  assert.equal(cashLedger.rateLedger.snapshot("a")[0].usedTokens, 0);
-  assert.equal(calls, 0);
+  assert.equal(response.status, 200);
+  await response.json();
+  const ratios = JSON.parse(response.headers.get("x-arena-cash-ratios"));
+  assert.ok(ratios.participant.rate.overRateRatioBeforeWait > 0);
+  assert.ok(ledger.snapshot("a")[0].usedTokens > 0);
+  assert.ok(cashLedger.feedback("a").participant.rate.windowLoadRatio > 1);
+  assert.equal(cashLedger.operatorSnapshot("a").accounts[0].requestCount, 1);
+  assert.equal(calls, 1);
 });
 test("dual-ledger queued cancellation and host-end rejection refund both reservations", async (t) => {
   const a = accounts("0.005"),
@@ -356,7 +438,7 @@ test("concurrent cancelled later quote cannot overwrite admitted request pressur
   const l = cash({ now: () => now }, "0.0001");
   const hold = await l.acquire(
     "a",
-    l.quote("a", "gpt-4.1", { input: 40, output: 0 }),
+    l.quote("a", "gpt-4.1", { input: 50, output: 0 }),
   );
   const quoteA = l.quote("a", "gpt-4.1", { input: 30, output: 0 });
   const a = l.acquire("a", quoteA);
@@ -368,14 +450,14 @@ test("concurrent cancelled later quote cannot overwrite admitted request pressur
   now = 100;
   hold.settle(undefined, { dispatched: false });
   const admitted = await a;
-  assert.equal(l.feedback("a").participant.rate.overRateRatioBeforeWait, 0.4);
+  assert.equal(l.feedback("a").participant.rate.overRateRatioBeforeWait, 0.6);
   assert.equal(l.feedback("a").participant.rate.queueDelayMs, 100);
   const later = l.quote("a", "gpt-4.1", { input: 1, output: 0 });
   assert.notEqual(later.pressure[0], quoteA.pressure[0]);
   assert.equal(
     l.feedback("a", { quote: quoteA, queueDelayMs: 100 }).participant.rate
       .overRateRatioBeforeWait,
-    0.4,
+    0.6,
   );
   admitted.settle(undefined, { dispatched: false });
   l.close();
@@ -437,9 +519,8 @@ test("host-end rejection keeps its own pressure despite a concurrent rejected qu
         input: 1000000,
         output: 0,
       });
-      try {
-        cashLedger.assertFits("a", later);
-      } catch {}
+      cashLedger.assertFits("a", later);
+      cashLedger.noteWait("a", 0, later);
       return false;
     },
   });

@@ -1541,7 +1541,7 @@ test(
       },
     );
     const holdQuote = h.cashLedger.quote("fixture", "fixture", {
-      input: 25000,
+      input: 30000,
       output: 0,
     });
     const hold = await h.cashLedger.acquire("fixture", holdQuote, {
@@ -1585,11 +1585,11 @@ test(
 );
 
 test(
-  "oversized cash-window request is rejected before dispatch and Pi gets ratio-only feedback with no extra inference",
+  "oversized cash quote dispatches and Pi receives settled debt ratios with no extra inference",
   { timeout: 15000 },
   async (t) => {
     const responses = [];
-    const h = await harness(t, () => "must not reach upstream", {
+    const h = await harness(t, () => "Oversized quote admitted.", {
       gateway: true,
       cash: { participantRate: "0.000001", teamRate: "0.000002" },
       extensions: [
@@ -1597,10 +1597,10 @@ test(
       ],
     });
     await h.session.prompt("Oversized rate fixture.");
-    assert.equal(h.requests.length, 0);
-    const rejected = h.gatewayResponses.find((r) => r.method === "POST");
-    assert.equal(rejected.status, 429);
-    const header = JSON.parse(rejected.headers["x-arena-cash-ratios"]);
+    assert.equal(h.requests.length, 1);
+    const admitted = h.gatewayResponses.find((r) => r.method === "POST");
+    assert.equal(admitted.status, 200);
+    const header = JSON.parse(admitted.headers["x-arena-cash-ratios"]);
     assert.ok(header.participant.rate.overRateRatioBeforeWait > 0);
     assertRatiosOnly(header.participant);
     const feedback = h.session.messages
@@ -1619,9 +1619,11 @@ test(
     );
     assertRatiosOnly(feedback.data.cash.participant);
     assert.ok(feedback.data.cash.participant.rate.overRateRatioBeforeWait > 0);
+    assert.equal(feedback.data.cash.participant.calls.priced, 1);
+    assert.ok(feedback.data.cash.participant.rate.windowLoadRatio > 1);
     assert.equal(
       h.cashLedger.operatorSnapshot("fixture").accounts[0].requestCount,
-      0,
+      1,
     );
     assertGatewayRoutes(h);
     assert.equal(
@@ -1630,7 +1632,7 @@ test(
     );
     assert.equal(h.gatewayRequests.filter((r) => r.method === "GET").length, 1);
     await sleep(50);
-    assert.equal(h.requests.length, 0);
+    assert.equal(h.requests.length, 1);
   },
 );
 

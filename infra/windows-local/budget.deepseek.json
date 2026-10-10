@@ -4,7 +4,7 @@
       "team": "blue",
       "tokenEnv": "BLUE1_MODEL_TOKEN",
       "tokens": null,
-      "tpm": 131072,
+      "tpm": 1200000,
       "concurrency": 2,
       "matchStatusUrl": "http://arena-host:8082/v1/match",
       "matchTokenEnv": "BLUE1_BRIDGE_TOKEN",
@@ -14,7 +14,7 @@
   "teams": {
     "blue": {
       "tokens": null,
-      "tpm": 262144,
+      "tpm": 2400000,
       "concurrency": 2,
       "cashRateLimit": "0.50"
     }
@@ -24,24 +24,22 @@
     "apiKeyEnv": "DEEPSEEK_ADAPTER_TOKEN",
     "api": "pi-messages"
   },
-  "models": [
-    "deepseek-flash"
-  ],
+  "models": ["deepseek-flash"],
   "limits": {
-    "maxOutputTokens": 2048,
-    "estimator": "conservative",
+    "maxOutputTokens": 32768,
+    "estimator": "approximate",
     "maxBodyBytes": 8388608,
     "maxImages": 4,
     "maxImageBytes": 2097152,
     "maxImageDimension": 4096,
     "imageTokenAllowance": 4096,
-    "requestTimeoutMs": 120000,
-    "contextWindowTokens": 32768,
+    "requestTimeoutMs": 600000,
+    "contextWindowTokens": 300000,
     "contextBytesPerToken": 4,
-    "maxReservationTokens": 131072
+    "maxReservationTokens": 1200000
   },
   "requireRunningMatch": true,
-  "examplePurpose": "Local operator configuration: DeepSeek V4.1 Flash; fixed official PEAK prices for reference-cost comparison independent of actual off-peak billing.",
+  "examplePurpose": "Local 1v1: USD 0.50/minute reference-cost rate; 250000-token compaction threshold, 32768 output tokens.",
   "referenceCost": {
     "mode": "official-api-list-price",
     "currency": "USD",

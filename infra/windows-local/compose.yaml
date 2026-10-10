@@ -92,6 +92,10 @@ services:
       OPENAI_BASE_URL: http://budget-gateway:8081/participants/red1/v1
       OPENAI_API_KEY: ${RED1_MODEL_TOKEN}
       MODEL_ID: ${ARENA_MODEL_ID:-gpt-6.1-sol}
+      PI_MAX_TOKENS: '32768'
+      PI_CONTEXT_WINDOW: '300000'
+      PI_COMPACTION_RESERVE_TOKENS: '50000'
+      PI_COMPACTION_KEEP_RECENT_TOKENS: '20000'
       PI_MODEL_API: pi-messages
       PI_REASONING: '1'
       TEAM_GIT_DIR: /team-git
@@ -110,6 +114,10 @@ services:
       OPENAI_BASE_URL: http://budget-blue:8081/participants/blue1/v1
       OPENAI_API_KEY: ${BLUE1_MODEL_TOKEN}
       MODEL_ID: deepseek-flash
+      PI_MAX_TOKENS: '32768'
+      PI_CONTEXT_WINDOW: '300000'
+      PI_COMPACTION_RESERVE_TOKENS: '50000'
+      PI_COMPACTION_KEEP_RECENT_TOKENS: '20000'
       PI_MODEL_API: pi-messages
       PI_REASONING: '1'
       TEAM_GIT_DIR: /team-git

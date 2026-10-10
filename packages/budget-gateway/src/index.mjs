@@ -1,6 +1,7 @@
 import http from "node:http";
 import { timingSafeEqual, randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { fetch as upstreamFetch, getGlobalDispatcher } from "undici";
 import { inspectMessages } from "./vision.mjs";
 import { publicProviderResponse } from "./reference-cost.mjs";
 import { inspectPiRequest, piUsage, publicPiEvent } from "./pi-messages.mjs";
@@ -44,7 +45,7 @@ export function estimateReservation(body, limits = {}) {
   if (estimatedContextTokens > contextWindowTokens)
     throw Object.assign(
       new Error(
-        "Approximate context estimate exceeds configured provider window",
+        "context_length_exceeded: Approximate context estimate exceeds configured provider window",
       ),
       { status: 400 },
     );
@@ -296,7 +297,16 @@ export function createBudgetGateway({
         admittedAt: Date.now(),
       });
       upstreamStarted = true;
-      const response = await fetch(upstream.url, {
+      const response = await upstreamFetch(upstream.url, {
+        // The explicit request signal owns generation timeout, including slow reasoning streams.
+        dispatcher: {
+          dispatch(options, handler) {
+            return getGlobalDispatcher().dispatch(
+              { ...options, headersTimeout: 0, bodyTimeout: 0 },
+              handler,
+            );
+          },
+        },
         method: "POST",
         headers: {
           "content-type": "application/json",

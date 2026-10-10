@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { BudgetLedger, BudgetError } from "./ledger.mjs";
+import { CashRateLedger, BudgetError } from "./ledger.mjs";
 /** Official-list-price reference cost, never an invoice. One currency unit = 10^12 integer pico-units. */
 const SCALE = 1_000_000_000_000n;
 function decimal(value, digits, label) {
@@ -27,6 +27,15 @@ const safeUnits = (v) => {
   return n;
 };
 const emptyCosts = () => ({ uncachedInput: 0n, cachedInput: 0n, output: 0n });
+const priceRates = (p) => ({
+  uncachedInput: decimal(p.inputPerMillion, 6, "input rate"),
+  cachedInput: decimal(p.cachedInputPerMillion, 6, "cached input rate"),
+  output: decimal(p.outputPerMillion, 6, "output rate"),
+});
+const priceForInput = (price, input) =>
+  price.longContext && input > price.longContext.thresholdTokens
+    ? price.longContext
+    : price;
 export class ReferenceCostLedger {
   constructor({
     config,
@@ -60,11 +69,25 @@ export class ReferenceCostLedger {
         throw new Error(
           `Verified operator price metadata required for model ${model}`,
         );
+      if (
+        p.longContext &&
+        (!count(p.longContext.thresholdTokens) ||
+          p.longContext.thresholdTokens === 0)
+      )
+        throw new Error(
+          `Invalid long-context price threshold for model ${model}`,
+        );
       this.prices.set(model, {
         ...p,
-        uncachedInput: decimal(p.inputPerMillion, 6, "input rate"),
-        cachedInput: decimal(p.cachedInputPerMillion, 6, "cached input rate"),
-        output: decimal(p.outputPerMillion, 6, "output rate"),
+        ...priceRates(p),
+        ...(p.longContext
+          ? {
+              longContext: {
+                thresholdTokens: p.longContext.thresholdTokens,
+                ...priceRates(p.longContext),
+              },
+            }
+          : {}),
       });
     }
     const rateAccount = (a) => {
@@ -77,7 +100,7 @@ export class ReferenceCostLedger {
         concurrency: a.concurrency,
       };
     };
-    this.rateLedger = new BudgetLedger({
+    this.rateLedger = new CashRateLedger({
       participants: Object.fromEntries(
         Object.entries(participants).map(([id, p]) => [id, rateAccount(p)]),
       ),
@@ -90,11 +113,16 @@ export class ReferenceCostLedger {
     });
   }
   quote(id, model, estimate) {
-    const p = this.prices.get(model);
-    if (!p) throw new Error("Missing configured model price");
+    const price = this.prices.get(model);
+    if (!price) throw new Error("Missing configured model price");
+    // Context estimation avoids the token ledger's optional byte-per-token safety padding.
+    // Cache discounts remain unknown until settlement; this quote is only a fallback charge.
+    const input = estimate.contextInputTokens ?? estimate.input;
+    if (!count(input) || !count(estimate.output))
+      throw new BudgetError("Invalid cost estimate", 400);
+    const p = priceForInput(price, input);
     const units = safeUnits(
-      BigInt(estimate.input) * p.uncachedInput +
-        BigInt(estimate.output) * p.output,
+      BigInt(input) * p.uncachedInput + BigInt(estimate.output) * p.output,
     );
     if (units <= 0)
       throw new Error(
@@ -107,15 +135,13 @@ export class ReferenceCostLedger {
     return { units, pressure, model };
   }
   assertFits(id, quote) {
-    if (this.rateLedger.accounts(id).some((a) => quote.units > a.tpm)) {
-      const e = new BudgetError(
-        "Single request exceeds cash rate window; reduce request/output size",
-        429,
-      );
-      this.noteWait(id, 0, quote);
-      e.cashRatios = this.feedback(id, { quote, queueDelayMs: 0 });
-      throw e;
-    }
+    this.rateLedger.accounts(id);
+    if (
+      !Number.isSafeInteger(quote?.units) ||
+      quote.units <= 0 ||
+      !this.prices.has(quote.model)
+    )
+      throw new BudgetError("Invalid cost quote", 400);
   }
   noteWait(id, ms, quote) {
     if (quote)
@@ -141,10 +167,10 @@ export class ReferenceCostLedger {
           reservation.settle(0);
           return false;
         }
-        const price = this.prices.get(quote.model),
-          prompt = usage?.prompt_tokens,
+        const prompt = usage?.prompt_tokens,
           output = usage?.completion_tokens,
           cached = usage?.prompt_tokens_details?.cached_tokens;
+        const price = priceForInput(this.prices.get(quote.model), prompt);
         let quality = "unknown",
           tokens = null,
           costs = emptyCosts();
