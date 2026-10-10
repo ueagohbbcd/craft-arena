@@ -538,13 +538,32 @@ export class BotFacade extends EventEmitter {
           ),
         })
       : this.blocks.values();
-    return [...candidates]
-      .filter((b) => b.position.distanceTo(point) <= maxDistance && match(b))
-      .sort(
-        (a, b) => a.position.distanceTo(point) - b.position.distanceTo(point),
+    // Keep only the requested nearest positions while scanning loaded chunks.
+    // Negative counts retain Array.slice's existing semantics.
+    const limit = count < 0 ? Infinity : Math.trunc(Number(count)) || 0;
+    if (limit === 0) return [];
+    const nearest = [];
+    for (const block of candidates) {
+      if (!block) continue;
+      const distance = block.position.distanceTo(point);
+      if (distance > maxDistance || !match(block)) continue;
+      if (
+        nearest.length >= limit &&
+        distance >= nearest[nearest.length - 1].distance
       )
-      .slice(0, count)
-      .map((b) => b.position);
+        continue;
+      // Insert after equal distances to preserve iterator order for ties.
+      let low = 0,
+        high = nearest.length;
+      while (low < high) {
+        const middle = (low + high) >>> 1;
+        if (nearest[middle].distance <= distance) low = middle + 1;
+        else high = middle;
+      }
+      nearest.splice(low, 0, { position: block.position, distance });
+      if (nearest.length > limit) nearest.pop();
+    }
+    return nearest.slice(0, count).map(({ position }) => position);
   }
   *_blocksInBounds({ min, max }) {
     for (const [id, { chunk }] of this.columns) {
