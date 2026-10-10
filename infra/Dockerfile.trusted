@@ -1,0 +1,6 @@
+FROM node:24-bookworm-slim
+WORKDIR /opt/arena
+COPY --chown=node:node . .
+RUN npm ci --omit=dev --ignore-scripts && mkdir -p /results /control && chown node:node /results /control
+USER node
+CMD ["node", "packages/budget-gateway/src/cli.mjs"]

@@ -1,0 +1,66 @@
+# Local world visualization
+
+The renderer takes participant-side world snapshots as input and produces images with observation metadata.
+
+## Three distinct views
+
+- `renderMinimap(snapshot, options)`: fast highest-observed-block, top-down PNG. Uses a schematic material palette, subtle procedural grain and height shade. Captions and coordinates are supplied as separate metadata.
+- `renderOblique(snapshot, options)`: orthographic full-cube structural PNG, selected box, shaded faces. Stairs/plants/water/glass use simplified full-cube geometry.
+- `servePrismarineSnapshot` / `capturePrismarineSnapshot`: actual Prismarine viewer 1.33.0 Minecraft models and textures. The adapter serializes observed cells into version-compatible Prismarine chunks and serves the published viewer assets on **127.0.0.1 only**. Optional Chromium capture screenshots the actual WebGL canvas. Unsupported Minecraft patch versions may use the viewer's nearest supported models/textures.
+
+Bare images and metadata are separate. The Pi tools put `{type:'image',mimeType:'image/png',data:...}` and an independent JSON text item in the **same** tool result.
+
+## Input contract
+
+```js
+{
+  version: '1.20.4', // required only for genuine textured view
+  bounds: { min:{x:0,y:0,z:0}, max:{x:15,y:8,z:15} }, // inclusive
+  blocks: [{x:0,y:0,z:0,name:'grass_block'}], // optional stateId from matching version
+  sampledAt: '2026-10-10T00:00:00Z', sequence: 123,
+  source: 'participant local mirror'
+}
+```
+
+Use the exact stateId from the same Minecraft version; do not guess a numerical ID. Omit stateId if unavailable: textured rendering then uses the registered default state and reports how many cells were defaulted. A mismatched name/stateId is rejected.
+
+Every explicit air cell is known air. **An absent cell is unknown**, including cells absent above an observed surface. The minimap shows:
+
+- Purple: missing observations; purple diagonal marks over a material mean missing observations above that surface.
+- Dark blue-gray: fully observed, clear air column in the selected Y slice.
+- Amber diagonal marks: a stale explored-memory surface observation.
+- Other colors: known material with height shading; metadata includes palette, bounds, scale, orientation and coverage.
+
+The bounds define a **slice**; surface height is the highest observed block within it. The textured viewer omits unobserved cells, so blank regions may be unknown. Pair it with minimap coverage to distinguish observed air from missing data. Water uses the renderer’s existing material behavior; unknown cells remain omitted rather than becoming solid barriers.
+
+## Use
+
+```sh
+node examples/render-fixture.mjs  # explicitly SYNTHETIC test fixture only
+node packages/world-visual/cli.mjs minimap out/fixture/snapshot.json out/map 1024 1024
+node packages/world-visual/cli.mjs oblique out/fixture/snapshot.json out/structure
+node packages/world-visual/cli.mjs viewer out/fixture/snapshot.json
+node packages/world-visual/cli.mjs textured out/fixture/snapshot.json out/textured
+```
+
+`viewer` prints a local URL and remains open until Ctrl-C. `textured` requires installed optional dependencies (`prismarine-viewer`, `playwright` in the root lockfile) and a local Chromium executable. Set `CHROMIUM_PATH` if it is not `/usr/bin/chromium`. The viewer renders the supplied local snapshot. Browser capture waits for actual WebGL geometry submission and rejects browser errors.
+
+Acquire real data using `snapshotFromBot(bot,{bounds})`, which reads synchronous `blockAt` from the current mirror and preserves nulls as unknown. `snapshotFromExplored(bot,{bounds,maxAgeMs})` reads the bounded explored cache and retains observation time/staleness. The bridge's current mirror is intentionally small; select appropriate bounds and expect unknown cells beyond observed coverage. The Pi extension keeps one facade connection alive for explored accumulation and closes it on session shutdown; reconnect/reset may clear this cache.
+
+Pi entry: `packages/world-visual/pi-extension.mjs`. Tool names `world_minimap` and `world_render3d`, parameters `snapshotPath` **or** `bounds`, optional `explored`, `width`, `height`; `textured:true` selects the real renderer for `world_render3d`. Canonical credentials are `ARENA_BRIDGE_URL`, `ARENA_BRIDGE_TOKEN`; `MC_BRIDGE_*` are aliases. They stay local and are never included in image metadata.
+
+## Validation and measured limits
+
+`node --test tests/visual*.test.mjs` checks PNG decoding/dimensions, deterministic output, highest surface, unknown versus air, palette, bounds/memory limits, stale cache, native Pi image result, static viewer assets, and actual chunk decoding after Socket.IO transport. The CPU images were visually inspected. The native image result was also verified through a real Pi session and gateway, both as a direct tool and via codemode image forwarding; see `examples/SKILL.md`.
+
+One local Node 24.19 run rendered 262,144 supplied voxels covering a 256×256×4 box to a 1024×1024 PNG in **634 ms** (51,127 PNG bytes). This synthetic performance sample measures local rendering time. Default fixture CPU renders were roughly 8–80 ms. Snapshot acquisition/bridge delay is separate.
+
+`MC_TEST_CHROMIUM=1 node --test tests/visual-prismarine.test.mjs` additionally validates actual textured PNG capture. In the delivery environment Chromium was installed but launch failed with OS `socket() ... Operation not permitted`; that screenshot test is explicitly skipped by default. Local viewer assets/chunk transport passed; actual WebGL screenshot validation remains a deployment check.
+
+CPU bounds cap: 4,000,000 selected voxels, acquisition default 1,000,000 queries, PNG side ≤4096 (Pi ≤2048), oblique ≤150,000 non-air voxels. Crop selected boxes to fit these limits.
+
+## Sources and licenses
+
+This package’s CPU palette, rasterizer and PNG encoder use an original implementation built on Node built-ins.
+
+Optional genuine rendering uses [PrismarineJS/prismarine-viewer](https://github.com/PrismarineJS/prismarine-viewer) (MIT), [prismarine-chunk](https://github.com/PrismarineJS/prismarine-chunk) (MIT), [minecraft-data](https://github.com/PrismarineJS/minecraft-data) (MIT), Socket.IO (MIT), Express (MIT), and Playwright (Apache-2.0), installed from official npm packages. The adapter follows the viewer's published standalone Socket.IO protocol; dependency licenses remain in their npm distributions. Minecraft artwork is Mojang/Microsoft intellectual property supplied through the viewer's existing distribution; that artwork retains its own licensing terms. The source archive does not vendor node_modules or third-party texture assets.

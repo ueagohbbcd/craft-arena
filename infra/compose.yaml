@@ -1,0 +1,103 @@
+# Operator template: validate with docker compose --env-file .env -f infra/compose.yaml config.
+# No host ports: control plane and Minecraft are not published.
+x-restricted: &restricted
+  user: '1000:1000'
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
+  init: true
+  pids_limit: ${ARENA_PIDS_LIMIT:-256}
+  mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
+  cpus: ${ARENA_CPU_LIMIT:-2.0}
+  restart: 'no'
+services:
+  minecraft:
+    <<: *restricted
+    image: ${MC_SERVER_IMAGE:?Provide a vetted preconfigured Minecraft server image}
+    networks: [backend]
+    volumes: [world:/data]
+    # Map/server version and EULA acceptance are operator responsibilities.
+  bridge-red1:
+    <<: *restricted
+    build: {context: '..', dockerfile: infra/Dockerfile.trusted}
+    command: [node, packages/mf-bridge/cli.mjs]
+    environment:
+      MF_HOST: minecraft
+      MF_PORT: '25565'
+      MF_USERNAME: arena_red1
+      MF_VERSION: ${MC_VERSION:?Select exact server protocol version}
+      BRIDGE_HOST: 0.0.0.0
+      BRIDGE_PORT: '8080'
+      BRIDGE_ALLOW_CHAT: 'true'
+      BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN:?Provide unique operator token}
+    networks: [backend, red1]
+  bridge-blue1:
+    <<: *restricted
+    build: {context: '..', dockerfile: infra/Dockerfile.trusted}
+    command: [node, packages/mf-bridge/cli.mjs]
+    environment:
+      MF_HOST: minecraft
+      MF_PORT: '25565'
+      MF_USERNAME: arena_blue1
+      MF_VERSION: ${MC_VERSION:?Select exact server protocol version}
+      BRIDGE_HOST: 0.0.0.0
+      BRIDGE_PORT: '8080'
+      BRIDGE_ALLOW_CHAT: 'true'
+      BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN:?Provide unique operator token}
+    networks: [backend, blue1]
+  budget-gateway:
+    <<: *restricted
+    build: {context: '..', dockerfile: infra/Dockerfile.trusted}
+    command: [node, packages/budget-gateway/src/cli.mjs, /config/budget.json]
+    environment:
+      MODEL_UPSTREAM_KEY: ${MODEL_UPSTREAM_KEY:?Provide upstream credential only to gateway}
+      RED1_MODEL_TOKEN: ${RED1_MODEL_TOKEN:?Provide scoped operator token}
+      BLUE1_MODEL_TOKEN: ${BLUE1_MODEL_TOKEN:?Provide scoped operator token}
+    volumes: ['${BUDGET_CONFIG_PATH:-./budget.cash.example.json}:/config/budget.json:ro']
+    networks: [red1, blue1, model-egress]
+  participant-red1:
+    <<: *restricted
+    build: {context: '..', dockerfile: infra/Dockerfile.participant}
+    environment:
+      ARENA_BRIDGE_URL: http://bridge-red1:8080
+      ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
+      OPENAI_BASE_URL: http://budget-gateway:8081/participants/red1/v1
+      OPENAI_API_KEY: ${RED1_MODEL_TOKEN}
+      TEAM_GIT_DIR: /team-git
+      PI_MAX_TOKENS: '2048'
+      PI_CONTEXT_WINDOW: '32768'
+      PI_MODEL_VISION: 'true'
+      MODEL_ID: ${ARENA_MODEL_ID:?Select model present in budget gateway allowlist}
+    networks: [red1]
+    volumes: [red-work:/workspace, red-git:/team-git]
+    tmpfs: ['/tmp:rw,nosuid,size=256m']
+    stdin_open: true
+    tty: true
+  participant-blue1:
+    <<: *restricted
+    build: {context: '..', dockerfile: infra/Dockerfile.participant}
+    environment:
+      ARENA_BRIDGE_URL: http://bridge-blue1:8080
+      ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+      OPENAI_BASE_URL: http://budget-gateway:8081/participants/blue1/v1
+      OPENAI_API_KEY: ${BLUE1_MODEL_TOKEN}
+      TEAM_GIT_DIR: /team-git
+      PI_MAX_TOKENS: '2048'
+      PI_CONTEXT_WINDOW: '32768'
+      PI_MODEL_VISION: 'true'
+      MODEL_ID: ${ARENA_MODEL_ID:?Select model present in budget gateway allowlist}
+    networks: [blue1]
+    volumes: [blue-work:/workspace, blue-git:/team-git]
+    tmpfs: ['/tmp:rw,nosuid,size=256m']
+    stdin_open: true
+    tty: true
+networks:
+  backend: {internal: true}
+  red1: {internal: true}
+  blue1: {internal: true}
+  model-egress: {} # Gateway alone has internet route; restrict destinations via host-controlled egress policy.
+volumes:
+  world: {}
+  red-work: {}
+  blue-work: {}
+  red-git: {}
+  blue-git: {}

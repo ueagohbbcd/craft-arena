@@ -1,0 +1,53 @@
+{
+  "participants": {
+    "red1": {
+      "team": "red",
+      "tokenEnv": "RED1_MODEL_TOKEN",
+      "tokens": 200000,
+      "tpm": 131072,
+      "concurrency": 2,
+      "matchStatusUrl": "http://arena-host:8080/v1/match",
+      "matchTokenEnv": "RED1_BRIDGE_TOKEN"
+    },
+    "blue1": {
+      "team": "blue",
+      "tokenEnv": "BLUE1_MODEL_TOKEN",
+      "tokens": 200000,
+      "tpm": 131072,
+      "concurrency": 2,
+      "matchStatusUrl": "http://arena-host:8082/v1/match",
+      "matchTokenEnv": "BLUE1_BRIDGE_TOKEN"
+    }
+  },
+  "teams": {
+    "red": {
+      "tokens": 200000,
+      "tpm": 262144,
+      "concurrency": 2
+    },
+    "blue": {
+      "tokens": 200000,
+      "tpm": 262144,
+      "concurrency": 2
+    }
+  },
+  "upstream": {
+    "url": "https://api.openai.com/v1/chat/completions",
+    "apiKeyEnv": "MODEL_UPSTREAM_KEY"
+  },
+  "models": ["OPERATOR_SELECT_MODEL"],
+  "limits": {
+    "maxOutputTokens": 2048,
+    "estimator": "conservative",
+    "maxBodyBytes": 8388608,
+    "maxImages": 4,
+    "maxImageBytes": 2097152,
+    "maxImageDimension": 4096,
+    "imageTokenAllowance": 4096,
+    "requestTimeoutMs": 120000,
+    "contextWindowTokens": 32768,
+    "contextBytesPerToken": 4,
+    "maxReservationTokens": 131072
+  },
+  "requireRunningMatch": true
+}

@@ -1,0 +1,69 @@
+{
+  "participants": {
+    "red1": {
+      "team": "red",
+      "tokenEnv": "RED1_MODEL_TOKEN",
+      "tokens": null,
+      "tpm": 131072,
+      "concurrency": 2,
+      "cashRateLimit": "OPERATOR_SET_DECIMAL_AMOUNT_PER_WINDOW"
+    },
+    "blue1": {
+      "team": "blue",
+      "tokenEnv": "BLUE1_MODEL_TOKEN",
+      "tokens": null,
+      "tpm": 131072,
+      "concurrency": 2,
+      "cashRateLimit": "OPERATOR_SET_DECIMAL_AMOUNT_PER_WINDOW"
+    }
+  },
+  "teams": {
+    "red": {
+      "tokens": null,
+      "tpm": 262144,
+      "concurrency": 2,
+      "cashRateLimit": "OPERATOR_SET_DECIMAL_AMOUNT_PER_WINDOW"
+    },
+    "blue": {
+      "tokens": null,
+      "tpm": 262144,
+      "concurrency": 2,
+      "cashRateLimit": "OPERATOR_SET_DECIMAL_AMOUNT_PER_WINDOW"
+    }
+  },
+  "upstream": {
+    "url": "https://api.openai.com/v1/chat/completions",
+    "apiKeyEnv": "MODEL_UPSTREAM_KEY"
+  },
+  "models": ["gpt-4.1"],
+  "limits": {
+    "maxOutputTokens": 2048,
+    "estimator": "conservative",
+    "maxBodyBytes": 8388608,
+    "maxImages": 4,
+    "maxImageBytes": 2097152,
+    "maxImageDimension": 4096,
+    "imageTokenAllowance": 4096,
+    "requestTimeoutMs": 120000,
+    "contextWindowTokens": 32768,
+    "contextBytesPerToken": 4,
+    "maxReservationTokens": 131072
+  },
+  "examplePurpose": "Reference configuration only: operator must explicitly choose model and cash rate limits; no model or spend has been selected for the user.",
+  "referenceCost": {
+    "mode": "official-api-list-price",
+    "currency": "USD",
+    "windowMs": 60000,
+    "models": {
+      "gpt-4.1": {
+        "provider": "openai",
+        "inputPerMillion": "2",
+        "cachedInputPerMillion": "0.5",
+        "outputPerMillion": "8",
+        "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-4.1",
+        "additionalSourceUrl": "https://openai.com/index/gpt-4-1/",
+        "verifiedAt": "2026-10-10"
+      }
+    }
+  }
+}

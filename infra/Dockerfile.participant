@@ -1,0 +1,17 @@
+FROM node:24-bookworm-slim
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates python3 chromium && rm -rf /var/lib/apt/lists/*
+WORKDIR /opt/arena
+COPY --chown=node:node package.json package-lock.json README.md AGENTS.md ./
+COPY --chown=node:node packages ./packages
+COPY --chown=node:node examples ./examples
+COPY --chown=node:node docs ./docs
+COPY --chown=node:node scripts ./scripts
+COPY --chown=node:node tests ./tests
+# Operator configuration stays on the trusted side; only public toolkit material enters this image.
+RUN npm ci --ignore-scripts && mkdir -p /workspace /team-git && chown -R node:node /opt/arena /workspace /team-git
+ENV CHROMIUM_PATH="/usr/bin/chromium"
+ENV PATH="/opt/arena/node_modules/.bin:${PATH}"
+USER node
+WORKDIR /workspace
+# Arbitrary agent/script commands can override CMD; plugins share the same participant sandbox.
+CMD ["node", "/opt/arena/packages/pi-extension/bootstrap.mjs"]

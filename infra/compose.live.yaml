@@ -1,0 +1,164 @@
+x-restricted:
+  user: 1000:1000
+  cap_drop: &id001
+  - ALL
+  security_opt: &id002
+  - no-new-privileges:true
+  init: true
+  pids_limit: ${ARENA_PIDS_LIMIT:-256}
+  mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
+  cpus: ${ARENA_CPU_LIMIT:-2.0}
+  restart: 'no'
+services:
+  minecraft:
+    user: 1000:1000
+    cap_drop: *id001
+    security_opt: *id002
+    init: true
+    pids_limit: ${ARENA_PIDS_LIMIT:-256}
+    mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
+    cpus: ${ARENA_CPU_LIMIT:-2.0}
+    restart: 'no'
+    image: ${MC_SERVER_IMAGE:?Provide a vetted preconfigured Minecraft server image}
+    networks:
+    - backend
+    volumes:
+    - world:/data
+  budget-gateway:
+    user: 1000:1000
+    cap_drop: *id001
+    security_opt: *id002
+    init: true
+    pids_limit: ${ARENA_PIDS_LIMIT:-256}
+    mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
+    cpus: ${ARENA_CPU_LIMIT:-2.0}
+    restart: 'no'
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.trusted
+    command:
+    - node
+    - packages/budget-gateway/src/cli.mjs
+    - /config/budget.json
+    environment:
+      MODEL_UPSTREAM_KEY: ${MODEL_UPSTREAM_KEY:?Provide upstream credential only to
+        gateway}
+      RED1_MODEL_TOKEN: ${RED1_MODEL_TOKEN:?Provide scoped operator token}
+      BLUE1_MODEL_TOKEN: ${BLUE1_MODEL_TOKEN:?Provide scoped operator token}
+      RED1_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
+      BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+    volumes:
+    - ${BUDGET_CONFIG_PATH:-./budget.cash.live.example.json}:/config/budget.json:ro
+    networks:
+    - red1
+    - blue1
+    - model-egress
+  participant-red1:
+    user: 1000:1000
+    cap_drop: *id001
+    security_opt: *id002
+    init: true
+    pids_limit: ${ARENA_PIDS_LIMIT:-256}
+    mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
+    cpus: ${ARENA_CPU_LIMIT:-2.0}
+    restart: 'no'
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.participant
+    environment:
+      ARENA_BRIDGE_URL: http://arena-host:8080
+      ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
+      OPENAI_BASE_URL: http://budget-gateway:8081/participants/red1/v1
+      OPENAI_API_KEY: ${RED1_MODEL_TOKEN}
+      TEAM_GIT_DIR: /team-git
+      PI_MAX_TOKENS: '2048'
+      PI_CONTEXT_WINDOW: '32768'
+      PI_MODEL_VISION: 'true'
+      MODEL_ID: ${ARENA_MODEL_ID:?Select model present in budget gateway allowlist}
+      ARENA_WAIT_FOR_MATCH: '1'
+    networks:
+    - red1
+    volumes:
+    - red-work:/workspace
+    - red-git:/team-git
+    tmpfs:
+    - /tmp:rw,nosuid,size=256m
+    stdin_open: true
+    tty: true
+  participant-blue1:
+    user: 1000:1000
+    cap_drop: *id001
+    security_opt: *id002
+    init: true
+    pids_limit: ${ARENA_PIDS_LIMIT:-256}
+    mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
+    cpus: ${ARENA_CPU_LIMIT:-2.0}
+    restart: 'no'
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.participant
+    environment:
+      ARENA_BRIDGE_URL: http://arena-host:8082
+      ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+      OPENAI_BASE_URL: http://budget-gateway:8081/participants/blue1/v1
+      OPENAI_API_KEY: ${BLUE1_MODEL_TOKEN}
+      TEAM_GIT_DIR: /team-git
+      PI_MAX_TOKENS: '2048'
+      PI_CONTEXT_WINDOW: '32768'
+      PI_MODEL_VISION: 'true'
+      MODEL_ID: ${ARENA_MODEL_ID:?Select model present in budget gateway allowlist}
+      ARENA_WAIT_FOR_MATCH: '1'
+    networks:
+    - blue1
+    volumes:
+    - blue-work:/workspace
+    - blue-git:/team-git
+    tmpfs:
+    - /tmp:rw,nosuid,size=256m
+    stdin_open: true
+    tty: true
+  arena-host:
+    user: 1000:1000
+    cap_drop: *id001
+    security_opt: *id002
+    init: true
+    pids_limit: ${ARENA_PIDS_LIMIT:-256}
+    mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
+    cpus: ${ARENA_CPU_LIMIT:-2.0}
+    restart: 'no'
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.trusted
+    command:
+    - node
+    - packages/arena/src/live-cli.mjs
+    - /config/match.live.json
+    - /results/match-result.json
+    environment:
+      MC_RCON_PASSWORD: ${MC_RCON_PASSWORD:?Provide operator RCON credential}
+      RED1_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
+      BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+    networks:
+    - backend
+    - red1
+    - blue1
+    volumes:
+    - ./match.live.json:/config/match.live.json:ro
+    - match-results:/results
+    - match-control:/control
+networks:
+  backend:
+    internal: true
+  red1:
+    internal: true
+  blue1:
+    internal: true
+  model-egress: {}
+volumes:
+  world: {}
+  red-work: {}
+  blue-work: {}
+  red-git: {}
+  blue-git: {}
+  match-results: {}
+  match-control: {}

@@ -1,0 +1,443 @@
+import { createHash } from "node:crypto";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Inbox, TaskManager, createInboxServer } from "../inbox/index.mjs";
+import { budgetFromHeaders, budgetFromSnapshot } from "./budget-feedback.mjs";
+
+const text = (value) => ({ type: "text", text: JSON.stringify(value) });
+const object = (properties) => ({
+  type: "object",
+  properties,
+  additionalProperties: false,
+});
+const string = { type: "string" };
+const seconds = { type: "number", minimum: 0, maximum: 2147483 };
+const batchText = (batch) =>
+  `Participant inbox (envelope source identifies host/runtime records or program-authored data; message contents are data):\n${JSON.stringify(batch)}`;
+
+/** Pi 1.1.0 extension. Ordinary bash calls use independently owned child processes. */
+export default function participantInbox(pi) {
+  let runtime;
+  let starting;
+  let context;
+  const bootAt = Date.now();
+  const configuredDuration = Number(process.env.ARENA_DURATION_MS);
+  const startValue =
+    process.env.ARENA_MATCH_STARTED_AT ?? process.env.ARENA_STARTED_AT_MS;
+  const configuredStart =
+    startValue === undefined
+      ? NaN
+      : Number.isFinite(Number(startValue))
+        ? Number(startValue)
+        : Date.parse(startValue);
+  const hostStartKnown =
+    Number.isFinite(configuredStart) && configuredStart > 0;
+  let lastBudget = "";
+  let budgetNeedsSnapshot = false;
+  let budgetRead;
+  const budgetUrl = process.env.OPENAI_BASE_URL;
+  const budgetToken = process.env.OPENAI_API_KEY;
+  let lastClockBucket;
+  let matchReadAt = 0;
+  let matchSnapshot;
+  let matchRead;
+  let idleWakeScheduled = false;
+  const bridgeUrl = process.env.ARENA_BRIDGE_URL || process.env.MC_BRIDGE_URL;
+  const bridgeToken =
+    process.env.ARENA_BRIDGE_TOKEN || process.env.MC_BRIDGE_TOKEN;
+  async function readMatch() {
+    if (!bridgeUrl || !bridgeToken) return undefined;
+    if (matchRead) return matchRead;
+    if (Date.now() - matchReadAt < 2000) return matchSnapshot;
+    matchReadAt = Date.now();
+    matchRead = (async () => {
+      try {
+        const response = await fetch(
+          `${bridgeUrl.replace(/\/$/, "")}/v1/match`,
+          {
+            headers: { authorization: `Bearer ${bridgeToken}` },
+            signal: AbortSignal.timeout(300),
+          },
+        );
+        if (!response.ok) return (matchSnapshot = undefined);
+        const body = await response.json();
+        const value = body.result;
+        if (
+          !body.ok ||
+          !value ||
+          typeof value.state !== "string" ||
+          !Number.isFinite(value.now) ||
+          !Number.isFinite(value.durationMs)
+        )
+          return (matchSnapshot = undefined);
+        return (matchSnapshot = value);
+      } catch {
+        return (matchSnapshot = undefined);
+      }
+    })();
+    try {
+      return await matchRead;
+    } finally {
+      matchRead = undefined;
+    }
+  }
+  async function postClock(r) {
+    const host = await readMatch();
+    if (host?.state === "ended") r.matchEnded = true;
+    const now = Date.now();
+    let data;
+    let source;
+    if (host) {
+      const elapsed =
+        host.elapsedMs === null || !Number.isFinite(host.elapsedMs)
+          ? null
+          : Math.max(0, host.elapsedMs);
+      data = {
+        type: "arena.clock",
+        basis: "authenticated host match snapshot",
+        matchId: host.matchId,
+        state: host.state,
+        matchStartedAtMs: host.startedAt,
+        asOfMs: host.now,
+        durationMs: host.durationMs,
+        elapsedMs: elapsed,
+        remainingMs:
+          elapsed === null ? null : Math.max(0, host.durationMs - elapsed),
+        winner: host.winner ?? null,
+      };
+      source = "host";
+    } else {
+      const elapsed = Math.max(
+        0,
+        now - (hostStartKnown ? configuredStart : bootAt),
+      );
+      data = hostStartKnown
+        ? {
+            type: "arena.clock",
+            basis: "host-provided match start",
+            matchStartedAtMs: configuredStart,
+            elapsedMs: elapsed,
+            ...(Number.isFinite(configuredDuration) && configuredDuration > 0
+              ? {
+                  durationMs: configuredDuration,
+                  remainingMs: Math.max(0, configuredDuration - elapsed),
+                }
+              : {}),
+          }
+        : {
+            type: "arena.clock",
+            basis: "participant agent uptime; match start is unknown",
+            agentUptimeMs: elapsed,
+            ...(Number.isFinite(configuredDuration) && configuredDuration > 0
+              ? { configuredMatchDurationMs: configuredDuration }
+              : {}),
+          };
+      source = hostStartKnown ? "host" : "runtime";
+    }
+    const bucket = JSON.stringify([
+      data.basis,
+      data.matchId,
+      data.state,
+      data.winner,
+      data.matchStartedAtMs,
+      Math.floor((data.elapsedMs ?? data.agentUptimeMs ?? 0) / 10000),
+    ]);
+    if (bucket === lastClockBucket) return;
+    lastClockBucket = bucket;
+    r.inbox.post(
+      { sessionId: r.sessionId, kind: "state", key: "arena.clock", data },
+      { source },
+    );
+  }
+  const idleWake = process.env.MC_INBOX_IDLE_URGENT === "1";
+  async function stop() {
+    if (starting) await starting;
+    if (!runtime) return;
+    const old = runtime;
+    old.closed = true;
+    runtime = undefined;
+    await old.tasks.close();
+    await old.server.close();
+  }
+  async function ensure(ctx) {
+    context = ctx;
+    const sessionId = ctx.sessionManager.getSessionId();
+    if (runtime?.sessionId === sessionId) return runtime;
+    if (starting) return starting;
+    starting = (async () => {
+      if (runtime) {
+        const old = runtime;
+        runtime = undefined;
+        await old.tasks.close();
+        await old.server.close();
+      }
+      const digest = createHash("sha256")
+        .update(sessionId)
+        .digest("hex")
+        .slice(0, 16);
+      const socketPath =
+        process.env.MC_INBOX_SOCKET ||
+        join(
+          tmpdir(),
+          `mc-inbox-${process.getuid?.() ?? "user"}`,
+          `${process.pid}-${digest}.sock`,
+        );
+      const inbox = new Inbox({ sessionId });
+      const useHttp = process.env.MC_INBOX_TRANSPORT === "http";
+      const server = await createInboxServer({
+        inbox,
+        ...(useHttp
+          ? {
+              port: Number(process.env.MC_INBOX_PORT || 0),
+              token: process.env.MC_INBOX_TOKEN,
+            }
+          : { socketPath }),
+      });
+      const env = {
+        MC_INBOX_SESSION: sessionId,
+        MC_INBOX_SOCKET: useHttp ? "" : socketPath,
+        MC_INBOX_URL: useHttp ? `http://127.0.0.1:${server.address.port}` : "",
+        ...(process.env.MC_INBOX_TOKEN
+          ? { MC_INBOX_TOKEN: process.env.MC_INBOX_TOKEN }
+          : {}),
+      };
+      const tasks = new TaskManager({ inbox, cwd: ctx.cwd, env });
+      runtime = { sessionId, inbox, tasks, server, env };
+      lastBudget = "";
+      budgetNeedsSnapshot = false;
+      lastClockBucket = undefined;
+      inbox.on("urgent", () => {
+        // Busy tools have already been released by TaskManager's listener. No steer abort is needed.
+        if (context?.isIdle()) wakeIdle(runtime);
+      });
+      return runtime;
+    })();
+    try {
+      return await starting;
+    } finally {
+      starting = undefined;
+    }
+  }
+  function wakeIdle(r) {
+    if (
+      !idleWake ||
+      !r ||
+      r.closed ||
+      r.matchEnded ||
+      idleWakeScheduled ||
+      !r.inbox.items.some((item) => item.message.priority === "urgent")
+    )
+      return;
+    // Synchronous drain is the claim: turn_end and agent_settled cannot schedule this batch twice.
+    const batch = r.inbox.drain();
+    idleWakeScheduled = true;
+    pi.sendMessage(
+      {
+        customType: "mc-inbox",
+        content: batchText(batch),
+        display: true,
+        details: batch,
+      },
+      { triggerTurn: true },
+    );
+  }
+  pi.on("agent_start", () => {
+    idleWakeScheduled = false;
+  });
+  pi.on("agent_settled", (event, ctx) => {
+    context = ctx;
+    if (!event.aborted && ctx.isIdle()) wakeIdle(runtime);
+  });
+  pi.on("session_start", async (_event, ctx) => {
+    await ensure(ctx);
+  });
+  pi.on("session_shutdown", stop);
+  pi.on("turn_start", async (_event, ctx) => {
+    const r = await ensure(ctx);
+    r.tasks.resumeWaits();
+  });
+  function postBudget(r, data) {
+    if (!data) return;
+    const signature = JSON.stringify(data);
+    if (signature === lastBudget && !(data.queueDelayMs > 0)) return;
+    lastBudget = signature;
+    r.inbox.post(
+      { sessionId: r.sessionId, kind: "state", key: "arena.budget", data },
+      { source: "host" },
+    );
+  }
+  async function refreshBudget(r) {
+    if (budgetRead) return budgetRead;
+    if (!budgetNeedsSnapshot || !budgetUrl || !budgetToken) return;
+    budgetNeedsSnapshot = false;
+    budgetRead = (async () => {
+      try {
+        const response = await fetch(`${budgetUrl.replace(/\/$/, "")}/budget`, {
+          headers: { authorization: `Bearer ${budgetToken}` },
+          signal: AbortSignal.timeout(300),
+        });
+        if (!response.ok) return;
+        // Explicit projection also protects against a future host response adding private amounts.
+        const data = budgetFromSnapshot(await response.json());
+        if (runtime === r && !r.closed) postBudget(r, data);
+      } catch {
+        /* Keep the admission snapshot when this bounded refresh is unavailable. */
+      }
+    })();
+    try {
+      await budgetRead;
+    } finally {
+      budgetRead = undefined;
+    }
+  }
+  pi.on("after_provider_response", async (event, ctx) => {
+    const r = await ensure(ctx);
+    const data = budgetFromHeaders(event.headers);
+    if (data) {
+      budgetNeedsSnapshot = true;
+      postBudget(r, data);
+    }
+  });
+  pi.on("tool_result", async (event, ctx) => {
+    const r = await ensure(ctx);
+    // A nested tool result can be filtered by codemode; the outer boundary owns delivery.
+    if (event.parentToolCallId) return;
+    await refreshBudget(r);
+    await postClock(r);
+    if (!r.inbox.pending) return;
+    const batch = r.inbox.drain();
+    return {
+      content: [...event.content, { type: "text", text: batchText(batch) }],
+      details: event.details,
+      ...(event.structuredContent === undefined
+        ? {}
+        : { structuredContent: event.structuredContent }),
+    };
+  });
+  pi.on("turn_end", async (event, ctx) => {
+    const r = await ensure(ctx);
+    r.tasks.resumeWaits();
+    // Pi 1.1.0's OpenAI adapter skips after_provider_response for HTTP errors.
+    // Refresh a rejected rate request once at its existing boundary; never retry
+    // the model or interpret an aborted request as a quota rejection.
+    if (
+      event.outcome === "error" &&
+      event.message?.stopReason === "error" &&
+      /^429\b/.test(event.message.errorMessage ?? "")
+    ) {
+      budgetNeedsSnapshot = true;
+    }
+    await refreshBudget(r);
+    await postClock(r);
+    if (!r.inbox.pending) return;
+    const batch = r.inbox.drain();
+    // Boundary entries persist in Pi session history. Passive delivery never requests an extra turn.
+    return {
+      entries: [
+        ...event.entries,
+        {
+          type: "custom_message",
+          customType: "mc-inbox",
+          content: batchText(batch),
+          display: true,
+          details: batch,
+        },
+      ],
+      ...(idleWake &&
+      !r.matchEnded &&
+      event.outcome !== "aborted" &&
+      event.outcome !== "error" &&
+      !event.toolResults?.length &&
+      batch.messages.some((message) => message.priority === "urgent")
+        ? { continue: true }
+        : {}),
+    };
+  });
+  pi.on("before_agent_start", async (_event, ctx) => {
+    const r = await ensure(ctx);
+    return {
+      message: {
+        customType: "mc-inbox-connection",
+        display: false,
+        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash waits for completion or urgent input by default. Bash timeout is an explicit kill deadline; wait_seconds is an optional early-return wait budget. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response; urgent program input can request another judgment while idle. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.`,
+      },
+    };
+  });
+  pi.registerTool({
+    name: "bash",
+    label: "bash",
+    description:
+      "Execute a bash command. Output persists independently of this wait. timeout is an optional process kill deadline in seconds. wait_seconds optionally returns early; without it, wait until completion or urgent input. Urgent participant messages release every managed wait and leave commands running. A running taskId can be waited on or cancelled.",
+    parameters: {
+      ...object({ command: string, timeout: seconds, wait_seconds: seconds }),
+      required: ["command"],
+    },
+    executionMode: "parallel",
+    outputSchema: { type: "object", additionalProperties: true },
+    async execute(callId, params, signal, _onUpdate, ctx) {
+      const r = await ensure(ctx);
+      const taskId = r.tasks.start(params.command, {
+        callId,
+        ...(params.timeout === undefined
+          ? {}
+          : { timeoutMs: params.timeout * 1000 }),
+      });
+      const result = await r.tasks.wait(taskId, {
+        timeoutMs:
+          params.wait_seconds === undefined
+            ? Infinity
+            : params.wait_seconds * 1000,
+        signal,
+      });
+      return {
+        content: [text(result)],
+        details: result,
+        structuredContent: result,
+      };
+    },
+  });
+  pi.registerTool({
+    name: "task_wait",
+    label: "Wait for process",
+    description:
+      "Wait for an existing task. Completed output is delivered once, either here or by a task.completed inbox event. An optional wait_seconds budget or urgent release preserves the process. Otherwise wait for completion.",
+    parameters: {
+      ...object({ taskId: string, wait_seconds: seconds }),
+      required: ["taskId"],
+    },
+    executionMode: "parallel",
+    outputSchema: { type: "object", additionalProperties: true },
+    async execute(callId, params, signal, _onUpdate, ctx) {
+      const r = await ensure(ctx);
+      const result = await r.tasks.wait(params.taskId, {
+        timeoutMs:
+          params.wait_seconds === undefined
+            ? Infinity
+            : params.wait_seconds * 1000,
+        signal,
+      });
+      return {
+        content: [text(result)],
+        details: result,
+        structuredContent: result,
+      };
+    },
+  });
+  pi.registerTool({
+    name: "task_cancel",
+    label: "Cancel process",
+    description:
+      "Explicitly stop a task process group with TERM, escalating to KILL after 500 ms. Completion arrives through the inbox or task_wait.",
+    parameters: { ...object({ taskId: string }), required: ["taskId"] },
+    outputSchema: { type: "object", additionalProperties: true },
+    async execute(_callId, params, _signal, _onUpdate, ctx) {
+      const r = await ensure(ctx);
+      const result = r.tasks.cancel(params.taskId);
+      return {
+        content: [text(result)],
+        details: result,
+        structuredContent: result,
+      };
+    },
+  });
+}
