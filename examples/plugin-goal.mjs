@@ -13,6 +13,24 @@ const bot = await connectBot({
   }),
   inbox = new InboxClient();
 const { Movements, goals } = loadSelectedPlugins(bot, { pvp: false });
+// Participant policy: tune for the terrain (digging may legitimately take time).
+const stallMs = 30_000,
+  reviewMs = 120_000;
+let watchdog;
+let latestPath = null;
+const reportPath = (path) => {
+  latestPath = { status: path.status, steps: path.path?.length ?? 0 };
+  void inbox
+    .upsert(
+      "route",
+      {
+        ...latestPath,
+        position: bot.entity.position,
+      },
+      { ttlMs: 10000 },
+    )
+    .catch(console.error);
+};
 class ReachSafeColumn extends goals.Goal {
   constructor(x, y, z) {
     super();
@@ -35,16 +53,48 @@ try {
   const moves = new Movements(bot);
   if (noDig) moves.canDig = false;
   bot.pathfinder.setMovements(moves);
-  bot.on("path_update", (path) => {
-    void inbox
-      .upsert(
-        "route",
-        { status: path.status, steps: path.path?.length ?? 0 },
-        { ttlMs: 10000 },
-      )
-      .catch(console.error);
-  });
+  bot.on("path_update", reportPath);
   const goal = new ReachSafeColumn(...xyz.map(Math.floor));
+  const started = performance.now();
+  let lastMoved = started,
+    anchor = bot.entity.position.clone();
+  let requested = false;
+  watchdog = setInterval(() => {
+    const now = performance.now(),
+      position = bot.entity.position;
+    // Replanning and tiny jitter do not count as movement. The total review
+    // interval also catches oscillation; distance to the goal need not decrease
+    // monotonically on a legitimate detour.
+    if (position.distanceTo(anchor) >= 1) {
+      anchor = position.clone();
+      lastMoved = now;
+    }
+    if (requested || goal.isEnd(position.floored())) return;
+    if (now - lastMoved < stallMs && now - started < reviewMs) return;
+    requested = true; // One request per goal, including while IPC is in flight.
+    void inbox
+      .requestJudgment({
+        type: "route.review",
+        reason: now - lastMoved >= stallMs ? "no_displacement" : "long_running",
+        goal: xyz,
+        position: position.clone(),
+        elapsedMs: Math.round(now - started),
+        noDisplacementMs: Math.round(now - lastMoved),
+        path: latestPath,
+        loadedColumns: bot.columns.size,
+        goalLoaded: bot.blockAt({ x: xyz[0], y: xyz[1], z: xyz[2] }) !== null,
+        activity:
+          "Pathfinder goto is still running; this report does not stop movement.",
+        question:
+          "Inspect progress: keep waiting on this task, or cancel it before changing route?",
+      })
+      .catch((error) => {
+        // Do not silently hang if the urgent report cannot be delivered.
+        console.error("Route judgment delivery failed:", error);
+        process.exitCode = 1;
+        bot.pathfinder.setGoal(null);
+      });
+  }, 1000);
   await bot.pathfinder.goto(goal);
   // Pathfinder 2.4.5 can resolve an empty noPath result. Check actual arrival.
   if (!goal.isEnd(bot.entity.position.floored()))
@@ -67,6 +117,8 @@ try {
   );
   process.exitCode = 1;
 } finally {
+  clearInterval(watchdog);
+  bot.off("path_update", reportPath);
   bot.pathfinder.stop();
   bot.clearControlStates();
   await bot.flush();

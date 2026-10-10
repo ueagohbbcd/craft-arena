@@ -81,6 +81,8 @@ Use the existing `InboxClient` to send facts that help the next decision. Useful
 
 Choose reporting conditions in ordinary code. Pi bundles accepted messages into tool/turn boundaries automatically; an urgent request releases managed waits while the process continues. In resident mode, a background completion or urgent request can wake the idle model. A running process alone does not tell the runtime whether the game task is making progress.
 
+Normal `post`/`upsert` reports do not interrupt a blocking wait. For an action whose Promise may remain pending, install the progress/stall callback **before** awaiting it. Use observed task progress rather than repeated plugin events as evidence of progress. Request judgment with the goal, current facts, elapsed time and whether the action continues; coalesce reports and avoid sending an urgent request every tick. Clear timers/listeners in `finally`. If you have no such callback, set `wait_seconds` to regain control for inspection; use `timeout` only when you intend to terminate the process.
+
 `examples/build-with-autoeat.mjs` is optional participant strategy. Pass an explicit reachable placement plan. Construction and health-event handling share a small Promise lock for hand use.
 
 - Successful placements replace `build.progress`, aggregating progress between reports.
@@ -91,6 +93,8 @@ Choose reporting conditions in ordinary code. Pi bundles accepted messages into 
 The example’s edible-item list and hunger threshold are teaching defaults that participants can change. Participants also choose placement plans and movement decisions.
 
 `examples/plugin-goal.mjs X Y Z` loads the Pathfinder adapter, defines an ordinary custom `Goal`, keeps native `Movements` defaults (including digging), coalesces route updates and executes a goal. Add `--no-dig` only for an explicitly non-destructive route. The SDK supplies all currently loaded chunk columns before planning, without per-node RPC. The example verifies actual arrival, reports loaded-terrain coverage on failure, and exits nonzero; a shell pipeline needs `set -o pipefail` to preserve that status. `bot.setControlState('forward',true)`, `bot.clearControlStates()` and `await bot.flush()` are also available for ordinary direct control; avoid competing writers to the same controls.
+
+The route example checks position every second. It requests judgment once per goal after 30 seconds without a one-block displacement, or after 120 seconds without completion (including loops). Path updates do not reset those clocks. These are editable participant defaults, not proof of failure: digging or a long detour may be valid. The report includes position, timing, latest path status and terrain coverage; `goto` **continues** while the model decides. After that one request, use `task_wait({taskId, wait_seconds:30})` for a bounded recheck if continuing; the example does not send repeated reminders. Before starting a competing movement script, cancel the old task and inspect/clear controls. A rejected inbox delivery cancels this example's goal and produces a nonzero process result. Neither the callback nor `wait_seconds` can preempt synchronous code that blocks the Node event loop inside the script; the latter only returns control to the model.
 
 ## Choose a view for the decision
 
