@@ -3,6 +3,7 @@ import { timingSafeEqual, randomUUID } from "node:crypto";
 import { once } from "node:events";
 import { inspectMessages } from "./vision.mjs";
 import { publicProviderResponse } from "./reference-cost.mjs";
+import { inspectPiRequest, piUsage, publicPiEvent } from "./pi-messages.mjs";
 export { ReferenceCostLedger } from "./reference-cost.mjs";
 export { BudgetLedger, BudgetError } from "./ledger.mjs";
 const equal = (a, b) =>
@@ -110,7 +111,7 @@ export function createBudgetGateway({
     });
     try {
       const match =
-        /^\/participants\/([a-zA-Z0-9_-]+)\/v1\/(chat\/completions|budget)$/.exec(
+        /^\/participants\/([a-zA-Z0-9_-]+)\/v1\/(chat\/completions|messages|budget)$/.exec(
           req.url,
         );
       const id = match?.[1],
@@ -146,7 +147,20 @@ export function createBudgetGateway({
         );
         return;
       }
-      if (req.method !== "POST" || match[2] !== "chat/completions")
+      const nativePi = match[2] === "messages";
+      if (nativePi && upstream.api !== "pi-messages")
+        throw Object.assign(new Error("Native Pi upstream is not configured"), {
+          status: 400,
+        });
+      if (!nativePi && upstream.api === "pi-messages")
+        throw Object.assign(
+          new Error("This upstream requires the native Pi endpoint"),
+          { status: 400 },
+        );
+      if (
+        req.method !== "POST" ||
+        !["chat/completions", "messages"].includes(match[2])
+      )
         throw Object.assign(new Error("Method not allowed"), { status: 405 });
       if (authorizeRequest && (await authorizeRequest(id)) !== true)
         throw Object.assign(new Error("Match is not running"), { status: 403 });
@@ -165,11 +179,12 @@ export function createBudgetGateway({
       } catch {
         throw Object.assign(new Error("Invalid JSON"), { status: 400 });
       }
+      const estimationBody = nativePi ? inspectPiRequest(body) : body;
       if (
         !body ||
         typeof body !== "object" ||
         !models.includes(body.model) ||
-        !Array.isArray(body.messages) ||
+        !Array.isArray(estimationBody.messages) ||
         (body.n !== undefined && body.n !== 1)
       )
         throw Object.assign(new Error("Invalid model/messages/n"), {
@@ -197,7 +212,7 @@ export function createBudgetGateway({
         "reasoning_effort",
         "store",
       ]);
-      if (Object.keys(body).some((k) => !allowed.has(k)))
+      if (!nativePi && Object.keys(body).some((k) => !allowed.has(k)))
         throw Object.assign(new Error("Unsupported request field"), {
           status: 400,
         });
@@ -223,15 +238,19 @@ export function createBudgetGateway({
         throw Object.assign(new Error("Provider storage must be disabled"), {
           status: 400,
         });
-      const estimate = estimateReservation(body, limits);
+      const estimate = estimateReservation(estimationBody, limits);
       requestModel = body.model;
       queueStartedAt = Date.now();
       cashQuote = cashLedger?.quote(id, body.model, estimate);
       if (cashQuote) cashLedger.assertFits(id, cashQuote);
-      body.max_completion_tokens = estimate.output;
-      delete body.max_tokens;
-      delete body.user;
-      if (body.stream) body.stream_options = { include_usage: true };
+      if (nativePi)
+        body.options = { ...body.options, maxTokens: estimate.output };
+      else {
+        body.max_completion_tokens = estimate.output;
+        delete body.max_tokens;
+        delete body.user;
+        if (body.stream) body.stream_options = { include_usage: true };
+      }
       reservation = await ledger.acquire(id, estimate.total, {
         signal: abort.signal,
       });
@@ -290,7 +309,7 @@ export function createBudgetGateway({
         ]),
       });
       res.statusCode = response.status;
-      if (!body.stream || !response.ok) {
+      if ((!nativePi && !body.stream) || !response.ok) {
         const text = await response.text();
         let value;
         try {
@@ -322,21 +341,30 @@ export function createBudgetGateway({
         const decoder = new TextDecoder();
         const processLine = (line) => {
           if (!line.startsWith("data:"))
-            return cashLedger ? (line === "" ? "\n" : "") : "";
+            return cashLedger || nativePi ? (line === "" ? "\n" : "") : "";
           const data = line.slice(5).trim();
           if (data === "[DONE]") return cashLedger ? "data: [DONE]\n" : "";
           let value;
           try {
             value = JSON.parse(data);
           } catch {
-            if (cashLedger) throw new Error("Malformed upstream SSE data");
+            if (cashLedger || nativePi)
+              throw new Error("Malformed upstream SSE data");
             return "";
           }
-          actual = usageTokens(value) ?? actual;
-          if (value.usage !== undefined && value.usage !== null)
-            actualUsage = value.usage;
-          return cashLedger
-            ? `data: ${JSON.stringify(publicProviderResponse(value))}\n`
+          if (nativePi) {
+            const usage = piUsage(value);
+            if (usage) {
+              actual = usage.total_tokens;
+              actualUsage = usage;
+            }
+          } else {
+            actual = usageTokens(value) ?? actual;
+            if (value.usage !== undefined && value.usage !== null)
+              actualUsage = value.usage;
+          }
+          return cashLedger || nativePi
+            ? `data: ${JSON.stringify(nativePi ? publicPiEvent(value) : publicProviderResponse(value))}\n`
             : "";
         };
         for await (const chunk of response.body) {
@@ -350,14 +378,14 @@ export function createBudgetGateway({
             pending = pending.slice(newline + 1);
             out += processLine(line);
           }
-          const data = cashLedger ? out : chunk;
+          const data = cashLedger || nativePi ? out : chunk;
           if (data.length && !res.write(data))
             await once(res, "drain", { signal: abort.signal });
         }
         pending += decoder.decode();
         if (pending) {
           const out = processLine(pending);
-          if (cashLedger && out) res.write(out);
+          if ((cashLedger || nativePi) && out) res.write(out);
         }
         res.end();
       }

@@ -17,9 +17,11 @@
     "format": "prettier --write \"packages/**/*.mjs\" \"tests/**/*.mjs\" \"examples/**/*.mjs\" \"scripts/**/*.mjs\"",
     "format:check": "prettier --check \"packages/**/*.mjs\" \"tests/**/*.mjs\" \"examples/**/*.mjs\" \"scripts/**/*.mjs\"",
     "arena:live": "node packages/arena/src/live-cli.mjs",
-    "agent:start": "node packages/pi-extension/bootstrap.mjs"
+    "agent:start": "node packages/pi-extension/bootstrap.mjs",
+    "auth:codex": "node packages/codex-adapter/login.mjs"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "1.1.0",
     "@earendil-works/pi-coding-agent": "1.1.0",
     "mineflayer": "4.39.0",
     "mineflayer-pathfinder": "2.4.5",

@@ -1,0 +1,6 @@
+FROM eclipse-temurin:21-jre
+RUN mkdir -p /data && chown 1000:1000 /data
+COPY server.jar /opt/minecraft/server.jar
+USER 1000:1000
+WORKDIR /data
+CMD ["java", "-Xms512M", "-Xmx2G", "-jar", "/opt/minecraft/server.jar", "nogui"]

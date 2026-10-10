@@ -1,0 +1,132 @@
+name: craft-arena-local
+x-common: &common
+  user: '1000:1000'
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  init: true
+  pids_limit: 256
+  mem_limit: 2g
+  cpus: 2.0
+  restart: 'no'
+services:
+  minecraft:
+    <<: *common
+    build: ./server
+    image: craft-arena-minecraft:1.21
+    mem_limit: 3g
+    networks: [backend]
+    volumes: [./minecraft-data:/data]
+  arena-host:
+    <<: *common
+    build:
+      context: ${ARENA_SOURCE_DIR}
+      dockerfile: infra/Dockerfile.trusted
+    image: craft-arena-trusted:local
+    command: [node, packages/arena/src/live-cli.mjs, /config/match.live.json, /results/match-result.json]
+    environment:
+      MC_RCON_PASSWORD: ${MC_RCON_PASSWORD}
+      RED1_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
+      BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+    networks: [backend, red1, blue1]
+    volumes:
+      - ./match.live.json:/config/match.live.json:ro
+      - ./results:/results
+      - ./control:/control
+  codex-adapter:
+    <<: *common
+    profiles: [agents]
+    image: craft-arena-trusted:local
+    command: [node, packages/codex-adapter/cli.mjs, /config/codex.json]
+    environment:
+      CODEX_ADAPTER_TOKEN: ${CODEX_ADAPTER_TOKEN}
+      NODE_USE_ENV_PROXY: '1'
+      HTTP_PROXY: ${ARENA_OPENAI_PROXY:-}
+      HTTPS_PROXY: ${ARENA_OPENAI_PROXY:-}
+      NO_PROXY: localhost,127.0.0.1,::1
+    networks: [model-backend, model-egress]
+    volumes:
+      - ./codex.json:/config/codex.json:ro
+      - ./auth:/auth
+  budget-gateway:
+    <<: *common
+    profiles: [agents]
+    image: craft-arena-trusted:local
+    command: [node, packages/budget-gateway/src/cli.mjs, /config/budget.json]
+    environment:
+      CODEX_ADAPTER_TOKEN: ${CODEX_ADAPTER_TOKEN}
+      RED1_MODEL_TOKEN: ${RED1_MODEL_TOKEN}
+      RED1_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
+    networks: [red1, model-backend]
+    volumes: [./budget.json:/config/budget.json:ro]
+  deepseek-adapter:
+    <<: *common
+    profiles: [agents]
+    image: craft-arena-trusted:local
+    command: [node, packages/codex-adapter/cli.mjs, /config/deepseek.json]
+    environment:
+      DEEPSEEK_ADAPTER_TOKEN: ${DEEPSEEK_ADAPTER_TOKEN}
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
+    networks: [deepseek-backend, model-egress]
+    volumes: [./deepseek.json:/config/deepseek.json:ro]
+  budget-blue:
+    <<: *common
+    profiles: [agents]
+    image: craft-arena-trusted:local
+    command: [node, packages/budget-gateway/src/cli.mjs, /config/budget.json]
+    environment:
+      DEEPSEEK_ADAPTER_TOKEN: ${DEEPSEEK_ADAPTER_TOKEN}
+      BLUE1_MODEL_TOKEN: ${BLUE1_MODEL_TOKEN}
+      BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+    networks: [blue1, deepseek-backend]
+    volumes: [./budget.deepseek.json:/config/budget.json:ro]
+  participant-red1:
+    <<: *common
+    profiles: [agents]
+    build:
+      context: ${ARENA_SOURCE_DIR}
+      dockerfile: infra/Dockerfile.participant
+    image: craft-arena-participant:local
+    environment:
+      ARENA_BRIDGE_URL: http://arena-host:8080
+      ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
+      OPENAI_BASE_URL: http://budget-gateway:8081/participants/red1/v1
+      OPENAI_API_KEY: ${RED1_MODEL_TOKEN}
+      MODEL_ID: ${ARENA_MODEL_ID:-gpt-6.1-sol}
+      PI_MODEL_API: pi-messages
+      PI_REASONING: '1'
+      TEAM_GIT_DIR: /team-git
+      ARENA_WAIT_FOR_MATCH: '1'
+      ARENA_START_TIMEOUT_MS: '86400000'
+    networks: [red1]
+    volumes: [red-work:/workspace, red-git:/team-git]
+    tmpfs: ['/tmp:rw,nosuid,size=256m']
+  participant-blue1:
+    <<: *common
+    profiles: [agents]
+    image: craft-arena-participant:local
+    environment:
+      ARENA_BRIDGE_URL: http://arena-host:8082
+      ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+      OPENAI_BASE_URL: http://budget-blue:8081/participants/blue1/v1
+      OPENAI_API_KEY: ${BLUE1_MODEL_TOKEN}
+      MODEL_ID: deepseek-flash
+      PI_MODEL_API: pi-messages
+      PI_REASONING: '1'
+      TEAM_GIT_DIR: /team-git
+      ARENA_WAIT_FOR_MATCH: '1'
+      ARENA_START_TIMEOUT_MS: '86400000'
+    networks: [blue1]
+    volumes: [blue-work:/workspace, blue-git:/team-git]
+    tmpfs: ['/tmp:rw,nosuid,size=256m']
+networks:
+  backend: {internal: true}
+  red1: {internal: true}
+  blue1: {internal: true}
+  model-backend: {internal: true}
+  deepseek-backend: {internal: true}
+  model-egress: {}
+volumes:
+  red-work: {}
+  blue-work: {}
+  red-git: {}
+  blue-git: {}

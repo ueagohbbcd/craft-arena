@@ -1,0 +1,196 @@
+{
+  "id": "direct-fire-local",
+  "game": "race-of-wool",
+  "map": {
+    "id": "direct-fire",
+    "version": "java-1.21-v1.1",
+    "sha256": "80d40110a81e7a833d614eeb8157fe1267feff7e1cbc47748d5df9ad01f3d8f1"
+  },
+  "durationMs": 1800000,
+  "teams": [
+    {
+      "id": "red"
+    },
+    {
+      "id": "blue"
+    }
+  ],
+  "participants": [
+    {
+      "id": "red1",
+      "team": "red",
+      "username": "arena_red1",
+      "bridge": {
+        "host": "0.0.0.0",
+        "port": 8080,
+        "tokenEnv": "RED1_BRIDGE_TOKEN",
+        "allowChat": true
+      }
+    },
+    {
+      "id": "blue1",
+      "team": "blue",
+      "username": "arena_blue1",
+      "bridge": {
+        "host": "0.0.0.0",
+        "port": 8082,
+        "tokenEnv": "BLUE1_BRIDGE_TOKEN",
+        "allowChat": true
+      }
+    }
+  ],
+  "rules": {
+    "objectives": [
+      "red-wool",
+      "blue-wool",
+      "green-wool"
+    ],
+    "winner": "first-team-all-objectives",
+    "onTimeout": "draw"
+  },
+  "versions": {
+    "participantImage": "craft-arena-participant:local",
+    "bridge": "local-source"
+  },
+  "live": {
+    "minecraft": {
+      "host": "minecraft",
+      "port": 25565,
+      "version": "1.21",
+      "auth": "offline"
+    },
+    "rcon": {
+      "host": "minecraft",
+      "port": 25575,
+      "passwordEnv": "MC_RCON_PASSWORD"
+    },
+    "observer": {
+      "username": "arena_referee",
+      "commands": [
+        {
+          "command": "gamemode spectator arena_referee",
+          "expect": "^$|[Ss]pectator"
+        },
+        {
+          "command": "execute if entity @a[name=arena_referee,gamemode=spectator]",
+          "expect": "Test passed"
+        },
+        {
+          "command": "tp arena_referee 291 85 -40",
+          "expect": "Teleported"
+        }
+      ]
+    },
+    "readyTimeoutMs": 60000,
+    "pollMs": 100,
+    "commands": {
+      "prepare": [
+        {
+          "command": "gamerule doMobSpawning false",
+          "expect": "false"
+        },
+        {
+          "command": "gamerule spawnRadius 0",
+          "expect": "0"
+        },
+        {
+          "command": "difficulty normal",
+          "expect": "Normal|normal|already"
+        }
+      ],
+      "start": [
+        {
+          "command": "tp arena_red1 317.5 72 -24.5 90 0",
+          "expect": "Teleported"
+        },
+        {
+          "command": "spawnpoint arena_red1 317 72 -25",
+          "expect": "Set spawn point"
+        },
+        {
+          "command": "tp arena_blue1 317.5 72 -56.5 90 0",
+          "expect": "Teleported"
+        },
+        {
+          "command": "spawnpoint arena_blue1 317 72 -57",
+          "expect": "Set spawn point"
+        },
+        {
+          "command": "gamerule doMobSpawning true",
+          "expect": "true"
+        }
+      ],
+      "end": [
+        {
+          "command": "gamerule doMobSpawning false",
+          "expect": "false"
+        }
+      ]
+    },
+    "goals": [
+      {
+        "team": "red",
+        "objective": "red-wool",
+        "position": {
+          "x": 290,
+          "y": 68,
+          "z": -18
+        },
+        "block": "red_wool"
+      },
+      {
+        "team": "red",
+        "objective": "blue-wool",
+        "position": {
+          "x": 291,
+          "y": 68,
+          "z": -18
+        },
+        "block": "blue_wool"
+      },
+      {
+        "team": "red",
+        "objective": "green-wool",
+        "position": {
+          "x": 292,
+          "y": 68,
+          "z": -18
+        },
+        "block": "green_wool"
+      },
+      {
+        "team": "blue",
+        "objective": "red-wool",
+        "position": {
+          "x": 290,
+          "y": 68,
+          "z": -63
+        },
+        "block": "red_wool"
+      },
+      {
+        "team": "blue",
+        "objective": "blue-wool",
+        "position": {
+          "x": 291,
+          "y": 68,
+          "z": -63
+        },
+        "block": "blue_wool"
+      },
+      {
+        "team": "blue",
+        "objective": "green-wool",
+        "position": {
+          "x": 292,
+          "y": 68,
+          "z": -63
+        },
+        "block": "green_wool"
+      }
+    ],
+    "startSignalFile": "/control/start",
+    "briefing": "Direct Fire by Vechs, Java 1.21 conversion. Red team uses Lane 1 (block Z -32 through -17), Blue team Lane 2 (Z -64 through -49). Stay in your 16-block-wide lane after starting. Obtain red, blue and green goal wool from map chests, never by dyeing. Place all three in your monument to win. Ranged combat across lanes is allowed; do not target the enemy monument with TNT. Do not travel on top of any map ceiling. Start in the original lane start boxes; use the map buttons to leave. Deaths do not end the match; respawn returns to your lane. Time limit 30 minutes; timeout draws. Lane and wool-origin rules are participant rules; this host automatically scores monument blocks only.",
+    "publishGoalPositions": true
+  }
+}

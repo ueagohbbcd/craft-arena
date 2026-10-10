@@ -94,7 +94,9 @@ export async function createLiveMatch(
   } = {},
 ) {
   validateLive(config);
-  if (!createBot) ({ createBot } = await import("mineflayer"));
+  if (!createBot)
+    ({ createCompatibleBot: createBot } =
+      await import("../../mf-bridge/minecraft-compat.mjs"));
   if (!startLiveBridge)
     ({ startLiveBridge } = await import("../../mf-bridge/live.mjs"));
   const { Vec3 } = await import("vec3");

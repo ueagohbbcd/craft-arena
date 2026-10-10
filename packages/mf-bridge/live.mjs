@@ -16,7 +16,8 @@ export async function startLiveBridge({
     closeTimeoutMs > 30000
   )
     throw new Error("Invalid close timeout");
-  const createBot = factory ?? (await import("mineflayer")).createBot;
+  const createBot =
+    factory ?? (await import("./minecraft-compat.mjs")).createCompatibleBot;
   const bot = createBot({ ...minecraft });
   let ended = false,
     stopping = false;

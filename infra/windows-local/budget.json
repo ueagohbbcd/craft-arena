@@ -1,0 +1,60 @@
+{
+  "participants": {
+    "red1": {
+      "team": "red",
+      "tokenEnv": "RED1_MODEL_TOKEN",
+      "tokens": null,
+      "tpm": 131072,
+      "concurrency": 2,
+      "matchStatusUrl": "http://arena-host:8080/v1/match",
+      "matchTokenEnv": "RED1_BRIDGE_TOKEN",
+      "cashRateLimit": "0.50"
+    }
+  },
+  "teams": {
+    "red": {
+      "tokens": null,
+      "tpm": 262144,
+      "concurrency": 2,
+      "cashRateLimit": "0.50"
+    }
+  },
+  "upstream": {
+    "url": "http://codex-adapter:8083/messages",
+    "apiKeyEnv": "CODEX_ADAPTER_TOKEN",
+    "api": "pi-messages"
+  },
+  "models": [
+    "gpt-6.1-sol"
+  ],
+  "limits": {
+    "maxOutputTokens": 2048,
+    "estimator": "conservative",
+    "maxBodyBytes": 8388608,
+    "maxImages": 4,
+    "maxImageBytes": 2097152,
+    "maxImageDimension": 4096,
+    "imageTokenAllowance": 4096,
+    "requestTimeoutMs": 120000,
+    "contextWindowTokens": 32768,
+    "contextBytesPerToken": 4,
+    "maxReservationTokens": 131072
+  },
+  "requireRunningMatch": true,
+  "examplePurpose": "Local operator configuration: gpt-6.1-sol, USD 0.50 per participant/team per 60-second window, standard short-context reference prices.",
+  "referenceCost": {
+    "mode": "official-api-list-price",
+    "currency": "USD",
+    "windowMs": 60000,
+    "models": {
+      "gpt-6.1-sol": {
+        "verifiedAt": "2026-10-10",
+        "cachedInputPerMillion": "0.10",
+        "provider": "openai",
+        "inputPerMillion": "2",
+        "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+        "outputPerMillion": "10"
+      }
+    }
+  }
+}

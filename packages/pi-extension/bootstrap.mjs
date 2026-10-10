@@ -66,13 +66,16 @@ export async function preparePiProfile({
       "Compaction settings must leave response reserve and a smaller recent-history window within PI_CONTEXT_WINDOW",
     );
   const compaction = { enabled: true, reserveTokens, keepRecentTokens };
+  const modelApi = env.PI_MODEL_API ?? "openai-completions";
+  if (!["openai-completions", "pi-messages"].includes(modelApi))
+    throw new Error("PI_MODEL_API must be openai-completions or pi-messages");
   const agentDir = directory || (await mkdtemp(join(tmpdir(), "arena-pi-")));
   await mkdir(agentDir, { recursive: true, mode: 0o700 });
   const models = {
     providers: {
       arena: {
         baseUrl: base.toString().replace(/\/$/, ""),
-        api: "openai-completions",
+        api: modelApi,
         apiKey: "${OPENAI_API_KEY}",
         models: [
           {

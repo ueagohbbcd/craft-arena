@@ -1,6 +1,20 @@
 # 交付验证记录
 
-日期：2026-10-10。版本：0.1.0。执行环境：Linux，Node.js 24.19.0，npm 11.9.0。
+日期：2026-10-10。版本：0.1.0。最新部署：Windows / Docker Desktop，Linux 容器 Node.js 24.21.0。
+
+## Windows 本机部署验收
+
+- 最新完整容器测试：126 项通过，0 失败，0 跳过，启用 `MC_TEST_CHROMIUM=1`，包含实际 Chromium PNG 与 Unix IPC。JavaScript 语法检查通过。
+- 官方 Minecraft 1.21 与 Direct Fire Java 1.21：准备、双方出生点、纪念碑加载、开局、目标计分、结束与断开冒烟通过。通过 RCON 放置三个目标羊毛验证红队胜利及 `stopConfirmed`，随后恢复地图；恢复的 21 个文件与原地图哈希一致。这不是自主通关成绩。
+- 锁定依赖的协议 767 配方映射存在偏移；已在可信 bot 建立连接前作版本限定修正。真实 108271 字节配方包解析出 1290 条并逐字节回写一致；实际连接不再出现对应 PartialReadError。
+- Codex `gpt-6.1-sol` OAuth 与 DeepSeek `deepseek-flash` 均完成真实生成；两队各完成 Pi→预算网关→可信适配器→模型→bash→游戏 SDK→Minecraft 位置/生命观察。长期 OAuth 刷新稳定性仍需运行观察。
+- 双方容器可达自己的桥和预算网关；跨队网关、模型适配器、Minecraft/RCON、外部 IPv4/IPv6、Windows 10808 代理和 18181 转发器均不可达。己方 token 访问另一队桥返回 401。UID 1000、no-new-privileges、无 Docker socket、独立工作/团队卷及配置资源上限已核对；未做资源耗尽压力测试。
+- Windows 转发器已完成真实 Codex 调用。5 项本地 TCP 测试覆盖新连接动态选择 direct/两个代理、原隧道存活、认证和目标限制、超时/取消、上游凭据隔离及半关闭响应。没有为测试修改用户系统代理。
+- 全新目录初始化、地图/JAR 校验、拒绝覆盖、私有 ACL 和 Compose 配置解析通过；Windows 控制脚本通过语法检查。已在真实部署完成 stop/reset/up 循环，旧世界和结果归档，两队重新等待开赛。
+
+本机证据保留在忽略的 `runtime/deploy/`：`container-tests.log`、`results/smoke-result.json`、`pi-red1.log`、`pi-blue1.log`。密钥、模型原始日志和地图不上传仓库。当前地图已准备，两名 Pi 等待开赛；完整自主对局、实战 PvP、动态地形寻路及容器交互尚未验证。
+
+以下为较早源码包的离线交付记录；其中环境限制和跳过项由上面的部署验收更新。
 
 ## 验证范围
 
@@ -42,7 +56,7 @@
 - 程序事件、最新状态及紧急判断各有投递入口；消息容量、有效期、输出与进程数量有界。
 - Pi 自动压缩启用，默认 32,768 上下文对应 8,192 预留与 8,192 最近历史；摘要走相同模型网关。供应商上下文估算和保守额度预留分别配置，长历史回归测试通过。
 
-## 明确跳过或待部署验证
+## 原源码包跳过项及持续限制
 
 1. 当前执行环境禁止 Unix socket bind，相关用例明确跳过。带身份验证的 loopback HTTP IPC 已测试；目标 Linux 部署仍须验收 Unix socket。
 2. 当前环境 Chromium 启动被操作系统权限限制，真实 WebGL 截图用例跳过。CPU 图像和 Prismarine 资源/区块传输已通过；部署后运行 MC_TEST_CHROMIUM=1 的截图测试。

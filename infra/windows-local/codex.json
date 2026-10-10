@@ -1,0 +1,9 @@
+{
+  "authFile": "/auth/auth.json",
+  "tokenEnv": "CODEX_ADAPTER_TOKEN",
+  "allowedModels": ["gpt-6.1-sol"],
+  "host": "0.0.0.0",
+  "port": 8083,
+  "maxOutputTokens": 2048,
+  "timeoutMs": 120000
+}

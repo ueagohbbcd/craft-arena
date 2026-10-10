@@ -1,0 +1,60 @@
+{
+  "participants": {
+    "blue1": {
+      "team": "blue",
+      "tokenEnv": "BLUE1_MODEL_TOKEN",
+      "tokens": null,
+      "tpm": 131072,
+      "concurrency": 2,
+      "matchStatusUrl": "http://arena-host:8082/v1/match",
+      "matchTokenEnv": "BLUE1_BRIDGE_TOKEN",
+      "cashRateLimit": "0.50"
+    }
+  },
+  "teams": {
+    "blue": {
+      "tokens": null,
+      "tpm": 262144,
+      "concurrency": 2,
+      "cashRateLimit": "0.50"
+    }
+  },
+  "upstream": {
+    "url": "http://deepseek-adapter:8083/messages",
+    "apiKeyEnv": "DEEPSEEK_ADAPTER_TOKEN",
+    "api": "pi-messages"
+  },
+  "models": [
+    "deepseek-flash"
+  ],
+  "limits": {
+    "maxOutputTokens": 2048,
+    "estimator": "conservative",
+    "maxBodyBytes": 8388608,
+    "maxImages": 4,
+    "maxImageBytes": 2097152,
+    "maxImageDimension": 4096,
+    "imageTokenAllowance": 4096,
+    "requestTimeoutMs": 120000,
+    "contextWindowTokens": 32768,
+    "contextBytesPerToken": 4,
+    "maxReservationTokens": 131072
+  },
+  "requireRunningMatch": true,
+  "examplePurpose": "Local operator configuration: DeepSeek V4.1 Flash; fixed official PEAK prices for reference-cost comparison independent of actual off-peak billing.",
+  "referenceCost": {
+    "mode": "official-api-list-price",
+    "currency": "USD",
+    "windowMs": 60000,
+    "models": {
+      "deepseek-flash": {
+        "cachedInputPerMillion": "0.006",
+        "inputPerMillion": "0.30",
+        "outputPerMillion": "1.20",
+        "provider": "deepseek",
+        "sourceUrl": "https://api-docs.deepseek.com/quick_start/pricing/",
+        "verifiedAt": "2026-10-10"
+      }
+    }
+  }
+}

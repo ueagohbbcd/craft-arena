@@ -34,7 +34,7 @@
 
 源码已包含比赛宿主、模型网关、可信游戏桥、参赛 SDK、选定插件适配、视觉工具和 Pi 运行集成。本地测试使用真实 Pi 会话、普通子进程和已安装插件，结合固定模型响应与可控游戏夹具，验证执行、交付和计量流程。
 
-真实地图对局、动态地形与实战插件行为、Docker 隔离及 Chromium WebGL 截图仍须在目标部署验收。当前实战裁判适用于按配置纪念碑方块状态判定的地图，运营者需选用相符规则。具体通过、跳过与待验收项目见 [验证记录](docs/VALIDATION.md)；跨模块证据见 [集成测试说明](docs/INTEGRATION.md)。
+Windows Docker Desktop 部署已通过 Direct Fire 1.21 地图生命周期与计分冒烟、两队网络隔离、Chromium 截图，以及 GPT/Codex 和 DeepSeek 的真实 Pi→模型网关→游戏观察链路。容器测试 126 项全部通过。完整自主对局、动态地形与实战插件表现仍待验证。当前裁判按配置纪念碑方块状态判定；具体证据与限制见 [验证记录](docs/VALIDATION.md)。
 
 重复失败、低效轮询等启发式提醒列为后续实验。当前指南提供编程建议，相关自动反馈尚待实现和比较评估。
 
@@ -54,7 +54,7 @@ node examples/render-fixture.mjs
 
 - **了解范围：** [主要特性](docs/FEATURES.md)、[项目规格](docs/SPEC.docx)／[纯文本规格](docs/SPEC.txt)。规格记录目标与待决策项，验证记录说明当前证据。
 - **参赛编程：** [玩家入门](docs/PLAYER.md)、[短说明](AGENTS.md)、[编程指南与示例](examples/SKILL.md)、[Pi 启动配置](packages/pi-extension/README.md)。入口为 `packages/pi-extension/bootstrap.mjs`。
-- **部署比赛：** [运营指南](infra/README.md)。完整比赛使用 `infra/compose.live.yaml` 与 `infra/match.live.template.json`；`compose.yaml` 用于单独服务调试。
+- **部署比赛：** [运营指南](infra/README.md)。Windows 本机使用 `scripts/initialize-windows-arena.ps1` 和 `scripts/windows-arena.ps1`，包含 Direct Fire 模板、Codex OAuth、DeepSeek 和自动系统代理。其他地图使用 `infra/compose.live.yaml` 与 `infra/match.live.template.json`；`compose.yaml` 用于单独服务调试。
 - **开发验证：** 修改后运行 `npm test`；涉及 Pi 或插件适配时检查相应集成用例。部署前固定地图、依赖与镜像版本，保存配置和结果。
 
 ### 模块入口

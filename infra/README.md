@@ -1,5 +1,30 @@
 # Operator deployment template
 
+## Windows local deployment
+
+Use PowerShell 7, Node.js 24+, and running Docker Desktop with Linux containers. Install project dependencies with `npm ci`. The `windows-local` template is for the verified Direct Fire Java 1.21 archive, two participants, a 30-minute match, Codex `gpt-6.1-sol` versus DeepSeek `deepseek-flash`, and USD 0.50 per participant/team per minute in reference cost. Review prices in both budget files before a later competition.
+
+Set `DEEPSEEK_API_KEY` privately in the shell environment. After accepting the Minecraft EULA, initialize a new deployment:
+
+```powershell
+./scripts/initialize-windows-arena.ps1 -MapArchive 'C:\path\Direct-Fire-Java-1.21.zip' -AcceptEula
+./scripts/codex-login.ps1 -AuthFile runtime/deploy/auth/auth.json
+./scripts/windows-arena.ps1 build
+./scripts/windows-arena.ps1 up
+./scripts/windows-arena.ps1 status
+./scripts/windows-arena.ps1 start
+```
+
+Initialization verifies the map and official server JAR hashes, creates private tokens/configuration with a restricted Windows ACL, and refuses to overwrite an existing directory. `-ServerJar` can supply the same verified JAR offline. Worlds, OAuth credentials, keys and results stay under ignored `runtime/deploy`; they are not included in the repository or participant image. An alternate `-DeploymentDir` must be passed consistently, including its auth file to login. The template uses Compose project `craft-arena-local`: operate one deployment at a time on this host.
+
+`up` prepares the map and starts both Pi agents waiting for the operator. `start` releases the match. `stop` asks the trusted host to end and save results before stopping the other services. `reset` stops services, archives the previous world/result/start marker, restores the original map and removes stopped host/gateway/participant containers to start fresh in-memory ledgers. Team code volumes are retained; run `up` again for the next match. `logs` and `status` inspect the deployment.
+
+OpenAI traffic uses an authenticated Windows relay on loopback port 18181. Every new CONNECT tunnel resolves the current Windows system proxy (including direct mode); changing the proxy does not require editing configuration or restarting containers. Existing connections retain their route until closed. Direct mode still requires working direct access to the provider. The relay permits only `chatgpt.com:443` and `auth.openai.com:443`, keeps TLS end-to-end, and logs no credentials. Only the trusted Codex adapter receives its proxy credential. `up` starts the hidden relay; `stop` stops its recorded process. `proxy` repairs/restarts the relay and adapter when needed. Login reads the current system proxy separately when launched.
+
+The map template and actual deployment checks are described in [validation](../docs/VALIDATION.md). Full autonomous gameplay remains to be evaluated.
+
+## General templates
+
 1. Run `node --test` locally first. Supply an operator-owned map, exact Minecraft version, vetted non-root server image, installed world, and acceptance of any applicable Minecraft agreement yourself.
 2. Supply `.env` values for MC_SERVER_IMAGE, MC_VERSION, ARENA_MODEL_ID, participant bridge/model tokens and MODEL_UPSTREAM_KEY. Use unique, unguessable operator-provided tokens. Do not commit them. Set budget.example.json model allowlist/limits and upstream. Match membership must match gateway/routes/bridge instances.
 3. Build-time npm ci uses the root lockfile, including pinned @earendil-works/pi-coding-agent and trusted Mineflayer dependencies. Install scripts are disabled; any required native helper installation must be reviewed and included in the image before competition. For reproducibility, freeze a reviewed lockfile and image digests before a real competition. Prepare participant plugins/materials before air-gapping; ordinary arbitrary scripts and plugins are allowed inside the container.
@@ -12,7 +37,7 @@ Topology: each participant has only its own internal frontend, with its authenti
 
 These templates require deployment security validation. Docker `internal:true` removes ordinary external routing but does not prove complete isolation from host-side services, kernel issues, misconfiguration, IPv6 or future added networks. Do not attach a NAT internet network to participants to allow Git, since that can allow direct model/MC access. Team Git uses only volumes. If external fetch is needed, provide host-controlled allowlisted egress proxy with DNS/address restrictions, test blocked direct/IPv6/host-gateway paths, and keep it separate from model credentials. A trusted bridge must reject raw protocol forwarding and enforce action envelopes. Participants within one sandbox can inspect their own route token, intentionally; never give them other participants' tokens.
 
-Live readiness and acceptance tests still required: port reachability matrix, external-model bypass attempts, cross-team volume isolation, memory/CPU/PID enforcement, actual bridge/server version compatibility, map reset, authoritative objectives, simultaneous start and reliable stop. This template publishes no control API. Bridge startup readiness/retry behavior may require operator orchestration.
+For a new deployment, verify the port reachability matrix, external-model bypass attempts, cross-team volumes, resource limits, server compatibility and map lifecycle. The Windows local template has the specific smoke evidence recorded above; other configurations need their own checks. This template publishes no control API.
 
 ## Live orchestration path
 
@@ -20,9 +45,9 @@ Use `compose.live.yaml` for a real configured match; `compose.yaml` is a standal
 
 After reviewing resolved Compose config, start trusted services and inspect arena-host readiness. Participant agents can then be started with the same compose file. Once all agents are ready, create the operator start marker with `docker compose --env-file .env -f infra/compose.live.yaml exec arena-host touch /control/start`. Actions are gated until marker and server start acknowledgements. The result is written to the match-results volume at /results/match-result.json. SIGINT/SIGTERM request abandonment and trusted cleanup. Clear /control/start before preparing another match; stale markers fail closed.
 
-Do not reuse a running budget-gateway ledger across different matches without deliberately configuring the intended cumulative budget. After collecting the result, operator stops participant containers and other services. The match host shuts down the game connections and action surfaces, but does not have a Docker socket or container-management privilege. The live model gateway requires authenticated running match status before queueing and immediately before upstream dispatch; ended/unavailable status rejects new work and refunds an unused reservation. Already-dispatched calls may finish and are still charged. Standalone component mode lacks this match guard. Live-world compatibility and isolation remain untested against an actual server here.
+Do not reuse a running budget-gateway ledger across different matches without deliberately configuring the intended cumulative budget. After collecting the result, operator stops participant containers and other services. The match host shuts down the game connections and action surfaces, but does not have a Docker socket or container-management privilege. The live model gateway requires authenticated running match status before queueing and immediately before upstream dispatch; ended/unavailable status rejects new work and refunds an unused reservation. Already-dispatched calls may finish and are still charged. Standalone component mode lacks this match guard.
 
-The trusted image pre-creates /results and /control owned by UID/GID 1000 before switching to USER node, so new named volumes inherit writable directory ownership. Existing volumes retain their existing permissions: the operator must verify UID 1000 can write result files and that its start-marker directory is accessible, correcting ownership through their own authorized deployment procedure if necessary. Static source review and YAML parsing verified these paths; no container ownership or Docker isolation test was run here.
+The trusted image pre-creates /results and /control owned by UID/GID 1000 before switching to USER node, so new named volumes inherit writable directory ownership. Existing volumes retain their existing permissions: the operator must verify UID 1000 can write result files and that its start-marker directory is accessible, correcting ownership through their own authorized deployment procedure if necessary. The Windows local deployment verified writable host paths and participant network isolation; repeat these checks for a different volume layout.
 
 Participant image installs Chromium from the official Debian package repository and sets CHROMIUM_PATH=/usr/bin/chromium, alongside locked optional prismarine-viewer/Playwright dependencies. This provides the browser executable needed by textured world_render3d; the geometry renderer remains available. Chromium/SwiftShader rendering consumes additional participant CPU/memory/PIDs and its time counts against match wall-clock time. Tune the published resource limits fairly for all participants. The supplied local renderer disables Chromium's own sandbox inside the already-unprivileged participant container; it renders only the local trusted mirror and must not be repurposed to browse arbitrary external content.
 
@@ -39,6 +64,6 @@ The normal Compose mounts now default to budget.cash.example.json / budget.cash.
 
 cashRateLimit means official-price reference currency per windowMs (default 60000ms), not an overall balance. Cash-mode examples use tokens:null so legacy lifetime-token exhaustion does not unexpectedly stop only the model while gameplay continues. TPM/concurrency still apply. Models receive current-window billing-category shares, rate excess ratios and real queue delay; monetary amounts and cumulative costs remain in trusted logs/operatorSnapshot. Totals are official API price equivalents, not actual subscription/API invoices. Missing usage is marked unknown and charged conservatively to the rate window; cost shares never invent its category.
 
-The operator monitors cumulative reference cost and uses the existing trusted arena-host SIGTERM/SIGINT end path to stop gameplay: it gates actions, clears controls, executes end commands and disconnects game bots. Check the saved result and stopConfirmed, then stop participant/gateway services. No new automatic total-money supervisor is configured. All price/accounting/queue tests use local fake upstreams; no paid request, actual credential or deployment was used for this change.
+The operator monitors cumulative reference cost and uses the existing trusted arena-host SIGTERM/SIGINT end path to stop gameplay: it gates actions, clears controls, executes end commands and disconnects game bots. Check the saved result and stopConfirmed, then stop participant/gateway services. No new automatic total-money supervisor is configured. Price/accounting/queue regression tests use local fake upstreams; the Windows deployment additionally exercised both real model providers.
 
 Participant image construction copies the public package manifests, code, examples, documentation and tests explicitly. Operator configuration under infra, including monetary window limits and private map setup, remains outside that image. Keep actual operator configuration in those trusted-side files or an external deployment directory; public toolkit directories are visible to participants. Runtime configuration is mounted only into the trusted services that require it.
