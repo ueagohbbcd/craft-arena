@@ -3,26 +3,26 @@
     "red1": {
       "team": "red",
       "tokenEnv": "RED1_MODEL_TOKEN",
-      "tokens": 200000,
+      "tokens": null,
       "tpm": 131072,
       "concurrency": 2
     },
     "blue1": {
       "team": "blue",
       "tokenEnv": "BLUE1_MODEL_TOKEN",
-      "tokens": 200000,
+      "tokens": null,
       "tpm": 131072,
       "concurrency": 2
     }
   },
   "teams": {
     "red": {
-      "tokens": 200000,
+      "tokens": null,
       "tpm": 262144,
       "concurrency": 2
     },
     "blue": {
-      "tokens": 200000,
+      "tokens": null,
       "tpm": 262144,
       "concurrency": 2
     }
@@ -31,18 +31,11 @@
     "url": "https://api.openai.com/v1/chat/completions",
     "apiKeyEnv": "MODEL_UPSTREAM_KEY"
   },
-  "models": ["OPERATOR_SELECT_MODEL"],
   "limits": {
-    "maxOutputTokens": 2048,
     "estimator": "conservative",
     "maxBodyBytes": 8388608,
-    "maxImages": 4,
-    "maxImageBytes": 2097152,
-    "maxImageDimension": 4096,
-    "imageTokenAllowance": 4096,
-    "requestTimeoutMs": 120000,
-    "contextWindowTokens": 32768,
-    "contextBytesPerToken": 4,
-    "maxReservationTokens": 131072
-  }
+    "imageTokenAllowance": 4096
+  },
+  "modelConfig": "model.example.json",
+  "examplePurpose": "Optional token-only policy: explicit rolling TPM rejects requests larger than its allowance; no cumulative token cutoff. Prefer cash examples for cash-rate debt scheduling."
 }

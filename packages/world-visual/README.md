@@ -43,9 +43,13 @@ node packages/world-visual/cli.mjs viewer out/fixture/snapshot.json
 node packages/world-visual/cli.mjs textured out/fixture/snapshot.json out/textured
 ```
 
+`node examples/observe-and-render.mjs` is an optional quick look. Its default overview is a player-centered slice of at most 65×65 horizontal cells, from 16 below to 32 above the player; the local structural view is at most 25×25 horizontally, from 8 below to 16 above. Both are clipped to loaded-column extents and dimension height. These are vertical slices, not a complete surface map: underground, they show the selected underground terrain. Holes inside the loaded-column extent remain unknown. Selection, bounds, coverage and timestamps are in each image’s metadata.
+
+The example writes `out/observed-world.json` + `out/minimap.png/.json` for the overview and `out/observed-structure.json` + `out/structural.png/.json` for the local view. Override the overview with six inclusive coordinates: `node examples/observe-and-render.mjs minX minY minZ maxX maxY maxZ`. Its one-million-voxel acquisition budget bounds local sampling/memory, not what the bot can observe. For other viewpoints or budgets, choose explicit bounds through the Pi tools or call `snapshotFromBot(bot,{bounds,maxVoxels})` and a renderer directly. The example does not run automatically or prescribe when to use images.
+
 `viewer` prints a local URL and remains open until Ctrl-C. `textured` requires installed optional dependencies (`prismarine-viewer`, `playwright` in the root lockfile) and a local Chromium executable. Set `CHROMIUM_PATH` if it is not `/usr/bin/chromium`. The viewer renders the supplied local snapshot. Browser capture waits for actual WebGL geometry submission and rejects browser errors.
 
-Acquire real data using `snapshotFromBot(bot,{bounds})`, which reads synchronous `blockAt` from the current mirror and preserves nulls as unknown. `snapshotFromExplored(bot,{bounds,maxAgeMs})` reads the bounded explored cache and retains observation time/staleness. The bridge's current mirror is intentionally small; select appropriate bounds and expect unknown cells beyond observed coverage. The Pi extension keeps one facade connection alive for explored accumulation and closes it on session shutdown; reconnect/reset may clear this cache.
+Acquire real data using `snapshotFromBot(bot,{bounds})`, which reads synchronous `blockAt` from the current mirror and preserves nulls as unknown. `snapshotFromExplored(bot,{bounds,maxAgeMs})` reads the bounded explored cache and retains observation time/staleness. The current mirror includes Minecraft’s loaded chunk columns at full dimension height; selected bounds outside those columns remain unknown. The explored view combines loaded columns with retained historical cells, preferring current data. The Pi extension keeps one facade connection alive for explored accumulation and closes it on session shutdown; reconnect/reset may clear this cache.
 
 Pi entry: `packages/world-visual/pi-extension.mjs`. Tool names `world_minimap` and `world_render3d`, parameters `snapshotPath` **or** `bounds`, optional `explored`, `width`, `height`; `textured:true` selects the real renderer for `world_render3d`. Canonical credentials are `ARENA_BRIDGE_URL`, `ARENA_BRIDGE_TOKEN`; `MC_BRIDGE_*` are aliases. They stay local and are never included in image metadata.
 
@@ -57,10 +61,11 @@ One local Node 24.19 run rendered 262,144 supplied voxels covering a 256×256×4
 
 `MC_TEST_CHROMIUM=1 node --test tests/visual-prismarine.test.mjs` additionally validates actual textured PNG capture. In the delivery environment Chromium was installed but launch failed with OS `socket() ... Operation not permitted`; that screenshot test is explicitly skipped by default. Local viewer assets/chunk transport passed; actual WebGL screenshot validation remains a deployment check.
 
-CPU bounds cap: 4,000,000 selected voxels, acquisition default 1,000,000 queries, PNG side ≤4096 (Pi ≤2048), oblique ≤150,000 non-air voxels. Crop selected boxes to fit these limits.
+Resource budgets: 4,000,000 selected voxels, acquisition default 1,000,000 queries, images totaling at most 16,777,216 pixels, oblique ≤150,000 non-air voxels. Any positive integer image dimensions fitting the pixel budget are accepted, including narrow and small images. The Pi tools and textured capture use the same image budget. Explicit `known:false` entries need no invented material name and remain unknown.
 
 ## Sources and licenses
 
 This package’s CPU palette, rasterizer and PNG encoder use an original implementation built on Node built-ins.
 
 Optional genuine rendering uses [PrismarineJS/prismarine-viewer](https://github.com/PrismarineJS/prismarine-viewer) (MIT), [prismarine-chunk](https://github.com/PrismarineJS/prismarine-chunk) (MIT), [minecraft-data](https://github.com/PrismarineJS/minecraft-data) (MIT), Socket.IO (MIT), Express (MIT), and Playwright (Apache-2.0), installed from official npm packages. The adapter follows the viewer's published standalone Socket.IO protocol; dependency licenses remain in their npm distributions. Minecraft artwork is Mojang/Microsoft intellectual property supplied through the viewer's existing distribution; that artwork retains its own licensing terms. The source archive does not vendor node_modules or third-party texture assets.
+

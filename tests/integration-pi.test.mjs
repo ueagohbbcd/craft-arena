@@ -28,6 +28,7 @@ import {
 import worldVisualExtension from "../packages/world-visual/pi-extension.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
 import inboxExtension from "../packages/pi-extension/index.mjs";
+process.env.PI_OFFLINE = "1";
 process.env.MC_INBOX_TRANSPORT = "http";
 process.env.MC_INBOX_TOKEN = "integration-loopback-token-only";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -156,8 +157,7 @@ async function harness(
       },
       models: ["fixture"],
       limits: {
-        maxOutputTokens: 2000,
-        contextTokens: 200000,
+        defaultOutputTokens: 2000,
         maxBodyBytes: 2000000,
       },
     });
@@ -692,12 +692,13 @@ for (const nested of [false, true])
   );
 
 test(
-  "bootstrap launches shipped Pi CLI with generated provider, scoped auth, cash reference configuration, default caps and both extensions",
+  "bootstrap launches shipped Pi CLI with shared model profile, scoped auth, cash reference configuration and both extensions",
   { timeout: 25000 },
   async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "mc-bootstrap-integration-"));
     const received = [];
     const gatewayRequests = [];
+    let ledger, cashLedger, proxy, child;
     const upstream = http.createServer(async (req, res) => {
       let raw = "";
       for await (const c of req) raw += c;
@@ -707,10 +708,28 @@ test(
         `data: ${JSON.stringify({ id: "bootstrap-fixture", object: "chat.completion.chunk", created: 0, model: "fixture", choices: [{ index: 0, delta: { role: "assistant", content: "bootstrap-cli-success" }, finish_reason: "stop" }] })}\n\ndata: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\ndata: [DONE]\n\n`,
       );
     });
+    t.after(async () => {
+      if (child?.exitCode === null) {
+        try {
+          process.kill(-child.pid, "SIGKILL");
+        } catch {}
+      }
+      ledger?.close();
+      cashLedger?.close();
+      for (const server of [proxy, upstream]) {
+        server?.closeAllConnections();
+        if (server?.listening)
+          await new Promise((resolve) => server.close(resolve));
+      }
+      await rm(dir, { recursive: true, force: true });
+    });
     upstream.listen(0, "127.0.0.1");
     await once(upstream, "listening");
     const shippedBudget = JSON.parse(
       await readFile(resolve("infra/budget.cash.example.json"), "utf8"),
+    );
+    const shippedModel = JSON.parse(
+      await readFile(resolve("infra", shippedBudget.modelConfig), "utf8"),
     );
     const participants = {
       fixture: {
@@ -725,19 +744,19 @@ test(
         { ...team, cashRateLimit: "2" },
       ]),
     );
-    const ledger = new BudgetLedger({ participants, teams });
-    const cashLedger = new ReferenceCostLedger({
+    ledger = new BudgetLedger({ participants, teams });
+    cashLedger = new ReferenceCostLedger({
       config: {
         ...shippedBudget.referenceCost,
         models: {
-          fixture: shippedBudget.referenceCost.models[shippedBudget.models[0]],
+          fixture: shippedBudget.referenceCost.models[shippedModel.id],
         },
       },
       participants,
       teams,
       models: ["fixture"],
     });
-    const proxy = createBudgetGateway({
+    proxy = createBudgetGateway({
       ledger,
       cashLedger,
       participants,
@@ -746,7 +765,11 @@ test(
         apiKey: "fake-upstream-credential",
       },
       models: ["fixture"],
-      limits: shippedBudget.limits,
+      limits: {
+        ...shippedBudget.limits,
+        defaultOutputTokens: shippedModel.maxOutputTokens,
+        requestTimeoutMs: shippedModel.requestTimeoutMs,
+      },
     });
     proxy.on("request", (req) =>
       gatewayRequests.push({
@@ -757,25 +780,19 @@ test(
     );
     proxy.listen(0, "127.0.0.1");
     await once(proxy, "listening");
-    let child;
-    t.after(async () => {
-      if (child?.exitCode === null) {
-        try {
-          process.kill(-child.pid, "SIGKILL");
-        } catch {}
-      }
-      ledger.close();
-      cashLedger.close();
-      proxy.closeAllConnections();
-      await new Promise((r) => proxy.close(r));
-      upstream.closeAllConnections();
-      await new Promise((r) => upstream.close(r));
-      await rm(dir, { recursive: true, force: true });
-    });
+    await writeFile(
+      join(dir, "model.json"),
+      JSON.stringify({
+        id: "fixture",
+        api: "openai-completions",
+        contextWindow: 32768,
+        maxOutputTokens: 2048,
+      }),
+    );
     const env = {
       ...process.env,
       HOME: dir,
-      MODEL_ID: "fixture",
+      ARENA_MODEL_CONFIG: join(dir, "model.json"),
       OPENAI_BASE_URL: `http://127.0.0.1:${proxy.address().port}/participants/fixture/v1`,
       OPENAI_API_KEY: participants.fixture.token,
       ARENA_PROMPT: "Return a short completion for this local fixture.",
@@ -1182,10 +1199,19 @@ test(
       await bridge.close();
       await rm(dir, { recursive: true, force: true });
     });
+    await writeFile(
+      join(dir, "model.json"),
+      JSON.stringify({
+        id: "fixture",
+        api: "openai-completions",
+        contextWindow: 32768,
+        maxOutputTokens: 2048,
+      }),
+    );
     const env = {
       ...process.env,
       HOME: dir,
-      MODEL_ID: "fixture",
+      ARENA_MODEL_CONFIG: join(dir, "model.json"),
       OPENAI_BASE_URL: `http://127.0.0.1:${proxy.address().port}/participants/fixture/v1`,
       OPENAI_API_KEY: participants.fixture.token,
       ARENA_PROMPT: "Start the resident fixture and keep its program alive.",

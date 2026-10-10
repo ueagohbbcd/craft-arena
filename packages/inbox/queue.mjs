@@ -47,14 +47,11 @@ export class Inbox extends EventEmitter {
       !["normal", "urgent"].includes(priority)
     )
       throw new Error("Invalid kind or priority");
-    if (
-      kind === "state" &&
-      (typeof key !== "string" || !key || key.length > 256)
-    )
-      throw new Error("State needs a key of 1–256 characters");
+    if (kind === "state" && (typeof key !== "string" || !key))
+      throw new Error("State needs a nonempty string key");
     if (data === undefined) throw new Error("Message data is required");
     const ttl = input.ttlMs ?? this.ttlMs;
-    if (!Number.isFinite(ttl) || ttl <= 0 || ttl > this.ttlMs)
+    if (!Number.isFinite(ttl) || ttl <= 0)
       throw new Error("Invalid message TTL");
     this.prune();
     const message = {
@@ -98,6 +95,7 @@ export class Inbox extends EventEmitter {
     });
     this.bytes += bytes;
     if (priority === "urgent") this.emit("urgent", message);
+    this.emit("message", message);
     return { accepted: true, id: message.id };
   }
   remove(id) {

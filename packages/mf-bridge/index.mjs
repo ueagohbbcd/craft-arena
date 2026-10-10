@@ -4,6 +4,16 @@ const wireStringify = (value) =>
   JSON.stringify(value, (_key, v) =>
     typeof v === "bigint" ? { $arenaBigInt: v.toString() } : v,
   );
+const parseWire = (text) =>
+  JSON.parse(text, (_key, value) =>
+    value &&
+    typeof value === "object" &&
+    Object.keys(value).length === 1 &&
+    typeof value.$arenaBigInt === "string" &&
+    /^-?[0-9]{1,80}$/.test(value.$arenaBigInt)
+      ? BigInt(value.$arenaBigInt)
+      : value,
+  );
 const controls = [
   "forward",
   "back",
@@ -17,17 +27,13 @@ const fail = (message) => {
   throw Object.assign(new Error(message), { status: 400 });
 };
 const obj = (x) => x !== null && typeof x === "object" && !Array.isArray(x);
-function exact(a, keys) {
-  if (!obj(a) || Object.keys(a).some((k) => !keys.includes(k)))
-    fail("Invalid argument fields");
-}
-function num(x, min, max, integer = false) {
+function num(x, min = -Infinity, max = Infinity, integer = false) {
   if (
     typeof x !== "number" ||
     !Number.isFinite(x) ||
     x < min ||
     x > max ||
-    (integer && !Number.isInteger(x))
+    (integer && !Number.isSafeInteger(x))
   )
     fail("Invalid number");
   return x;
@@ -40,13 +46,15 @@ function one(x, list) {
   if (!list.includes(x)) fail("Invalid enum");
   return x;
 }
-function pos(p) {
-  exact(p, ["x", "y", "z"]);
-  return {
-    x: num(p.x, -30000000, 30000000, true),
-    y: num(p.y, -2048, 2048, true),
-    z: num(p.z, -30000000, 30000000, true),
-  };
+function pos(p, integer = true) {
+  if (!obj(p)) fail("Invalid position");
+  return Object.fromEntries(
+    ["x", "y", "z"].map((axis) => {
+      // Packed Minecraft block positions use signed 26/12/26-bit coordinates.
+      const limit = integer ? 2 ** (axis === "y" ? 11 : 25) : Infinity;
+      return [axis, num(p[axis], -limit, integer ? limit - 1 : limit, integer)];
+    }),
+  );
 }
 function vec(v) {
   return v && { x: v.x, y: v.y, z: v.z };
@@ -62,6 +70,8 @@ function item(i) {
       displayName: i.displayName,
       stackSize: i.stackSize,
       nbt: i.nbt ?? null,
+      components: i.components,
+      removedComponents: i.removedComponents,
     }
   );
 }
@@ -113,11 +123,61 @@ export function serializeBlock(b) {
 }
 export function createAuthority(
   bot,
-  { snapshotRadius = 8, maxReach = 6, allowChat = false, authorizeAction } = {},
+  {
+    snapshotRadius = 8,
+    maxReach = Infinity,
+    allowChat = true,
+    authorizeAction,
+  } = {},
 ) {
-  num(snapshotRadius, 1, 16, true);
-  if (authorizeAction !== undefined && typeof authorizeAction !== "function")
-    throw new Error("authorizeAction must be a trusted callback");
+  num(snapshotRadius, 0, Infinity, true);
+  const windowRefs = new WeakMap();
+  let windowRevision = 0;
+  const serializeWindow = (window) => {
+    if (!window) return null;
+    if (!windowRefs.has(window)) windowRefs.set(window, randomUUID());
+    const out = {
+      windowRef: windowRefs.get(window),
+      windowRevision: ++windowRevision,
+    };
+    for (const name of [
+      "id",
+      "type",
+      "title",
+      "inventoryStart",
+      "inventoryEnd",
+      "hotbarStart",
+      "craftingResultSlot",
+      "requiresConfirmation",
+    ])
+      if (window[name] !== undefined) out[name] = window[name];
+    return {
+      ...out,
+      slots: window.slots.map(item),
+      selectedItem: item(window.selectedItem) ?? null,
+    };
+  };
+  const currentWindow = (ref, includeInventory = false) => {
+    const window = [
+      bot.currentWindow,
+      ...(includeInventory ? [bot.inventory] : []),
+    ].find((value) => value && windowRefs.get(value) === ref);
+    if (typeof ref !== "string" || !window) fail("Window is no longer open");
+    return window;
+  };
+  const transfer = async (method, a) => {
+    const window = currentWindow(a.windowRef);
+    num(a.itemType, 0, Infinity, true);
+    if (a.metadata != null) num(a.metadata, 0, Infinity, true);
+    if (a.count != null) num(a.count, 0, Infinity, true);
+    await window[method](a.itemType, a.metadata, a.count, a.nbt);
+    return serializeWindow(window);
+  };
+  const inventoryItem = (slot, window = bot.inventory) => {
+    const value = window.slots[num(slot, 0, window.slots.length - 1, true)];
+    if (!value) fail("Empty slot");
+    return value;
+  };
   const vector = (p) =>
     bot.entity?.position?.constructor &&
     bot.entity.position.constructor !== Object
@@ -136,7 +196,7 @@ export function createAuthority(
     return b;
   }
   function target(id) {
-    num(id, 0, 2147483647, true);
+    num(id, -(2 ** 31), 2 ** 31 - 1, true);
     const e = bot.entities[id],
       p = bot.entity?.position;
     if (
@@ -150,47 +210,43 @@ export function createAuthority(
   }
   const actions = Object.freeze({
     setControlState(a) {
-      exact(a, ["control", "state"]);
       return bot.setControlState(one(a.control, controls), bool(a.state));
     },
     clearControlStates(a) {
-      exact(a, []);
       return bot.clearControlStates();
     },
     stop(a) {
-      exact(a, []);
       bot.clearControlStates(); /* No teleport or authoritative velocity mutation. */
     },
     look(a) {
-      exact(a, ["yaw", "pitch", "force"]);
-      num(a.yaw, -Math.PI * 2, Math.PI * 2);
-      num(a.pitch, -Math.PI / 2, Math.PI / 2);
+      num(a.yaw);
+      num(a.pitch);
       if (a.force !== undefined) bool(a.force);
       return bot.look(a.yaw, a.pitch, a.force ?? false);
     },
     lookAt(a) {
-      exact(a, ["position", "force"]);
-      const p = a.position;
-      exact(p, ["x", "y", "z"]);
-      for (const k of ["x", "y", "z"]) num(p[k], -30000000, 30000000);
+      const p = pos(a.position, false);
       if (a.force !== undefined) bool(a.force);
       return bot.lookAt(vector(p), a.force ?? false);
     },
     attack(a) {
-      exact(a, ["entityId"]);
-      return bot.attack(target(a.entityId));
+      if (a.swing !== undefined) bool(a.swing);
+      return bot.attack(target(a.entityId), a.swing);
     },
     dig(a) {
-      exact(a, ["position", "forceLook"]);
-      if (a.forceLook !== undefined) bool(a.forceLook);
-      return bot.dig(block(a.position), a.forceLook ?? true);
+      if (a.forceLook !== undefined) one(a.forceLook, [true, false, "ignore"]);
+      const face =
+        a.digFace == null
+          ? undefined
+          : typeof a.digFace === "string"
+            ? one(a.digFace, ["auto", "raycast"])
+            : vector(pos(a.digFace, false));
+      return bot.dig(block(a.position), a.forceLook, face);
     },
     stopDigging(a) {
-      exact(a, []);
       return bot.stopDigging();
     },
     placeBlock(a) {
-      exact(a, ["position", "face"]);
       const b = block(a.position),
         f = pos(a.face);
       if (Math.abs(f.x) + Math.abs(f.y) + Math.abs(f.z) !== 1)
@@ -198,16 +254,20 @@ export function createAuthority(
       return bot.placeBlock(b, vector(f));
     },
     activateBlock(a) {
-      exact(a, ["position"]);
-      return bot.activateBlock(block(a.position));
+      return bot.activateBlock(
+        block(a.position),
+        a.direction == null ? undefined : vector(pos(a.direction, false)),
+        a.cursorPos == null ? undefined : vector(pos(a.cursorPos, false)),
+      );
     },
     equip(a) {
-      exact(a, ["slot", "destination"]);
-      const i = bot.inventory.slots[num(a.slot, 0, 255, true)];
-      if (!i) fail("Empty slot");
+      const i =
+        a.itemType === undefined
+          ? inventoryItem(a.slot)
+          : num(a.itemType, 0, Infinity, true);
       return bot.equip(
         i,
-        one(a.destination, [
+        one(a.destination ?? "hand", [
           "hand",
           "head",
           "torso",
@@ -218,7 +278,6 @@ export function createAuthority(
       );
     },
     unequip(a) {
-      exact(a, ["destination"]);
       return bot.unequip(
         one(a.destination, [
           "hand",
@@ -231,74 +290,72 @@ export function createAuthority(
       );
     },
     activateItem(a) {
-      exact(a, ["offHand"]);
       return bot.activateItem(
         a.offHand === undefined ? false : bool(a.offHand),
       );
     },
     deactivateItem(a) {
-      exact(a, []);
       return bot.deactivateItem();
     },
     swingArm(a) {
-      exact(a, ["arm"]);
       return bot.swingArm(one(a.arm ?? "right", ["left", "right"]));
     },
     chat(a) {
-      exact(a, ["message"]);
       if (!allowChat) fail("Chat disabled by arena policy");
-      if (
-        typeof a.message !== "string" ||
-        !a.message.length ||
-        a.message.length > 256 ||
-        /[\r\n\x00]/.test(a.message) ||
-        a.message.startsWith("/")
-      )
-        fail("Invalid chat");
       return bot.chat(a.message);
     },
     setQuickBarSlot(a) {
-      exact(a, ["slot"]);
       return bot.setQuickBarSlot(num(a.slot, 0, 8, true));
     },
     toss(a) {
-      exact(a, ["slot", "count"]);
-      const i = bot.inventory.slots[num(a.slot, 0, 255, true)];
-      if (!i) fail("Empty slot");
+      const i = inventoryItem(a.slot);
       return bot.toss(i.type, i.metadata, num(a.count, 1, i.count, true));
     },
+    tossStack(a) {
+      const window = bot.currentWindow ?? bot.inventory;
+      if (a.windowRef !== undefined && windowRefs.get(window) !== a.windowRef)
+        fail("Window is no longer open");
+      return bot.tossStack(inventoryItem(a.slot, window));
+    },
     craft(a) {
-      exact(a, ["itemType", "count", "table"]);
       const t = a.table ? block(a.table) : null;
-      const type = num(a.itemType, 0, 100000, true),
-        count = num(a.count, 1, 64, true);
+      const type = num(a.itemType, 0, Infinity, true),
+        count = num(a.count, 1, Infinity, true);
       const r = bot.recipesFor(type, null, count, t)[0];
       if (!r) fail("No available recipe");
       return bot.craft(r, count, t);
     },
     openContainer: async (a) => {
-      exact(a, ["position"]);
-      await bot.openContainer(block(a.position));
-      return { id: bot.currentWindow?.id, type: bot.currentWindow?.type };
+      const window = await bot.openContainer(
+        a.entityId === undefined ? block(a.position) : target(a.entityId),
+        a.direction == null ? undefined : vector(pos(a.direction, false)),
+        a.cursorPos == null ? undefined : vector(pos(a.cursorPos, false)),
+      );
+      return serializeWindow(window);
     },
     closeWindow(a) {
-      exact(a, []);
-      if (bot.currentWindow) return bot.closeWindow(bot.currentWindow);
+      const window =
+        a.windowRef === undefined
+          ? bot.currentWindow
+          : currentWindow(a.windowRef, true);
+      if (window) return bot.closeWindow(window);
     },
+    windowWithdraw: (a) => transfer("withdraw", a),
+    windowDeposit: (a) => transfer("deposit", a),
     clickWindow(a) {
-      exact(a, ["slot", "mouseButton", "mode"]);
-      if (!bot.currentWindow) fail("No open window");
+      const window = bot.currentWindow ?? bot.inventory;
       return bot.clickWindow(
-        num(a.slot, 0, bot.currentWindow.slots.length - 1, true),
-        num(a.mouseButton, 0, 1, true),
-        one(a.mode, [0, 1]),
+        a.slot === -999 ? -999 : num(a.slot, 0, window.slots.length - 1, true),
+        num(a.mouseButton, -128, 127, true),
+        num(a.mode, 0, 6, true),
       );
     },
   });
   return {
     actions: Object.keys(actions),
+    serializeWindow,
     async dispatch(request) {
-      exact(request, ["action", "args"]);
+      if (!obj(request)) fail("Invalid request");
       if (
         typeof request.action !== "string" ||
         !Object.hasOwn(actions, request.action)
@@ -308,8 +365,28 @@ export function createAuthority(
         throw Object.assign(new Error("Actions disabled by match policy"), {
           status: 403,
         });
-      const result = await actions[request.action](request.args ?? {});
+      const args = request.args ?? {};
+      if (!obj(args)) fail("Invalid arguments");
+      // Only named arguments below reach Mineflayer; extra fields cannot select
+      // another bot, invoke arbitrary methods, or alter trusted connection config.
+      const result = await actions[request.action](args);
       return result === undefined ? null : JSON.parse(wireStringify(result));
+    },
+    column(x, z) {
+      num(x, -Infinity, Infinity, true);
+      num(z, -Infinity, Infinity, true);
+      const column = bot.world?.getColumn(x, z);
+      if (!column) return null;
+      const data = column.toJson();
+      if (Buffer.byteLength(data) > 8 * 1024 * 1024)
+        fail("Chunk exceeds 8 MiB transfer budget");
+      return {
+        x,
+        z,
+        data,
+        sampledAt: Date.now(),
+        dimension: bot.game?.dimension,
+      };
     },
     snapshot(includeBlocks = true) {
       const p = bot.entity?.position;
@@ -333,14 +410,8 @@ export function createAuthority(
         version: bot.version ?? "1.21.1",
         username: bot.username,
         entity: entity(bot.entity),
-        entities: Object.values(bot.entities ?? {})
-          .slice(0, 2048)
-          .map(entity),
-        inventory: {
-          slots: (bot.inventory?.slots ?? []).map(item),
-          inventoryStart: bot.inventory?.inventoryStart ?? 9,
-          inventoryEnd: bot.inventory?.inventoryEnd ?? 45,
-        },
+        entities: Object.values(bot.entities ?? {}).map(entity),
+        inventory: serializeWindow(bot.inventory),
         heldItem: item(bot.heldItem),
         game: bot.game ?? {},
         health: bot.health,
@@ -351,13 +422,11 @@ export function createAuthority(
         jumpQueued: bot.jumpQueued ?? false,
         controlState: bot.controlState ?? {},
         blocks,
-        currentWindow: bot.currentWindow
-          ? {
-              id: bot.currentWindow.id,
-              type: bot.currentWindow.type,
-              slots: bot.currentWindow.slots.map(item),
-            }
-          : null,
+        columns: bot.world?.getColumns?.().map(({ chunkX, chunkZ }) => ({
+          x: Number(chunkX),
+          z: Number(chunkZ),
+        })),
+        currentWindow: serializeWindow(bot.currentWindow),
       };
     },
   };
@@ -366,9 +435,10 @@ export function createBridgeServer({
   bot,
   token,
   snapshotRadius = 8,
-  allowChat = false,
-  maxReach = 6,
-  maxActionsPerSecond = 120,
+  allowChat = true,
+  maxReach = Infinity,
+  maxActionsPerSecond = Infinity,
+  maxConcurrentActions = Infinity,
   authorizeAction,
   getMatchState,
 } = {}) {
@@ -379,6 +449,25 @@ export function createBridgeServer({
     allowChat,
     maxReach,
     authorizeAction,
+  });
+  const errorText = (value, fallback) =>
+    (typeof value === "string" ? value : fallback)
+      .replaceAll(token, "[redacted]")
+      .replace(/\bBearer\s+[^\s"'<>]+/gi, "Bearer [redacted]")
+      .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, "$1[redacted]@")
+      .replace(
+        /(\b(?:[\w-]*(?:password|passwd|api[_-]?key|token|secret)|authorization)["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+        "$1[redacted]",
+      );
+  const actionError = (error, action) => ({
+    name: errorText(error?.name, "Error"),
+    message: errorText(error?.message ?? error, "Action failed"),
+    ...(typeof error?.code === "string"
+      ? { code: errorText(error.code, "") }
+      : Number.isFinite(error?.code)
+        ? { code: error.code }
+        : {}),
+    ...(action ? { action } : {}),
   });
   const epoch = randomUUID();
   let sequence = 0;
@@ -405,68 +494,40 @@ export function createBridgeServer({
     const e = envelope(type, data);
     for (const res of clients) write(res, e);
   }
-  let chatBytes = 2048,
-    chatDropped = 0;
-  const boundedText = (value, max) => {
-    let text = typeof value === "string" ? value : "";
-    if (Buffer.byteLength(text) > max) {
-      text = Buffer.from(text).subarray(0, max).toString("utf8");
-      while (Buffer.byteLength(text) > max) text = text.slice(0, -1);
-    }
-    return text;
+  const onSlotUpdate = () => publish("snapshot", authority.snapshot(false));
+  let watchedWindow;
+  const watchWindow = (window) => {
+    watchedWindow?.off?.("updateSlot", onSlotUpdate);
+    watchedWindow = window;
+    watchedWindow?.on?.("updateSlot", onSlotUpdate);
   };
+  bot.inventory?.on?.("updateSlot", onSlotUpdate);
+  watchWindow(bot.currentWindow);
+  const text = (value) => (typeof value === "string" ? value : "");
   for (const name of ["chat", "messagestr"]) {
     const fn = (...args) => {
-      if (chatBytes < 1) {
-        chatDropped++;
-        return;
-      }
-      const fields =
-        name === "chat"
-          ? [
-              boundedText(args[0], 64),
-              boundedText(args[1], 2048),
-              boundedText(args[2], 128),
-            ]
-          : [
-              boundedText(args[0], 2048),
-              boundedText(args[1], 32),
-              boundedText(args[3], 128),
-            ];
-      const lengths = fields.map((v) => Buffer.byteLength(v));
-      let truncated = false;
-      for (let i = 0; i < fields.length; i++) {
-        fields[i] = boundedText(fields[i], chatBytes);
-        chatBytes -= Buffer.byteLength(fields[i]);
-        if (Buffer.byteLength(fields[i]) < lengths[i]) truncated = true;
-      }
-      if (
-        name === "chat" &&
-        typeof args[1] === "string" &&
-        Buffer.byteLength(args[1]) > 2048
-      )
-        truncated = true;
-      if (
-        name === "messagestr" &&
-        typeof args[0] === "string" &&
-        Buffer.byteLength(args[0]) > 2048
-      )
-        truncated = true;
       const metadata = {
         source: "minecraft",
         trusted: false,
-        truncated,
+        truncated: false,
         observedAt: Date.now(),
-        textBudgetBytes: 2048,
       };
+      // Rich chat objects stay on the trusted side; text remains game data.
       const data =
         name === "chat"
-          ? [fields[0], fields[1], fields[2] || null, null, null, metadata]
-          : [
-              fields[0],
-              fields[1] || null,
+          ? [
+              text(args[0]),
+              text(args[1]),
+              text(args[2]) || null,
               null,
-              fields[2] || null,
+              null,
+              metadata,
+            ]
+          : [
+              text(args[0]),
+              text(args[1]) || null,
+              null,
+              text(args[3]) || null,
               typeof args[4] === "boolean" ? args[4] : null,
               metadata,
             ];
@@ -487,6 +548,7 @@ export function createBridgeServer({
     "diggingCompleted",
     "diggingAborted",
     "chunkColumnLoad",
+    "chunkColumnUnload",
     "blockUpdate",
     "spawn",
     "death",
@@ -494,6 +556,18 @@ export function createBridgeServer({
   ]) {
     const fn = (...args) => {
       if (name === "physicsTick") return;
+      // Mineflayer's death handler removes all digging listeners. Restore only
+      // our transport callbacks after respawn, never a participant's listeners.
+      if (name === "spawn")
+        for (const [event, listener] of listeners)
+          if (
+            ["diggingCompleted", "diggingAborted"].includes(event) &&
+            !bot.listeners(event).includes(listener)
+          )
+            bot.on(event, listener);
+      if (name === "windowOpen") watchWindow(args[0]);
+      else if (name === "windowClose" && watchedWindow === args[0])
+        watchWindow(null);
       if (
         [
           "health",
@@ -509,7 +583,12 @@ export function createBridgeServer({
       if (name.startsWith("entity")) data = [entity(args[0])];
       else if (name === "blockUpdate")
         data = args.slice(0, 2).map(serializeBlock);
-      else if (name === "chunkColumnLoad") data = [vec(args[0])];
+      else if (name === "diggingCompleted" || name === "diggingAborted")
+        data = [serializeBlock(args[0])];
+      else if (name === "chunkColumnLoad" || name === "chunkColumnUnload")
+        data = [vec(args[0])];
+      else if (name === "windowOpen" || name === "windowClose")
+        data = [authority.serializeWindow(args[0])];
       publish("event", { name, args: data });
     };
     bot.on(name, fn);
@@ -517,21 +596,6 @@ export function createBridgeServer({
   }
   let lastBlocks = 0;
   const timer = setInterval(() => {
-    chatBytes = 2048;
-    if (chatDropped) {
-      publish("event", {
-        name: "bridgeChatDrop",
-        args: [
-          {
-            count: chatDropped,
-            source: "minecraft",
-            trusted: false,
-            windowMs: 50,
-          },
-        ],
-      });
-      chatDropped = 0;
-    }
     if (clients.size) {
       const refresh = Date.now() - lastBlocks >= 1000;
       if (refresh) lastBlocks = Date.now();
@@ -571,10 +635,6 @@ export function createBridgeServer({
       return;
     }
     if (req.method === "GET" && req.url === "/v1/events") {
-      if (clients.size >= 4) {
-        res.writeHead(429);
-        return res.end();
-      }
       res.writeHead(200, {
         "content-type": "text/event-stream",
         "cache-control": "no-cache",
@@ -590,19 +650,33 @@ export function createBridgeServer({
       req.on("close", () => clients.delete(res));
       return;
     }
-    if (req.method !== "POST" || req.url !== "/v1/action") {
+    const chunkRequest =
+      req.method === "GET" && req.url.startsWith("/v1/chunk?");
+    if (!chunkRequest && (req.method !== "POST" || req.url !== "/v1/action")) {
       res.writeHead(404);
       return res.end();
     }
+    let action;
     try {
-      tokens = Math.min(
-        maxActionsPerSecond,
-        tokens + ((Date.now() - last) * maxActionsPerSecond) / 1000,
-      );
-      last = Date.now();
-      if (tokens < 1 || active >= 16)
+      if (Number.isFinite(maxActionsPerSecond)) {
+        tokens = Math.min(
+          maxActionsPerSecond,
+          tokens + ((Date.now() - last) * maxActionsPerSecond) / 1000,
+        );
+        last = Date.now();
+      }
+      if (tokens < 1 || active >= maxConcurrentActions)
         throw Object.assign(new Error("Rate limited"), { status: 429 });
       tokens--;
+      if (chunkRequest) {
+        const query = new URL(req.url, "http://bridge").searchParams;
+        const x = query.has("x") ? Number(query.get("x")) : NaN;
+        const z = query.has("z") ? Number(query.get("z")) : NaN;
+        const result = authority.column(x, z);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, result }));
+        return;
+      }
       let size = 0,
         chunks = [];
       for await (const c of req) {
@@ -610,7 +684,8 @@ export function createBridgeServer({
         if (size > 16384) fail("Request too large");
         chunks.push(c);
       }
-      const request = JSON.parse(Buffer.concat(chunks).toString());
+      const request = parseWire(Buffer.concat(chunks).toString());
+      if (authority.actions.includes(request?.action)) action = request.action;
       active++;
       try {
         const result = await authority.dispatch(request);
@@ -620,11 +695,17 @@ export function createBridgeServer({
         active--;
       }
     } catch (e) {
-      res.writeHead(e.status ?? 400, { "content-type": "application/json" });
+      const errorDetails = actionError(e, action);
+      const status =
+        Number.isInteger(e?.status) && e.status >= 400 && e.status <= 599
+          ? e.status
+          : 400;
+      res.writeHead(status, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
           ok: false,
-          error: e.status ? e.message : "Action failed",
+          error: errorDetails.message,
+          errorDetails,
         }),
       );
     }
@@ -644,6 +725,8 @@ export function createBridgeServer({
     },
     async close() {
       clearInterval(timer);
+      bot.inventory?.off?.("updateSlot", onSlotUpdate);
+      watchWindow(null);
       for (const [n, f] of listeners) bot.off(n, f);
       for (const c of clients) c.end();
       server.closeAllConnections();

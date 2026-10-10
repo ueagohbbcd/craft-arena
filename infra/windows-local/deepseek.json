@@ -2,9 +2,6 @@
   "provider": "deepseek",
   "apiKeyEnv": "DEEPSEEK_API_KEY",
   "tokenEnv": "DEEPSEEK_ADAPTER_TOKEN",
-  "allowedModels": ["deepseek-flash"],
   "host": "0.0.0.0",
-  "port": 8083,
-  "maxOutputTokens": 32768,
-  "timeoutMs": 600000
+  "port": 8083
 }

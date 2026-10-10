@@ -134,19 +134,16 @@ test("headers and active snapshots apply the same explicit privacy allowlist", (
 });
 
 test("unknown or malformed cash fields never become an amount or a fabricated purpose split", () => {
-  assert.equal(sanitizeCashRatios(cash({ mode: "host-detail" })), undefined);
+  const minimal = sanitizeCashRatios({
+    rate: { windowMs: 60000 },
+    costShare: { output: 0.5 },
+  });
   assert.equal(
-    sanitizeCashRatios(cash({ basis: "actual-invoice" })),
-    undefined,
+    minimal.costShare.output,
+    0.5,
+    "redundant protocol labels are not prerequisites for public feedback",
   );
-  assert.equal(
-    sanitizeCashRatios(cash({ coverage: "lifetime-priced-usage" })),
-    undefined,
-  );
-  assert.equal(
-    sanitizeCashRatios(cash({ enforcement: "report-only" })),
-    undefined,
-  );
+  assertPrivateFieldsAbsent(minimal);
   const invalid = sanitizeCashRatios(
     cash({
       quality: "HOST_AMOUNT_SENTINEL",

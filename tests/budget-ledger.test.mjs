@@ -76,7 +76,7 @@ test("same-participant concurrent admission waits and cancellation settles once"
   assert.equal(l.snapshot("a")[0].usedTokens, 20);
   l.close();
 });
-test("shipped budget defaults admit the conservative reservation safety cap per participant", async () => {
+test("shipped budgets admit their own TPM allowance without a separate reservation cap", async () => {
   const { readFile } = await import("node:fs/promises");
   const config = JSON.parse(
     await readFile(
@@ -86,9 +86,34 @@ test("shipped budget defaults admit the conservative reservation safety cap per 
   );
   const l = new BudgetLedger({ ...config, autoWake: false });
   for (const id of Object.keys(config.participants)) {
-    const r = await l.acquire(id, config.limits.maxReservationTokens);
+    const r = await l.acquire(id, config.participants[id].tpm);
     assert.equal(r.reservedTokens, 131072);
     r.settle(0);
   }
   l.close();
+});
+
+test("cash-mode token ledger has no hidden token ceiling but keeps account concurrency", async () => {
+  const account = { tokens: null, tpm: null, concurrency: 1 };
+  const ledger = new BudgetLedger({
+    participants: { a: { ...account, team: "red" } },
+    teams: { red: account },
+    autoWake: false,
+  });
+  const first = await ledger.acquire("a", 4000000);
+  let admitted = false;
+  const queued = ledger.acquire("a", 5000000).then((reservation) => {
+    admitted = true;
+    return reservation;
+  });
+  await Promise.resolve();
+  assert.equal(admitted, false);
+  first.settle(1000000);
+  const second = await queued;
+  second.settle(2000000);
+  const snapshot = ledger.snapshot("a")[0];
+  assert.equal(snapshot.usedTokens, 3000000);
+  assert.equal(snapshot.remainingTokens, null);
+  assert.equal(snapshot.limits.tpm, null);
+  ledger.close();
 });

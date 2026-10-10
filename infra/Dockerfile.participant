@@ -2,19 +2,25 @@ FROM node:24-bookworm-slim
 # Bootstrap HTTPS with Node's bundled CA roots; Debian then installs its managed CA bundle.
 RUN node -e "const fs=require('node:fs');fs.mkdirSync('/etc/ssl/certs',{recursive:true});fs.writeFileSync('/etc/ssl/certs/ca-certificates.crt',require('node:tls').rootCertificates.join('\n'))" \
     && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
-    && apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates git python3 chromium && rm -rf /var/lib/apt/lists/*
+    && apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates git python3 chromium ripgrep fd-find && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/arena
-COPY --chown=node:node package.json package-lock.json README.md AGENTS.md ./
+COPY scripts/mf-reference.json scripts/prepare-mf-reference.mjs ./scripts/
+RUN node scripts/prepare-mf-reference.mjs /opt/mf-reference && chown -R node:node /opt/mf-reference
+ENV ARENA_REFERENCE_ROOT="/opt/mf-reference"
+COPY --chown=node:node package.json package-lock.json ./
+RUN npm ci --ignore-scripts && chown -R node:node /opt/arena
+COPY --chown=node:node README.md AGENTS.md ./
 COPY --chown=node:node packages ./packages
 COPY --chown=node:node examples ./examples
 COPY --chown=node:node docs ./docs
 COPY --chown=node:node scripts ./scripts
 COPY --chown=node:node tests ./tests
 # Operator configuration stays on the trusted side; only public toolkit material enters this image.
-RUN npm ci --ignore-scripts && mkdir -p /workspace /team-git && chown -R node:node /opt/arena /workspace /team-git
+RUN mkdir -p /workspace /team-git && chown node:node /workspace /team-git
 ENV CHROMIUM_PATH="/usr/bin/chromium"
 ENV PATH="/opt/arena/node_modules/.bin:${PATH}"
 USER node
 WORKDIR /workspace
 # Arbitrary agent/script commands can override CMD; plugins share the same participant sandbox.
 CMD ["node", "/opt/arena/packages/pi-extension/bootstrap.mjs"]
+

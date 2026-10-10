@@ -2,7 +2,6 @@ import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { once } from "node:events";
 import {
-  inspectPiRequest,
   publicPiEvent,
   PiRequestValidationError,
 } from "../budget-gateway/src/pi-messages.mjs";
@@ -18,6 +17,26 @@ export function codexContext(context, model) {
     ) {
       message.api = model.api;
       message.provider = model.provider;
+    }
+    // Pi inserts Codex thinkingSignature JSON directly as a Responses input item.
+    // Keep encrypted reasoning opaque, but do not let it smuggle another item type.
+    if (
+      model.api === "openai-codex-responses" &&
+      message.role === "assistant" &&
+      message.provider === model.provider &&
+      message.api === model.api
+    ) {
+      for (const block of message.content ?? []) {
+        if (block.type !== "thinking" || !block.thinkingSignature) continue;
+        let item;
+        try {
+          item = JSON.parse(block.thinkingSignature);
+        } catch {}
+        if (item?.type !== "reasoning")
+          throw new PiRequestValidationError(
+            "Codex signature must contain a reasoning item",
+          );
+      }
     }
   }
   return result;
@@ -90,19 +109,12 @@ const equal = (a, b) =>
 export function createCodexAdapter({
   models,
   provider = "openai-codex",
-  allowedModels,
   token,
   maxBodyBytes = 8 * 1024 * 1024,
-  maxOutputTokens = 2048,
-  timeoutMs = 120000,
 }) {
   if (!["openai-codex", "deepseek"].includes(provider))
     throw new Error("Unsupported trusted provider");
-  if (!token || !Array.isArray(allowedModels) || !allowedModels.length)
-    throw new Error("Configure trusted adapter token and model allowlist");
-  for (const id of allowedModels)
-    if (!models.getModel(provider, id))
-      throw new Error(`Unknown Pi Codex model: ${id}`);
+  if (!token) throw new Error("Configure trusted adapter token");
   return http.createServer(async (req, res) => {
     const abort = new AbortController();
     req.on("aborted", () => abort.abort());
@@ -130,19 +142,19 @@ export function createCodexAdapter({
       } catch {
         throw new PiRequestValidationError("Invalid JSON");
       }
-      inspectPiRequest(body);
-      if (!allowedModels.includes(body.model))
-        throw new PiRequestValidationError("Model is not allowed");
-      const cap = body.options?.maxTokens ?? maxOutputTokens;
-      if (!Number.isSafeInteger(cap) || cap < 1 || cap > maxOutputTokens)
-        throw new PiRequestValidationError("Invalid output reservation cap");
+      if (!Array.isArray(body?.context?.messages))
+        throw new PiRequestValidationError("Pi transcript messages required");
       const model = models.getModel(provider, body.model);
+      if (!model) throw new PiRequestValidationError("Unknown provider model");
       const options = body.options ?? {};
       let usageReported = false;
       let accountingUsage;
       const events = models.stream(model, codexContext(body.context, model), {
-        signal: AbortSignal.any([abort.signal, AbortSignal.timeout(timeoutMs)]),
-        maxTokens: cap,
+        // Construct generation options explicitly: request data never overrides trusted
+        // credentials, provider endpoints, headers, callbacks, or cancellation.
+        signal: abort.signal,
+        maxTokens: options.maxTokens,
+        temperature: options.temperature,
         reasoningEffort: options.reasoning,
         cacheRetention: options.cacheRetention,
         sessionId: options.sessionId,

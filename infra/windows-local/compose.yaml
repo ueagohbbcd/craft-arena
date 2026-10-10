@@ -12,7 +12,7 @@ services:
   minecraft:
     <<: *common
     build: ./server
-    image: craft-arena-minecraft:1.21
+    image: craft-arena-minecraft:local
     mem_limit: 3g
     networks: [backend]
     volumes: [./minecraft-data:/data]
@@ -57,7 +57,7 @@ services:
       RED1_MODEL_TOKEN: ${RED1_MODEL_TOKEN}
       RED1_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
     networks: [red1, model-backend]
-    volumes: [./budget.json:/config/budget.json:ro]
+    volumes: [./budget.json:/config/budget.json:ro, ./model.codex.json:/config/model.codex.json:ro]
   deepseek-adapter:
     <<: *common
     profiles: [agents]
@@ -78,7 +78,7 @@ services:
       BLUE1_MODEL_TOKEN: ${BLUE1_MODEL_TOKEN}
       BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
     networks: [blue1, deepseek-backend]
-    volumes: [./budget.deepseek.json:/config/budget.json:ro]
+    volumes: [./budget.deepseek.json:/config/budget.json:ro, ./model.deepseek.json:/config/model.deepseek.json:ro]
   participant-red1:
     <<: *common
     profiles: [agents]
@@ -91,18 +91,12 @@ services:
       ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://budget-gateway:8081/participants/red1/v1
       OPENAI_API_KEY: ${RED1_MODEL_TOKEN}
-      MODEL_ID: ${ARENA_MODEL_ID:-gpt-6.1-sol}
-      PI_MAX_TOKENS: '32768'
-      PI_CONTEXT_WINDOW: '300000'
-      PI_COMPACTION_RESERVE_TOKENS: '50000'
-      PI_COMPACTION_KEEP_RECENT_TOKENS: '20000'
-      PI_MODEL_API: pi-messages
-      PI_REASONING: '1'
+      ARENA_MODEL_CONFIG: /config/model.codex.json
       TEAM_GIT_DIR: /team-git
       ARENA_WAIT_FOR_MATCH: '1'
       ARENA_START_TIMEOUT_MS: '86400000'
     networks: [red1]
-    volumes: [red-work:/workspace, red-git:/team-git]
+    volumes: [red-work:/workspace, red-git:/team-git, ./model.codex.json:/config/model.codex.json:ro]
     tmpfs: ['/tmp:rw,nosuid,size=256m']
   participant-blue1:
     <<: *common
@@ -113,18 +107,12 @@ services:
       ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://budget-blue:8081/participants/blue1/v1
       OPENAI_API_KEY: ${BLUE1_MODEL_TOKEN}
-      MODEL_ID: deepseek-flash
-      PI_MAX_TOKENS: '32768'
-      PI_CONTEXT_WINDOW: '300000'
-      PI_COMPACTION_RESERVE_TOKENS: '50000'
-      PI_COMPACTION_KEEP_RECENT_TOKENS: '20000'
-      PI_MODEL_API: pi-messages
-      PI_REASONING: '1'
+      ARENA_MODEL_CONFIG: /config/model.deepseek.json
       TEAM_GIT_DIR: /team-git
       ARENA_WAIT_FOR_MATCH: '1'
       ARENA_START_TIMEOUT_MS: '86400000'
     networks: [blue1]
-    volumes: [blue-work:/workspace, blue-git:/team-git]
+    volumes: [blue-work:/workspace, blue-git:/team-git, ./model.deepseek.json:/config/model.deepseek.json:ro]
     tmpfs: ['/tmp:rw,nosuid,size=256m']
 networks:
   backend: {internal: true}
@@ -138,3 +126,4 @@ volumes:
   blue-work: {}
   red-git: {}
   blue-git: {}
+

@@ -144,7 +144,7 @@ test("gateway upstream idle waits obey the explicit request deadline", async () 
       participants,
       upstream: { url: upstream.url, apiKey: "fake-key" },
       models: ["fake-model"],
-      limits: { maxOutputTokens: 100, requestTimeoutMs },
+      limits: { defaultOutputTokens: 100, requestTimeoutMs },
     });
     gateways.push(gateway);
     await new Promise((resolve) => gateway.listen(0, "127.0.0.1", resolve));

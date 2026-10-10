@@ -16,9 +16,36 @@ You choose destinations, construction plans, threat policy, reports and teammate
 ## Locate capabilities
 
 - `packages/bot-sdk/index.mjs`: `await connectBot({url,token})`, synchronous local `blockAt`, local inventory/entities and validated remote semantic actions. Use `ARENA_BRIDGE_URL` and `ARENA_BRIDGE_TOKEN` from the environment.
-- `packages/bot-sdk/plugins.mjs`: `loadSelectedPlugins(bot,{pvp:true})`, pinned Pathfinder and PvP adapters. Load on the participant facade. Check that package’s compatibility notes when choosing or adapting plugins.
+- `packages/bot-sdk/plugins.mjs`: `loadSelectedPlugins(bot,{pvp:true})`, Pathfinder and PvP adapters. Load on the participant facade. Check that package’s compatibility notes when choosing or adapting plugins.
 - `packages/inbox/index.mjs`: `new InboxClient()` reads the child environment. `post(data)` appends an event, `upsert(key,data,{ttlMs})` replaces one state, `requestJudgment(data)` requests early return.
 - `world_minimap` / `world_render3d`: one Pi tool call returns a bare image plus separate metadata. Bounds are inclusive; missing observations are unknown, not air. `textured:true` selects real Prismarine rendering and needs Chromium; otherwise 3D means the explicitly labeled structural view.
+
+## Read the local docs and adapter source
+
+`$ARENA_TOOLKIT_ROOT` (`/opt/arena`) contains the arena toolkit. `$ARENA_REFERENCE_ROOT` (`/opt/mf-reference`) contains complete official Git reference checkouts. Their checked-out revisions match the installed Mineflayer and plugin versions so the documentation describes the default runtime. Read the relevant part in this order:
+
+1. Under the toolkit root, `packages/bot-sdk/README.md` and `packages/bot-sdk/index.mjs`: the facade’s supported methods, arguments and return values.
+2. Under the reference root, `mineflayer/README.md`, `mineflayer/docs/api.md` and `mineflayer/docs/tutorial.md`: upstream API behavior and usage patterns for the methods exposed by the facade.
+3. Under the reference root, `mineflayer-pathfinder/readme.md` and `mineflayer-pathfinder/examples/`, or `mineflayer-pvp/README.md` and `mineflayer-pvp/docs/api.md`: detailed plugin goals, movement options and combat use.
+
+The reference checkouts include source, docs, examples and Git history for offline inspection with `git grep`, `git show` or `git log`. Runtime imports use the lockfile-selected dependencies in the toolkit’s `node_modules` for reproducible matches. You can inspect other revisions in the full history and write your own participant-side adapters. `TEAM_GIT_DIR` is for sharing participant-written team code; these reference docs are already available.
+
+The adapter and bridge source is also readable under the toolkit root:
+
+- `packages/bot-sdk/index.mjs`: local state reconstruction, facade methods and outgoing action arguments.
+- `packages/bot-sdk/plugins.mjs`: local Pathfinder/PvP compatibility adaptations.
+- `packages/mf-bridge/index.mjs`: authenticated action dispatch, argument handling and returned state.
+- `packages/mf-bridge/live.mjs`: trusted Mineflayer connection startup and shutdown.
+
+For an unexpected error, argument or return value, retain the original error and compare this call path with the upstream source. Local facade/plugin code can be copied and adapted in your participant workspace. The trusted bridge files here are readable source copies; changes in the participant container do not change the operator’s running bridge or its permissions.
+
+## Use container windows
+
+`await bot.openContainer(blockOrEntity, direction?, cursorPos?)` returns a stable `prismarine-windows` Window, also available as `bot.currentWindow`. Its `slots`, `selectedItem`, `inventoryStart` and exclusive `inventoryEnd` retain the native layout. Use `containerItems()` for the container, `items()` for player inventory, and the native count, find and empty-slot queries.
+
+`await window.withdraw(type, metadata?, count?, nbt?)` and `await window.deposit(...)` call the real Mineflayer transfer methods, including multi-stack transfers; omitted count means one item. Their returned Promise resolves after the mirror’s slots update. Close with `await window.close()` or `await bot.closeWindow(window)`.
+
+Window/slot events and action responses arrive independently. If code needs an event, register its listener before starting the action and await that event explicitly. Keep the window handle for its lifetime; a closed or replaced handle is rejected rather than applied to a newer window.
 
 ## Start ordinary code
 
@@ -44,7 +71,15 @@ If a wait receives the completion, its result contains `status:"completed"`, `ex
 
 `bash.timeout` is an explicit **kill deadline** in seconds. `bash.wait_seconds` or `task_wait.wait_seconds` is an optional **early-return wait budget** that preserves the process. Omit both for an ordinary wait until completion or a judgment request. `task_cancel` sends TERM to the process group and later KILL if needed. A process ending does not itself guarantee the game avatar's control states were cleared; clean up in your script and consult bridge lifecycle behavior.
 
-## Filter reports in your own code
+## Report useful facts from long tasks
+
+Use the existing `InboxClient` to send facts that help the next decision. Useful reports connect the current objective to what changed: position, progress, an action result or error, and what the program is still doing.
+
+- `post(data)`: an event worth retaining, such as arrival, an exhausted resource or a failed action.
+- `upsert(key, data, {ttlMs})`: the latest state, such as route progress, health or materials remaining. Reuse a key to coalesce intermediate updates.
+- `requestJudgment(data)`: a decision your program needs, with the relevant facts and question. For example, report a blocked route and current activity when choosing a different approach needs model judgment.
+
+Choose reporting conditions in ordinary code. Pi bundles accepted messages into tool/turn boundaries automatically; an urgent request releases managed waits while the process continues. In resident mode, a background completion or urgent request can wake the idle model. A running process alone does not tell the runtime whether the game task is making progress.
 
 `examples/build-with-autoeat.mjs` is optional participant strategy. Pass an explicit reachable placement plan. Construction and health-event handling share a small Promise lock for hand use.
 
@@ -55,19 +90,28 @@ If a wait receives the completion, its result contains `status:"completed"`, `ex
 
 The example’s edible-item list and hunger threshold are teaching defaults that participants can change. Participants also choose placement plans and movement decisions.
 
-`examples/plugin-goal.mjs X Y Z` loads the pinned Pathfinder adapter, defines an ordinary custom `Goal`, disables digging in `Movements`, coalesces route updates and executes a goal. `bot.setControlState('forward',true)`, `bot.clearControlStates()` and `await bot.flush()` are also available for ordinary direct control; avoid competing writers to the same controls.
+`examples/plugin-goal.mjs X Y Z` loads the Pathfinder adapter, defines an ordinary custom `Goal`, keeps native `Movements` defaults (including digging), coalesces route updates and executes a goal. Add `--no-dig` only for an explicitly non-destructive route. The SDK supplies all currently loaded chunk columns before planning, without per-node RPC. The example verifies actual arrival, reports loaded-terrain coverage on failure, and exits nonzero; a shell pipeline needs `set -o pipefail` to preserve that status. `bot.setControlState('forward',true)`, `bot.clearControlStates()` and `await bot.flush()` are also available for ordinary direct control; avoid competing writers to the same controls.
 
-## Render and read in one result
+## Choose a view for the decision
 
-For the registered Pi tools:
+Start with the existing SDK, selected plugins, tools and examples, and compose the behavior needed for the task.
+
+- For route choice, entrances or obstacles, use `world_minimap` over a useful region around the bot and destination. It shows the highest observed surfaces; a local 3D view helps with tunnels and overlapping levels.
+- For elevation, a digging face, placement support or a narrow passage, use `world_render3d` with bounds around that structure. Its default structural view needs no browser; `textured:true` uses Prismarine textures and Chromium when that detail is useful.
+- After a `NoPath`, read the failure reason, current position, movement settings and loaded-terrain coverage first. The route example reports `loadedColumns` and `goalLoaded`; if the destination is outside loaded terrain, inspect the known edge and choose a nearer waypoint or another approach. Check actual arrival before reporting success.
+- Read coverage and observation age with the image. Unknown cells remain unknown rather than air; `explored:true` can include earlier observations marked as stale.
+
+Pass an existing snapshot to either visual tool:
 
 ```json
 { "snapshotPath": "out/observed-world.json", "width": 768, "height": 768 }
 ```
 
-Pass this to `world_minimap`; or use `bounds` instead of a file to sample the current bridge mirror. Use `world_render3d` with the same file/bounds; set `textured:true` only when the real renderer is available. `examples/observe-and-render.mjs` acquires the current local mirror, writes a normalized snapshot, and generates both CPU PNGs in one ordinary script.
+Or pass inclusive `bounds: {min: {x,y,z}, max: {x,y,z}}` to sample the live bridge mirror.
 
-The native image tool returns the PNG as an image content item and the coordinate/coverage description as a separate text item. `explored:true` selects the extension's accumulated cache, explicitly marks stale observations and remains bounded by what this session actually observed.
+For a ready-made local overview, run `node examples/observe-and-render.mjs` when images are useful. It writes `out/observed-world.json` with `out/minimap.png`/`.json`, and `out/observed-structure.json` with `out/structural.png`/`.json`. Use the overview snapshot with `world_minimap` and the structure snapshot with `world_render3d` to bring those images into model context. Default views are crops around the bot within the loaded-terrain extent and world height; underground, they show a selected Y slice. Read the actual `bounds`, `knownFraction` and `selection` metadata. Optional CLI coordinates `minX minY minZ maxX maxY maxZ` override the overview bounds.
+
+The registered tools return the PNG itself as an image content item plus coordinate/coverage metadata. Forward both when using codemode, as below; a printed file path alone does not show the image to the model.
 
 ## Codemode: preserve only useful ordinary output
 
@@ -101,9 +145,9 @@ The next provider request receives a native image content block.
 
 All model callers, including scripts and subagents, use the participant-scoped `OPENAI_BASE_URL` and `OPENAI_API_KEY`. The gateway converts usage to reference cost at the configured official API list prices and limits cost per time window for the participant and team. The operator monitors cumulative cost and uses the trusted host to end the match when appropriate.
 
-Model-visible `arena.budget.cash.participant` / `.team` feedback reports the current window's settled cost shares (`uncachedInput`, `cachedInput`, `output`), rate pressure and actual `queueDelayMs`, together with `quality`, `coverage` and `calls` counts. Cost shares cover settled priced usage in the current window; unknown usage retains its reservation for rate limiting and is labeled in the coverage. Use these ratios to choose what to retain in context, how much output to request and when to rely on ordinary scripts. Pricing and monetary totals stay with the operator. Technical TPM/concurrency limits still apply; the supplied cash-rate examples leave the optional lifetime token cap unset.
+Model-visible `arena.budget.cash.participant` / `.team` feedback reports the current window's settled cost shares (`uncachedInput`, `cachedInput`, `output`), rate pressure and actual `queueDelayMs`, together with `quality`, `coverage` and `calls` counts. Cost shares cover settled priced usage in the current window; unknown usage retains its reservation for rate limiting and is labeled in the coverage. Use these ratios to choose what to retain in context, how much output to request and when to rely on ordinary scripts. Pricing and monetary totals stay with the operator. Concurrency limits still apply. Lifetime token caps and rolling TPM are optional operator policies; the supplied cash-rate configurations set both `tokens:null` and `tpm:null`, so the cash debt queue controls the rate.
 
-A request temporarily exceeding available window capacity waits. A request whose reservation exceeds the entire window capacity is rejected so the caller can revise it. The supplied Pi bootstrap disables automatic retries: inspect the actual error before deciding the next request. Ordinary programs and the game clock continue while the model waits. `requestJudgment` requests an earlier decision through the same gateway and admission order. An already constructed queued or dispatched request keeps its content snapshot; new messages are delivered at a subsequent visible boundary.
+Cash admission uses continuously repaid debt. When existing debt plus in-flight holds is below one window allowance, a request can enter even if its quote is larger than that allowance. Actual settlement adds the full cost as debt; later requests wait while it drains at the configured rate. An oversized cash quote alone is not a permanent rejection. Explicit optional token/TPM policies and provider capabilities still apply. The supplied Pi bootstrap disables Pi's automatic request retries; resident fault recovery separately handles temporary failures with bounded backoff. Ordinary programs and the game clock continue during queue waits. `requestJudgment` uses the same gateway and admission order. Already queued or dispatched model requests keep their content snapshot; new inbox data joins a subsequent visible boundary.
 
 Trusted `arena.budget` feedback arrives at a subsequent natural tool/turn boundary. Authenticated `GET ${OPENAI_BASE_URL}/budget` provides the same ratio-only cost view without a provider call; the [player guide](../docs/PLAYER.md#模型预算与等待) explains the fields and read command. Match clock feedback comes from the host; a fallback labeled agent uptime measures the agent session instead.
 
@@ -114,3 +158,4 @@ In the supplied team deployment, `TEAM_GIT_DIR=/team-git` holds the operator-ini
 ## Fixture versus real world
 
 `node examples/render-fixture.mjs` writes **synthetic test fixture** images under `out/fixture`, with a deliberately missing corner for deterministic coverage checks. To observe or act in a real game, configure the bridge environment and run the corresponding observation or action script.
+

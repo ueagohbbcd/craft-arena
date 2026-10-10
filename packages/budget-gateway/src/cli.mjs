@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import {
   BudgetLedger,
   ReferenceCostLedger,
   createBudgetGateway,
 } from "./index.mjs";
-const config = JSON.parse(
-  await readFile(process.argv[2] ?? "/config/budget.json", "utf8"),
+const configPath = resolve(process.argv[2] ?? "/config/budget.json");
+const config = JSON.parse(await readFile(configPath, "utf8"));
+// This same public descriptor is mounted read-only into the participant container.
+const model = JSON.parse(
+  await readFile(resolve(dirname(configPath), config.modelConfig), "utf8"),
 );
+const models = [model.id];
 const participants = Object.fromEntries(
   Object.entries(config.participants).map(([id, p]) => {
     const token = process.env[p.tokenEnv];
@@ -23,7 +28,7 @@ const cashLedger = config.referenceCost
       config: config.referenceCost,
       participants,
       teams: config.teams,
-      models: config.models,
+      models,
     })
   : undefined;
 const authorizeRequest = config.requireRunningMatch
@@ -48,11 +53,17 @@ function envToken(name) {
 }
 const server = createBudgetGateway({
   ...config,
+  models,
+  limits: {
+    ...config.limits,
+    defaultOutputTokens: model.maxOutputTokens,
+    requestTimeoutMs: model.requestTimeoutMs,
+  },
   authorizeRequest,
   participants,
   ledger,
   cashLedger,
-  upstream: { url: config.upstream.url, apiKey, api: config.upstream.api },
+  upstream: { url: config.upstream.url, apiKey, api: model.api },
   onMetric: (m) => console.log(JSON.stringify({ kind: "model-usage", ...m })),
 });
 server.listen(Number(process.env.PORT ?? 8081), "0.0.0.0");

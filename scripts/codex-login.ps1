@@ -2,8 +2,7 @@ param([string]$AuthFile = 'runtime/codex/auth.json')
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\system-proxy.ps1"
 $root = Split-Path $PSScriptRoot -Parent
-$node = Join-Path $env:USERPROFILE '.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin\node.exe'
-if (-not (Test-Path $node)) { $node = (Get-Command node -ErrorAction Stop).Source }
+$node = (Get-Command node -ErrorAction Stop).Source
 $proxy = Get-ArenaSystemProxy -Target 'https://auth.openai.com/oauth/token'
 $saved = @{}
 foreach ($name in @('HTTP_PROXY','HTTPS_PROXY','NO_PROXY')) {
@@ -19,3 +18,4 @@ try {
 } finally {
   foreach ($name in $saved.Keys) { [Environment]::SetEnvironmentVariable($name,$saved[$name],'Process') }
 }
+

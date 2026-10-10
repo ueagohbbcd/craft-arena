@@ -1,11 +1,26 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readFile, lstat } from "node:fs/promises";
+import { mkdtemp, rm, readFile, writeFile, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import extension from "../packages/pi-extension/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
 import { preparePiProfile } from "../packages/pi-extension/bootstrap.mjs";
+
+async function modelConfig(dir, overrides = {}) {
+  const path = join(dir, "model.json");
+  await writeFile(
+    path,
+    JSON.stringify({
+      id: "fixture",
+      api: "openai-completions",
+      contextWindow: 32768,
+      maxOutputTokens: 2048,
+      ...overrides,
+    }),
+  );
+  return path;
+}
 
 async function harness(t, { idleWake = false, env = {} } = {}) {
   const saved = { ...process.env };
@@ -18,6 +33,7 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
   const tools = new Map();
   const sent = [];
   let idle = false;
+  let pending = false;
   extension({
     on: (name, fn) => handlers.set(name, fn),
     registerTool: (tool) => tools.set(tool.name, tool),
@@ -27,6 +43,7 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
     cwd: process.cwd(),
     sessionManager: { getSessionId: () => "test-session" },
     isIdle: () => idle,
+    hasPendingMessages: () => pending,
   };
   await handlers.get("session_start")({}, ctx);
   t.after(async () => {
@@ -52,6 +69,9 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
     ctx,
     client,
     run,
+    setPending: (x) => {
+      pending = x;
+    },
     setIdle: (x) => {
       idle = x;
     },
@@ -135,9 +155,10 @@ test("bootstrap prepares an exact gateway provider without saving its bearer tok
     directory: join(dir, "agent"),
     cwd: dir,
     env: {
-      MODEL_ID: "fake-model",
+      ARENA_MODEL_CONFIG: await modelConfig(dir, { id: "fake-model" }),
       OPENAI_BASE_URL: "http://127.0.0.1:1234/v1",
       OPENAI_API_KEY: token,
+      ARENA_EXTRA_EXTENSIONS: "./local-extension.mjs",
     },
   });
   const written = await readFile(join(profile.agentDir, "models.json"), "utf8");
@@ -168,7 +189,8 @@ test("bootstrap prepares an exact gateway provider without saving its bearer tok
   );
   assert.ok(!written.includes(token));
   assert.equal(JSON.parse(written).providers.arena.apiKey, "${OPENAI_API_KEY}");
-  assert.equal(profile.extensions.length, 2);
+  assert.equal(profile.extensions.length, 3);
+  assert.equal(profile.extensions[2], "./local-extension.mjs");
   assert.equal((await lstat(join(dir, "node_modules"))).isSymbolicLink(), true);
   for (const name of ["examples", "packages", "docs"])
     assert.equal((await lstat(join(dir, name))).isSymbolicLink(), true);
@@ -234,7 +256,7 @@ test(
         timeout: 15000,
         env: {
           ...process.env,
-          MODEL_ID: "fixture",
+          ARENA_MODEL_CONFIG: await modelConfig(dir),
           OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
           OPENAI_API_KEY: "scoped-fixture-token",
           MC_INBOX_TRANSPORT: "http",
@@ -361,7 +383,7 @@ test("authenticated host match clock preserves ended state and cached frozen ela
 });
 
 test(
-  "resident bootstrap preserves background programs across idle and wakes only on urgent input",
+  "resident bootstrap does not poll a running program even while the trusted match runs",
   { timeout: 20000 },
   async (t) => {
     const http = await import("node:http");
@@ -376,6 +398,22 @@ test(
     const script = `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(connectionPath)},JSON.stringify({pid:process.pid,url:process.env.MC_INBOX_URL,sessionId:process.env.MC_INBOX_SESSION,token:process.env.MC_INBOX_TOKEN}));setInterval(()=>{},1000);`;
     const command = `${process.execPath} -e '${script.replaceAll("'", "'\\''")}'`;
     const server = http.createServer(async (req, res) => {
+      if (req.url === "/v1/match") {
+        assert.equal(req.headers.authorization, "Bearer host-resident-fixture");
+        res.setHeader("content-type", "application/json");
+        res.end(
+          JSON.stringify({
+            ok: true,
+            result: {
+              state: "running",
+              now: Date.now(),
+              durationMs: 60000,
+              elapsedMs: 1000,
+            },
+          }),
+        );
+        return;
+      }
       for await (const _part of req) {
       }
       count++;
@@ -421,14 +459,16 @@ test(
     });
     const env = {
       ...process.env,
-      MODEL_ID: "fixture",
+      ARENA_MODEL_CONFIG: await modelConfig(dir),
       OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
       OPENAI_API_KEY: "resident-scoped-fixture-token",
+      ARENA_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`,
+      ARENA_BRIDGE_TOKEN: "host-resident-fixture",
+      ARENA_CONTINUE_DELAY_MS: "30",
       MC_INBOX_TRANSPORT: "http",
       MC_INBOX_TOKEN: "resident-loopback-fixture-token",
     };
     for (const name of [
-      "ARENA_BRIDGE_URL",
       "MC_BRIDGE_URL",
       "MC_INBOX_IDLE_URGENT",
       "ARENA_EXTRA_EXTENSIONS",
@@ -582,7 +622,7 @@ test(
         cwd: dir,
         env: {
           ...process.env,
-          MODEL_ID: "fixture",
+          ARENA_MODEL_CONFIG: await modelConfig(dir),
           OPENAI_BASE_URL: `${url}/v1`,
           OPENAI_API_KEY: "model-scoped-token",
           ARENA_BRIDGE_URL: url,
@@ -619,58 +659,48 @@ test(
   },
 );
 
-test("bootstrap compaction thresholds scale with context and validate explicit overrides", async (t) => {
+test("bootstrap derives capabilities and compaction from the shared model descriptor", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-compaction-config-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const env = {
-    MODEL_ID: "fixture",
+    ARENA_MODEL_CONFIG: await modelConfig(dir, {
+      contextWindow: 65536,
+      maxOutputTokens: 4096,
+    }),
     OPENAI_BASE_URL: "http://127.0.0.1:1234/v1",
     OPENAI_API_KEY: "fake",
-    PI_CONTEXT_WINDOW: "65536",
-    PI_MAX_TOKENS: "4096",
+    // Stale duplicate environment values no longer override the shared file.
+    MODEL_ID: "stale",
+    PI_CONTEXT_WINDOW: "10",
+    PI_MAX_TOKENS: "1",
   };
   const profile = await preparePiProfile({
     env,
     directory: join(dir, "a"),
     cwd: dir,
   });
-  const settings = JSON.parse(
-    await readFile(join(profile.agentDir, "settings.json"), "utf8"),
+  assert.equal(profile.modelId, "fixture");
+  assert.equal(profile.models.providers.arena.models[0].contextWindow, 65536);
+  assert.equal(profile.models.providers.arena.models[0].maxTokens, 4096);
+  assert.deepEqual(
+    JSON.parse(await readFile(join(profile.agentDir, "settings.json"), "utf8"))
+      .compaction,
+    { enabled: true, reserveTokens: 16384, keepRecentTokens: 16384 },
   );
-  assert.deepEqual(settings.compaction, {
-    enabled: true,
-    reserveTokens: 16384,
-    keepRecentTokens: 16384,
+  await modelConfig(dir, {
+    contextWindow: 65536,
+    maxOutputTokens: 4096,
+    compaction: { reserveTokens: 2000, keepRecentTokens: 10000 },
   });
   const custom = await preparePiProfile({
-    env: {
-      ...env,
-      PI_COMPACTION_RESERVE_TOKENS: "20000",
-      PI_COMPACTION_KEEP_RECENT_TOKENS: "10000",
-    },
+    env,
     directory: join(dir, "b"),
     cwd: dir,
   });
   assert.deepEqual(
     JSON.parse(await readFile(join(custom.agentDir, "settings.json"), "utf8"))
       .compaction,
-    { enabled: true, reserveTokens: 20000, keepRecentTokens: 10000 },
-  );
-  await assert.rejects(
-    preparePiProfile({
-      env: { ...env, PI_COMPACTION_RESERVE_TOKENS: "2000" },
-      directory: join(dir, "bad"),
-      cwd: dir,
-    }),
-    /Compaction settings/,
-  );
-  await assert.rejects(
-    preparePiProfile({
-      env: { ...env, PI_COMPACTION_KEEP_RECENT_TOKENS: "60000" },
-      directory: join(dir, "bad"),
-      cwd: dir,
-    }),
-    /Compaction settings/,
+    { enabled: true, reserveTokens: 2000, keepRecentTokens: 10000 },
   );
 });
 
@@ -788,4 +818,126 @@ test("cash snapshot refresh is bounded to a natural outer boundary and strips pr
   );
   assert.equal(reads, 1);
   assert.equal(h.sent.length, 0);
+});
+
+function residentHost(t) {
+  let state = "running";
+  t.mock.method(globalThis, "fetch", async () =>
+    Response.json({
+      ok: true,
+      result: {
+        state,
+        now: Date.now(),
+        durationMs: 60000,
+        elapsedMs: 1000,
+      },
+    }),
+  );
+  return {
+    env: {
+      ARENA_RUNTIME_RESIDENT: "1",
+      ARENA_BRIDGE_URL: "http://host.invalid",
+      ARENA_BRIDGE_TOKEN: "host-fixture-token",
+      ARENA_CONTINUE_DELAY_MS: "30",
+    },
+    setState: (value) => {
+      state = value;
+    },
+  };
+}
+const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+test("resident waits for a live program then delivers its actual completion exactly once", async (t) => {
+  const host = residentHost(t);
+  const h = await harness(t, { idleWake: true, env: host.env });
+  const started = await h.run(
+    "bash",
+    { command: "sleep 0.25; printf done", wait_seconds: 0 },
+    "background",
+  );
+  assert.equal(started.details.status, "running");
+  await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [], message: { stopReason: "stop" } },
+    h.ctx,
+  );
+  h.setIdle(true);
+  h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+  await delay(130);
+  assert.equal(
+    h.sent.length,
+    0,
+    "several idle-delay intervals must not wake a model while its program runs",
+  );
+  await delay(180);
+  assert.equal(h.sent.length, 1);
+  assert.equal(h.sent[0][1].triggerTurn, true);
+  const completions = h.sent[0][0].details.messages.filter(
+    (message) => message.data.type === "task.completed",
+  );
+  assert.equal(completions.length, 1);
+  assert.equal(completions[0].data.stdout, "done");
+  h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+  await delay(80);
+  assert.equal(
+    h.sent.length,
+    1,
+    "a claimed wake is not reissued at another settlement",
+  );
+  const receipt = await h.run("task_wait", { taskId: started.details.taskId });
+  assert.equal(receipt.details.status, "delivered");
+});
+
+test("genuine idle fallback respects queued turns and freshly checks the host", async (t) => {
+  const host = residentHost(t);
+  const h = await harness(t, { env: host.env });
+  h.setIdle(true);
+  h.setPending(true);
+  h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+  await delay(80);
+  assert.equal(h.sent.length, 0);
+  h.setPending(false);
+  host.setState("prepared");
+  h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+  await delay(80);
+  assert.equal(
+    h.sent.length,
+    0,
+    "a prepared or unavailable host does not authorize a model request",
+  );
+  host.setState("running");
+  await delay(80);
+  assert.equal(h.sent.length, 1);
+  assert.match(h.sent[0][0].content, /no background task or queued turn/);
+  await delay(80);
+  assert.equal(h.sent.length, 1);
+  h.handlers.get("agent_start")();
+  await h.handlers.get("turn_end")(
+    { entries: [], message: { stopReason: "error" } },
+    h.ctx,
+  );
+  h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+  await delay(80);
+  assert.equal(
+    h.sent.length,
+    1,
+    "request faults belong exclusively to fault recovery",
+  );
+  host.setState("ended");
+  await h.handlers.get("turn_end")(
+    { entries: [], message: { stopReason: "stop" } },
+    h.ctx,
+  );
+  h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
+  await delay(80);
+  assert.equal(h.sent.length, 1, "a fresh host end cancels idle continuation");
+});
+
+test("idle inbox events join an already queued turn without scheduling a second request", async (t) => {
+  const h = await harness(t, { idleWake: true });
+  h.setIdle(true);
+  h.setPending(true);
+  await h.client.requestJudgment({ question: "deliver with the queued turn" });
+  assert.equal(h.sent.length, 0);
+  const result = await h.handlers.get("tool_result")({ content: [] }, h.ctx);
+  assert.match(result.content[0].text, /deliver with the queued turn/);
 });

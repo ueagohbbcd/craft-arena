@@ -49,6 +49,7 @@ services:
       BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
     volumes:
     - ${BUDGET_CONFIG_PATH:-./budget.cash.live.example.json}:/config/budget.json:ro
+    - ./model.example.json:/config/model.example.json:ro
     networks:
     - red1
     - blue1
@@ -70,17 +71,15 @@ services:
       ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://budget-gateway:8081/participants/red1/v1
       OPENAI_API_KEY: ${RED1_MODEL_TOKEN}
+      ARENA_MODEL_CONFIG: /config/model.example.json
       TEAM_GIT_DIR: /team-git
-      PI_MAX_TOKENS: '2048'
-      PI_CONTEXT_WINDOW: '32768'
-      PI_MODEL_VISION: 'true'
-      MODEL_ID: ${ARENA_MODEL_ID:?Select model present in budget gateway allowlist}
       ARENA_WAIT_FOR_MATCH: '1'
     networks:
     - red1
     volumes:
     - red-work:/workspace
     - red-git:/team-git
+    - ./model.example.json:/config/model.example.json:ro
     tmpfs:
     - /tmp:rw,nosuid,size=256m
     stdin_open: true
@@ -102,17 +101,15 @@ services:
       ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://budget-gateway:8081/participants/blue1/v1
       OPENAI_API_KEY: ${BLUE1_MODEL_TOKEN}
+      ARENA_MODEL_CONFIG: /config/model.example.json
       TEAM_GIT_DIR: /team-git
-      PI_MAX_TOKENS: '2048'
-      PI_CONTEXT_WINDOW: '32768'
-      PI_MODEL_VISION: 'true'
-      MODEL_ID: ${ARENA_MODEL_ID:?Select model present in budget gateway allowlist}
       ARENA_WAIT_FOR_MATCH: '1'
     networks:
     - blue1
     volumes:
     - blue-work:/workspace
     - blue-git:/team-git
+    - ./model.example.json:/config/model.example.json:ro
     tmpfs:
     - /tmp:rw,nosuid,size=256m
     stdin_open: true
@@ -162,3 +159,4 @@ volumes:
   blue-git: {}
   match-results: {}
   match-control: {}
+

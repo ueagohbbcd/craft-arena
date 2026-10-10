@@ -36,6 +36,8 @@
 
 Windows Docker Desktop 部署已通过 Direct Fire 1.21 地图生命周期与计分冒烟、两队网络隔离、Chromium 截图，以及 GPT/Codex 和 DeepSeek 的真实 Pi→模型网关→游戏观察链路。容器测试 148 项全部通过；已补费用债务排队、250K 压缩配置及 Pi 截断/临时错误续跑验证。完整自主对局、动态地形与实战插件表现仍待验证。当前裁判按配置纪念碑方块状态判定；具体证据与限制见 [验证记录](docs/VALIDATION.md)。
 
+本次清理修改的 Windows 部署流程与区块镜像已增加离线回归；上面的 Windows 实机证据来自此前版本。本次改动尚未重新部署实服，详见验证记录中的清理条目。
+
 重复失败、低效轮询等启发式提醒列为后续实验。当前指南提供编程建议，相关自动反馈尚待实现和比较评估。
 
 ## 安装与文档索引
@@ -54,7 +56,7 @@ node examples/render-fixture.mjs
 
 - **了解范围：** [主要特性](docs/FEATURES.md)、[项目规格](docs/SPEC.docx)／[纯文本规格](docs/SPEC.txt)。规格记录目标与待决策项，验证记录说明当前证据。
 - **参赛编程：** [玩家入门](docs/PLAYER.md)、[短说明](AGENTS.md)、[编程指南与示例](examples/SKILL.md)、[Pi 启动配置](packages/pi-extension/README.md)。入口为 `packages/pi-extension/bootstrap.mjs`。
-- **部署比赛：** [运营指南](infra/README.md)。Windows 本机使用 `scripts/initialize-windows-arena.ps1` 和 `scripts/windows-arena.ps1`，包含 Direct Fire 模板、Codex OAuth、DeepSeek 和自动系统代理。其他地图使用 `infra/compose.live.yaml` 与 `infra/match.live.template.json`；`compose.yaml` 用于单独服务调试。
+- **部署比赛：** [运营指南](infra/README.md)。Windows 本机使用 `scripts/initialize-windows-arena.ps1` 和 `scripts/windows-arena.ps1`，输入准备好的世界目录与比赛配置，统一保存为 `map-original/world` 供重置使用。Direct Fire 配置作为示例保留；Codex OAuth、DeepSeek 和自动系统代理按部署需要选择。通用部署使用 `infra/compose.live.yaml` 与 `infra/match.live.template.json`；`compose.yaml` 用于单独服务调试。
 - **开发验证：** 修改后运行 `npm test`；涉及 Pi 或插件适配时检查相应集成用例。部署前固定地图、依赖与镜像版本，保存配置和结果。
 
 ### 模块入口
@@ -68,3 +70,4 @@ node examples/render-fixture.mjs
 | [budget-gateway](packages/budget-gateway/README.md) | 模型路由、额度、排队与用量结算       |
 | [pi-extension](packages/pi-extension/README.md)     | Pi 接入、启动、工具及会话生命周期    |
 | [inbox](packages/inbox/README.md)                   | 程序报告、状态合并与进程等待         |
+

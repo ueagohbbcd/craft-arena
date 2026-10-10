@@ -261,6 +261,7 @@ test("terminal match status remains authenticated and readable after actual game
   assert.equal(res.status, 200);
   const data = await res.json();
   assert.equal(data.result.state, "ended");
+  assert.equal(data.result.runId, match.host.runId);
   assert.equal(data.result.winner, "r");
   assert.equal(data.result.teamId, "r");
   assert.equal(data.result.publicGoalPositions, undefined);

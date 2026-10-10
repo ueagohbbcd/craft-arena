@@ -53,7 +53,6 @@ test("a 250k context uses its context estimate and a large quote settles with ca
     output: 32768,
   });
   assert.equal(q.units, 762144000000);
-  l.assertFits("a", q);
   const first = await l.acquire("a", q);
   first.settle({
     prompt_tokens: 250000,
@@ -211,7 +210,8 @@ test("cash-window queue reserves atomically, refunds usage, cancels fairly and e
   l.close();
 });
 test("unknown usage keeps conservative rate occupancy without invented billing split", async () => {
-  const l = cash();
+  // Assert settlement occupancy before any continuously repaid debt elapses.
+  const l = cash({ now: () => 0 });
   const q = l.quote("a", "gpt-4.1", { input: 100, output: 10 });
   const r = await l.acquire("a", q);
   r.settle({ total_tokens: 20 });
@@ -235,7 +235,7 @@ test("missing cached-token detail is explicitly estimated, missing model quote r
         config: { ...prices, models: {} },
         ...accounts(),
       }),
-    /metadata required/,
+    /Invalid input rate/,
   );
   const l = cash();
   const r = await l.acquire(
@@ -519,7 +519,6 @@ test("host-end rejection keeps its own pressure despite a concurrent rejected qu
         input: 1000000,
         output: 0,
       });
-      cashLedger.assertFits("a", later);
       cashLedger.noteWait("a", 0, later);
       return false;
     },
@@ -551,4 +550,104 @@ test("host-end rejection keeps its own pressure despite a concurrent rejected qu
   );
   assert.equal(ledger.snapshot("a")[0].usedTokens, 0);
   assert.equal(cashLedger.rateLedger.snapshot("a")[0].usedTokens, 0);
+});
+
+test("shipped cash policy admits a million-token context and subsequent work waits only for cash debt", async (t) => {
+  const { readFile } = await import("node:fs/promises");
+  const configUrl = new URL(
+    "../infra/budget.cash.example.json",
+    import.meta.url,
+  );
+  const config = JSON.parse(await readFile(configUrl));
+  const model = JSON.parse(
+    await readFile(new URL(config.modelConfig, configUrl)),
+  );
+  for (const account of [
+    ...Object.values(config.participants),
+    ...Object.values(config.teams),
+  ]) {
+    assert.equal(account.tokens, null);
+    assert.equal(account.tpm, null);
+    account.cashRateLimit = "0.50";
+  }
+  config.participants.red1.token = "million-context";
+  let now = 0,
+    calls = 0;
+  const ledger = new BudgetLedger({
+    ...config,
+    now: () => now,
+    autoWake: false,
+  });
+  const cashLedger = new ReferenceCostLedger({
+    ...config,
+    config: config.referenceCost,
+    models: [model.id],
+    now: () => now,
+    autoWake: false,
+  });
+  const upstream = http.createServer(async (req, res) => {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const body = JSON.parse(raw);
+    assert.equal(body.max_completion_tokens, model.maxOutputTokens);
+    calls++;
+    res.setHeader("content-type", "application/json");
+    res.end(
+      JSON.stringify({
+        usage: {
+          prompt_tokens: calls === 1 ? 1000000 : 1,
+          completion_tokens: 0,
+          prompt_tokens_details: { cached_tokens: 0 },
+        },
+      }),
+    );
+  });
+  const gateway = createBudgetGateway({
+    ...config,
+    models: [model.id],
+    ledger,
+    cashLedger,
+    limits: { ...config.limits, defaultOutputTokens: model.maxOutputTokens },
+    upstream: { url: await listen(upstream), apiKey: "fixture" },
+  });
+  const base = await listen(gateway);
+  t.after(() => {
+    ledger.close();
+    cashLedger.close();
+    for (const s of [gateway, upstream]) {
+      s.closeAllConnections();
+      s.close();
+    }
+  });
+  const call = (content) =>
+    fetch(`${base}/participants/red1/v1/chat/completions`, {
+      method: "POST",
+      signal: AbortSignal.timeout(5000),
+      headers: { authorization: "Bearer million-context" },
+      body: JSON.stringify({
+        model: model.id,
+        messages: [{ role: "user", content }],
+      }),
+    });
+  const first = await call("x".repeat(4000000));
+  assert.equal(first.status, 200);
+  assert(Number(first.headers.get("x-arena-reserved-tokens")) > 4000000);
+  await first.json();
+  assert.equal(ledger.snapshot("red1")[0].usedTokens, 1000000);
+  const second = call("next");
+  const deadline = Date.now() + 2000;
+  while (!cashLedger.rateLedger.queue.length) {
+    assert(
+      Date.now() < deadline,
+      "Second request did not reach the cash queue",
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  assert.equal(calls, 1);
+  now = 180001;
+  cashLedger.rateLedger.tick();
+  const next = await second;
+  assert.equal(next.status, 200);
+  await next.json();
+  assert.equal(calls, 2);
 });

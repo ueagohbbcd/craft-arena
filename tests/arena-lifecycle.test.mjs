@@ -133,3 +133,136 @@ test("ending during deferred prepare cannot resurrect and cleanup runs afterward
   assert.equal(host.state, "ended");
   assert.deepEqual(calls, ["prepared", "stopped"]);
 });
+
+const observations = (complete = {}) =>
+  Object.fromEntries(
+    config.teams.map(({ id: team }) => [
+      team,
+      Object.fromEntries(
+        config.rules.objectives.map((objective) => [
+          objective,
+          complete[team]?.includes(objective) ?? false,
+        ]),
+      ),
+    ]),
+  );
+
+test("host applies a full round before judging simultaneous winners", async () => {
+  const host = create(() => 10);
+  let stops = 0;
+  host.connector.stop = async () => {
+    stops++;
+  };
+  await host.prepare();
+  await host.start();
+  // Reverse the configured order: neither ordering may award the first team.
+  await host.observe(
+    Object.fromEntries(
+      Object.entries(
+        observations({
+          red: ["wool1", "wool2"],
+          blue: ["wool1", "wool2"],
+        }),
+      ).reverse(),
+    ),
+  );
+  const result = host.result();
+  assert.equal(result.reason, "simultaneous-objectives");
+  assert.equal(result.winner, null);
+  assert.equal(result.events.length, 4);
+  assert.ok(
+    result.events.every((e) => e.runId === host.runId && e.receivedAt === 10),
+  );
+  assert.deepEqual(await host.end("abandoned"), result);
+  assert.equal(stops, 1);
+  await assert.rejects(host.observe(observations()), /not running/);
+  assert.deepEqual(host.result(), result);
+});
+
+test("repeated observations are quiet and lost objectives replace current progress", async () => {
+  const host = create(() => 0);
+  await host.prepare();
+  await host.start();
+  const first = observations({ red: ["wool1"] });
+  await host.observe(first);
+  await host.observe(first);
+  assert.equal(host.events.length, 1);
+  await host.observe(observations({ red: ["wool2"] }));
+  assert.deepEqual(host.progress.red, ["wool2"]);
+  assert.deepEqual(
+    host.events.map((e) => e.type),
+    ["objective", "objective-lost", "objective"],
+  );
+  assert.equal(host.state, "running");
+  await host.observe(observations({ red: ["wool1", "wool2"] }));
+  assert.equal(host.result().winner, "red");
+});
+
+test("an incomplete round cannot partially clear or change progress", async () => {
+  const host = create(() => 0);
+  await host.prepare();
+  await host.start();
+  await host.observe(observations({ red: ["wool1"] }));
+  const before = structuredClone({
+    progress: host.progress,
+    events: host.events,
+  });
+  for (const bad of [
+    { red: { wool1: false, wool2: true } },
+    { ...observations(), blue: { wool1: false } },
+    { ...observations(), blue: { wool1: false, wool2: null } },
+  ]) {
+    await assert.rejects(host.observe(bad), /full observation/);
+    assert.deepEqual({ progress: host.progress, events: host.events }, before);
+  }
+  // Unconfigured fields carry no scoring authority.
+  await host.observe({
+    ...observations({ red: ["wool1"] }),
+    extra: { wool1: true },
+  });
+  assert.deepEqual({ progress: host.progress, events: host.events }, before);
+  await host.end();
+});
+
+test("deadline rejects an entire late round before it can affect timeout scoring", async () => {
+  let now = 0;
+  const host = create(() => now);
+  host.config.rules.onTimeout = "most-objectives";
+  await host.prepare();
+  await host.start();
+  now = 999;
+  await host.observe(observations({ red: ["wool1"] }));
+  now = 1000;
+  assert.deepEqual(
+    await host.observe(observations({ blue: ["wool1", "wool2"] })),
+    { late: true },
+  );
+  const result = host.result();
+  assert.equal(result.reason, "timeout");
+  assert.equal(result.winner, "red");
+  assert.deepEqual(result.progress, { red: ["wool1"], blue: [] });
+  assert.equal(result.events.length, 1);
+});
+
+test("concurrent and repeated end requests share one cleanup and first outcome", async () => {
+  const host = create(() => 0);
+  let finish,
+    stops = 0;
+  host.connector.stop = () =>
+    new Promise((resolve) => {
+      stops++;
+      finish = resolve;
+    });
+  await host.prepare();
+  await host.start();
+  const ending = host.end("abandoned");
+  const repeated = host.end("map-fault");
+  assert.equal(host.state, "ending");
+  assert.throws(() => host.result(), /not final/);
+  await assert.rejects(host.observe(observations()), /not running/);
+  finish();
+  const result = await ending;
+  assert.deepEqual(await repeated, result);
+  assert.equal(result.reason, "abandoned");
+  assert.equal(stops, 1);
+});

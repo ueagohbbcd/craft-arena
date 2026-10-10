@@ -126,7 +126,7 @@ export class TaskManager {
       });
       try {
         // A live claiming waiter owns this completion; avoid evicting unrelated inbox data.
-        if (![...task.waiters].some((wake) => wake.claims)) {
+        if (!task.waiters.size) {
           const posted = this.inbox.post(
             {
               sessionId: this.inbox.sessionId,
@@ -210,21 +210,14 @@ export class TaskManager {
     if (task.eventId) this.inbox.remove(task.eventId);
     return this.snapshot(task);
   }
-  async wait(id, { timeoutMs = Infinity, signal, claim = true } = {}) {
+  async wait(id, { timeoutMs = Infinity, signal } = {}) {
     if (
       timeoutMs !== Infinity &&
       (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 2147483647)
     )
       throw new Error("Invalid wait timeout");
     const task = this.get(id);
-    const finish = () =>
-      claim
-        ? this.claim(task)
-        : {
-            taskId: id,
-            status: "completed",
-            resultDelivery: "inbox at final model-visible boundary",
-          };
+    const finish = () => this.claim(task);
     if (task.status === "completed") return finish();
     if (this.urgentReason || signal?.aborted || timeoutMs === 0)
       return {
@@ -242,7 +235,6 @@ export class TaskManager {
         resolve(reason);
       };
       const abort = () => wake("caller detached");
-      wake.claims = claim;
       task.waiters.add(wake);
       signal?.addEventListener("abort", abort, { once: true });
       if (timeoutMs !== Infinity)
@@ -292,7 +284,6 @@ export class TaskManager {
       running.map((task) =>
         this.wait(task.id, {
           timeoutMs: this.killGraceMs + 3000,
-          claim: false,
         }),
       ),
     );

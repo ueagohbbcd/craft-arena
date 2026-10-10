@@ -6,14 +6,10 @@ export async function startLiveBridge({
   createBot: factory,
   closeTimeoutMs = 3000,
 }) {
-  if (!minecraft?.host || !minecraft?.username || !minecraft?.version)
-    throw new Error(
-      "Explicit trusted Minecraft host, username and version required",
-    );
   if (
-    !Number.isInteger(closeTimeoutMs) ||
-    closeTimeoutMs < 1 ||
-    closeTimeoutMs > 30000
+    !Number.isFinite(closeTimeoutMs) ||
+    closeTimeoutMs <= 0 ||
+    closeTimeoutMs > 2 ** 31 - 1
   )
     throw new Error("Invalid close timeout");
   const createBot =

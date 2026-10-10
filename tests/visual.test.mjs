@@ -216,3 +216,52 @@ test("Pi render returns a bare native image and separate metadata in the same re
     await rm(dir, { recursive: true, force: true });
   }
 });
+
+test("positive image sizes use a total pixel budget instead of arbitrary side limits", () => {
+  for (const renderer of [renderMinimap, renderOblique]) {
+    for (const [width, height] of [
+      [1, 1],
+      [8, 12],
+      [5000, 16],
+    ]) {
+      const r = renderer(fixtureWorld(), { width, height });
+      const p = pixels(r.png);
+      assert.equal(p.width, width);
+      assert.equal(p.height, height);
+      assert.ok(r.metadata.pixelsPerBlock > 0);
+    }
+  }
+  for (const dimensions of [
+    { width: 0, height: 5 },
+    { width: Infinity, height: 5 },
+    { width: 8192, height: 8192 },
+  ])
+    assert.throws(() => renderMinimap(fixtureWorld(), dimensions), RangeError);
+});
+test("explicit unknown entries need no invented block name", () => {
+  const bounds = { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } };
+  const render = renderMinimap(
+    { bounds, blocks: [{ x: 0, y: 0, z: 0, known: false }] },
+    { width: 1, height: 1 },
+  );
+  assert.equal(render.metadata.knownVoxels, 0);
+  assert.deepEqual(pixels(render.png).at(0, 0), UNKNOWN_COLOR);
+});
+test("Pi accepts an already connected bot without requiring duplicate environment credentials", async () => {
+  const { renderForModel } =
+    await import("../packages/world-visual/pi-extension.mjs");
+  const result = await renderForModel(
+    "world_minimap",
+    {
+      bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 0, y: 0, z: 0 } },
+      width: 4097,
+      height: 1,
+    },
+    { bot: { version: "1.21.1", blockAt: () => null } },
+  );
+  assert.equal(
+    pixels(Buffer.from(result.content[0].data, "base64")).width,
+    4097,
+  );
+  assert.equal(result.details.metadata.knownVoxels, 0);
+});

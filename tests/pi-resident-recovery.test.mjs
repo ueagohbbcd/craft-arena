@@ -4,7 +4,7 @@ import { PassThrough } from "node:stream";
 import http from "node:http";
 import { once } from "node:events";
 import { spawn } from "node:child_process";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -28,7 +28,7 @@ function harness() {
     reports = [];
   const controller = createResidentRecovery({
     now: () => time,
-    idleDelayMs: 100,
+    checkDelayMs: 100,
     retryDelayMs: 200,
     maxRetries: 3,
     getMatchState: () => (matchRead ? matchRead() : Promise.resolve(match)),
@@ -186,30 +186,29 @@ test("transient failures back off; permanent configuration errors report without
   permanent.controller.close();
 });
 
-test("normal stop continues paced objective work while running and stops on ended/unknown host", async () => {
+test("successful stops and handled prompts are not model failures", async () => {
   const h = harness();
   h.settle();
-  await h.tick(99);
-  assert.equal(h.prompts().length, 0);
-  await h.tick(1);
-  assert.equal(h.prompts().length, 1);
-  h.settle();
-  h.setMatch(undefined);
-  await h.tick(100);
-  assert.equal(h.prompts().length, 1);
-  h.setMatch("running");
-  await h.tick(100);
-  assert.equal(h.prompts().length, 2);
-  h.settle();
-  h.setMatch("ended");
-  await h.tick(10000);
-  assert.equal(h.prompts().length, 2);
+  await h.tick(100000);
+  assert.equal(
+    h.sent.length,
+    0,
+    "ordinary stops belong to decision scheduling, not fault recovery",
+  );
+  h.controller.receive({
+    type: "response",
+    command: "prompt",
+    success: true,
+    data: { disposition: "handled" },
+  });
+  await h.tick(100000);
+  assert.equal(h.sent.length, 0);
   h.controller.close();
 });
 
 test("queued inbox turns, compaction and urgent-start races cannot create parallel prompts", async () => {
   const h = harness();
-  h.settle();
+  h.settle("length");
   h.setStatus({ pendingMessageCount: 1 });
   await h.tick(100);
   assert.equal(h.prompts().length, 0);
@@ -231,7 +230,7 @@ test("queued inbox turns, compaction and urgent-start races cannot create parall
   assert.equal(h.prompts().length, 0);
   h.controller.receive({
     type: "agent_end",
-    messages: [{ role: "assistant", stopReason: "stop", content: [] }],
+    messages: [{ role: "assistant", stopReason: "length", content: [] }],
   });
   h.controller.receive({ type: "agent_settled", aborted: false });
   h.setMatchRead(undefined);
@@ -270,8 +269,8 @@ test("RPC prompt preflight failure can recover without an agent_end; abort/close
   await handled.tick(100);
   assert.equal(
     handled.prompts().length,
-    1,
-    "an immediately handled preflight emits no agent_end but must not strand the resident",
+    0,
+    "handled prompts are successful and must not trigger fault recovery",
   );
   handled.controller.close();
 });
@@ -364,6 +363,15 @@ test(
     });
     const base = `http://127.0.0.1:${server.address().port}`;
     const root = fileURLToPath(new URL("../", import.meta.url));
+    await writeFile(
+      join(dir, "model.json"),
+      JSON.stringify({
+        id: "fixture",
+        api: "pi-messages",
+        contextWindow: 32768,
+        maxOutputTokens: 64,
+      }),
+    );
     child = spawn(
       process.execPath,
       [
@@ -375,8 +383,7 @@ test(
         cwd: root,
         env: {
           ...process.env,
-          MODEL_ID: "fixture",
-          PI_MODEL_API: "pi-messages",
+          ARENA_MODEL_CONFIG: join(dir, "model.json"),
           OPENAI_BASE_URL: `${base}/v1`,
           OPENAI_API_KEY: "model-fixture",
           ARENA_BRIDGE_URL: base,
@@ -386,10 +393,6 @@ test(
           ARENA_CONTINUE_DELAY_MS: "120",
           ARENA_RETRY_DELAY_MS: "200",
           ARENA_EXTRA_EXTENSIONS: "",
-          PI_CONTEXT_WINDOW: "32768",
-          PI_MAX_TOKENS: "64",
-          PI_COMPACTION_RESERVE_TOKENS: "8192",
-          PI_COMPACTION_KEEP_RECENT_TOKENS: "8192",
           PI_CODING_AGENT_SESSION_DIR: join(dir, "sessions"),
           MC_INBOX_TRANSPORT: "http",
           MC_INBOX_TOKEN: "resident-inbox-fixture-token",
@@ -421,7 +424,7 @@ test(
     const prompt = (index) =>
       requests[index].body.context.messages.findLast(
         (message) =>
-          message.role === "user" &&
+          ["user", "custom"].includes(message.role) &&
           /The previous response|The previous model request|The trusted host still/.test(
             JSON.stringify(message.content),
           ),
@@ -461,7 +464,7 @@ test(
           event.command === "get_state" &&
           event.success,
       ).length,
-      3,
+      2,
     );
     assert.ok(
       events.some(

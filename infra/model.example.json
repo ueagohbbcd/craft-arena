@@ -1,0 +1,12 @@
+{
+  "id": "gpt-4.1",
+  "api": "openai-completions",
+  "reasoning": false,
+  "input": [
+    "text",
+    "image"
+  ],
+  "contextWindow": 1047576,
+  "maxOutputTokens": 32768,
+  "requestTimeoutMs": 120000
+}

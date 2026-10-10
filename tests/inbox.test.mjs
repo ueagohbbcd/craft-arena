@@ -218,12 +218,11 @@ test("abort detaches caller; cancellation explicitly kills process tree; output 
   assert.ok(result.outputDroppedBytes > 0);
 });
 
-test("explicit deferred claim stays queued until a drain and shutdown reaps children", async () => {
+test("unwaited completion stays queued until a boundary and shutdown reaps children", async () => {
   const inbox = new Inbox();
   const tasks = new TaskManager({ inbox });
   const id = tasks.start("printf nested");
-  const result = await tasks.wait(id, { claim: false });
-  assert.equal(result.stdout, undefined);
+  await sleep(50);
   assert.equal(inbox.pending, true);
   assert.equal(inbox.drain().messages[0].data.stdout, "nested");
   assert.equal((await tasks.wait(id)).status, "delivered");
@@ -364,4 +363,30 @@ test("program messages cannot replace host-source keyed state or set trusted pro
   assert.equal(batch.messages.length, 2);
   assert.equal(batch.messages[0].source, "host");
   assert.equal(batch.messages[1].source, "program");
+});
+
+test("programs choose state keys and lifetimes within the queue byte budget", () => {
+  let now = 0;
+  const inbox = new Inbox({ sessionId: "s", ttlMs: 10, now: () => now });
+  const key = "program-state/".repeat(40);
+  assert.equal(
+    post(inbox, { progress: 1 }, { kind: "state", key, ttlMs: 100 }).accepted,
+    true,
+  );
+  assert.equal(
+    post(inbox, { progress: 2 }, { kind: "state", key, ttlMs: 100 }).accepted,
+    true,
+  );
+  now = 50;
+  assert.deepEqual(
+    inbox.drain().messages.map((message) => message.data),
+    [{ progress: 2 }],
+  );
+  post(inbox, "short-lived");
+  now = 61;
+  assert.equal(
+    inbox.drain().dropped.expired,
+    1,
+    "the queue TTL remains the default",
+  );
 });
