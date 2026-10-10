@@ -108,3 +108,17 @@ npm run demo:visual
 新增覆盖包括跨三个区块列的 40 格 Pathfinder 路径、原生挖掘移动、区块加载/卸载/维度切换、旧版本世界高度、光照更新、空路径失败退出码、现金速率负债与大上下文请求、模型配置共用、后台任务等待与恢复、原子判胜和逐场结果归档。真实 Pi 进程使用本地可控模型响应；本轮没有调用付费模型。
 
 本轮验证为源码和集成夹具验证。Windows PowerShell 初始化/重置、Docker 构建、真实 Minecraft 动态地形寻路和 PvP 仍需部署后验收；前文 Windows 实战记录属于更早版本。修改的 JavaScript 文件通过格式检查，未批量格式化无关的历史文件。
+
+## 2026-10-11：Mineflayer 接口还原与玩家工具补充
+
+补充修改后再次运行 `PI_OFFLINE=1 npm run validate`：222 项，220 通过，0 失败，2 跳过（与上一轮相同的 Unix socket / Chromium 环境条件）。修改的 JavaScript 文件通过 Prettier，`git diff --check` 通过。
+
+- 使用实际安装的 Mineflayer inventory/chest/simple_inventory/digging 代码与合成服务端事件，验证 Window 查询、128 件跨堆叠存取、更新/关闭事件、窗口 ID 复用、迟到 HTTP 与旧快照、重连后 revision 重置。
+- 验证 1.21 物品组件的名称、损耗和附魔，BigInt NBT，equip 默认手部/数字类型，tossStack 指定槽位，晚调用 flush 仍可观察失败。
+- 挖掘取消与死亡保留原生 `Digging aborted`，重生后恢复桥接自身事件转发；Pathfinder 保留上游死亡/停止语义。错误保留 name/message/code/action 并脱敏凭据。
+- 实际完整克隆官方 Mineflayer 4.39.0、Pathfinder 2.4.5、PvP 1.3.2 参考仓库；固定 HEAD 与官方 tag、npm gitHead 一致，均保留 `.git` 和完整历史，未运行上游仓库脚本。镜像通过 `ARENA_REFERENCE_ROOT` 提供文档、示例与源码。
+- 视觉示例分别输出概览切片与局部结构快照；skill 说明现成工具、收件箱用法、上游参考库及可读适配器源码。
+
+独立复核发现的窗口目标、JSON 凭据脱敏、物品组件和事件/响应时序问题已修复。全量运行还暴露一个预算测试的真实时钟假设：1 毫秒正常偿债使精确金额断言偶发失败；该例现使用注入的固定时钟，保留原严格业务断言。
+
+这些测试没有启动真实 Minecraft 服务器。Windows 操作、Docker 构建、真实地图导航与战斗仍待部署验收；特殊熔炉、村民交易、附魔等高层 API 尚未作为本轮接口提供。

@@ -4,6 +4,16 @@ const wireStringify = (value) =>
   JSON.stringify(value, (_key, v) =>
     typeof v === "bigint" ? { $arenaBigInt: v.toString() } : v,
   );
+const parseWire = (text) =>
+  JSON.parse(text, (_key, value) =>
+    value &&
+    typeof value === "object" &&
+    Object.keys(value).length === 1 &&
+    typeof value.$arenaBigInt === "string" &&
+    /^-?[0-9]{1,80}$/.test(value.$arenaBigInt)
+      ? BigInt(value.$arenaBigInt)
+      : value,
+  );
 const controls = [
   "forward",
   "back",
@@ -60,6 +70,8 @@ function item(i) {
       displayName: i.displayName,
       stackSize: i.stackSize,
       nbt: i.nbt ?? null,
+      components: i.components,
+      removedComponents: i.removedComponents,
     }
   );
 }
@@ -119,6 +131,53 @@ export function createAuthority(
   } = {},
 ) {
   num(snapshotRadius, 0, Infinity, true);
+  const windowRefs = new WeakMap();
+  let windowRevision = 0;
+  const serializeWindow = (window) => {
+    if (!window) return null;
+    if (!windowRefs.has(window)) windowRefs.set(window, randomUUID());
+    const out = {
+      windowRef: windowRefs.get(window),
+      windowRevision: ++windowRevision,
+    };
+    for (const name of [
+      "id",
+      "type",
+      "title",
+      "inventoryStart",
+      "inventoryEnd",
+      "hotbarStart",
+      "craftingResultSlot",
+      "requiresConfirmation",
+    ])
+      if (window[name] !== undefined) out[name] = window[name];
+    return {
+      ...out,
+      slots: window.slots.map(item),
+      selectedItem: item(window.selectedItem) ?? null,
+    };
+  };
+  const currentWindow = (ref, includeInventory = false) => {
+    const window = [
+      bot.currentWindow,
+      ...(includeInventory ? [bot.inventory] : []),
+    ].find((value) => value && windowRefs.get(value) === ref);
+    if (typeof ref !== "string" || !window) fail("Window is no longer open");
+    return window;
+  };
+  const transfer = async (method, a) => {
+    const window = currentWindow(a.windowRef);
+    num(a.itemType, 0, Infinity, true);
+    if (a.metadata != null) num(a.metadata, 0, Infinity, true);
+    if (a.count != null) num(a.count, 0, Infinity, true);
+    await window[method](a.itemType, a.metadata, a.count, a.nbt);
+    return serializeWindow(window);
+  };
+  const inventoryItem = (slot, window = bot.inventory) => {
+    const value = window.slots[num(slot, 0, window.slots.length - 1, true)];
+    if (!value) fail("Empty slot");
+    return value;
+  };
   const vector = (p) =>
     bot.entity?.position?.constructor &&
     bot.entity.position.constructor !== Object
@@ -182,7 +241,7 @@ export function createAuthority(
           : typeof a.digFace === "string"
             ? one(a.digFace, ["auto", "raycast"])
             : vector(pos(a.digFace, false));
-      return bot.dig(block(a.position), a.forceLook ?? true, face);
+      return bot.dig(block(a.position), a.forceLook, face);
     },
     stopDigging(a) {
       return bot.stopDigging();
@@ -203,13 +262,12 @@ export function createAuthority(
     },
     equip(a) {
       const i =
-        bot.inventory.slots[
-          num(a.slot, 0, bot.inventory.slots.length - 1, true)
-        ];
-      if (!i) fail("Empty slot");
+        a.itemType === undefined
+          ? inventoryItem(a.slot)
+          : num(a.itemType, 0, Infinity, true);
       return bot.equip(
         i,
-        one(a.destination, [
+        one(a.destination ?? "hand", [
           "hand",
           "head",
           "torso",
@@ -250,12 +308,14 @@ export function createAuthority(
       return bot.setQuickBarSlot(num(a.slot, 0, 8, true));
     },
     toss(a) {
-      const i =
-        bot.inventory.slots[
-          num(a.slot, 0, bot.inventory.slots.length - 1, true)
-        ];
-      if (!i) fail("Empty slot");
+      const i = inventoryItem(a.slot);
       return bot.toss(i.type, i.metadata, num(a.count, 1, i.count, true));
+    },
+    tossStack(a) {
+      const window = bot.currentWindow ?? bot.inventory;
+      if (a.windowRef !== undefined && windowRefs.get(window) !== a.windowRef)
+        fail("Window is no longer open");
+      return bot.tossStack(inventoryItem(a.slot, window));
     },
     craft(a) {
       const t = a.table ? block(a.table) : null;
@@ -266,12 +326,22 @@ export function createAuthority(
       return bot.craft(r, count, t);
     },
     openContainer: async (a) => {
-      await bot.openContainer(block(a.position));
-      return { id: bot.currentWindow?.id, type: bot.currentWindow?.type };
+      const window = await bot.openContainer(
+        a.entityId === undefined ? block(a.position) : target(a.entityId),
+        a.direction == null ? undefined : vector(pos(a.direction, false)),
+        a.cursorPos == null ? undefined : vector(pos(a.cursorPos, false)),
+      );
+      return serializeWindow(window);
     },
     closeWindow(a) {
-      if (bot.currentWindow) return bot.closeWindow(bot.currentWindow);
+      const window =
+        a.windowRef === undefined
+          ? bot.currentWindow
+          : currentWindow(a.windowRef, true);
+      if (window) return bot.closeWindow(window);
     },
+    windowWithdraw: (a) => transfer("withdraw", a),
+    windowDeposit: (a) => transfer("deposit", a),
     clickWindow(a) {
       const window = bot.currentWindow ?? bot.inventory;
       return bot.clickWindow(
@@ -283,6 +353,7 @@ export function createAuthority(
   });
   return {
     actions: Object.keys(actions),
+    serializeWindow,
     async dispatch(request) {
       if (!obj(request)) fail("Invalid request");
       if (
@@ -340,11 +411,7 @@ export function createAuthority(
         username: bot.username,
         entity: entity(bot.entity),
         entities: Object.values(bot.entities ?? {}).map(entity),
-        inventory: {
-          slots: (bot.inventory?.slots ?? []).map(item),
-          inventoryStart: bot.inventory?.inventoryStart ?? 9,
-          inventoryEnd: bot.inventory?.inventoryEnd ?? 45,
-        },
+        inventory: serializeWindow(bot.inventory),
         heldItem: item(bot.heldItem),
         game: bot.game ?? {},
         health: bot.health,
@@ -359,13 +426,7 @@ export function createAuthority(
           x: Number(chunkX),
           z: Number(chunkZ),
         })),
-        currentWindow: bot.currentWindow
-          ? {
-              id: bot.currentWindow.id,
-              type: bot.currentWindow.type,
-              slots: bot.currentWindow.slots.map(item),
-            }
-          : null,
+        currentWindow: serializeWindow(bot.currentWindow),
       };
     },
   };
@@ -388,6 +449,25 @@ export function createBridgeServer({
     allowChat,
     maxReach,
     authorizeAction,
+  });
+  const errorText = (value, fallback) =>
+    (typeof value === "string" ? value : fallback)
+      .replaceAll(token, "[redacted]")
+      .replace(/\bBearer\s+[^\s"'<>]+/gi, "Bearer [redacted]")
+      .replace(/(\b[a-z][a-z0-9+.-]*:\/\/)[^/\s@]+@/gi, "$1[redacted]@")
+      .replace(
+        /(\b(?:[\w-]*(?:password|passwd|api[_-]?key|token|secret)|authorization)["']?\s*[=:]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
+        "$1[redacted]",
+      );
+  const actionError = (error, action) => ({
+    name: errorText(error?.name, "Error"),
+    message: errorText(error?.message ?? error, "Action failed"),
+    ...(typeof error?.code === "string"
+      ? { code: errorText(error.code, "") }
+      : Number.isFinite(error?.code)
+        ? { code: error.code }
+        : {}),
+    ...(action ? { action } : {}),
   });
   const epoch = randomUUID();
   let sequence = 0;
@@ -414,6 +494,15 @@ export function createBridgeServer({
     const e = envelope(type, data);
     for (const res of clients) write(res, e);
   }
+  const onSlotUpdate = () => publish("snapshot", authority.snapshot(false));
+  let watchedWindow;
+  const watchWindow = (window) => {
+    watchedWindow?.off?.("updateSlot", onSlotUpdate);
+    watchedWindow = window;
+    watchedWindow?.on?.("updateSlot", onSlotUpdate);
+  };
+  bot.inventory?.on?.("updateSlot", onSlotUpdate);
+  watchWindow(bot.currentWindow);
   const text = (value) => (typeof value === "string" ? value : "");
   for (const name of ["chat", "messagestr"]) {
     const fn = (...args) => {
@@ -467,6 +556,18 @@ export function createBridgeServer({
   ]) {
     const fn = (...args) => {
       if (name === "physicsTick") return;
+      // Mineflayer's death handler removes all digging listeners. Restore only
+      // our transport callbacks after respawn, never a participant's listeners.
+      if (name === "spawn")
+        for (const [event, listener] of listeners)
+          if (
+            ["diggingCompleted", "diggingAborted"].includes(event) &&
+            !bot.listeners(event).includes(listener)
+          )
+            bot.on(event, listener);
+      if (name === "windowOpen") watchWindow(args[0]);
+      else if (name === "windowClose" && watchedWindow === args[0])
+        watchWindow(null);
       if (
         [
           "health",
@@ -482,8 +583,12 @@ export function createBridgeServer({
       if (name.startsWith("entity")) data = [entity(args[0])];
       else if (name === "blockUpdate")
         data = args.slice(0, 2).map(serializeBlock);
+      else if (name === "diggingCompleted" || name === "diggingAborted")
+        data = [serializeBlock(args[0])];
       else if (name === "chunkColumnLoad" || name === "chunkColumnUnload")
         data = [vec(args[0])];
+      else if (name === "windowOpen" || name === "windowClose")
+        data = [authority.serializeWindow(args[0])];
       publish("event", { name, args: data });
     };
     bot.on(name, fn);
@@ -551,6 +656,7 @@ export function createBridgeServer({
       res.writeHead(404);
       return res.end();
     }
+    let action;
     try {
       if (Number.isFinite(maxActionsPerSecond)) {
         tokens = Math.min(
@@ -578,7 +684,8 @@ export function createBridgeServer({
         if (size > 16384) fail("Request too large");
         chunks.push(c);
       }
-      const request = JSON.parse(Buffer.concat(chunks).toString());
+      const request = parseWire(Buffer.concat(chunks).toString());
+      if (authority.actions.includes(request?.action)) action = request.action;
       active++;
       try {
         const result = await authority.dispatch(request);
@@ -588,11 +695,17 @@ export function createBridgeServer({
         active--;
       }
     } catch (e) {
-      res.writeHead(e.status ?? 400, { "content-type": "application/json" });
+      const errorDetails = actionError(e, action);
+      const status =
+        Number.isInteger(e?.status) && e.status >= 400 && e.status <= 599
+          ? e.status
+          : 400;
+      res.writeHead(status, { "content-type": "application/json" });
       res.end(
         JSON.stringify({
           ok: false,
-          error: e.status ? e.message : "Action failed",
+          error: errorDetails.message,
+          errorDetails,
         }),
       );
     }
@@ -612,6 +725,8 @@ export function createBridgeServer({
     },
     async close() {
       clearInterval(timer);
+      bot.inventory?.off?.("updateSlot", onSlotUpdate);
+      watchWindow(null);
       for (const [n, f] of listeners) bot.off(n, f);
       for (const c of clients) c.end();
       server.closeAllConnections();

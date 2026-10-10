@@ -1,6 +1,20 @@
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
+import { isDeepStrictEqual } from "node:util";
 const require = createRequire(import.meta.url);
+const controls = [
+  "forward",
+  "back",
+  "left",
+  "right",
+  "jump",
+  "sprint",
+  "sneak",
+];
+const wireStringify = (value) =>
+  JSON.stringify(value, (_key, v) =>
+    typeof v === "bigint" ? { $arenaBigInt: v.toString() } : v,
+  );
 const parseWire = (text) =>
   JSON.parse(text, (_key, value) =>
     value &&
@@ -77,6 +91,10 @@ export class BotFacade extends EventEmitter {
     this.epoch = null;
     this.closed = false;
     this._pending = new Set();
+    this._windows = new Map();
+    this._closedWindowRefs = new Set();
+    this._pendingOpens = 0;
+    this._windowStateRevision = -1;
     this._plugins = new Set();
     this.on("error", () => {});
     this.inventory = new EventEmitter();
@@ -102,11 +120,21 @@ export class BotFacade extends EventEmitter {
         authorization: `Bearer ${this.token}`,
         "content-type": "application/json",
       },
-      body: JSON.stringify({ action, args }),
+      body: wireStringify({ action, args }),
     });
-    const body = await res.json();
-    if (!res.ok || !body.ok)
-      throw new Error(body.error ?? "Bridge action failed");
+    const text = await res.text();
+    const body = text ? parseWire(text) : {};
+    if (!res.ok || !body.ok) {
+      const details = body.errorDetails ?? {};
+      const error = new Error(
+        details.message ?? body.error ?? `Bridge action HTTP ${res.status}`,
+      );
+      error.name = details.name ?? "Error";
+      if (details.code !== undefined) error.code = details.code;
+      error.action = details.action ?? action;
+      error.status = res.status;
+      throw error;
+    }
     return body.result;
   }
   async getMatchState() {
@@ -120,13 +148,23 @@ export class BotFacade extends EventEmitter {
   _fire(action, args) {
     const p = this.action(action, args);
     this._pending.add(p);
-    p.catch((e) => this.emit("error", e)).finally(() =>
-      this._pending.delete(p),
+    p.then(
+      () => {
+        this._pending.delete(p);
+      },
+      (error) => {
+        this._pending.delete(p);
+        this._unreportedActionError ??= error;
+        this.emit("error", error);
+      },
     );
     return p;
   }
   async flush() {
-    await Promise.all([...this._pending]);
+    await Promise.allSettled([...this._pending]);
+    const error = this._unreportedActionError;
+    this._unreportedActionError = undefined;
+    if (error) throw error;
   }
   async configure(version) {
     if (this.version === version) return;
@@ -138,6 +176,7 @@ export class BotFacade extends EventEmitter {
     this.registry = Registry(version);
     this.Block = Block(this.registry);
     this.Item = Item(this.registry);
+    this.Window = require("prismarine-windows")(this.registry).Window;
     this.Chunk = require("prismarine-chunk")(this.registry);
     this.Vec3 = require("vec3").Vec3;
     this.physics = require("prismarine-physics").Physics(
@@ -174,13 +213,22 @@ export class BotFacade extends EventEmitter {
     const i = this.Item
       ? new this.Item(data.type, data.count, data.metadata, data.nbt)
       : {};
-    return Object.assign(i, data);
+    Object.assign(i, data);
+    if (data.components)
+      i.componentMap = new Map(
+        data.components.map((component) => [component.type, component]),
+      );
+    return i;
   }
   async accept(frame) {
     if (frame.type === "reset") {
       this.epoch = frame.epoch;
       this.sequence = frame.sequence;
       this.entities = {};
+      this._windows.clear();
+      this._closedWindowRefs.clear();
+      this._windowStateRevision = -1;
+      this.currentWindow = null;
       this.blocks.clear();
       this.columns.clear();
       this.knownBlocks.clear();
@@ -209,6 +257,24 @@ export class BotFacade extends EventEmitter {
           z = Math.floor(args[0].z / 16);
         if (name === "chunkColumnLoad") await this._loadColumn(x, z);
         else this.columns.delete(`${x},${z}`);
+      }
+      if (name === "diggingCompleted" || name === "diggingAborted")
+        local = args.map((block) => this._block(block));
+      if (name === "windowOpen") {
+        const window = args[0] ? this._window(args[0]) : this.currentWindow;
+        if (window) this._setCurrentWindow(window, args[0]?.windowRevision);
+        local = [window];
+      } else if (name === "windowClose") {
+        const window = args[0] ? this._window(args[0]) : this._lastWindow;
+        if (window) {
+          if (this._pendingOpens) this._closedWindowRefs.add(window.windowRef);
+          if (this.currentWindow === window)
+            this._setCurrentWindow(null, args[0]?.windowRevision);
+          window.emit("close");
+          if (!this._pendingOpens)
+            this._windows.delete(window.windowRef ?? window.id);
+        }
+        local = [window];
       }
       this.emit(name, ...local);
       if (name === "entityGone" && args[0]) delete this.entities[args[0].id];
@@ -243,22 +309,15 @@ export class BotFacade extends EventEmitter {
     for (const id of Object.keys(this.entities))
       if (!ids.has(Number(id))) delete this.entities[id];
     this.controlState = { ...s.controlState };
-    const oldSlots = this.inventory.slots;
-    this.inventory.slots = s.inventory.slots.map((i) => this._item(i));
-    for (let slot = 0; slot < this.inventory.slots.length; slot++) {
-      const before = oldSlots[slot],
-        after = this.inventory.slots[slot];
-      if (
-        before?.type !== after?.type ||
-        before?.count !== after?.count ||
-        before?.metadata !== after?.metadata
-      )
-        this.inventory.emit("updateSlot", slot, before ?? null, after ?? null);
-    }
-    this.inventory.inventoryStart = s.inventory.inventoryStart;
-    this.inventory.inventoryEnd = s.inventory.inventoryEnd;
+    this._window(s.inventory, this.inventory);
     this.heldItem = this._item(s.heldItem);
-    this.currentWindow = s.currentWindow;
+    this._setCurrentWindow(
+      s.currentWindow ? this._window(s.currentWindow) : null,
+      Math.max(
+        s.inventory?.windowRevision ?? -1,
+        s.currentWindow?.windowRevision ?? -1,
+      ),
+    );
     this.hasColumnMirror = !!(s.columns && this.Chunk);
     if (this.hasColumnMirror) {
       const wanted = new Set(s.columns.map(({ x, z }) => `${x},${z}`));
@@ -281,6 +340,82 @@ export class BotFacade extends EventEmitter {
       this._rememberBlock(b, s.sampledAt ?? Date.now());
       this._updateColumn(b, s.sampledAt);
     }
+  }
+  _setCurrentWindow(window, revision = -1) {
+    if (revision >= 0 && revision < this._windowStateRevision) return;
+    if (window && this._closedWindowRefs.has(window.windowRef)) return;
+    if (this.currentWindow && this.currentWindow !== window) {
+      this._lastWindow = this.currentWindow;
+      if (this._pendingOpens)
+        this._closedWindowRefs.add(this.currentWindow.windowRef);
+    }
+    this.currentWindow = window;
+    this._windowStateRevision = Math.max(this._windowStateRevision, revision);
+  }
+  _window(data, target) {
+    if (!data) return null;
+    this.Window ??= require("prismarine-windows")(this.version).Window;
+    const key = data.windowRef ?? data.id;
+    let window = target ?? this._windows.get(key);
+    if (!window && data.windowRef === this.inventory.windowRef)
+      window = this.inventory;
+    if (
+      window &&
+      data.windowRef === window.windowRef &&
+      data.windowRevision < window.windowRevision
+    )
+      return window;
+    if (!window) {
+      window = new this.Window(
+        data.id,
+        data.type,
+        data.title,
+        data.slots.length,
+        { start: data.inventoryStart, end: data.inventoryEnd - 1 },
+        data.craftingResultSlot,
+        data.requiresConfirmation,
+      );
+      this._windows.set(key, window);
+      window.close = () => this.closeWindow(window);
+      for (const method of ["withdraw", "deposit"])
+        window[method] = async (itemType, metadata, count, nbt) => {
+          const result = await this.action(
+            method === "withdraw" ? "windowWithdraw" : "windowDeposit",
+            {
+              windowRef: window.windowRef,
+              itemType,
+              metadata,
+              count,
+              nbt,
+            },
+          );
+          this._window(result);
+        };
+    } else if (!(window instanceof this.Window)) {
+      // Keep inventory listeners/reference while using upstream query methods.
+      Object.setPrototypeOf(window, this.Window.prototype);
+      delete window.items;
+      delete window.emptySlotCount;
+    }
+    this._windows.set(key, window);
+    const oldSlots = window.slots ?? [];
+    const { slots, selectedItem, ...fields } = data;
+    Object.assign(window, fields);
+    window.slots = slots.map((item, slot) => {
+      const value = this._item(item);
+      if (value) value.slot = slot;
+      return value;
+    });
+    window.selectedItem = this._item(selectedItem);
+    for (let slot = 0; slot < window.slots.length; slot++) {
+      const before = oldSlots[slot] ?? null,
+        after = window.slots[slot];
+      if (!isDeepStrictEqual(before, after)) {
+        window.emit("updateSlot", slot, before, after);
+        window.emit(`updateSlot:${slot}`, before, after);
+      }
+    }
+    return window;
   }
   async _loadColumn(x, z) {
     if (!this.Chunk) return;
@@ -448,6 +583,9 @@ export class BotFacade extends EventEmitter {
     for (const p of plugins) this.loadPlugin(p);
   }
   setControlState(control, state) {
+    if (!controls.includes(control))
+      throw new Error(`invalid control: ${control}`);
+    if (typeof state !== "boolean") throw new Error(`invalid state: ${state}`);
     this.controlState[control] = state;
     this._fire("setControlState", { control, state });
   }
@@ -455,8 +593,7 @@ export class BotFacade extends EventEmitter {
     return this.controlState[control] ?? false;
   }
   clearControlStates() {
-    for (const k of Object.keys(this.controlState))
-      this.controlState[k] = false;
+    for (const key of controls) this.controlState[key] = false;
     this._fire("clearControlStates", {});
   }
   stop() {
@@ -474,7 +611,7 @@ export class BotFacade extends EventEmitter {
   attack(entity, swing = true) {
     this._fire("attack", { entityId: entity.id, swing });
   }
-  dig(block, forceLook = true, digFace) {
+  dig(block, forceLook, digFace) {
     return this.action("dig", {
       position: coords(block.position),
       forceLook,
@@ -508,8 +645,11 @@ export class BotFacade extends EventEmitter {
       "off-hand": 45,
     }[destination];
   }
-  equip(item, destination) {
-    return this.action("equip", { slot: item.slot, destination });
+  equip(item, destination = "hand") {
+    return this.action("equip", {
+      ...(typeof item === "number" ? { itemType: item } : { slot: item.slot }),
+      destination: destination || "hand",
+    });
   }
   unequip(destination) {
     return this.action("unequip", { destination });
@@ -537,13 +677,42 @@ export class BotFacade extends EventEmitter {
     });
   }
   tossStack(item) {
-    return this.action("toss", { slot: item.slot, count: item.count });
+    return this.action("tossStack", {
+      slot: item.slot,
+      windowRef: (this.currentWindow ?? this.inventory).windowRef,
+    });
   }
-  openContainer(block) {
-    return this.action("openContainer", { position: coords(block.position) });
+  async openContainer(target, direction, cursorPos) {
+    this._pendingOpens++;
+    try {
+      const result = await this.action("openContainer", {
+        ...(target.id !== undefined
+          ? { entityId: target.id }
+          : { position: coords(target.position) }),
+        direction: direction && coords(direction),
+        cursorPos: cursorPos && coords(cursorPos),
+      });
+      const window = this._window(result);
+      if (window) this._setCurrentWindow(window, result.windowRevision);
+      return window;
+    } finally {
+      if (--this._pendingOpens === 0) {
+        for (const ref of this._closedWindowRefs) this._windows.delete(ref);
+        this._closedWindowRefs.clear();
+      }
+    }
   }
-  closeWindow() {
-    return this.action("closeWindow", {});
+  async closeWindow(window = this.currentWindow) {
+    await this.action(
+      "closeWindow",
+      window ? { windowRef: window.windowRef } : {},
+    );
+    if (this.currentWindow === window) {
+      this._lastWindow = window;
+      this.currentWindow = null;
+      if (window && this._pendingOpens)
+        this._closedWindowRefs.add(window.windowRef);
+    }
   }
   clickWindow(slot, mouseButton, mode) {
     return this.action("clickWindow", { slot, mouseButton, mode });

@@ -56,6 +56,45 @@ Mineflayer. Modes 0–6 and the outside/drop slot -999 are passed through; other
 slots must exist in that authoritative window. Recipe availability comes from
 Mineflayer, with no one-stack cap on craft batches.
 
+Container observations retain native window IDs/types/titles, inventory and
+hotbar boundaries, crafting/confirmation fields, slots and selected item. A
+stable `windowRef` identifies the actual window object independently of Minecraft's
+reusable numeric window ID. A monotonic `windowRevision` orders window projections
+received over HTTP and SSE. Item data retains NBT and modern components.
+`openContainer` resolves an authoritative block
+position or entity ID, then returns the opened window. Fixed `windowWithdraw` and
+`windowDeposit` actions accept this ref plus item type, optional metadata/count/NBT
+and delegate to that window's native transfer methods. There is no one-stack cap;
+omitted/null counts keep Mineflayer's default. A stale ref cannot operate on a
+new container. `closeWindow` accepts the current container or player inventory;
+inventory/current-window slot changes publish snapshots, and open/close events
+include the affected window. No participant payload chooses an arbitrary window
+method. `equip` accepts a type ID or authoritative inventory slot and keeps the
+native default hand destination. `tossStack` selects the exact stack in the active
+window or player inventory, preserving its NBT identity.
+
+## Action errors and native completion semantics
+
+Failed actions return `{ok:false,error,errorDetails}`. `error` remains the message
+string for older clients; `errorDetails` contains the underlying error name,
+message, optional scalar code and known action name. The SDK preserves these
+fields when rejecting the action promise. Stack, cause and arbitrary error
+properties are omitted, and explicit credential values/labels are redacted.
+Authentication failures remain separate; match-policy denials keep HTTP 403.
+
+The bridge does not invent task cancellation on death. In the installed
+Mineflayer, `stopDigging()` cancels a pending native dig with `Error("Digging
+aborted")`, and Mineflayer's own death handler calls it. That rejection is
+forwarded. Omitted `forceLook` stays omitted; explicit true/false/`"ignore"`
+are preserved. Mineflayer also removes digging-event listeners on death; spawn
+restores only this bridge's two event relays, without duplicating them or
+restoring participant listeners. Digging events retain their native block argument.
+
+Pathfinder's `goto` is its installed local implementation: it reacts to goal/path
+events and has no universal death-to-rejection rule. Its empty-path resolution
+alone does not prove arrival. Programs decide whether to stop work, retry, or
+replan using the actual result and game observations.
+
 ## Match lifecycle integration
 
 A trusted `authorizeAction(request)` callback may be supplied to either the

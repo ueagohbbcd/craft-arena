@@ -21,7 +21,7 @@ live 常驻模式先等待可信 host 的 `running` 状态，再把公开比赛�
 
 - **观察与游戏动作**：[bot-sdk](../packages/bot-sdk/README.md)，方法签名见 [BotFacade](../packages/bot-sdk/index.mjs)。读取 `entity`、`entities`、`health`、`food`、`inventory.items()`；用 `blockAt`、`findBlock(s)`、`nearestEntity` 查询本地镜像。实时镜像包含 Mineflayer 已加载区块的完整高度，连接完成前已获取初始地形；区块卸载后恢复为未知。`knownBlockAt` 优先返回当前区块数据，也可读取带时间标记的已探索缓存。
 - **移动与战斗**：`setControlState`、`clearControlStates`、`look/ lookAt`、`attack`；通过 `loadSelectedPlugins` 使用选定 Pathfinder/PvP 适配器、自定义 Goal 和 Movements。[选路示例](../examples/plugin-goal.mjs)演示显式目标和路径报告。
-- **方块与物品**：`dig`、`stopDigging`、`placeBlock`、`activateBlock`、`equip/unequip`、`activateItem/deactivateItem`、`setQuickBarSlot`、`tossStack`、`openContainer/closeWindow`、`clickWindow`、`craftItem`。参数与支持程度按 SDK 说明和方法签名核对；实际动作由可信 bridge 校验。
+- **方块与物品**：`dig`、`stopDigging`、`placeBlock`、`activateBlock`、`equip/unequip`、`activateItem/deactivateItem`、`setQuickBarSlot`、`tossStack`、`openContainer/closeWindow`、`clickWindow`、`craftItem`。`openContainer` 返回原生布局的 Window，可用 `containerItems()`、`items()` 等查询和 `withdraw/deposit/close` 操作。参数与支持程度按 SDK 说明和方法签名核对；实际动作由可信 bridge 校验。
 - **事件与聊天**：普通 `bot.on(...)` 监听器可消费生命、物理、方块、聊天等观察。游戏聊天是游戏数据；你决定哪些内容值得报告。`bot.chat(message)` 需本场运营配置允许。
 - **图片**：[world-visual](../packages/world-visual/README.md) 的 `world_minimap`、`world_render3d` 同次返回原生图片与独立元数据。默认 3D 是结构图；`textured:true` 使用真实 Prismarine 模型/材质与可用的 Chromium。`explored:true` 展示本会话积累的已知区域与过期标记。
 - **消息与长程序**：[inbox](../packages/inbox/README.md) 的 `post`、`upsert`、`requestJudgment`，以及 `bash`、`task_wait`、`task_cancel`。普通脚本选择投递信息，Pi 在工具/轮次边界交给模型。
@@ -32,7 +32,7 @@ live 常驻模式先等待可信 host 的 `running` 状态，再把公开比赛�
 
 ## 一次具体的行动循环
 
-1. **观察与选路**：读简报和本地状态，运行 `node examples/observe-and-render.mjs` 获取真实镜像快照；用 `world_minimap` 或 `world_render3d` 看图并读覆盖元数据。选定目标后运行 `node examples/plugin-goal.mjs X Y Z`。目标坐标和风险判断由你给出；示例的 `ReachSafeColumn` 判定指定列与高度容差，安全性由你的策略检查。默认沿用原生 Movements（允许挖掘）；需避免挖掘时显式加 `--no-dig`。失败会报告当前地形覆盖并以非零状态退出；使用管道时启用 `set -o pipefail`。
+1. **观察与选路**：读简报和本地状态；需要图像帮助决策时，可运行 `node examples/observe-and-render.mjs` 获取角色附近的概览与结构快照，再用 `world_minimap` 或 `world_render3d` 看图并读覆盖及取景元数据。默认是选定高度的局部切片，输出路径和自定义范围见[编程技能](../examples/SKILL.md#choose-a-view-for-the-decision)。选定目标后运行 `node examples/plugin-goal.mjs X Y Z`。目标坐标和风险判断由你给出；示例的 `ReachSafeColumn` 判定指定列与高度容差，安全性由你的策略检查。默认沿用原生 Movements（允许挖掘）；需避免挖掘时显式加 `--no-dig`。失败会报告当前地形覆盖并以非零状态退出；使用管道时启用 `set -o pipefail`。
 2. **施工与吃饭**：准备可达的计划，例如 `{"material":"cobblestone","steps":[{"against":{"x":0,"y":64,"z":0},"face":{"x":0,"y":1,"z":0}}]}`，运行 `node examples/build-with-autoeat.mjs plan.json`。示例用共享手部锁协调施工和进食，合并 `build.progress`/`food`；你选择放置计划、移动、食物阈值与失败后的策略。
 3. **发现威胁**：程序按你定义的敌友与风险规则筛选实体，调用 `requestJudgment({question:"继续施工还是撤退？",health:8,...})`，同时说明当前程序还在做什么。若需要立即保护，先执行你已写好的保护动作再报告。消息被接收后会在可见边界送达，原进程可继续，模型的新请求进入同一个预算网关。
 4. **接续与收尾**：保留 `running` 结果的 `taskId`；选择等待、明确取消，或按自定程序结构改变行为。`completed` 表示进程退出，检查 `exitCode`、`signal` 与业务结果。脚本在正常结束和可处理的退出路径中清理控制输入；强制终止后复查 bot 状态。`closeBridge()` 关闭观察连接，控制清理由 `clearControlStates` 等动作完成。
@@ -46,16 +46,16 @@ live 常驻模式先等待可信 host 的 `running` 状态，再把公开比赛�
 **模型据什么决策**：可信 `arena.budget` 消息的 `cash.participant` 和 `cash.team` 分别提供个人、队伍的成本反馈。每个账户的成本视图包含比例、时长和计量质量：
 
 - `costShare.uncachedInput/cachedInput/output`：当前窗口已结算成本中，三个计费项各占多少。可用来判断上下文、缓存输入和输出分别占了多少成本，选择下一步如何组织工作。
-- `rate.overRateRatioBeforeWait`：初次入队时，窗口已占用成本加本请求预留后，超出窗口额度的部分占额度的比例，最低为 0。例如 0.25 表示当时预计超过窗口额度 25%。
-- `rate.windowLoadRatio`：当前窗口内已结算成本加进行中预留，占窗口额度的比例；例如 0.8 表示占用 80%。`rate.windowMs` 给出窗口毫秒数，已结算项从结算起保留一个窗口，进行中预留持续占用。
-- `rate.queueDelayMs`：本参赛者最近请求在 token 与现金准入阶段合计真实等待的毫秒数。它说明已经发生的延迟，可能同时受 TPM、并发和现金窗口容量影响。
-- `quality`、`coverage`、`calls`：质量可为 `exact`、`estimated`、`partial`、`unknown`、`no-usage`；`coverage` 标为 `current-window-priced-usage-only`，`calls` 提供 `priced/estimated/unknown` 次数。缓存明细缺失时按未缓存输入估算；usage 无法拆分时保留整笔预留用于限速，成本占比只覆盖已定价部分，无可计算成本时为 `null`。
+- `rate.overRateRatioBeforeWait`：初次入队时，尚未偿还的成本债务、进行中占用与本请求成本预估之和，超出一个窗口额度的部分占额度的比例，最低为 0。例如 0.25 表示当时预计超过窗口额度 25%。
+- `rate.windowLoadRatio`：尚未偿还的成本债务加进行中占用，相对一个窗口额度的比例；例如 0.8 表示占用 80%。`rate.windowMs` 是速率换算窗口：债务按配置的每窗口额度持续偿还，进行中占用在请求结算前保持不变。
+- `rate.queueDelayMs`：本参赛者最近请求在 token 与现金准入阶段合计真实等待的毫秒数。它说明已经发生的延迟，可能受并发、现金债务，以及运营者显式启用的 TPM 限制影响。
+- `quality`、`coverage`、`calls`：质量可为 `exact`、`estimated`、`partial`、`unknown`、`no-usage`；`coverage` 标为 `current-window-priced-usage-only`，`calls` 提供 `priced/estimated/unknown` 次数。缓存明细缺失时按未缓存输入估算；usage 无法拆分时按整笔成本预估记入限速债务，成本占比只覆盖已定价部分，无可计算成本时为 `null`。
 
 反馈针对已有使用和请求经历，供下一次决策使用。具体金额和单价留在运营端。运营者监控累计参考成本，通过可信 host 决定何时结束比赛；模型侧关注窗口速率、游戏进度和剩余时间。
 
-**排队期间**：请求暂时超过窗口可用容量时，在网关等待容量释放。同一共享账户内遵循准入顺序；技术性 TPM 和并发限制也参与准入。游戏墙钟和已启动程序继续运行，你的自动进食、施工、战斗和保护逻辑按程序执行。`requestJudgment` 提前交回判断的请求仍使用相同速率限制与准入顺序；已构造并排队或已派发的模型请求保持当次内容快照，新消息在后续可见边界交付。
+**排队期间**：网关使用持续偿还的现金债务。个人和队伍的现有债务加进行中占用低于一个窗口额度时，请求可进入；单次预估较大也可执行。结算时记入完整成本债务，较大实际成本会让后续请求等待更久。同一共享账户内遵循准入顺序，并发限制也参与准入。游戏墙钟和已启动程序继续运行，你的自动进食、施工、战斗和保护逻辑按程序执行。`requestJudgment` 仍使用相同网关与准入顺序；已排队或派发的模型请求保持当次内容快照，新消息在后续可见边界交付。
 
-**拒绝时**：单次请求的成本预留超过整个窗口容量时，返回 HTTP 429，错误消息为 `Single request exceeds cash rate window; reduce request/output size`。调用方需要缩小请求或调整任务安排。提供的 Pi 启动配置关闭自动重试；先读实际错误再决定下一步。旧 token TPM/并发限制作为技术边界保留，累计 token cap 可由运营者选择配置；新的金额速率示例将该累计上限留空。详细准入与错误契约见 [预算网关](../packages/budget-gateway/README.md)。
+**预算选项与错误**：单次现金预估超过一个窗口额度不会因此被永久拒绝；实际成本由后续债务等待偿还。累计 token cap 和滚动 TPM 是可选运营策略，金额速率示例使用 `tokens:null`、`tpm:null`，保留并发限制。若运营者显式设置数值 token/TPM 上限，或模型服务商拒绝请求，应按具体错误处理。Pi 自身自动请求重试已关闭，常驻运行器另对暂时故障做有次数限制的恢复。详细准入与错误契约见 [预算网关](../packages/budget-gateway/README.md)。
 
 **被动反馈**：可信 `arena.budget` 状态在后续自然工具/轮次边界出现，传递成本占比、窗口压力和排队信息。host 比赛时钟也在自然边界更新；标为 agent uptime 的回退值表示 agent 会话时长。
 

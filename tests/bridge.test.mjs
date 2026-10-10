@@ -174,14 +174,16 @@ test("inventory, recipe and window actions accept IDs only and use authoritative
   );
   b.openContainer = async (block) => {
     b.currentWindow = { id: 3, type: "chest", slots: Array(63).fill(null) };
+    return b.currentWindow;
   };
-  assert.deepEqual(
-    await a.dispatch({
-      action: "openContainer",
-      args: { position: { x: 0, y: 0, z: 0 } },
-    }),
-    { id: 3, type: "chest" },
-  );
+  const window = await a.dispatch({
+    action: "openContainer",
+    args: { position: { x: 0, y: 0, z: 0 } },
+  });
+  assert.equal(window.id, 3);
+  assert.equal(window.type, "chest");
+  assert.equal(window.slots.length, 63);
+  assert.equal(typeof window.windowRef, "string");
   await a.dispatch({
     action: "clickWindow",
     args: { slot: 10, mouseButton: 0, mode: 1 },
@@ -582,4 +584,73 @@ test("SDK preserves the optional Mineflayer attack, digging and interaction argu
     new Vector(1, 0, 0),
     new Vector(0.25, 0.5, 0.75),
   ]);
+});
+
+test("window refs preserve inventory close and active-container toss without accepting stale handles", async () => {
+  const b = fakeBot(),
+    a = createAuthority(b);
+  const inventoryRef = a.snapshot(false).inventory.windowRef;
+  const stack = {
+    type: 1,
+    metadata: 0,
+    count: 5,
+    slot: 0,
+    nbt: { unique: "container-stack" },
+  };
+  b.inventory.slots[0] = { ...stack, nbt: { unique: "inventory-stack" } };
+  b.currentWindow = { id: 1, type: "chest", slots: [stack] };
+  b.tossStack = (item) => b.calls.push(["tossStack", item]);
+  const first = a.snapshot(false).currentWindow;
+  await a.dispatch({
+    action: "tossStack",
+    args: { slot: 0, windowRef: first.windowRef },
+  });
+  assert.equal(b.calls.at(-1)[1], stack);
+  await a.dispatch({
+    action: "closeWindow",
+    args: { windowRef: inventoryRef },
+  });
+  assert.equal(b.calls.at(-1)[1], b.inventory);
+  b.currentWindow = { id: 1, type: "chest", slots: [stack] };
+  const next = a.snapshot(false).currentWindow;
+  assert.notEqual(next.windowRef, first.windowRef);
+  assert.ok(next.windowRevision > first.windowRevision);
+  for (const action of ["closeWindow", "tossStack"])
+    await assert.rejects(
+      a.dispatch({ action, args: { slot: 0, windowRef: first.windowRef } }),
+      /no longer open/,
+    );
+});
+
+test("item snapshots keep modern components and window transfers delegate native counts and NBT", async () => {
+  const b = fakeBot(),
+    a = createAuthority(b);
+  const components = [{ type: "custom_name", data: { text: "Named stack" } }];
+  b.inventory.slots[9] = {
+    type: 1,
+    count: 1,
+    slot: 9,
+    components,
+    removedComponents: ["enchantments"],
+  };
+  const item = a.snapshot(false).inventory.slots[9];
+  assert.deepEqual(item.components, components);
+  assert.deepEqual(item.removedComponents, ["enchantments"]);
+  b.currentWindow = {
+    id: 1,
+    type: "chest",
+    slots: [],
+    withdraw: (...args) => b.calls.push(["withdraw", ...args]),
+  };
+  const window = a.snapshot(false).currentWindow;
+  const nbt = { owner: [0, 42] };
+  await a.dispatch({
+    action: "windowWithdraw",
+    args: { windowRef: window.windowRef, itemType: 1, count: 260, nbt },
+  });
+  assert.deepEqual(b.calls.at(-1), ["withdraw", 1, undefined, 260, nbt]);
+  await assert.rejects(
+    a.dispatch({ action: "windowWithdraw", args: { itemType: 1 } }),
+    /no longer open/,
+  );
 });

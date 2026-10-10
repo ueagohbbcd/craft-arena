@@ -210,7 +210,8 @@ test("cash-window queue reserves atomically, refunds usage, cancels fairly and e
   l.close();
 });
 test("unknown usage keeps conservative rate occupancy without invented billing split", async () => {
-  const l = cash();
+  // Assert settlement occupancy before any continuously repaid debt elapses.
+  const l = cash({ now: () => 0 });
   const q = l.quote("a", "gpt-4.1", { input: 100, output: 10 });
   const r = await l.acquire("a", q);
   r.settle({ total_tokens: 20 });

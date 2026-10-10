@@ -36,6 +36,18 @@ OpenAI traffic uses an authenticated Windows relay on loopback port 18181. Every
 
 The map template and actual deployment checks are described in [validation](../docs/VALIDATION.md). Full autonomous gameplay remains to be evaluated.
 
+## Offline Mineflayer reference repositories
+
+The participant image includes full Git clones at `$ARENA_REFERENCE_ROOT` (default `/opt/mf-reference`): `mineflayer`, `mineflayer-pathfinder`, and `mineflayer-pvp`. Each keeps its source, documentation, examples and `.git` history, so participants can read the upstream API docs and use `git log`, `git show` or `git grep` without internet access. These are reference checkouts; runtime dependencies still come from the project's locked `npm ci --ignore-scripts` installation. Cloning does not run upstream install/build scripts or add participant network access.
+
+`scripts/mf-reference.json` pins full commit IDs verified against both npm's release `gitHead` metadata and the official GitHub version tags:
+
+- Mineflayer 4.39.0: `c168635cf2f6602069fc5e408bec864702335581`
+- mineflayer-pathfinder 2.4.5: `ca35a00ec18e7d3095280ffe2dc194e7c81b55eb`
+- mineflayer-pvp 1.3.2: `0b4006de03f33f901ab9005c99278cfb24bb22e0`
+
+The image build clones from the official PrismarineJS GitHub repositories, checks out those commits, and verifies package names/versions. It uses neither shallow clones nor partial/sparse checkouts. The reference layer is cached separately from arena source changes; GitHub must be reachable on the build host when creating that layer. A missing repository or commit fails the build rather than silently omitting references. Keep the manifest aligned when upgrading the three npm dependencies. Only this small manifest and preparation script are stored in the arena repository, not vendored upstream trees.
+
 ## General templates
 
 1. Run `node --test` locally first. Supply an operator-owned map, exact Minecraft version, vetted non-root server image, installed world, and acceptance of any applicable Minecraft agreement yourself.
