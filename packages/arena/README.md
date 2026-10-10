@@ -30,3 +30,6 @@ The CLI atomically replaces its `RESULT.json` argument with the current run stat
 
 Live monument progress tracks current state: each poll recomputes all configured goal blocks, records objective/objective-lost transitions, and uses current presence for win and timeout scoring. Losing chunk visibility during a running match ends it as map-fault to preserve scoring integrity. The event history remains available after removals.
 
+## Opening images
+
+Optional `live.openingViews` is keyed by team ID; only that team's entry is published to its participant. Each entry has `course: {bounds, entryBounds}` and optional `lobby: {bounds}`. All boxes use inclusive integer `{min:{x,y,z}, max:{x,y,z}}`. `bounds` crops the image; `entryBounds` identifies the course entrance for one-time delivery. Choose these with the map, alongside spawn/start commands. Omit `lobby` for direct course starts. Captures read participant-loaded chunks, not the operator's map files. Each image crop is limited to one million cells.

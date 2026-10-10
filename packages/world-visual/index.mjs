@@ -41,6 +41,8 @@ export const PALETTE = Object.freeze({
   diamond_block: [91, 224, 216],
   obsidian: [44, 29, 66],
   bedrock: [71, 71, 72],
+  lapis_block: [34, 69, 143],
+  glowstone: [217, 172, 86],
   netherrack: [112, 48, 49],
   chest: [155, 103, 39],
 });
@@ -284,7 +286,12 @@ function metadata(norm, kind, width, height, start) {
     },
   };
 }
-export function renderMinimap(snapshot, { width = 512, height = 512 } = {}) {
+export function renderMinimap(
+  snapshot,
+  { width = 512, height = 512, horizontalAxis = "x" } = {},
+) {
+  if (!["x", "z"].includes(horizontalAxis))
+    throw new TypeError("horizontalAxis must be x or z");
   const start = performance.now(),
     norm = normalizeSnapshot(snapshot),
     { bounds, size, voxels } = norm,
@@ -312,13 +319,20 @@ export function renderMinimap(snapshot, { width = 512, height = 512 } = {}) {
       else if (!top) clear++;
       columns.set(`${x},${z}`, { top, unknownAbove, known });
     }
-  const scale = Math.min(width / size.x, height / size.z),
-    ox = (width - size.x * scale) / 2,
-    oy = (height - size.z * scale) / 2;
+  const rotated = horizontalAxis === "z",
+    across = rotated ? size.z : size.x,
+    down = rotated ? size.x : size.z,
+    scale = Math.min(width / across, height / down),
+    ox = (width - across * scale) / 2,
+    oy = (height - down * scale) / 2;
   for (let py = 0; py < height; py++)
     for (let px = 0; px < width; px++) {
-      const x = Math.floor((px - ox) / scale) + bounds.min.x,
-        z = Math.floor((py - oy) / scale) + bounds.min.z;
+      const x =
+          Math.floor(((rotated ? py : px) - (rotated ? oy : ox)) / scale) +
+          bounds.min.x,
+        z =
+          Math.floor(((rotated ? px : py) - (rotated ? ox : oy)) / scale) +
+          bounds.min.z;
       if (
         x < bounds.min.x ||
         x > bounds.max.x ||
@@ -350,9 +364,11 @@ export function renderMinimap(snapshot, { width = 512, height = 512 } = {}) {
     start,
   );
   Object.assign(meta, {
-    orientation: { top: "-Z (north)", right: "+X (east)" },
+    orientation: rotated
+      ? { top: "-X (west)", right: "+Z (south)" }
+      : { top: "-Z (north)", right: "+X (east)" },
     pixelsPerBlock: scale,
-    viewport: { x: ox, y: oy, width: size.x * scale, height: size.z * scale },
+    viewport: { x: ox, y: oy, width: across * scale, height: down * scale },
     columns: {
       total: size.x * size.z,
       unknown: missing,
@@ -366,9 +382,28 @@ export function renderMinimap(snapshot, { width = 512, height = 512 } = {}) {
       "No grid or text is embedded. Bounds select a slice, not necessarily the full world height.",
     ],
   });
-  return { png: encodePNG(width, height, r.data), metadata: meta };
+  return {
+    png: encodePNG(width, height, r.data),
+    metadata: meta,
+    rgba: r.data,
+  };
 }
-export function renderOblique(snapshot, { width = 768, height = 512 } = {}) {
+export const VIEW_DIRECTIONS = Object.freeze(["+x+z", "-x+z", "-x-z", "+x-z"]);
+export function viewDirectionSigns(viewDirection = "+x+z") {
+  if (!VIEW_DIRECTIONS.includes(viewDirection))
+    throw new TypeError(
+      "viewDirection must be one of " + VIEW_DIRECTIONS.join(", "),
+    );
+  return {
+    x: viewDirection[0] === "+" ? 1 : -1,
+    z: viewDirection[2] === "+" ? 1 : -1,
+  };
+}
+export function renderOblique(
+  snapshot,
+  { width = 768, height = 512, viewDirection = "+x+z" } = {},
+) {
+  const signs = viewDirectionSigns(viewDirection);
   const start = performance.now(),
     norm = normalizeSnapshot(snapshot),
     { bounds, size, voxels } = norm,
@@ -378,7 +413,10 @@ export function renderOblique(snapshot, { width = 768, height = 512 } = {}) {
     throw new RangeError(
       "oblique view limited to 150,000 non-air voxels; select a smaller box",
     );
-  const raw = (x, y, z) => [(x - z) * 0.866, (x + z) * 0.5 - y];
+  const raw = (x, y, z) => [
+    (signs.x * x - signs.z * z) * 0.866,
+    (signs.x * x + signs.z * z) * 0.5 - y,
+  ];
   const corners = [];
   for (const x of [0, size.x])
     for (const y of [0, size.y])
@@ -423,7 +461,13 @@ export function renderOblique(snapshot, { width = 768, height = 512 } = {}) {
       }
     }
   solid.sort(
-    (a, b) => a.x + a.y + a.z - (b.x + b.y + b.z) || a.y - b.y || a.x - b.x,
+    (a, b) =>
+      signs.x * a.x +
+        a.y +
+        signs.z * a.z -
+        (signs.x * b.x + b.y + signs.z * b.z) ||
+      a.y - b.y ||
+      a.x - b.x,
   );
   const isSolid = (x, y, z) => {
     const b = voxels.get(key(x, y, z));
@@ -433,14 +477,24 @@ export function renderOblique(snapshot, { width = 768, height = 512 } = {}) {
     const { x, y, z } = b,
       c = materialColor(b.name),
       p = (dx, dy, dz) => project(x + dx, y + dy, z + dz);
-    if (!isSolid(x + 1, y, z))
+    if (!isSolid(x + signs.x, y, z))
       r.polygon(
-        [p(1, 0, 0), p(1, 0, 1), p(1, 1, 1), p(1, 1, 0)],
+        [
+          p(signs.x > 0 ? 1 : 0, 0, 0),
+          p(signs.x > 0 ? 1 : 0, 0, 1),
+          p(signs.x > 0 ? 1 : 0, 1, 1),
+          p(signs.x > 0 ? 1 : 0, 1, 0),
+        ],
         c.map((v) => v * 0.69),
       );
-    if (!isSolid(x, y, z + 1))
+    if (!isSolid(x, y, z + signs.z))
       r.polygon(
-        [p(0, 0, 1), p(1, 0, 1), p(1, 1, 1), p(0, 1, 1)],
+        [
+          p(0, 0, signs.z > 0 ? 1 : 0),
+          p(1, 0, signs.z > 0 ? 1 : 0),
+          p(1, 1, signs.z > 0 ? 1 : 0),
+          p(0, 1, signs.z > 0 ? 1 : 0),
+        ],
         c.map((v) => v * 0.84),
       );
     if (!isSolid(x, y + 1, z))
@@ -454,7 +508,9 @@ export function renderOblique(snapshot, { width = 768, height = 512 } = {}) {
     start,
   );
   Object.assign(meta, {
-    camera: "orthographic from +X,+Y,+Z",
+    camera: `orthographic from ${signs.x > 0 ? "+" : "-"}X,+Y,${signs.z > 0 ? "+" : "-"}Z`,
+    viewDirection,
+    cameraDirection: { x: signs.x, y: 1, z: signs.z },
     pixelsPerBlock: scale,
     renderedBlocks: solid.length,
     unknownColumns,
@@ -464,7 +520,106 @@ export function renderOblique(snapshot, { width = 768, height = 512 } = {}) {
       "This is not the Mineflayer textured renderer. Use servePrismarineSnapshot for actual version-specific block models and textures.",
     ],
   });
-  return { png: encodePNG(width, height, r.data), metadata: meta };
+  return {
+    png: encodePNG(width, height, r.data),
+    metadata: meta,
+    rgba: r.data,
+  };
+}
+/** One snapshot, aspect-preserving panels. Panel coordinates refer to the final PNG. */
+export function renderOpeningComposite(
+  snapshot,
+  { layout = "lobby", width = 1024, height = width, gap = 8, position } = {},
+) {
+  validateImageDimensions(width, height);
+  if (!["lobby", "course"].includes(layout))
+    throw new TypeError("layout must be lobby or course");
+  if (!Number.isSafeInteger(gap) || gap < 0)
+    throw new TypeError("gap must be a nonnegative integer");
+  const start = performance.now(),
+    norm = normalizeSnapshot(snapshot);
+  const left = Math.floor((width - gap) / 2),
+    right = width - gap - left;
+  let specs;
+  if (layout === "lobby") {
+    const mapWidth = Math.floor((width - gap) * 0.68),
+      contextWidth = width - gap - mapWidth;
+    const upper = Math.floor((height - gap) / 2),
+      lower = height - gap - upper;
+    specs = [
+      {
+        kind: "minimap",
+        horizontalAxis: norm.size.x <= norm.size.z ? "x" : "z",
+        x: 0,
+        y: 0,
+        width: mapWidth,
+        height,
+      },
+      ...["+x+z", "-x-z"].map((viewDirection, i) => ({
+        kind: "oblique",
+        viewDirection,
+        x: mapWidth + gap,
+        y: i ? upper + gap : 0,
+        width: contextWidth,
+        height: i ? lower : upper,
+      })),
+    ];
+  } else {
+    // Keep the long world axis horizontal without stretching its blocks.
+    const horizontalAxis = norm.size.x >= norm.size.z ? "x" : "z";
+    const ratio =
+      Math.min(norm.size.x, norm.size.z) / Math.max(norm.size.x, norm.size.z);
+    const strip = Math.min(
+      Math.floor((height - gap) / 2),
+      Math.max(1, Math.round(width * ratio)),
+    );
+    const upper = Math.floor((height - strip - gap * 2) / 2);
+    const lower = height - strip - gap * 2 - upper;
+    specs = [
+      { kind: "minimap", horizontalAxis, x: 0, y: 0, width, height: strip },
+      ...["+x+z", "-x-z"].map((viewDirection, i) => ({
+        kind: "oblique",
+        viewDirection,
+        x: 0,
+        y: strip + gap + (i ? upper + gap : 0),
+        width,
+        height: i ? lower : upper,
+      })),
+    ];
+  }
+  if (specs.some((p) => p.width < 1 || p.height < 1))
+    throw new RangeError("composite dimensions too small for panels and gap");
+  const r = raster(width, height, [18, 24, 34]);
+  const panels = specs.map((panel, index) => {
+    const result = (panel.kind === "minimap" ? renderMinimap : renderOblique)(
+      snapshot,
+      panel,
+    );
+    for (let y = 0; y < panel.height; y++)
+      result.rgba.copy(
+        r.data,
+        ((panel.y + y) * width + panel.x) * 4,
+        y * panel.width * 4,
+        (y + 1) * panel.width * 4,
+      );
+    return {
+      index,
+      rect: {
+        x: panel.x,
+        y: panel.y,
+        width: panel.width,
+        height: panel.height,
+      },
+      ...result.metadata,
+    };
+  });
+  const meta = metadata(norm, "opening-world-composite", width, height, start);
+  Object.assign(meta, { layout, gap, panels, position: position ?? null });
+  return {
+    png: encodePNG(width, height, r.data),
+    metadata: meta,
+    rgba: r.data,
+  };
 }
 export async function saveRender(render, outputBase) {
   const imagePath = resolve(`${outputBase}.png`),

@@ -16,6 +16,7 @@ import {
   createResidentRecovery,
   observeRpcOutput,
 } from "./resident-recovery.mjs";
+import { createOpeningViews } from "./opening-views.mjs";
 
 const extensionPath = fileURLToPath(new URL("./index.mjs", import.meta.url));
 const projectRoot = resolve(dirname(extensionPath), "../..");
@@ -205,13 +206,22 @@ export async function launchPi({
   let matchTimer;
   let checkingMatch = false;
   let initialSent = false;
+  let preparedOpening;
+  let openingPrepared = false;
+  let pendingCourseView;
   let startupTimedOut = false;
   let recovery;
   let detachRpc;
+  const openingViews = createOpeningViews({
+    url: bridgeUrl,
+    token,
+    report: (message) => process.stderr.write(`${message}\n`),
+  });
   const startupAt = Date.now();
   const shutdown = (signal) => {
     if (stopping || child.exitCode !== null) return;
     stopping = true;
+    openingViews.close();
     recovery?.close();
     clearInterval(matchTimer);
     if (resident) child.stdin.end();
@@ -265,7 +275,7 @@ export async function launchPi({
       );
     }
     child.stdout.pipe(process.stdout, { end: false });
-    const sendInitial = (host) => {
+    const sendInitial = async (host) => {
       if (initialSent || stopping) return;
       initialSent = true;
       const briefing = host
@@ -288,11 +298,29 @@ export async function launchPi({
               .map((key) => [key, host[key]]),
           )
         : undefined;
-      const message = briefing
+      let message = briefing
         ? `${initialPrompt}\n\nTrusted host match briefing (configuration data):\n${JSON.stringify(briefing)}`
         : initialPrompt;
+      const view = openingPrepared
+        ? preparedOpening
+        : await openingViews.capture(host, true);
+      if (host) {
+        preparedOpening = view;
+        openingPrepared = true;
+        const fresh = await readMatch();
+        if (fresh?.state === "ended") {
+          shutdown();
+          return;
+        }
+        if (fresh?.state !== "running") {
+          initialSent = false;
+          return;
+        }
+      }
+      if (stopping) return;
+      if (view) message += `\n\n${view.message}`;
       child.stdin.write(
-        `${JSON.stringify({ id: "arena-initial-prompt", type: "prompt", message })}\n`,
+        `${JSON.stringify({ id: "arena-initial-prompt", type: "prompt", message, images: view?.images })}\n`,
       );
     };
     if (!waitForMatch) sendInitial();
@@ -311,14 +339,39 @@ export async function launchPi({
         try {
           const host = await readMatch();
           if (host) {
-            if (host.state === "ended") {
+            if (
+              host.state === "prepared" &&
+              host.openingViews &&
+              !openingPrepared
+            ) {
+              preparedOpening = await openingViews.capture(host, true);
+              openingPrepared = true;
+            } else if (host.state === "ended") {
               if (!initialSent)
                 process.stderr.write(
                   "Arena ended before the initial prompt was submitted.\n",
                 );
               shutdown();
             } else if (host.state === "running" && !initialSent)
-              sendInitial(host);
+              await sendInitial(host);
+            else if (host.state === "running" && initialSent) {
+              pendingCourseView ??= await openingViews.capture(host);
+              if (
+                pendingCourseView &&
+                !stopping &&
+                (await readMatch())?.state === "running"
+              ) {
+                child.stdin.write(
+                  `${JSON.stringify({
+                    id: "arena-course-view",
+                    type: "prompt",
+                    streamingBehavior: "steer",
+                    ...pendingCourseView,
+                  })}\n`,
+                );
+                pendingCourseView = undefined;
+              }
+            }
           }
         } catch {
           /* The host remains authoritative; temporary unavailability does not invent a match end. */
@@ -340,6 +393,7 @@ export async function launchPi({
       );
     });
   } finally {
+    openingViews.close();
     recovery?.close();
     detachRpc?.();
     clearInterval(matchTimer);

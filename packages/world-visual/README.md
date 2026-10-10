@@ -69,3 +69,8 @@ This package’s CPU palette, rasterizer and PNG encoder use an original impleme
 
 Optional genuine rendering uses [PrismarineJS/prismarine-viewer](https://github.com/PrismarineJS/prismarine-viewer) (MIT), [prismarine-chunk](https://github.com/PrismarineJS/prismarine-chunk) (MIT), [minecraft-data](https://github.com/PrismarineJS/minecraft-data) (MIT), Socket.IO (MIT), Express (MIT), and Playwright (Apache-2.0), installed from official npm packages. The adapter follows the viewer's published standalone Socket.IO protocol; dependency licenses remain in their npm distributions. Minecraft artwork is Mojang/Microsoft intellectual property supplied through the viewer's existing distribution; that artwork retains its own licensing terms. The source archive does not vendor node_modules or third-party texture assets.
 
+## Opening composites and view directions
+
+`captureOpeningComposite(snapshot,{layout:"lobby"|"course",position,textured:true})` from `opening.mjs` makes one square PNG. Lobby uses a large top-down panel with two smaller oblique views. Course uses a long-axis top-down strip and two opposite oblique views. Metadata identifies each panel's rectangle, crop and camera, plus the observed player position. Textured capture uses Prismarine models; `textured:false` selects schematic full cubes.
+
+Pi tool `world_opening` accepts the same layout with a snapshot path or bounds. `world_render3d` also accepts `viewDirection`: `+x+z`, `-x+z`, `-x-z`, or `+x-z`.

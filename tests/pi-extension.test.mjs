@@ -271,9 +271,14 @@ test(
     assert.equal(requests.length, 1);
     assert.equal(requests[0].path, "/v1/chat/completions");
     assert.equal(requests[0].authorization, "Bearer scoped-fixture-token");
-    assert.match(
-      JSON.stringify(requests[0].body.messages),
-      /程序与模型之间的信息交付/,
+    const guidance = await readFile(
+      new URL("../AGENTS.md", import.meta.url),
+      "utf8",
+    );
+    assert.ok(
+      JSON.stringify(requests[0].body.messages).includes(
+        JSON.stringify(guidance.trim()).slice(1, -1),
+      ),
     );
     assert.match(
       JSON.stringify(requests[0].body.messages),
@@ -286,6 +291,7 @@ test(
       "task_cancel",
       "world_minimap",
       "world_render3d",
+      "world_opening",
       "codemode",
     ])
       assert.ok(names.includes(name), `${name} is active`);

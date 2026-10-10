@@ -81,6 +81,8 @@ Player and system chat already arrive as normal `game.chat` events with text, se
 
 ## Choose a view for the decision
 
+Map-configured opening images arrive as user messages: a large lobby top-down view with two oblique views, then a course overview with two oblique views when you enter the course. A start directly on the course receives the course image.
+
 - Use `world_minimap` for routes and entrances; use `world_render3d` for walls, tunnels, bridges and overlapping levels. Pass inclusive `bounds: {min:{x,y,z}, max:{x,y,z}}` around the area being considered.
 - Default 3D renders full-cube structure. Set `textured:true` for Prismarine block shapes and materials. Both tools deliver a native image plus its coordinates and coverage metadata.
 - Run `node /opt/arena/examples/summarize-terrain.mjs` for a local 25×25×25 summary: block counts, unknown coverage and the collision-free component around your feet. Six optional coordinates choose another crop. Its bounds can also be used for a visual call. Geometric connectivity leaves body clearance, support and hazards to further inspection.

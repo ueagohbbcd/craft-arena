@@ -9,8 +9,13 @@ import {
   snapshotFromExplored,
   renderMinimap,
   renderOblique,
+  renderOpeningComposite,
+  VIEW_DIRECTIONS,
 } from "./index.mjs";
-import { capturePrismarineSnapshot } from "./prismarine.mjs";
+import {
+  capturePrismarineSnapshot,
+  captureOpeningComposite,
+} from "./prismarine.mjs";
 const point = Type.Object({
   x: Type.Integer(),
   y: Type.Integer(),
@@ -23,6 +28,12 @@ const parameters = Type.Object({
   width: Type.Optional(Type.Integer({ minimum: 1 })),
   height: Type.Optional(Type.Integer({ minimum: 1 })),
   textured: Type.Optional(Type.Boolean()),
+  viewDirection: Type.Optional(
+    Type.Union(VIEW_DIRECTIONS.map((value) => Type.Literal(value))),
+  ),
+  layout: Type.Optional(
+    Type.Union([Type.Literal("lobby"), Type.Literal("course")]),
+  ),
 });
 export async function renderForModel(name, params, { bot: sharedBot } = {}) {
   let snapshot;
@@ -55,10 +66,13 @@ export async function renderForModel(name, params, { bot: sharedBot } = {}) {
     }
   }
   let png, metadata;
-  if (name === "world_render3d" && params.textured) {
+  if (name === "world_opening" && params.textured) {
+    ({ png, metadata } = await captureOpeningComposite(snapshot, params));
+  } else if (name === "world_render3d" && params.textured) {
     const dir = await mkdtemp(join(tmpdir(), "mc-view-"));
     try {
       const result = await capturePrismarineSnapshot(snapshot, {
+        viewDirection: params.viewDirection,
         width: params.width,
         height: params.height,
         outputPath: join(dir, "view.png"),
@@ -70,7 +84,11 @@ export async function renderForModel(name, params, { bot: sharedBot } = {}) {
     }
   } else
     ({ png, metadata } = (
-      name === "world_minimap" ? renderMinimap : renderOblique
+      name === "world_opening"
+        ? renderOpeningComposite
+        : name === "world_minimap"
+          ? renderMinimap
+          : renderOblique
     )(snapshot, params));
   const content = [
     { type: "image", data: png.toString("base64"), mimeType: "image/png" },
@@ -105,14 +123,21 @@ export default function visualExtension(pi) {
     } catch {}
     connection = null;
   });
-  for (const name of ["world_minimap", "world_render3d"])
+  for (const name of ["world_minimap", "world_render3d", "world_opening"])
     pi.registerTool({
       name,
-      label: name === "world_minimap" ? "World minimap" : "World 3D view",
+      label:
+        name === "world_opening"
+          ? "Opening world composite"
+          : name === "world_minimap"
+            ? "World minimap"
+            : "World 3D view",
       description:
-        name === "world_minimap"
-          ? "Render highest observed surfaces from local state as bare PNG with separate coverage, coordinates and age metadata."
-          : "Render selected local blocks as an oblique structural PNG, or set textured=true for genuine Prismarine models/textures using Chromium. Missing cells never establish air.",
+        name === "world_opening"
+          ? "Render a single snapshot as lobby large top-down panel with two oblique views or course top-down strip and two oblique views. Panel bounds and cameras accompany the PNG."
+          : name === "world_minimap"
+            ? "Render highest observed surfaces from local state as bare PNG with separate coverage, coordinates and age metadata."
+            : "Render selected local blocks as an oblique structural PNG, or set textured=true for genuine Prismarine models/textures using Chromium. Missing cells never establish air.",
       parameters,
       outputSchema: Type.Object({
         content: Type.Array(Type.Any()),

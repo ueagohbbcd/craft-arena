@@ -57,6 +57,36 @@ function validateLive(c) {
     throw new Error("Goal positions must be distinct");
   if (c.live.goals.length !== c.teams.length * c.rules.objectives.length)
     throw new Error("Exactly one configured goal per team/objective required");
+  for (const [team, views] of Object.entries(c.live.openingViews ?? {})) {
+    if (!c.teams.some((t) => t.id === team))
+      throw new Error("Unknown openingViews team");
+    for (const box of [
+      views.course?.bounds,
+      views.course?.entryBounds,
+      ...(views.lobby ? [views.lobby.bounds] : []),
+    ]) {
+      if (
+        !box ||
+        !["x", "y", "z"].every(
+          (a) =>
+            Number.isSafeInteger(box.min?.[a]) &&
+            Number.isSafeInteger(box.max?.[a]) &&
+            box.min[a] <= box.max[a],
+        )
+      )
+        throw new Error(
+          "Opening views require integer inclusive bounds and course.entryBounds",
+        );
+    }
+    for (const view of [views.lobby, views.course].filter(Boolean)) {
+      const volume = ["x", "y", "z"].reduce(
+        (n, a) => n * (view.bounds.max[a] - view.bounds.min[a] + 1),
+        1,
+      );
+      if (volume > 1_000_000)
+        throw new Error("Opening view exceeds 1,000,000 cells");
+    }
+  }
 }
 export { validateLive };
 async function spawned(bot, timeoutMs) {
@@ -244,6 +274,7 @@ export async function createLiveMatch(
                 rules: config.rules,
                 objectives:
                   config.live.publicObjectives ?? config.rules.objectives,
+                openingViews: config.live.openingViews?.[p.team],
                 publicGoalPositions:
                   config.live.publishGoalPositions === true
                     ? config.live.goals

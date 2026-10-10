@@ -336,3 +336,25 @@ test("live monuments require currently present blocks and unknown observations f
   assert.equal(match.host.result().reason, "map-fault");
   await match.close();
 });
+
+test("opening image regions require a known team, course trigger and bounded crops", () => {
+  const c = structuredClone(config);
+  const box = { min: { x: 0, y: 0, z: 0 }, max: { x: 9, y: 9, z: 9 } };
+  c.live.openingViews = { r: { course: { bounds: box, entryBounds: box } } };
+  assert.doesNotThrow(() => validateLive(c));
+  delete c.live.openingViews.r.course.entryBounds;
+  assert.throws(() => validateLive(c), /entryBounds/);
+  c.live.openingViews = {
+    unknown: { course: { bounds: box, entryBounds: box } },
+  };
+  assert.throws(() => validateLive(c), /Unknown/);
+  c.live.openingViews = {
+    r: {
+      course: {
+        bounds: { min: box.min, max: { x: 1000, y: 1000, z: 1000 } },
+        entryBounds: box,
+      },
+    },
+  };
+  assert.throws(() => validateLive(c), /1,000,000/);
+});
