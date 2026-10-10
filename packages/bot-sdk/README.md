@@ -1,116 +1,53 @@
-# Participant facade and selected plugin compatibility
+# Mineflayer SDK reference
 
-`await connectBot({ url, token })` connects to a single trusted bridge. Its local
-EventEmitter exposes entity, inventory, block and physics snapshots. `blockAt`
-is synchronous and returns null for unknown cells, including cells outside the
-Minecraft connection’s loaded chunks. Initial state is a reset
-baseline, followed by monotonically sequenced frames. Gaps disconnect and reload
-an authoritative baseline. Entity object identity is stable within a baseline;
-reset invalidates old entity references and emits `bridgeReset`.
+Use `connectBot({url,token})` from `index.mjs` to control your existing arena bot. Load Pathfinder and PvP with `loadSelectedPlugins(bot)` from `plugins.mjs`. The [programming skill](../../examples/SKILL.md) gives the action loop and runnable examples.
 
-Block state IDs are reconstructed by the pinned prismarine-block and registry
-for the exact server version. Live planning and rendering use all chunk columns
-already loaded by the authoritative Mineflayer connection, including their full
-dimension height. `connectBot` waits for the initial terrain; columns transfer
-once through authenticated read-only requests and update from block/chunk events.
-A* search remains entirely local. Unload, reconnect and dimension changes remove
-current terrain instead of silently treating it as air. Entity/inventory state
-and physicsTick arrive at 20 Hz. The nearby ±8/±4 block sample only maintains
-explored-history observations and supports simple injected fixtures.
-Planning beyond Minecraft’s actually loaded world is still incomplete. Inspect `sequence`,
-`epoch`, and `sampledAt` before trusting an observation. Use semantic actions to change the trusted bot’s state; local property writes affect only the mirror.
+## Common APIs
 
-## Tested compatibility
+| Task | Available methods/state |
+| --- | --- |
+| Observe | `entity`, `entities`, `health`, `food`, `inventory.items()`, `blockAt`, `findBlock`, `findBlocks`, `nearestEntity` |
+| Navigate | adapted `bot.pathfinder`, native `Movements` and `goals` |
+| Fight | adapted `bot.pvp`, `attack(entity, swing?)` |
+| Move / look | `setControlState`, `clearControlStates`, `look`, `lookAt` |
+| Blocks | `dig(block, forceLook?, digFace?)`, `stopDigging`, `placeBlock`, `activateBlock(block, direction?, cursorPos?)` |
+| Items | `equip`, `unequip`, `activateItem`, `deactivateItem`, `setQuickBarSlot`, `tossStack` |
+| Containers | `openContainer`, `closeWindow`, `clickWindow`; native Window queries and `withdraw/deposit/close` below |
+| Craft | `craftItem` (signature in `index.mjs`) |
+| Events | ordinary `bot.on(...)`, including `death`, `spawn`, `health`, block/entity/window events and `bridgeReset` |
 
-- Supported/tested: explicit movement controls, view, authoritative target
-  resolution, attack, block operations, HTTP authentication, closed action
-  whitelist, consumed-argument validation, sequence gap detection, state reset, stable
-  entity identity and local queries. Core test fixtures use an injected fake bot.
-- Selected plugin fixture: real mineflayer-pathfinder 2.4.5 and mineflayer-pvp
-  1.3.2 import and inject; custom Goal subclass and Movements exclusion callback
-  execute locally and find a 40-block route across real serialized chunk columns,
-  beyond the old observation box. The A* search sends zero RPCs. PvP emits a semantic attack and retains target object identity on update.
-- Physics simulation for local planning uses prismarine-physics. The server-side
-  Mineflayer bot alone owns authoritative physics and the Minecraft connection.
-- Partial: Pathfinder navigation in changing worlds, dig/place/equip execution,
-  fall recovery and PvP combat need isolated live-server integration testing.
-  Native chunk contents arrive initially; block changes and nearby lighting
-  refreshes are mirrored. Remote light-only/block-entity updates without those
-  events are not a complete replica of every Mineflayer world event.
-- Partial: inventory slots and items are mirrored; equipment, quickbar, toss,
-  container open/close, clickWindow and craftItem have semantic actions. Inventory
-  clicks use the active window or player inventory, supporting modes 0–6, hotbar
-  swaps and outside/drop clicks. Dig preserves Mineflayer’s `forceLook="ignore"`.
-  Optional `attack(entity,swing)`, `dig(block,forceLook,digFace)` and
-  `activateBlock(block,direction,cursorPos)` arguments are preserved.
-  Craft batches are not limited to a single stack. Minecraft enforces reach unless
-  the operator explicitly configures a stricter bridge policy.
-  Ordinary containers expose upstream Window query methods and native-backed
-  withdraw/deposit/close (see below). Mineflayer recipesFor/craft(recipe), specialized
-  furnace/villager/enchanting helpers and all other unlisted APIs are not exposed.
-- Unsupported: raw packet writes, `_client`, arbitrary property-path invocation,
-  server-side code/eval, custom trusted-side plugin installation, all unlisted
-  Mineflayer APIs, forcing Minecraft to load additional chunks, and
-  participant-requested reconnect.
+Use the matching upstream documentation under `$ARENA_REFERENCE_ROOT` for Mineflayer and plugin behavior. This reference describes the arena-specific differences.
 
-## Intentional Pathfinder adaptation
+## Observation and actions
 
-Load the adapted Pathfinder with `loadSelectedPlugins(bot)` from `plugins.mjs`.
-The adapter locates the known `fullStop` implementation and
-replaces that local function with `bot.stopAndCenter()`. Despite the legacy
-compatibility name, that action only clears authoritative control inputs. It
-**does not center position or zero velocity**: preserving server-authoritative
-inertia is intentional. Unpatched Pathfinder directly mutates local position
-and velocity, which cannot affect the trusted bot and can corrupt planning.
-An incompatible `fullStop` source shape fails explicitly; package version strings
-alone do not block plugins. The adapter compiles trusted installed plugin source
-only in the participant runtime. No code is serialized or evaluated by the trusted backend.
+`connectBot` waits for initial state and all loaded chunk columns, including full dimension height. `blockAt` reads synchronously; null means unknown. Pathfinder plans locally against these columns. Block/chunk events keep them updated; entity/inventory state and `physicsTick` arrive at 20 Hz.
 
-PvP 1.3.2 listens for legacy `physicTick`; the adapter aliases observed
-`physicsTick`. Use the adapter once. Custom goals, movement callbacks and generic
-coding-agent code stay entirely in the participant runtime. Network/OS isolation supplies the security boundary. A hostile participant can bypass every
-facade wrapper; the trusted dispatcher still validates its requests.
+Use bot methods to perform actions. Local writes to position, velocity or window objects only change the observation copy. Minecraft owns physics and gameplay reach; the operator may configure an additional reach limit.
 
-Use `await bot.flush()` to await queued synchronous-style actions. Their first
-unreported failure is retained until the next `flush()`, even if the request failed
-before `flush()` was called; repeated failures do not create an unbounded queue.
-Failures also emit `error` (a default no-op listener avoids process termination).
-`controlState` records sent intent; authoritative movement is observed in snapshots.
-Promise-returning methods reject with the native error name/message and optional
-code, plus `action` and HTTP `status`. Credential text is redacted by the bridge.
-Call `bot.closeBridge()` to stop the observation connection only; it never kills
-or reconnects the trusted Minecraft bot.
+Await Promise-returning actions directly and catch their rejections. For synchronous-style controls, `await bot.flush()` waits for queued requests and reports the first unreported failure; these queued failures also emit `error`. Action errors retain native name/message plus action and HTTP status. Install an error listener for control diagnostics. `controlState` describes sent intent; check actual position to evaluate movement. `closeBridge()` closes the observation connection; clear controls separately when finishing an action.
 
-For maps, current loaded columns are independent of the explored-history cache.
-`knownBlocks` retains up to 50,000 historical cell observations across visited
-regions (oldest evicted). `knownBlockAt(position)` and `knownBlocksIn(bounds)`
-prefer currently loaded terrain and include observation time, epoch and freshness.
-Reconnect/dimension changes clear old knowledge. Planning `blockAt` uses only
-current loaded terrain, not stale explored history. Visual tools should
-label stale observations and distinguish unobserved cells from observed air.
-The public semantic stop action is `stop`; `stopAndCenter` remains a local plugin
-compatibility alias only. NBT bigint leaves use explicit data-only wire tags.
-The selected-plugin adapter clears Pathfinder goals and PvP targets on a mirror
-reset; reconnect invalidates old entity references. Reestablish goals only after
-`bridgeReset` using the new baseline. User-written plugins must handle that event
-themselves. Inventory `items()` enumerates inventory storage slots, not armor or
-crafting slots, matching Mineflayer's window semantics.
+`death` and `spawn` observations carry updated state before the event. They are available to participant listeners; action-loop recovery is defined by your program. A stream gap or reconnection rebuilds the mirror and emits `bridgeReset`: reacquire entity/window references and goals. The adapter clears its Pathfinder/PvP targets on that reset.
 
-Incoming game communication uses standard `chat` and `messagestr` event names.
-The usual string arguments remain in their Mineflayer positions; rich JSON chat
-objects are null. A sixth metadata argument marks source and untrusted status,
-timestamp and untruncated status. No per-window chat budget silently drops
-messages; slow stream readers can still disconnect and reload their baseline. The SDK does not automatically send
-Minecraft messages to the coding-agent prompt or shared team inbox.
+Current loaded terrain and explored history are separate. `knownBlockAt` and `knownBlocksIn` prefer current terrain and return observation time/freshness; history retains up to 50,000 cells. Reconnect and dimension changes clear history. Use `sequence`, `epoch` and `sampledAt` to diagnose observation age or resets. Remote light-only/block-entity changes without mirrored events have incomplete coverage.
 
+Incoming `chat` and `messagestr` retain their normal string argument positions; rich chat objects are null, and the sixth argument contains source/time metadata. Pi separately forwards chat-box messages to the inbox by default. See [chat delivery](../pi-extension/README.md#behavior).
 
-The goal example keeps native Movements defaults, including digging. Use
-`node examples/plugin-goal.mjs X Y Z --no-dig` only when you explicitly want
-non-destructive routing. It verifies the actual goal before reporting arrival,
-prints terrain coverage on failure and exits nonzero. `NoPath` describes the
-current loaded terrain and movement settings, not proof that the world has no
-route. Piping through `tail` can hide the program exit code unless your shell
-enables `pipefail`.
+## Pathfinder and PvP adaptation
+
+Load the adapters once with `loadSelectedPlugins(bot)`. Keep native Movements defaults unless the task calls for a change. [plugin-goal.mjs](../../examples/plugin-goal.mjs) demonstrates arrival verification, progress and stall reporting; `--no-dig` opts into preserving blocks. `NoPath` describes the loaded terrain and current movement settings, so inspect those when choosing the next attempt.
+
+Pathfinder's native `fullStop` writes local position/velocity. The adapter replaces it with a remote control stop (`stopAndCenter`, a legacy name); server inertia remains. PvP's legacy `physicTick` subscription is connected to observed `physicsTick`. Plugin goals, movement callbacks and planning run in the participant process. Adapter details are in [plugins.mjs](plugins.mjs).
+
+## API differences
+
+- Inventory queries follow native Window storage ranges; `items()` excludes armor and crafting slots. Container transfer and item components are described below.
+- Dig preserves `forceLook="ignore"`; optional attack/dig/activateBlock arguments are passed through. Click modes 0–6 and outside/drop slot -999 use the active window. Craft batches may exceed one stack.
+- The facade provides `craftItem`, not native `recipesFor`/`craft(recipe)`. Specialized furnace, villager and enchanting helpers are not implemented.
+- Packet access (`_client`), trusted-side plugin installation and reconnect are owned by the host. For an API absent from the table, check [index.mjs](index.mjs) before using it.
+
+## Validation coverage
+
+The installed Pathfinder 2.4.5 and PvP 1.3.2 run against the facade. Tests exercise native chunk-based planning across a 40-block route, custom goals/movement callbacks, semantic attacks, event/state reconstruction and action errors. These tests establish those contracts; full navigation through changing terrain, digging/placing during navigation, fall recovery and combat still need isolated live-server evaluation. This is a testing limitation, separate from the API availability above.
 
 ## Container windows
 

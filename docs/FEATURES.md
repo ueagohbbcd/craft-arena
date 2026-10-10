@@ -24,7 +24,7 @@
 
 7. **程序主动报告与状态合并｜已实现。** 程序决定追加事件、按 key 替换状态或请求提前判断；Pi 扩展把消息附到模型可见边界。紧急投递释放受管工具等待并保留进程，常驻模式也可继续空闲中的同一会话。[收件箱](../packages/inbox/README.md)
 
-8. **程序化组合工具结果｜已接入 Pi codemode。** AI 可用 JavaScript 调用工具、筛选普通输出和组合结果，按需转交原生图像块；独立投递的收件箱消息在外层结果交付。[用法示例](../examples/SKILL.md#codemode-preserve-only-useful-ordinary-output)
+8. **程序化组合工具结果｜已接入 Pi codemode。** AI 可用 JavaScript 调用工具、筛选普通输出和组合结果，按需转交原生图像块；独立投递的收件箱消息在外层结果交付。[用法示例](../examples/SKILL.md#choose-a-view-for-the-decision)
 
 9. **按 API 标价折算成本的窗口限速与反馈｜已实现，需配置模型价格与速率。** 网关统一计量个人／队伍的参考成本，覆盖主 agent、子代理和摘要请求，按时间窗口容量排队。模型看到窗口内各计费项成本占比、速率超支比例、实际排队延迟和计量质量；运营者查看累计金额并通过可信 host 决定何时结束比赛。账本当前为单进程内存状态。[预算网关](../packages/budget-gateway/README.md)
 
