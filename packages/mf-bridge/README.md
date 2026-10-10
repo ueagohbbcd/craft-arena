@@ -5,6 +5,10 @@ server. `startBridge` starts it and returns URL/port. A participant supplies onl
 `{action,args}` to POST `/v1/action`, with a Bearer token; it cannot choose another
 bot, change connection options, load code, invoke arbitrary object paths or write
 packets. GET `/v1/events` yields SSE reset/state/event frames. Authenticated
+GET `/v1/chat` yields only chat-box `messagestr` event frames, without world
+snapshots or action-bar (`game_info`) text. It uses the same bearer authorization
+and SSE output budget; it does not replay missed messages on reconnect.
+Authenticated
 GET `/v1/chunk?x=...&z=...` reads one already loaded chunk column as native
 Prismarine JSON; unknown columns return null and never trigger server loads.
 Endpoints expose no
@@ -116,8 +120,10 @@ platform instructions. There is no message-count or per-50ms discard budget.
 The sixth callback argument contains
 `{source:'minecraft',trusted:false,truncated:false,observedAt}`. Raw rich JSON
 chat objects stay on the trusted side (null in events). String arguments remain
-in their Mineflayer positions. These events do not automatically enter the coding
-agent inbox: participant programs decide how to consume them. Operators may
+in their Mineflayer positions. The Pi runtime subscribes to `/v1/chat` by default
+and forwards those observations into its inbox as normal `game.chat` events.
+It consumes only `messagestr` to avoid duplicating the companion `chat` event;
+separate messages with identical text are preserved. Operators may
 explicitly disable outgoing chat with `allowChat:false`. Spawn/death
 publish current state before the event, just as health/window/held-item events do.
 

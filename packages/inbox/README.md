@@ -21,6 +21,8 @@ await inbox.requestJudgment({
 
 The constructor reads `MC_INBOX_SOCKET` or `MC_INBOX_URL`, `MC_INBOX_SESSION`, and optional `MC_INBOX_TOKEN`. You can provide these as `{socketPath, url, sessionId, token}`. Successful calls return `{accepted:true,id}`. Failures reject; the SDK does not retry automatically because a lost response can follow successful acceptance. The Pi extension delivers accepted messages at model-visible boundaries.
 
+Pi automatically posts observed game chat as normal `game.chat` events when connected to a bridge; participant scripts need not forward it again. These runtime-sourced events contain game data, not authoritative instructions. They follow the same TTL/overflow and natural-boundary delivery rules as other ordinary events, and do not wake the model. Unlike keyed radar state, chat events retain individual messages in arrival order, including repeated text.
+
 CLI:
 
 ```sh

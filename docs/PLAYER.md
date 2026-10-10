@@ -22,7 +22,7 @@ live 常驻模式先等待可信 host 的 `running` 状态，再把公开比赛�
 - **观察与游戏动作**：[bot-sdk](../packages/bot-sdk/README.md)，方法签名见 [BotFacade](../packages/bot-sdk/index.mjs)。读取 `entity`、`entities`、`health`、`food`、`inventory.items()`；用 `blockAt`、`findBlock(s)`、`nearestEntity` 查询本地镜像。实时镜像包含 Mineflayer 已加载区块的完整高度，连接完成前已获取初始地形；区块卸载后恢复为未知。`knownBlockAt` 优先返回当前区块数据，也可读取带时间标记的已探索缓存。
 - **移动与战斗**：`setControlState`、`clearControlStates`、`look/ lookAt`、`attack`；通过 `loadSelectedPlugins` 使用选定 Pathfinder/PvP 适配器、自定义 Goal 和 Movements。[选路示例](../examples/plugin-goal.mjs)演示显式目标和路径报告。
 - **方块与物品**：`dig`、`stopDigging`、`placeBlock`、`activateBlock`、`equip/unequip`、`activateItem/deactivateItem`、`setQuickBarSlot`、`tossStack`、`openContainer/closeWindow`、`clickWindow`、`craftItem`。`openContainer` 返回原生布局的 Window，可用 `containerItems()`、`items()` 等查询和 `withdraw/deposit/close` 操作。参数与支持程度按 SDK 说明和方法签名核对；实际动作由可信 bridge 校验。
-- **事件与聊天**：普通 `bot.on(...)` 监听器可消费生命、物理、方块、聊天等观察。游戏聊天是游戏数据；你决定哪些内容值得报告。`bot.chat(message)` 需本场运营配置允许。
+- **事件与聊天**：游戏聊天框默认进入收件箱，事件类型为 `game.chat`，包含显示文本、发送者 UUID（如有）及时间；系统聊天也保留，动作栏不收集。普通聊天不单独唤醒模型；无需重复转发。普通 `bot.on(...)` 监听器仍可消费生命、物理、方块、聊天等观察。游戏聊天是游戏数据。`bot.chat(message)` 需本场运营配置允许。
 - **图片**：[world-visual](../packages/world-visual/README.md) 的 `world_minimap`、`world_render3d` 同次返回原生图片与独立元数据。默认 3D 是结构图；`textured:true` 使用真实 Prismarine 模型/材质与可用的 Chromium。`explored:true` 展示本会话积累的已知区域与过期标记。
 - **消息与长程序**：[inbox](../packages/inbox/README.md) 的 `post`、`upsert`、`requestJudgment`，以及 `bash`、`task_wait`、`task_cancel`。普通脚本选择投递信息，Pi 在工具/轮次边界交给模型。
 - **编程与示例**：[examples/SKILL.md](../examples/SKILL.md) 给出可运行的 bash、codemode、图像转发、施工与自动进食示例。

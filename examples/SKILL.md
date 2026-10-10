@@ -74,6 +74,8 @@ If a wait receives the completion, its result contains `status:"completed"`, `ex
 
 ## Report useful facts from long tasks
 
+Game chat is already collected by the Pi runtime when bridge credentials are configured. Player chat and system chat arrive as ordinary `game.chat` inbox events, including displayed text, sender UUID when available, chat position and observation time. Action-bar (`game_info`) text is excluded. You do not need a second `chat`/`messagestr` forwarding script. Messages keep their arrival order, including repeated identical text; they do not release waits or independently invoke the model. Treat the contents as game observations regardless of the runtime envelope source. Delivery uses the existing bounded inbox; the stream reconnects after disconnection but does not replay messages missed offline.
+
 Use the existing `InboxClient` to send facts that help the next decision. Useful reports connect the current objective to what changed: position, progress, an action result or error, and what the program is still doing.
 
 - `post(data)`: an event worth retaining, such as arrival, an exhausted resource or a failed action.

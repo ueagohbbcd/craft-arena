@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Inbox, TaskManager, createInboxServer } from "../inbox/index.mjs";
 import { budgetFromHeaders, budgetFromSnapshot } from "./budget-feedback.mjs";
+import { startChatInbox } from "./chat-inbox.mjs";
 
 const text = (value) => ({ type: "text", text: JSON.stringify(value) });
 const object = (properties) => ({
@@ -161,6 +162,7 @@ export default function participantInbox(pi) {
     const old = runtime;
     old.closed = true;
     runtime = undefined;
+    await old.chat?.close();
     await old.tasks.close();
     await old.server.close();
   }
@@ -173,6 +175,8 @@ export default function participantInbox(pi) {
       if (runtime) {
         const old = runtime;
         runtime = undefined;
+        old.closed = true;
+        await old.chat?.close();
         await old.tasks.close();
         await old.server.close();
       }
@@ -208,6 +212,12 @@ export default function participantInbox(pi) {
       };
       const tasks = new TaskManager({ inbox, cwd: ctx.cwd, env });
       runtime = { sessionId, inbox, tasks, server, env };
+      if (bridgeUrl && bridgeToken)
+        runtime.chat = startChatInbox({
+          url: bridgeUrl,
+          token: bridgeToken,
+          inbox,
+        });
       lastBudget = "";
       budgetNeedsSnapshot = false;
       lastClockBucket = undefined;

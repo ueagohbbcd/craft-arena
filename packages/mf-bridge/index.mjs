@@ -472,6 +472,7 @@ export function createBridgeServer({
   const epoch = randomUUID();
   let sequence = 0;
   const clients = new Set();
+  const chatClients = new Set();
   const listeners = [];
   let tokens = maxActionsPerSecond,
     last = Date.now(),
@@ -486,6 +487,7 @@ export function createBridgeServer({
     if (res.writableLength > 4 * 1024 * 1024) {
       res.destroy();
       clients.delete(res);
+      chatClients.delete(res);
       return;
     }
     res.write(`data: ${wireStringify(event)}\n\n`);
@@ -493,6 +495,12 @@ export function createBridgeServer({
   function publish(type, data) {
     const e = envelope(type, data);
     for (const res of clients) write(res, e);
+    if (
+      type === "event" &&
+      data.name === "messagestr" &&
+      data.args[1] !== "game_info"
+    )
+      for (const res of chatClients) write(res, e);
   }
   const onSlotUpdate = () => publish("snapshot", authority.snapshot(false));
   let watchedWindow;
@@ -634,6 +642,17 @@ export function createBridgeServer({
       }
       return;
     }
+    if (req.method === "GET" && req.url === "/v1/chat") {
+      res.writeHead(200, {
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache",
+        connection: "keep-alive",
+      });
+      write(res, { epoch, sequence, type: "connected", data: null });
+      chatClients.add(res);
+      req.on("close", () => chatClients.delete(res));
+      return;
+    }
     if (req.method === "GET" && req.url === "/v1/events") {
       res.writeHead(200, {
         "content-type": "text/event-stream",
@@ -729,6 +748,7 @@ export function createBridgeServer({
       watchWindow(null);
       for (const [n, f] of listeners) bot.off(n, f);
       for (const c of clients) c.end();
+      for (const c of chatClients) c.end();
       server.closeAllConnections();
       await new Promise((r) => server.close(r));
     },

@@ -333,6 +333,11 @@ test("authenticated host match clock preserves ended state and cached frozen ela
   const { once } = await import("node:events");
   let reads = 0;
   const server = http.createServer((req, res) => {
+    if (req.url === "/v1/chat") {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write('data: {"type":"connected"}\n\n');
+      return;
+    }
     assert.equal(req.url, "/v1/match");
     assert.equal(req.headers.authorization, "Bearer clock-fixture-token");
     reads++;
@@ -398,6 +403,11 @@ test(
     const script = `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(connectionPath)},JSON.stringify({pid:process.pid,url:process.env.MC_INBOX_URL,sessionId:process.env.MC_INBOX_SESSION,token:process.env.MC_INBOX_TOKEN}));setInterval(()=>{},1000);`;
     const command = `${process.execPath} -e '${script.replaceAll("'", "'\\''")}'`;
     const server = http.createServer(async (req, res) => {
+      if (req.url === "/v1/chat") {
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        res.write('data: {"type":"connected"}\n\n');
+        return;
+      }
       if (req.url === "/v1/match") {
         assert.equal(req.headers.authorization, "Bearer host-resident-fixture");
         res.setHeader("content-type", "application/json");
