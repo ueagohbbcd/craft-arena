@@ -313,3 +313,48 @@ test("trusted persistence restores only the same world, run and participant", as
     /requires worldId/,
   );
 });
+
+test("documented memory CLI reads retained columns from a separate process without a controller", async (t) => {
+  const { execFile } = await import("node:child_process");
+  const { promisify } = await import("node:util");
+  const { bot, columns, add, put } = fixture();
+  add(-1);
+  put({ x: -1, y: -40, z: 3 }, "diamond_ore");
+  const service = await startBridge({
+    bot,
+    token,
+    blockMemory: scope,
+    authorizeAction: () => false,
+  });
+  t.after(() => service.close());
+  columns.delete("-1,0");
+  bot.emit("chunkColumnUnload", { x: -16, z: 0 });
+  const { stdout } = await promisify(execFile)(
+    process.execPath,
+    [
+      "examples/query-block-memory.mjs",
+      "overworld",
+      "-1",
+      "-40",
+      "3",
+      "diamond_ore",
+    ],
+    {
+      cwd: new URL("..", import.meta.url),
+      env: {
+        ...process.env,
+        ARENA_BRIDGE_URL: service.url,
+        ARENA_BRIDGE_TOKEN: token,
+      },
+      timeout: 5000,
+    },
+  );
+  const [direct, local] = stdout
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  assert.equal(direct.status, "historical");
+  assert.equal(direct.block, "diamond_ore");
+  assert.deepEqual(local.matchesInCachedColumns, [{ x: -1, y: -40, z: 3 }]);
+  assert.deepEqual(bot.calls, []);
+});
