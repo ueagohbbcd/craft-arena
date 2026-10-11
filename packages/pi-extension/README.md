@@ -1,12 +1,12 @@
 # Pi 1.1.0 participant integration
 
-Load the real extension with `pi -e /opt/arena/packages/pi-extension/index.mjs`. It registers ordinary `bash` under Pi's built-in name, plus `task_wait` and `task_cancel`; existing bash calls use the registered tool directly. It uses Pi's documented extension APIs and is pinned to `@earendil-works/pi-coding-agent@1.1.0`.
+Load the real extension with `pi -e /opt/arena/packages/pi-extension/index.mjs`. It registers ordinary `bash` under Pi's built-in name, plus `task_wait`, `task_cancel` and `observe`; existing bash calls use the registered tool directly. It uses Pi's documented extension APIs and is pinned to `@earendil-works/pi-coding-agent@1.1.0`.
 
 ## Behavior
 
 - `bash({command, timeout?, wait_seconds?})` starts the command once. By default it waits for exit or urgent inbox data. `timeout` is an optional execution deadline in seconds that kills the process group. `wait_seconds` is a separately named, optional wait budget that returns a running task ID while the process continues.
 - `task_wait({taskId, wait_seconds?})` waits for the existing process, indefinitely by default. It attaches to the same running command. A consumed final result returns a small `delivered` receipt.
-- `task_cancel({taskId})` explicitly terminates the process group. Session shutdown also terminates active groups.
+- `task_cancel({taskId})` requests process-group termination and returns `cancelling`. Use `task_wait` until `completed`/`delivered`, then verify actual bot controls before starting a replacement controller. Signal-aware program cleanup can release its controls; forced KILL or a disconnected bridge can prevent that cleanup. Session shutdown also terminates active groups.
 - Urgent data releases every managed outstanding wait, including waits joining the current tool batch after the signal. This gets past Pi's same-batch result barrier without aborting the target processes. Only managed bash/task_wait waits can be released; arbitrary network waits or endless codemode computation are outside their scope.
 - Normal data is coalesced into the next top-level tool result. `parentToolCallId` identifies nested calls, whose hooks do not drain the queue. Codemode receives structured command results and can deliberately filter normal command output. Independently posted inbox data is appended to the final outer tool result, preserving delivery through codemode output filtering.
 - With bridge URL/token configured, the runtime subscribes to authenticated `/v1/chat` by default. It forwards player/system `messagestr` observations as normal `game.chat` inbox events; action-bar `game_info` is excluded. Only this canonical event is consumed, so Mineflayer's companion `chat` event does not duplicate it. Distinct messages with identical text remain distinct. The lightweight stream does not load world chunks or create a participant task. It reconnects after interruption, has no historical replay, and closes on session replacement/shutdown. Display text is game data (`trusted:false`), even though its inbox envelope source is `runtime`; normal chat never triggers a model turn or releases a managed wait.
@@ -16,6 +16,16 @@ Load the real extension with `pi -e /opt/arena/packages/pi-extension/index.mjs`.
 - Aborting a tool caller detaches its wait while the command continues. Use task_cancel for explicit cancellation. On Pi session shutdown the manager cleans up process groups. Restart does not recover running child ownership or undelivered inbox data.
 
 Tools return both text JSON and `structuredContent`, with an output schema, so direct model calls and codemode can consume status without parsing human prose. The process manager output retention and transport limits are detailed in [the inbox module](../inbox/README.md).
+
+## Default observation and request context
+
+The extension owns a passive bridge client for each Pi session. It and participant control programs connect to the same existing trusted Minecraft bot. HTTP/SSE updates the local mirror continuously; before each model request, `context_with_system` appends a small projection of that mirror with source time, age, connection state, inventory quantities, equipment, observed players, local surroundings and actual managed-program IDs/status. A request reads the latest available mirror evidence. First connection readiness has a bounded wait, and unavailable/stale state is represented explicitly.
+
+The `mc-current-observation` tail is appended to Pi's request message copy. Ordinary tool results, explicit queries and delivered inbox events stay in normal session history. Program `publishCurrent` values are separately read into `programState` and keep source/task/expiry metadata; ordinary `post` and `upsert` retain their queued-history semantics. Host `arena.clock` supplies match state, time and winner separately from program status.
+
+`observe({views:["overview","local"]})` returns state JSON and native image blocks from the same acquired mirror sequence. `views:[]` returns state only; optional `fullItems`, `fullEntities` and `fullLocal` expand details. Overview uses public host bounds when supplied or the loaded-column extent, with unknown cells labeled. Surface views use real Minecraft top-face textures on CPU, with geometry simplifications recorded; requested 3D uses Prismarine/Chromium and labels any schematic fallback. Opening images remain separate bootstrap user messages. See [the observation contract](../../docs/OBSERVATION.md).
+
+Default observation events use the same inbox boundary and urgency rules as program reports. A `requestJudgment` call acknowledges acceptance; the model's decision and the program's next instruction are separate. Running managed programs suppress resident idle fallback, while the observer is a session resource rather than a managed program. Cancelling a process group and establishing the bot's actual control state are separate checks.
 
 ## Long-session context compaction
 
@@ -88,8 +98,16 @@ The exact installed 1.1.0 npm package was inspected, including `dist/core/extens
 - `ToolResultEvent.parentToolCallId` for nested calls
 - `turn_end` returning `{entries:[{type:"custom_message",customType,content,display,details}]}`
 - `sendMessage` with `triggerTurn`
+- `context_with_system` returning request-local messages with the saved conversation intact
 
 Sources: [official Pi repository](https://github.com/earendil-works/pi), [pinned npm package](https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/1.1.0).
 
-The test suite includes actual Pi 1.1.0 AgentSession and codemode integration with a local fake OpenAI-compatible server, plus real subprocess and transport tests. The suite uses fixed local provider responses and game fixtures. A separate host constraint prevents Unix socket binding in the development environment (EPERM), so that transport test reports an explicit skip; authenticated loopback protocol tests run in full. Actual container deployment and live game rendering remain deployment checks.
+The test suite includes actual Pi 1.1.0 AgentSession and codemode integration with a local fake OpenAI-compatible server, plus real subprocess and transport tests. The suite uses fixed local provider responses and game fixtures. A separate host constraint prevents Unix socket binding in the development environment (EPERM), so that transport test reports an explicit skip; authenticated loopback protocol tests run in full. Actual container deployment remains a deployment check. The separate real-game observation checks below cover selected local gameplay and CPU-textured surface views.
 
+
+
+### Real local Minecraft observation evidence, 2026-10-11
+
+A real official Minecraft 1.21.1 loopback/offline test server, Mineflayer, HTTP/SSE bridge, SDK and default perception runtime passed nine reference scenarios, including one model-selected doorway route. The reusable [opt-in live harness](../../scripts/validate-observation-live.mjs) then passed eight automated scenarios in a fresh isolated world and restored the original server properties. Checks cover passive GET-only observation, exact item/equipment counts, open-window transfers, movement/Pathfinder, another player and block updates, textured surface maps, low health/death/respawn, a paused observation stream and game disconnect. See [the compact evidence](../../docs/evidence/observation-live-2026-10-11.json) and [validation record](../../docs/VALIDATION.md).
+
+The real-game run verifies CPU top-face textures and the labeled 3D schematic fallback. Chromium socket permission errors blocked textured 3D capture here. Pi request-history, image-content and early-wait behavior are exercised separately using the actual Pi runtime and fixed local model responses. These results establish the tested delivery/gameplay contracts; full arena matches, deployment isolation and general model visual understanding have their own validation scope.
