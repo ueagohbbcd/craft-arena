@@ -404,6 +404,32 @@ function entitySummary(entity, origin, teams, ownTeam, full, registry) {
     });
   return result;
 }
+// A presentation heuristic over received facts, not a prediction of an attack,
+// line of sight, impact, blast radius, or hidden mob AI state.
+function entityAttention(entity, registry, ownId, radius) {
+  if (entity.distance === null || entity.distance > radius) return null;
+  const reasons = [];
+  const type = registry?.entitiesByName?.[entity.name]?.type ?? entity.type;
+  if (entity.name === "tnt") reasons.push("primed_tnt");
+  const creeper = entity.state?.creeper;
+  if (creeper?.ignited === true) reasons.push("creeper_ignited");
+  else if (creeper?.swellDirection > 0) reasons.push("creeper_swelling");
+  if (type === "projectile") {
+    if (entity.velocity === null) reasons.push("projectile_motion_unknown");
+    else if (axes.some((axis) => entity.velocity[axis] !== 0))
+      reasons.push("moving_projectile");
+  }
+  if (
+    Number.isSafeInteger(ownId) &&
+    ownId > 0 &&
+    Object.values(entity.state?.targetEntityIds ?? {}).includes(ownId)
+  )
+    reasons.push("synchronized_target_self");
+  if (reasons.length) return { priority: 2, reasons };
+  if (type === "hostile" || entity.name === "creeper")
+    return { priority: 1, reasons: ["potentially_hostile_type"] };
+  return null;
+}
 function entitiesSummary(bot, options, origin) {
   const own = bot?.entity;
   const ownTeam =
@@ -440,7 +466,19 @@ function entitiesSummary(bot, options, origin) {
     );
   }
   players.sort(sort);
-  others.sort(sort);
+  for (const entity of others) {
+    const attention = entityAttention(
+      entity,
+      bot?.registry,
+      own?.id,
+      options.entityAttentionRadius,
+    );
+    if (attention) entity.attention = attention;
+  }
+  others.sort(
+    (a, b) =>
+      (b.attention?.priority ?? 0) - (a.attention?.priority ?? 0) || sort(a, b),
+  );
   const filtered =
     options.entityRadius == null
       ? others
@@ -468,8 +506,12 @@ function entitiesSummary(bot, options, origin) {
       outsideRadius: known ? others.length - filtered.length : null,
       byName: known ? byName : null,
       entries,
+      selection: {
+        order: "nearby-observed-risk-then-distance",
+        attentionRadius: options.entityAttentionRadius,
+      },
       coverage:
-        "Observed entity mirror only. All observed players are separate and never distance-clipped. Disappearance does not establish death; visibility and hostility are not inferred.",
+        "Observed entity mirror only. All observed players are separate and never distance-clipped. Attention is a display heuristic, not an attack or impact prediction. Disappearance does not establish death; visibility and hostility are not inferred.",
     },
   };
 }
@@ -614,6 +656,7 @@ export function sampleObservation(bot, options = {}) {
   options = {
     staleAfterMs: 5000,
     entityLimit: 12,
+    entityAttentionRadius: 16,
     localRadius: 2,
     blockLimit: 16,
     signLimit: 16,
@@ -642,6 +685,11 @@ export function sampleObservation(bot, options = {}) {
     );
   if (!(Number.isFinite(options.staleAfterMs) && options.staleAfterMs > 0))
     throw new RangeError("staleAfterMs must be positive");
+  if (!(
+    Number.isFinite(options.entityAttentionRadius) &&
+    options.entityAttentionRadius > 0
+  ))
+    throw new RangeError("entityAttentionRadius must be positive");
   if (
     options.entityRadius != null &&
     !(Number.isFinite(options.entityRadius) && options.entityRadius > 0)
@@ -755,6 +803,12 @@ export function watchObservation(
     healthBurstMs = 250,
     criticalHealth = 6,
     criticalHysteresis = 2,
+    damageWindowMs = 2000,
+    urgentDamageLoss = 4,
+    sustainedDamageEvents = 3,
+    sustainedDamageLoss = 3,
+    damageCooldownMs = 5000,
+    damageRecovery = 2,
     objectiveItems = [],
     inventoryWatchItems = [],
     inventoryWatchType = "inventory_watch",
@@ -769,7 +823,15 @@ export function watchObservation(
   if (
     !(Number.isFinite(healthBurstMs) && healthBurstMs >= 0) ||
     !(Number.isFinite(criticalHealth) && criticalHealth >= 0) ||
-    !(Number.isFinite(criticalHysteresis) && criticalHysteresis > 0)
+    !(Number.isFinite(criticalHysteresis) && criticalHysteresis > 0) ||
+    ![
+      damageWindowMs,
+      urgentDamageLoss,
+      sustainedDamageLoss,
+      damageCooldownMs,
+      damageRecovery,
+    ].every((value) => Number.isFinite(value) && value > 0) ||
+    !(Number.isSafeInteger(sustainedDamageEvents) && sustainedDamageEvents >= 2)
   )
     throw new RangeError("Invalid observation event thresholds");
   const lifecycle = {
@@ -792,6 +854,11 @@ export function watchObservation(
     inventoryTimer = null,
     lastError = null,
     staleReported = false;
+  let recentDamage = [],
+    lastDamageAt = null,
+    damageAlert = null,
+    damageRecovered = false,
+    burstUrgencyHandled = false;
   const reportError = (error) => {
     lastError = error;
     safe(() => onError?.(error));
@@ -819,7 +886,47 @@ export function watchObservation(
     bot.on(event, fn);
     listeners.push([event, fn]);
   };
-  function flushHealth() {
+  function resetDamage() {
+    recentDamage = [];
+    lastDamageAt = null;
+    damageAlert = null;
+    damageRecovered = false;
+  }
+  function markDamageAlert() {
+    damageAlert = { at: clock(now), health: finite(bot.health) };
+    damageRecovered = false;
+    recentDamage = [];
+  }
+  function damageUrgency() {
+    // Judge the window at the latest loss, not after the aggregation delay.
+    const at = lastDamageAt ?? clock(now);
+    recentDamage = recentDamage.filter(
+      (entry) => at - entry.at < damageWindowMs,
+    );
+    const lost = recentDamage.reduce((sum, entry) => sum + entry.lost, 0);
+    const lossEvents = recentDamage.reduce(
+      (sum, entry) => sum + entry.lossEvents,
+      0,
+    );
+    const significant = lost >= urgentDamageLoss;
+    if (
+      !significant &&
+      !(lossEvents >= sustainedDamageEvents && lost >= sustainedDamageLoss)
+    )
+      return null;
+    return {
+      reason: significant
+        ? "significant_recent_health_loss"
+        : "repeated_recent_health_loss",
+      windowMs: damageWindowMs,
+      lost,
+      lossEvents,
+      thresholds: significant
+        ? { lost: urgentDamageLoss }
+        : { lost: sustainedDamageLoss, lossEvents: sustainedDamageEvents },
+    };
+  }
+  function flushHealth(allowUrgent = true) {
     clearTimeout(healthTimer);
     healthTimer = null;
     const observedHurt = hurtEvents;
@@ -829,14 +936,29 @@ export function watchObservation(
     if (burst) {
       const value = burst;
       burst = null;
-      emit("health_loss", {
-        ...value,
-        hurtEvents: observedHurt,
-        omittedHurtEvents,
-        attribution: observedHurt.some((event) => event.source !== null)
-          ? "native hurt events; not every health change is attributed"
-          : "unknown",
-      });
+      const urgency =
+        allowUrgent &&
+        !burstUrgencyHandled &&
+        !critical &&
+        !dead &&
+        finite(bot.health) > 0 &&
+        !damageAlert
+          ? damageUrgency()
+          : null;
+      if (urgency) markDamageAlert();
+      emit(
+        "health_loss",
+        {
+          ...value,
+          hurtEvents: observedHurt,
+          omittedHurtEvents,
+          ...(urgency ? { urgency } : {}),
+          attribution: observedHurt.some((event) => event.source !== null)
+            ? "native hurt events; not every health change is attributed"
+            : "unknown",
+        },
+        urgency ? "urgent" : "normal",
+      );
     } else if (observedHurt.length)
       emit("hurt", {
         health: finite(bot.health),
@@ -844,32 +966,61 @@ export function watchObservation(
         hurtEvents: observedHurt,
         omittedHurtEvents,
       });
+    burstUrgencyHandled = false;
   }
   function health() {
     const current = finite(bot.health);
     if (current === null) {
+      flushHealth(false);
+      resetDamage();
       previousHealth = null;
       return;
     }
     if (previousHealth !== null && current < previousHealth) {
+      const at = clock(now);
+      // Rearm only after both the cooldown and either a quiet window or a
+      // meaningful observed recovery. A continuous loss episode alerts once.
+      if (
+        damageAlert &&
+        at - damageAlert.at >= damageCooldownMs &&
+        (damageRecovered ||
+          (lastDamageAt !== null && at - lastDamageAt >= damageWindowMs))
+      ) {
+        damageAlert = null;
+        recentDamage = [];
+      }
+      recentDamage = recentDamage.filter(
+        (entry) => at - entry.at < damageWindowMs,
+      );
+      const loss = previousHealth - current;
+      const last = recentDamage.at(-1);
+      if (last?.at === at) {
+        last.lost += loss;
+        last.lossEvents++;
+      } else recentDamage.push({ at, lost: loss, lossEvents: 1 });
+      lastDamageAt = at;
       burst ??= {
         from: previousHealth,
         to: current,
         lost: 0,
         lossEvents: 0,
-        startedAt: clock(now),
+        startedAt: at,
         position: vector(bot.entity?.position),
       };
       burst.to = current;
-      burst.lost += previousHealth - current;
+      burst.lost += loss;
       burst.lossEvents++;
       if (!healthTimer) {
         healthTimer = setTimeout(flushHealth, healthBurstMs);
         healthTimer.unref?.();
       }
     }
+    if (damageAlert && current >= damageAlert.health + damageRecovery)
+      damageRecovered = true;
     if (!critical && current > 0 && current <= criticalHealth) {
       critical = true;
+      burstUrgencyHandled = true;
+      markDamageAlert();
       emit(
         "critical_health",
         {
@@ -1071,7 +1222,8 @@ export function watchObservation(
   });
   on("death", () => {
     if (dead) return;
-    flushHealth();
+    flushHealth(false);
+    resetDamage();
     checkObjectives();
     dead = true;
     emit(
@@ -1082,7 +1234,8 @@ export function watchObservation(
   });
   on("spawn", () => {
     const respawn = dead;
-    flushHealth();
+    flushHealth(false);
+    resetDamage();
     dead = false;
     previousHealth = finite(bot.health);
     critical = previousHealth !== null && previousHealth <= criticalHealth;
@@ -1098,7 +1251,8 @@ export function watchObservation(
   });
   on("bridgeDisconnected", () => {
     if (lifecycle.observationLost || lifecycle.disconnected) return;
-    flushHealth();
+    flushHealth(false);
+    resetDamage();
     lifecycle.observationLost = true;
     emit("lost", {
       reason:
@@ -1106,6 +1260,8 @@ export function watchObservation(
     });
   });
   on("bridgeReset", () => {
+    flushHealth(false);
+    resetDamage();
     const restored = lifecycle.observationLost || lifecycle.disconnected;
     lifecycle.disconnected =
       bot.closed === true || bot.connectionStatus === "disconnected";
@@ -1129,7 +1285,8 @@ export function watchObservation(
   });
   const disconnected = (reason) => {
     if (lifecycle.disconnected) return;
-    flushHealth();
+    flushHealth(false);
+    resetDamage();
     lifecycle.disconnected = true;
     emit(
       "disconnected",

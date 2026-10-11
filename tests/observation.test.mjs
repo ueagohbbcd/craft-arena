@@ -884,3 +884,363 @@ test("semantic entity metadata and observed active equipment survive native auth
   assert.equal(snapshot.players[0].state.itemUse.activityCandidate, "blocking");
   assert.equal(snapshot.entities.entries[0].state.tnt.fuseTicksReceived, 40);
 });
+
+test("nearby received danger survives crowded default slots with explicit reasons and complete counts", () => {
+  const bot = fixture();
+  for (let id = 10; id < 50; id++)
+    bot.entities[id] = entity(id, "item", (id - 9) / 100);
+  bot.entities[2] = entity(2, "tnt", 8); // A primed entity is evidence even without fuse metadata.
+  bot.entities[3] = entity(3, "creeper", 6, {
+    metadata: metadataFor("creeper", { swell_dir: 1, is_ignited: false }),
+  });
+  bot.entities[4] = entity(4, "arrow", 10, { velocity: new Vec3(-1, 0, 0) });
+  bot.entities[5] = entity(5, "zombie", 3, { target: bot.entity });
+  bot.entities[6] = entity(6, "player", 100, { username: "far" });
+  const state = sampleObservation(bot, { now: 1000 });
+  assert.deepEqual(
+    state.entities.entries.slice(0, 4).map((entry) => entry.id),
+    [3, 2, 4, 5],
+  );
+  assert.deepEqual(state.entities.entries[0].attention, {
+    priority: 2,
+    reasons: ["creeper_swelling"],
+  });
+  assert.deepEqual(state.entities.entries[1].attention.reasons, ["primed_tnt"]);
+  assert.equal(state.entities.entries[1].state.tnt.fuseTicksReceived, null);
+  assert.deepEqual(state.entities.entries[2].attention.reasons, [
+    "moving_projectile",
+  ]);
+  assert.deepEqual(state.entities.entries[3].attention, {
+    priority: 1,
+    reasons: ["potentially_hostile_type"],
+  });
+  assert.equal(state.entities.entries[3].relation, "unknown");
+  assert.equal(state.entities.entries[3].state.targetEntityIds, undefined);
+  assert.equal(state.entities.total, 44);
+  assert.equal(state.entities.shown, 12);
+  assert.equal(state.entities.omitted, 32);
+  assert.equal(state.entities.byName.item, 40);
+  assert.equal(state.players.length, 1);
+  assert.equal(state.players[0].distance, 100);
+  const all = sampleObservation(bot, { fullEntities: true, entityLimit: 0 });
+  assert.equal(all.entities.entries.length, 44);
+  assert.equal(all.entities.omitted, 0);
+  assert.equal(
+    all.entities.entries.find((entry) => entry.id === 3).metadata[
+      registry.entitiesByName.creeper.metadataKeys.indexOf("swell_dir")
+    ],
+    1,
+  );
+});
+
+test("entity attention is recomputed after metadata, motion, and distance changes", () => {
+  const bot = fixture();
+  bot.entities[2] = entity(2, "item", 1);
+  bot.entities[3] = entity(3, "creeper", 4, {
+    metadata: metadataFor("creeper", { swell_dir: 1, is_ignited: false }),
+  });
+  bot.entities[4] = entity(4, "arrow", 3, { velocity: new Vec3(-1, 0, 0) });
+  const sample = () =>
+    sampleObservation(bot, { entityLimit: 1 }).entities.entries[0];
+  assert.equal(sample().id, 4);
+  bot.entities[4].velocity = new Vec3(0, 0, 0);
+  assert.equal(sample().id, 3);
+  bot.entities[3].metadata = metadataFor("creeper", {
+    swell_dir: -1,
+    is_ignited: false,
+  });
+  assert.deepEqual(sample().attention, {
+    priority: 1,
+    reasons: ["potentially_hostile_type"],
+  });
+  bot.entities[3].position.x = 30;
+  assert.equal(sample().id, 2);
+  bot.entities[3].position.x = 4;
+  bot.entities[3].metadata = metadataFor("creeper", { is_ignited: true });
+  assert.deepEqual(sample().attention, {
+    priority: 2,
+    reasons: ["creeper_ignited"],
+  });
+  assert.equal(
+    sampleObservation(bot, { entityAttentionRadius: 2, entityLimit: 1 })
+      .entities.entries[0].id,
+    2,
+  );
+  const cropped = sampleObservation(bot, { entityRadius: 2 });
+  assert.deepEqual(
+    cropped.entities.entries.map((entry) => entry.id),
+    [2],
+  );
+  assert.equal(cropped.entities.outsideRadius, 2);
+});
+
+test("unknown entity facts do not fabricate targets, motion, active creepers, or distances", () => {
+  const bot = fixture();
+  bot.registry = { entitiesByName: {} };
+  bot.entities[2] = entity(2, "creeper", 3, { metadata: { 16: 1 } });
+  bot.entities[3] = entity(3, "unknown_projectile", 5, {
+    type: "projectile",
+    velocity: undefined,
+  });
+  bot.entities[4] = entity(4, "tnt", 1, { position: null });
+  bot.entities[5] = entity(5, "unknown_mob", 1, { target: bot.entity });
+  const entries = sampleObservation(bot).entities.entries;
+  assert.deepEqual(entries[0].attention, {
+    priority: 2,
+    reasons: ["projectile_motion_unknown"],
+  });
+  assert.equal(entries[0].velocity, null);
+  const creeper = entries.find((entry) => entry.id === 2);
+  assert.equal(creeper.attention.priority, 1);
+  assert.deepEqual(creeper.state.creeper, {
+    swellDirection: null,
+    powered: null,
+    ignited: null,
+  });
+  assert.equal(entries.find((entry) => entry.id === 4).attention, undefined);
+  assert.equal(entries.find((entry) => entry.id === 4).distance, null);
+  assert.equal(entries.find((entry) => entry.id === 5).attention, undefined);
+  assert.equal(entries.find((entry) => entry.id === 5).state, null);
+});
+
+test("only an explicitly synchronized self target promotes a special mob", () => {
+  const bot = fixture();
+  bot.entities[2] = entity(2, "guardian", 5, {
+    metadata: metadataFor("guardian", { attack_target: bot.entity.id }),
+  });
+  let entry = sampleObservation(bot).entities.entries[0];
+  assert.deepEqual(entry.attention, {
+    priority: 2,
+    reasons: ["synchronized_target_self"],
+  });
+  bot.entities[2].metadata = metadataFor("guardian", { attack_target: 0 });
+  entry = sampleObservation(bot).entities.entries[0];
+  assert.equal(entry.attention.priority, 1);
+  bot.entities[2].metadata = {};
+  assert.equal(
+    sampleObservation(bot).entities.entries[0].attention.priority,
+    1,
+  );
+});
+
+function damageFixture(t, options = {}) {
+  const bot = fixture(),
+    messages = [];
+  let at = 1000;
+  const watcher = watchObservation(bot, {
+    now: () => at,
+    healthBurstMs: 1,
+    post: (message) => messages.push(message),
+    ...options,
+  });
+  t.after(() => watcher.close());
+  return {
+    bot,
+    messages,
+    watcher,
+    async health(value, timestamp = at) {
+      at = timestamp;
+      bot.health = value;
+      bot.emit("health");
+      await sleep(5);
+    },
+  };
+}
+
+test("significant damage above critical health alerts once with measured evidence and thresholds", async (t) => {
+  const f = damageFixture(t);
+  await f.health(18, 1000);
+  assert.equal(f.messages[0].priority, "normal");
+  await f.health(16, 1500);
+  const alert = f.messages.at(-1);
+  assert.equal(alert.data.type, "observation.health_loss");
+  assert.equal(alert.priority, "urgent");
+  assert.deepEqual(alert.data.urgency, {
+    reason: "significant_recent_health_loss",
+    windowMs: 2000,
+    lost: 4,
+    lossEvents: 2,
+    thresholds: { lost: 4 },
+  });
+  assert.equal(alert.data.attribution, "unknown");
+  for (const [health, at] of [
+    [15, 2000],
+    [14, 3000],
+    [13, 4000],
+    [12, 5000],
+    [11, 6000],
+    [10, 7000],
+  ])
+    await f.health(health, at);
+  assert.equal(
+    f.messages.filter((message) => message.priority === "urgent").length,
+    1,
+  );
+  assert.equal(f.messages.at(-1).priority, "normal");
+});
+
+test("repeated meaningful losses can alert while isolated or tiny losses and hurt-only packets stay normal", async (t) => {
+  const repeated = damageFixture(t);
+  await repeated.health(19, 1000);
+  await repeated.health(18, 1500);
+  await repeated.health(17, 2000);
+  assert.equal(repeated.messages.at(-1).priority, "urgent");
+  assert.deepEqual(repeated.messages.at(-1).data.urgency, {
+    reason: "repeated_recent_health_loss",
+    windowMs: 2000,
+    lost: 3,
+    lossEvents: 3,
+    thresholds: { lost: 3, lossEvents: 3 },
+  });
+  const small = damageFixture(t);
+  await small.health(19, 1000);
+  await small.health(18, 4000);
+  await small.health(17.9, 4100);
+  await small.health(17.8, 4200);
+  await small.health(17.7, 4300);
+  for (let i = 0; i < 4; i++) small.bot.emit("entityHurt", small.bot.entity);
+  await sleep(5);
+  assert.ok(small.messages.every((message) => message.priority === "normal"));
+  assert.equal(small.messages.at(-1).data.type, "observation.hurt");
+  assert.equal(small.messages.at(-1).data.hurtEvents.length, 4);
+});
+
+test("damage alerts rearm after quiet or recovery and cooldown, without reusing the old loss window", async (t) => {
+  const f = damageFixture(t);
+  await f.health(16, 1000); // Alert.
+  await f.health(20, 1100); // Meaningful recovery does not bypass cooldown.
+  await f.health(16, 1200);
+  await f.health(15, 6500); // Quiet and cooldown rearm; only one point in this new window.
+  assert.equal(
+    f.messages.filter((message) => message.priority === "urgent").length,
+    1,
+  );
+  await f.health(12, 7000);
+  assert.equal(
+    f.messages.filter((message) => message.priority === "urgent").length,
+    2,
+  );
+  assert.equal(f.messages.at(-1).data.urgency.lost, 4);
+  await f.health(16, 7100);
+  for (const [health, at] of [
+    [15.9, 8000],
+    [15.8, 9000],
+    [15.7, 10000],
+    [15.6, 11000],
+  ])
+    await f.health(health, at);
+  await f.health(11, 12000); // Recovered, cooldown elapsed, despite no quiet gap.
+  assert.equal(
+    f.messages.filter((message) => message.priority === "urgent").length,
+    3,
+  );
+});
+
+test("critical and death escalation do not duplicate urgent damage for the same health burst", async (t) => {
+  const f = damageFixture(t);
+  await f.health(6, 1000);
+  assert.equal(
+    f.messages.filter((message) => message.priority === "urgent").length,
+    1,
+  );
+  assert.equal(f.messages[0].data.type, "observation.critical_health");
+  assert.equal(f.messages.at(-1).priority, "normal");
+  for (const [health, at] of [
+    [7, 1500],
+    [6, 2000],
+    [5, 2500],
+  ])
+    await f.health(health, at);
+  assert.equal(
+    f.messages.filter((message) => message.priority === "urgent").length,
+    1,
+  );
+  await f.health(8, 3000);
+  await f.health(6, 3500);
+  assert.equal(
+    f.messages.filter((message) => message.priority === "urgent").length,
+    2,
+  );
+  f.bot.health = 0;
+  f.bot.emit("health");
+  f.bot.emit("death");
+  f.bot.emit("death");
+  await sleep(5);
+  assert.equal(
+    f.messages.filter((message) => message.priority === "urgent").length,
+    3,
+  );
+  assert.equal(f.messages.at(-1).data.type, "observation.death");
+});
+
+test("rebuilding or losing the health baseline clears previous damage evidence", async (t) => {
+  for (const transition of ["bridgeReset", "spawn", "unknown"]) {
+    const f = damageFixture(t);
+    await f.health(18, 1000);
+    if (transition === "unknown") {
+      await f.health(null, 1100);
+      await f.health(18, 1200);
+    } else f.bot.emit(transition);
+    await f.health(16, 1500);
+    assert.ok(
+      f.messages.every((message) => message.priority === "normal"),
+      transition,
+    );
+    assert.equal(f.messages.at(-1).data.lost, 2);
+  }
+});
+
+test("observation attention and damage thresholds are configurable and validated", async (t) => {
+  const f = damageFixture(t, {
+    urgentDamageLoss: 6,
+    sustainedDamageLoss: 5,
+    damageWindowMs: 1000,
+  });
+  await f.health(16, 1000);
+  assert.equal(f.messages.at(-1).priority, "normal");
+  await f.health(14, 1500);
+  assert.equal(f.messages.at(-1).priority, "urgent");
+  assert.equal(f.messages.at(-1).data.urgency.windowMs, 1000);
+  assert.equal(f.messages.at(-1).data.urgency.thresholds.lost, 6);
+  for (const options of [
+    { damageWindowMs: 0 },
+    { urgentDamageLoss: NaN },
+    { sustainedDamageEvents: 1 },
+    { sustainedDamageEvents: 2.5 },
+    { sustainedDamageLoss: -1 },
+    { damageCooldownMs: Infinity },
+    { damageRecovery: 0 },
+  ])
+    assert.throws(() => watchObservation(fixture(), options), /thresholds/);
+  assert.throws(
+    () => sampleObservation(fixture(), { entityAttentionRadius: 0 }),
+    /entityAttentionRadius/,
+  );
+});
+
+test("health aggregation delay does not discard a qualifying recent-loss window", async (t) => {
+  const bot = fixture(),
+    messages = [];
+  let at = 1000;
+  const watcher = watchObservation(bot, {
+    now: () => at,
+    healthBurstMs: 10,
+    post: (message) => messages.push(message),
+  });
+  t.after(() => watcher.close());
+  for (const [health, stamp] of [
+    [19, 1000],
+    [18, 2000],
+    [17, 2900],
+  ]) {
+    at = stamp;
+    bot.health = health;
+    bot.emit("health");
+  }
+  at = 3150; // Coalescing time is not another health observation.
+  await sleep(15);
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].priority, "urgent");
+  assert.equal(messages[0].data.urgency.lost, 3);
+  assert.equal(messages[0].data.urgency.lossEvents, 3);
+});
