@@ -29,7 +29,7 @@ const expected = [
 ].map((name) => `minecraft:${name}`);
 
 /** Correct the known protocol-767 recipe IDs through customPackets.
- * Apply before this process creates its first 1.21 parser: minecraft-protocol
+ * Apply before this process creates its first 1.21/1.21.1 parser: minecraft-protocol
  * merges overrides into shared in-memory data and caches parsers by version.
  * Subsequent default bots in this process reuse the corrected definition.
  */
@@ -37,7 +37,7 @@ export function compatibleMinecraftOptions(
   options,
   loadData = require("minecraft-data"),
 ) {
-  if (options.version !== "1.21") return options;
+  if (!["1.21", "1.21.1"].includes(options.version)) return options;
   const data = loadData(options.version);
   if (data?.version?.version !== 767) return options;
   const existing = options.customPackets?.["1.21"]?.play?.toClient?.types;
