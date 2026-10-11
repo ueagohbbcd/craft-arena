@@ -18,6 +18,12 @@ export const observeParameters = Type.Object({
       dropGroupRadius: Type.Optional(Type.Number({ minimum: 0 })),
     }),
   ),
+  fullRecentBlocks: Type.Optional(
+    Type.Boolean({
+      description:
+        "Expand the retained interval block samples with per-type sample-frame counts, representative coordinates, source times and sample coverage. Does not clear the interval.",
+    }),
+  ),
   fullRuntime: Type.Optional(
     Type.Boolean({
       description:
@@ -82,6 +88,7 @@ export async function observeForModel(bot, options = {}, dependencies) {
   const result = await observe(bot, options, dependencies);
   if (options.runtimeProjection)
     result.state.runtimeProjection = options.runtimeProjection;
+  if (options.recentBlocks) result.state.recentBlocks = options.recentBlocks;
   const views = result.views.map(({ name, metadata }, index) => ({
     name,
     ...metadata,

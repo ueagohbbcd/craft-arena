@@ -439,6 +439,7 @@ test(
       username: "observer-fixture",
       entity: {
         id: 1,
+        eyeHeight: 1.62,
         position: { x: 101, y: 64, z: 0 },
         velocity: { x: 0, y: 0, z: 0 },
       },
@@ -448,7 +449,21 @@ test(
       food: 20,
       oxygenLevel: 300,
       game: { dimension: "overworld" },
-      blockAt: () => null,
+      blockAt(position) {
+        const solid = position.y === 66;
+        return {
+          position,
+          name: solid
+            ? backend.entity.position.x === 101
+              ? "oak_log"
+              : backend.entity.position.x === 202
+                ? "furnace"
+                : "chest"
+            : "air",
+          shapes: solid ? [[0, 0, 0, 1, 1, 1]] : [],
+          boundingBox: solid ? "block" : "empty",
+        };
+      },
     });
     const bridge = await startBridge({
       bot: backend,
@@ -466,6 +481,7 @@ test(
       ARENA_PERCEPTION_TAIL: "1",
       MC_INBOX_TRANSPORT: "http",
       MC_INBOX_TOKEN: "perception-integration-token",
+      ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS: "20",
     });
     for (const key of [
       "MC_INBOX_SOCKET",
@@ -567,7 +583,7 @@ test(
               "sender",
               false,
             );
-            await delay(50);
+            await delay(1100);
             return {
               content: [{ type: "text", text: "EVENT_tool_completed" }],
               details: {},
@@ -621,7 +637,7 @@ test(
     });
     backend.entity.position.x = 303;
     backend.emit("move");
-    await delay(50);
+    await delay(1100);
     await session.prompt("EVENT_new_user_request");
     assert.equal(requests.length, 3);
     const tail = (request) =>
@@ -634,6 +650,22 @@ test(
         "each call has the actual newest bot position",
       );
       assert.equal(snapshot.freshness.stale, false);
+      assert.equal(snapshot.recentBlocks.dimensions[0].dimension, "overworld");
+      assert.equal(
+        snapshot.recentBlocks.dimensions[0].counts[
+          ["oak_log", "furnace", "chest"][i]
+        ],
+        1,
+      );
+      if (i === 2)
+        assert.equal(
+          snapshot.recentBlocks.dimensions[0].counts.oak_log,
+          undefined,
+          "a successfully displayed old interval is not retained forever",
+        );
+      assert(
+        !JSON.stringify(snapshot.recentBlocks).includes("latestPositions"),
+      );
       assert.equal(
         snapshot.tasks.length,
         0,

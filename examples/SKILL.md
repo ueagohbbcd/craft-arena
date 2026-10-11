@@ -11,6 +11,8 @@ The runtime supplies default read-only situational awareness. Loading the standa
 
 Ordinary tool results, explicit query outputs and delivered inbox events stay in conversation history. The automatic latest-state snapshot is rebuilt for each request. Its timestamps, connection state and unknown fields tell you what evidence is available now. See the [observation guide](../docs/OBSERVATION.md) for the full contract.
 
+`recentBlocks` adds interval counts of all sampled non-air types, deduplicated by dimension and coordinate. It is nearby coarse transparent connectivity and can turn corners. Default output is type and count only; use detailed queries when a type is worth investigating.
+
 ## Choose the next tool
 
 | What you need | Use |

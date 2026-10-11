@@ -355,7 +355,7 @@ export default function participantInbox(pi) {
   pi.on("context_with_system", async (event, ctx) => {
     if (!tailEnabled()) return;
     const r = await ensure(ctx);
-    const snapshot = await r.perception.sample();
+    const snapshot = await r.perception.sample({ forRequest: true });
     // This hook operates on Pi's cloned request context, not durable session history.
     // Never rewrite, filter or persist any existing message, including opening images.
     return {
@@ -364,6 +364,9 @@ export default function participantInbox(pi) {
         snapshot,
       ),
     };
+  });
+  pi.on("message_end", (event) => {
+    runtime?.perception.finishRequest(event.message);
   });
   pi.on("turn_start", async (_event, ctx) => {
     const r = await ensure(ctx);
@@ -502,6 +505,7 @@ export default function participantInbox(pi) {
           fullRuntime: params?.fullRuntime === true,
           projection: perceptionProjection,
         }),
+        recentBlocks: r.perception.recentBlocks(params),
       };
     },
   });

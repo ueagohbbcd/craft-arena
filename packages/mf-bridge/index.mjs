@@ -86,6 +86,7 @@ function entity(e) {
     "username",
     "displayName",
     "height",
+    "eyeHeight",
     "width",
     "yaw",
     "pitch",
