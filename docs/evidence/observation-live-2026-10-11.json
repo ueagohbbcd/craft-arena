@@ -1,0 +1,251 @@
+{
+  "schema": 1,
+  "recordedAt": "2026-10-11T01:15:16Z",
+  "runStartedAt": "2026-10-11T01:13:56.370Z",
+  "source": {
+    "kind": "actual local server integration",
+    "server": "official Minecraft Java Edition 1.21.1",
+    "serverJarSha1": "59353fb40c36d304f2035d51e7d6e6baa98dc05c",
+    "transport": "Real Mineflayer -> loopback HTTP/SSE bridge -> separate action SDK and passive perception runtime",
+    "authentication": "offline test identities only",
+    "eula": "Reused preaccepted isolated QA installation; no new acceptance",
+    "reproductionScript": "scripts/validate-observation-live.mjs",
+    "referenceHarness": "The 9-check reference run used the workspace-local predecessor. The parameterized repository script was separately verified on a new isolated world: 8 automated checks passed."
+  },
+  "passed": true,
+  "checks": [
+    {
+      "name": "passive_default_snapshot_and_exact_quantities",
+      "passed": true,
+      "durationMs": 1020
+    },
+    {
+      "name": "real_chest_inspection_and_transfer_through_sdk",
+      "passed": true,
+      "durationMs": 612
+    },
+    {
+      "name": "real_walk_and_plugin_goal_arrival",
+      "passed": true,
+      "durationMs": 3971
+    },
+    {
+      "name": "observed_player_and_block_update",
+      "passed": true,
+      "durationMs": 333
+    },
+    {
+      "name": "real_world_views_and_unknown_crop",
+      "passed": true,
+      "durationMs": 1718
+    },
+    {
+      "name": "single_model_steered_route_from_observations",
+      "passed": true,
+      "durationMs": 44953
+    },
+    {
+      "name": "health_loss_critical_death_and_respawn_events",
+      "passed": true,
+      "durationMs": 1916
+    },
+    {
+      "name": "actual_paused_transport_stale_then_restored",
+      "passed": true,
+      "durationMs": 6312
+    },
+    {
+      "name": "actual_minecraft_disconnect_marks_snapshot",
+      "passed": true,
+      "durationMs": 149
+    }
+  ],
+  "observations": {
+    "cobblestoneCount": 73,
+    "breadCount": 5,
+    "equipment": ["iron_helmet", "shield (offhand)"],
+    "heldItem": "iron_pickaxe",
+    "heldItemDamage": 7,
+    "containerDiamondBefore": 12,
+    "containerDiamondAfter": 9,
+    "playerDiamondsAfterWithdrawalWhileWindowOpen": 3,
+    "containerIronIngotCount": 71,
+    "directWalkAndPathfinderGoal": {
+      "goal": {
+        "x": 8,
+        "y": 64,
+        "z": 0
+      },
+      "verified": true
+    },
+    "observedOtherPlayer": true,
+    "blockUpdateObserved": true,
+    "unloadedBlockRemainsUnknown": true,
+    "passiveObservationActionRequests": 0,
+    "observationGetRequests": 164,
+    "healthLow": 5,
+    "criticalHealthUrgent": true,
+    "deathUrgent": true,
+    "respawnObserved": true,
+    "nativeRespawnOwner": "Mineflayer default auto-respawn, not perception",
+    "transportPauseMs": 6200,
+    "staleAndRestoreVerified": true,
+    "minecraftDisconnectReasonObserved": true
+  },
+  "rendering": {
+    "combinedThreeViewDurationMs": 1718,
+    "overview": "cpu-minecraft-top-textures",
+    "local": "cpu-minecraft-top-textures",
+    "threeDimensional": "schematic fallback",
+    "realTextured3dVerified": false,
+    "chromiumBlocker": "socket() Operation not permitted; one approved escalated attempt also failed",
+    "finalMarkerPreview": "Verified in frozen real-observation replay, then verified again in actual fresh-server default-view output from the portable script.",
+    "notes": [
+      "CPU top-face textures flatten geometry; special chest and sign surfaces used metadata-listed schematic fallback.",
+      "Overview alone hid the doorway under its lintel; 3D and exact block observations disambiguated it."
+    ]
+  },
+  "modelMediatedDemonstration": {
+    "decision": {
+      "evidence": [
+        "decision-state.json",
+        "decision-overview.png",
+        "decision-3d.png",
+        "decision-render-snapshot.json"
+      ],
+      "reason": "The textured overhead places me east of the wall and the requested gold marker west of it. The overhead sees the lintel and looks continuous, but the 3D structure reveals a doorway. Exact observed cells confirm x=0,z=3..4 are air at y=64 and65 with a lintel at66, so the two-block-high opening is usable. I choose the southern half of that opening (z=4), then turn north after crossing. Stop east-adjacent to the western gold block; do not walk into or dig it.",
+      "waypoints": [
+        {
+          "x": 2,
+          "y": 64,
+          "z": 4
+        },
+        {
+          "x": -2,
+          "y": 64,
+          "z": 4
+        },
+        {
+          "x": -7,
+          "y": 64,
+          "z": 0
+        }
+      ],
+      "scope": "A single model-selected waypoint demonstration using actual tool outputs, not a blind benchmark or statistical comprehension claim."
+    },
+    "actual": [
+      {
+        "x": 2.6756725797968977,
+        "y": 64,
+        "z": 4.559562124843725
+      },
+      {
+        "x": -1.2405726269907695,
+        "y": 64,
+        "z": 4.499448234362589
+      },
+      {
+        "x": -6.346611726833406,
+        "y": 64,
+        "z": 0.6487364535545903
+      }
+    ],
+    "arrived": {
+      "x": -6.580003835032091,
+      "y": 64,
+      "z": 0.4175493269630569
+    },
+    "wallPreserved": true,
+    "claim": "One model-mediated tool-output interpretation demonstration; not a benchmark or general comprehension proof"
+  },
+  "regressionsFoundAndRetested": [
+    "Open-window player inventory counts were stale when sampled from the main inventory window; active window projection fixed and real withdrawal retested.",
+    "Explicit 1.21.1 skipped the precisely guarded protocol-767 recipe serializer fix; alias coverage extended and independently cached parser regression added."
+  ],
+  "shutdown": {
+    "perceptionClosed": true,
+    "actionClosed": true,
+    "bridgeClosed": true,
+    "serverExitCode": 0,
+    "serverStopped": true
+  },
+  "limitations": [
+    "One selected local flat-world scenario, not a real arena match or a blind model benchmark.",
+    "No paid model API call; the assistant chose one route from actual captured observations.",
+    "Textured WebGL 3D screenshots remain unverified under this environment permission restriction.",
+    "Docker/deployment isolation, arena scoring and match lifecycle are not covered by this run."
+  ],
+  "portableHarnessVerification": {
+    "runStartedAt": "2026-10-11T01-18-54-379Z",
+    "script": "scripts/validate-observation-live.mjs",
+    "source": {
+      "commit": "514994da2dd59fd2d87644fd5f1d943c8fcf1f44",
+      "files": {
+        "packages/mf-bridge/index.mjs": "5f1b2bf625bd678fb4d16fa7f17aebcf908c09363a50c049276b7a4e193d779d",
+        "packages/mf-bridge/minecraft-compat.mjs": "d5591288fd30e0051cd84a9ada7924e5633683a25f7c4e2e3570faab84de192f",
+        "packages/bot-sdk/index.mjs": "778795123ade8db85a1f3468882032d74505ebb34384f5de2a6cde8d414b211e",
+        "packages/observation/index.mjs": "5a892ac82af702a10da51df679c509d178a78218994864c9a50e84eaeb0bd4c7",
+        "packages/observation/observe.mjs": "7c364727b4025db39b5bd98e651967e6ba915507f107939520aa46f500b9057a",
+        "packages/pi-extension/perception-runtime.mjs": "0b6ddda5e777afc4cee85b3d6570708b8dceefa0c0720e09df199cc3daae3a28",
+        "packages/world-visual/index.mjs": "80b11d8216679d07ebed46d82db260b376671bf28f0033ea1b7dd333e3f9e7b6"
+      },
+      "harness": "scripts/validate-observation-live.mjs"
+    },
+    "port": 25591,
+    "newTestWorld": true,
+    "passed": true,
+    "checks": [
+      {
+        "name": "passive_default_snapshot_and_exact_quantities",
+        "passed": true,
+        "durationMs": 1021
+      },
+      {
+        "name": "real_chest_inspection_and_transfer_through_sdk",
+        "passed": true,
+        "durationMs": 533
+      },
+      {
+        "name": "real_walk_and_plugin_goal_arrival",
+        "passed": true,
+        "durationMs": 3951
+      },
+      {
+        "name": "observed_player_and_block_update",
+        "passed": true,
+        "durationMs": 408
+      },
+      {
+        "name": "real_world_views_and_unknown_crop",
+        "passed": true,
+        "durationMs": 1842
+      },
+      {
+        "name": "health_loss_critical_death_and_respawn_events",
+        "passed": true,
+        "durationMs": 1906
+      },
+      {
+        "name": "actual_paused_transport_stale_then_restored",
+        "passed": true,
+        "durationMs": 6315
+      },
+      {
+        "name": "actual_minecraft_disconnect_marks_snapshot",
+        "passed": true,
+        "durationMs": 129
+      }
+    ],
+    "shutdown": {
+      "perceptionClosed": true,
+      "actionClosed": true,
+      "bridgeClosed": true,
+      "serverExitCode": 0,
+      "serverStopped": true,
+      "originalPropertiesRestored": true
+    },
+    "originalPropertiesSha256VerifiedUnchanged": true,
+    "latestHeadingMarker": "Verified visually in actual fresh-server overview/local PNGs",
+    "manualDecision": "Optional ninth demonstration omitted in this automated run; separately observed in the reference run."
+  }
+}
