@@ -27,7 +27,6 @@ export function compactPerception(snapshot) {
     freshness,
     players,
     entities,
-    runtimeProjection,
     recentBlocks,
     nearbySigns,
     ...state
@@ -74,23 +73,29 @@ export function createPerceptionChanges() {
   let previous = new Map();
   let initialized = false;
   return {
-    next(snapshot) {
+    prepare(snapshot) {
       const state = compactPerception(snapshot),
-        changes = {};
+        changes = {},
+        next = new Map();
       for (const [key, value] of Object.entries(state)) {
         const encoded = JSON.stringify(value);
         if (!initialized || previous.get(key) !== encoded) changes[key] = value;
-        previous.set(key, encoded);
+        next.set(key, encoded);
       }
       for (const key of previous.keys())
-        if (!(key in state)) {
-          changes[key] = null;
-          previous.delete(key);
-        }
+        if (!(key in state)) changes[key] = null;
       if (initialized && !Object.keys(changes).length) return null;
-      const type = initialized ? "perception.changed" : "perception.baseline";
-      initialized = true;
-      return { type, observedAt: snapshot.observedAt, changes };
+      return {
+        message: {
+          type: initialized ? "perception.changed" : "perception.baseline",
+          observedAt: snapshot.observedAt,
+          changes,
+        },
+        onDelivered() {
+          previous = next;
+          initialized = true;
+        },
+      };
     },
     reset() {
       previous = new Map();

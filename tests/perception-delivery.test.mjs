@@ -4,6 +4,16 @@ import {
   tailEnabled,
   createPerceptionChanges,
 } from "../packages/pi-extension/perception-delivery.mjs";
+const deliveredChanges = () => {
+  const changes = createPerceptionChanges();
+  return {
+    next(snapshot) {
+      const delivery = changes.prepare(snapshot);
+      delivery?.onDelivered();
+      return delivery?.message ?? null;
+    },
+  };
+};
 const sample = () => ({
   type: "observation",
   observedAt: 1,
@@ -19,7 +29,7 @@ test("tail is opt-in", () => {
   assert.equal(tailEnabled({ ARENA_PERCEPTION_TAIL: "1" }), true);
 });
 test("ordinary history gets baseline then only changed sections, ignores sample age", () => {
-  const changes = createPerceptionChanges(),
+  const changes = deliveredChanges(),
     first = sample();
   assert.equal(changes.next(first).type, "perception.baseline");
   assert.equal(
@@ -38,7 +48,7 @@ test("ordinary history gets baseline then only changed sections, ignores sample 
   assert.equal(changed.changes.self.health, 15);
 });
 test("leaving entities and loss of connection are explicit", () => {
-  const c = createPerceptionChanges(),
+  const c = deliveredChanges(),
     s = sample();
   s.radar.entities = [{ id: 2, name: "zombie" }];
   c.next(s);
@@ -48,7 +58,7 @@ test("leaving entities and loss of connection are explicit", () => {
   assert.equal(c.next(next).changes.connection.status, "disconnected");
 });
 test("sub-decimeter idle jitter and task duration do not create repeated reports", () => {
-  const c = createPerceptionChanges(),
+  const c = deliveredChanges(),
     s = sample();
   s.tasks = [{ taskId: "t", status: "running", durationMs: 1 }];
   c.next(s);
@@ -58,7 +68,7 @@ test("sub-decimeter idle jitter and task duration do not create repeated reports
 });
 
 test("interval and sign producers retain their own delivery cadence", () => {
-  const c = createPerceptionChanges(),
+  const c = deliveredChanges(),
     s = sample();
   s.recentBlocks = { samples: 1 };
   s.nearbySigns = { observedAt: 1, signs: [] };
@@ -71,7 +81,7 @@ test("interval and sign producers retain their own delivery cadence", () => {
 });
 
 test("ordinary local changes do not repeat the legacy loaded-world sign list", () => {
-  const c = createPerceptionChanges(),
+  const c = deliveredChanges(),
     s = sample();
   s.local = { blocks: [], signs: [{ text: "far away" }] };
   assert.equal(c.next(s).changes.local.signs, undefined);
@@ -79,4 +89,63 @@ test("ordinary local changes do not repeat the legacy loaded-world sign list", (
   assert.equal(c.next(s), null);
   s.local.blocks = [{ name: "stone" }];
   assert.deepEqual(c.next(s).changes.local, { blocks: [{ name: "stone" }] });
+});
+
+test("undelivered or rejected changes do not advance the comparison baseline", () => {
+  const c = createPerceptionChanges(),
+    s = sample();
+  const first = c.prepare(s);
+  assert.equal(c.prepare(s).message.type, "perception.baseline");
+  first.onDelivered();
+  s.self.health = 10;
+  const pending = c.prepare(s);
+  assert.equal(pending.message.changes.self.health, 10);
+  assert.equal(c.prepare(s).message.changes.self.health, 10);
+  pending.onDelivered();
+  assert.equal(c.prepare(s), null);
+});
+test("default state retains runtime omission and full-query guidance", () => {
+  const s = sample();
+  s.runtimeProjection = {
+    tasks: { omitted: 20 },
+    fullQuery: { tool: "observe", arguments: { fullRuntime: true } },
+  };
+  assert.deepEqual(
+    deliveredChanges().next(s).changes.runtimeProjection,
+    s.runtimeProjection,
+  );
+});
+
+test("Inbox overflow leaves the previous delivered baseline available for retry", async () => {
+  const { Inbox } = await import("../packages/inbox/index.mjs");
+  const inbox = new Inbox({ sessionId: "s", maxItems: 1 }),
+    c = createPerceptionChanges(),
+    s = sample();
+  c.prepare(s).onDelivered();
+  s.self.health = 6;
+  const pending = c.prepare(s);
+  inbox.post(
+    {
+      sessionId: "s",
+      kind: "state",
+      key: "observation.current",
+      data: pending.message,
+    },
+    { onDelivered: pending.onDelivered },
+  );
+  inbox.post({ sessionId: "s", kind: "event", data: "another message" });
+  assert.equal(inbox.drain().messages.length, 1);
+  const retry = c.prepare(s);
+  assert.equal(retry.message.changes.self.health, 6);
+  inbox.post(
+    {
+      sessionId: "s",
+      kind: "state",
+      key: "observation.current",
+      data: retry.message,
+    },
+    { onDelivered: retry.onDelivered },
+  );
+  inbox.drain();
+  assert.equal(c.prepare(s), null);
 });
