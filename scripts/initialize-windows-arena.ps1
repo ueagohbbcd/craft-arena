@@ -6,7 +6,7 @@ param(
     [string]$DeploymentDir = (Join-Path $PSScriptRoot '../runtime/deploy'),
     [switch]$AcceptEula,
     [string]$ServerJar,
-    [string]$ServerDownload = (Join-Path $PSScriptRoot '../infra/windows-local/minecraft-download.json'),
+    [string]$ServerDownload = (Join-Path $PSScriptRoot '../infra/minecraft-download.json'),
     [string]$DeepSeekApiKeyEnv = 'DEEPSEEK_API_KEY'
 )
 $ErrorActionPreference = 'Stop'
@@ -21,11 +21,14 @@ if (-not (Test-Path -LiteralPath (Join-Path $world 'level.dat') -PathType Leaf))
 if ($destination.StartsWith($world.TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'DeploymentDir must not be inside WorldDir.' }
 $match = (Resolve-Path -LiteralPath $MatchConfig).Path
 # The host validates the match schema. Here we only require readable JSON before copying it.
-$null = Get-Content -LiteralPath $match -Raw | ConvertFrom-Json
+$matchConfig = Get-Content -LiteralPath $match -Raw | ConvertFrom-Json
 $download = Get-Content -LiteralPath $ServerDownload -Raw | ConvertFrom-Json
 if ($download.sha1 -notmatch '^[a-fA-F0-9]{40}$' -or $download.size -le 0) { throw 'ServerDownload requires the expected server JAR sha1 and size.' }
 if ($ServerJar) { $ServerJar = (Resolve-Path -LiteralPath $ServerJar).Path }
 elseif ($download.url -notmatch '^https://') { throw 'ServerDownload requires an HTTPS download URL.' }
+if ($matchConfig.live.minecraft.version -ne $download.minecraftVersion) { throw 'Match Minecraft version must match ServerDownload.minecraftVersion.' }
+$node = (Get-Command node -ErrorAction Stop).Source
+if ((& $node -p 'Number(process.versions.node.split(".")[0]) >= 24') -ne 'true') { throw 'Node.js 24 or newer is required.' }
 $key = [Environment]::GetEnvironmentVariable($DeepSeekApiKeyEnv)
 if ($key -match '[\r\n\x00]') { throw 'DeepSeek API key contains unsupported characters.' }
 # Assemble in a private sibling directory; Directory.Move refuses an existing destination.
@@ -44,15 +47,14 @@ try {
         $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', $inheritance, $propagation, $allow))
     }
     Set-Acl -LiteralPath $stage -AclObject $acl
-    foreach ($dir in @('server','minecraft-data','map-original','auth','results','control')) { New-Item -ItemType Directory -Path (Join-Path $stage $dir) | Out-Null }
+    foreach ($dir in @('minecraft-data','map-original','auth','results','control','replay-config')) { New-Item -ItemType Directory -Path (Join-Path $stage $dir) | Out-Null }
     $template = Join-Path $repo 'infra/windows-local'
     foreach ($file in @('compose.yaml','budget.json','budget.deepseek.json','codex.json','deepseek.json','model.codex.json','model.deepseek.json')) { Copy-Item -LiteralPath (Join-Path $template $file) -Destination $stage }
     Copy-Item -LiteralPath $match -Destination (Join-Path $stage 'match.live.json')
-    Copy-Item -LiteralPath (Join-Path $template 'Dockerfile.minecraft') -Destination (Join-Path $stage 'server/Dockerfile')
-    Copy-Item -LiteralPath $ServerDownload -Destination (Join-Path $stage 'server/download.json')
-    $jarTarget = Join-Path $stage 'server/server.jar'
-    if ($ServerJar) { Copy-Item -LiteralPath $ServerJar -Destination $jarTarget } else { Invoke-WebRequest -Uri $download.url -OutFile $jarTarget }
-    if ((Get-Item -LiteralPath $jarTarget).Length -ne $download.size -or (Get-FileHash -LiteralPath $jarTarget -Algorithm SHA1).Hash -ne $download.sha1) { throw 'Server JAR does not match the checksum and size in ServerDownload.' }
+    $prepareArgs = @((Join-Path $repo 'scripts/prepare-minecraft-server.mjs'), (Join-Path $stage 'server'), '--manifest', $ServerDownload)
+    if ($ServerJar) { $prepareArgs += @('--server-jar', $ServerJar) }
+    & $node @prepareArgs
+    if ($LASTEXITCODE -ne 0) { throw 'Checked Minecraft server preparation failed.' }
     Copy-Item -LiteralPath $world -Destination (Join-Path $stage 'map-original/world') -Recurse
     Copy-Item -LiteralPath (Join-Path $stage 'map-original/world') -Destination (Join-Path $stage 'minecraft-data/world') -Recurse
     $envLines = [Collections.Generic.List[string]]::new()

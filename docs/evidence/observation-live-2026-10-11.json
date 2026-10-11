@@ -1,0 +1,487 @@
+{
+  "schema": 1,
+  "latest": {
+    "runStartedAt": "2026-10-11T01:49:29.242Z",
+    "passed": true,
+    "automaticChecksPassed": 9,
+    "automaticChecksTotal": 9,
+    "detailsField": "latestAutomatedVerification",
+    "upstreamCommit": "8df14e7f79798d6aff5bff31e7f623ce54d12f41",
+    "includesFinalPathfinderAdapterFix": true,
+    "taskManagerCancelCleanupMs": 163,
+    "postCancelPositionDrift": 0,
+    "serverExitedCleanly": true,
+    "originalConfigurationRestoredExactly": true,
+    "visualLimitation": "CPU-textured overview/local verified; browser-based textured 3D remains unavailable and uses an explicit schematic fallback."
+  },
+  "readingGuide": "The latest field and latestAutomatedVerification are the final automated result. Earlier recordedAt/checks/modelMediatedDemonstration fields describe historical reference runs, not the final source revision.",
+  "recordedAt": "2026-10-11T01:15:16Z",
+  "runStartedAt": "2026-10-11T01:13:56.370Z",
+  "source": {
+    "kind": "actual local server integration",
+    "server": "official Minecraft Java Edition 1.21.1",
+    "serverJarSha1": "59353fb40c36d304f2035d51e7d6e6baa98dc05c",
+    "transport": "Real Mineflayer -> loopback HTTP/SSE bridge -> separate action SDK and passive perception runtime",
+    "authentication": "offline test identities only",
+    "eula": "Reused preaccepted isolated QA installation; no new acceptance",
+    "reproductionScript": "scripts/validate-observation-live.mjs",
+    "referenceHarness": "The 9-check reference run used the workspace-local predecessor. The parameterized repository script was separately verified on a new isolated world: 8 automated checks passed."
+  },
+  "passed": true,
+  "checks": [
+    {
+      "name": "passive_default_snapshot_and_exact_quantities",
+      "passed": true,
+      "durationMs": 1020
+    },
+    {
+      "name": "real_chest_inspection_and_transfer_through_sdk",
+      "passed": true,
+      "durationMs": 612
+    },
+    {
+      "name": "real_walk_and_plugin_goal_arrival",
+      "passed": true,
+      "durationMs": 3971
+    },
+    {
+      "name": "observed_player_and_block_update",
+      "passed": true,
+      "durationMs": 333
+    },
+    {
+      "name": "real_world_views_and_unknown_crop",
+      "passed": true,
+      "durationMs": 1718
+    },
+    {
+      "name": "single_model_steered_route_from_observations",
+      "passed": true,
+      "durationMs": 44953
+    },
+    {
+      "name": "health_loss_critical_death_and_respawn_events",
+      "passed": true,
+      "durationMs": 1916
+    },
+    {
+      "name": "actual_paused_transport_stale_then_restored",
+      "passed": true,
+      "durationMs": 6312
+    },
+    {
+      "name": "actual_minecraft_disconnect_marks_snapshot",
+      "passed": true,
+      "durationMs": 149
+    }
+  ],
+  "observations": {
+    "cobblestoneCount": 73,
+    "breadCount": 5,
+    "equipment": ["iron_helmet", "shield (offhand)"],
+    "heldItem": "iron_pickaxe",
+    "heldItemDamage": 7,
+    "containerDiamondBefore": 12,
+    "containerDiamondAfter": 9,
+    "playerDiamondsAfterWithdrawalWhileWindowOpen": 3,
+    "containerIronIngotCount": 71,
+    "directWalkAndPathfinderGoal": {
+      "goal": {
+        "x": 8,
+        "y": 64,
+        "z": 0
+      },
+      "verified": true
+    },
+    "observedOtherPlayer": true,
+    "blockUpdateObserved": true,
+    "unloadedBlockRemainsUnknown": true,
+    "passiveObservationActionRequests": 0,
+    "observationGetRequests": 164,
+    "healthLow": 5,
+    "criticalHealthUrgent": true,
+    "deathUrgent": true,
+    "respawnObserved": true,
+    "nativeRespawnOwner": "Mineflayer default auto-respawn, not perception",
+    "transportPauseMs": 6200,
+    "staleAndRestoreVerified": true,
+    "minecraftDisconnectReasonObserved": true
+  },
+  "rendering": {
+    "combinedThreeViewDurationMs": 1718,
+    "overview": "cpu-minecraft-top-textures",
+    "local": "cpu-minecraft-top-textures",
+    "threeDimensional": "schematic fallback",
+    "realTextured3dVerified": false,
+    "chromiumBlocker": "socket() Operation not permitted; one approved escalated attempt also failed",
+    "finalMarkerPreview": "Verified in frozen real-observation replay, then verified again in actual fresh-server default-view output from the portable script.",
+    "notes": [
+      "CPU top-face textures flatten geometry; special chest and sign surfaces used metadata-listed schematic fallback.",
+      "Overview alone hid the doorway under its lintel; 3D and exact block observations disambiguated it."
+    ]
+  },
+  "modelMediatedDemonstration": {
+    "decision": {
+      "evidence": [
+        "decision-state.json",
+        "decision-overview.png",
+        "decision-3d.png",
+        "decision-render-snapshot.json"
+      ],
+      "reason": "The textured overhead places me east of the wall and the requested gold marker west of it. The overhead sees the lintel and looks continuous, but the 3D structure reveals a doorway. Exact observed cells confirm x=0,z=3..4 are air at y=64 and65 with a lintel at66, so the two-block-high opening is usable. I choose the southern half of that opening (z=4), then turn north after crossing. Stop east-adjacent to the western gold block; do not walk into or dig it.",
+      "waypoints": [
+        {
+          "x": 2,
+          "y": 64,
+          "z": 4
+        },
+        {
+          "x": -2,
+          "y": 64,
+          "z": 4
+        },
+        {
+          "x": -7,
+          "y": 64,
+          "z": 0
+        }
+      ],
+      "scope": "A single model-selected waypoint demonstration using actual tool outputs, not a blind benchmark or statistical comprehension claim."
+    },
+    "actual": [
+      {
+        "x": 2.6756725797968977,
+        "y": 64,
+        "z": 4.559562124843725
+      },
+      {
+        "x": -1.2405726269907695,
+        "y": 64,
+        "z": 4.499448234362589
+      },
+      {
+        "x": -6.346611726833406,
+        "y": 64,
+        "z": 0.6487364535545903
+      }
+    ],
+    "arrived": {
+      "x": -6.580003835032091,
+      "y": 64,
+      "z": 0.4175493269630569
+    },
+    "wallPreserved": true,
+    "claim": "One model-mediated tool-output interpretation demonstration; not a benchmark or general comprehension proof"
+  },
+  "regressionsFoundAndRetested": [
+    "Open-window player inventory counts were stale when sampled from the main inventory window; active window projection fixed and real withdrawal retested.",
+    "Explicit 1.21.1 skipped the precisely guarded protocol-767 recipe serializer fix; alias coverage extended and independently cached parser regression added."
+  ],
+  "shutdown": {
+    "perceptionClosed": true,
+    "actionClosed": true,
+    "bridgeClosed": true,
+    "serverExitCode": 0,
+    "serverStopped": true
+  },
+  "limitations": [
+    "One selected local flat-world scenario, not a real arena match or a blind model benchmark.",
+    "No paid model API call; the assistant chose one route from actual captured observations.",
+    "Textured WebGL 3D screenshots remain unverified under this environment permission restriction.",
+    "Docker/deployment isolation, arena scoring and match lifecycle are not covered by this run."
+  ],
+  "portableHarnessVerification": {
+    "runStartedAt": "2026-10-11T01-18-54-379Z",
+    "script": "scripts/validate-observation-live.mjs",
+    "source": {
+      "commit": "514994da2dd59fd2d87644fd5f1d943c8fcf1f44",
+      "files": {
+        "packages/mf-bridge/index.mjs": "5f1b2bf625bd678fb4d16fa7f17aebcf908c09363a50c049276b7a4e193d779d",
+        "packages/mf-bridge/minecraft-compat.mjs": "d5591288fd30e0051cd84a9ada7924e5633683a25f7c4e2e3570faab84de192f",
+        "packages/bot-sdk/index.mjs": "778795123ade8db85a1f3468882032d74505ebb34384f5de2a6cde8d414b211e",
+        "packages/observation/index.mjs": "5a892ac82af702a10da51df679c509d178a78218994864c9a50e84eaeb0bd4c7",
+        "packages/observation/observe.mjs": "7c364727b4025db39b5bd98e651967e6ba915507f107939520aa46f500b9057a",
+        "packages/pi-extension/perception-runtime.mjs": "0b6ddda5e777afc4cee85b3d6570708b8dceefa0c0720e09df199cc3daae3a28",
+        "packages/world-visual/index.mjs": "80b11d8216679d07ebed46d82db260b376671bf28f0033ea1b7dd333e3f9e7b6"
+      },
+      "harness": "scripts/validate-observation-live.mjs"
+    },
+    "port": 25591,
+    "newTestWorld": true,
+    "passed": true,
+    "checks": [
+      {
+        "name": "passive_default_snapshot_and_exact_quantities",
+        "passed": true,
+        "durationMs": 1021
+      },
+      {
+        "name": "real_chest_inspection_and_transfer_through_sdk",
+        "passed": true,
+        "durationMs": 533
+      },
+      {
+        "name": "real_walk_and_plugin_goal_arrival",
+        "passed": true,
+        "durationMs": 3951
+      },
+      {
+        "name": "observed_player_and_block_update",
+        "passed": true,
+        "durationMs": 408
+      },
+      {
+        "name": "real_world_views_and_unknown_crop",
+        "passed": true,
+        "durationMs": 1842
+      },
+      {
+        "name": "health_loss_critical_death_and_respawn_events",
+        "passed": true,
+        "durationMs": 1906
+      },
+      {
+        "name": "actual_paused_transport_stale_then_restored",
+        "passed": true,
+        "durationMs": 6315
+      },
+      {
+        "name": "actual_minecraft_disconnect_marks_snapshot",
+        "passed": true,
+        "durationMs": 129
+      }
+    ],
+    "shutdown": {
+      "perceptionClosed": true,
+      "actionClosed": true,
+      "bridgeClosed": true,
+      "serverExitCode": 0,
+      "serverStopped": true,
+      "originalPropertiesRestored": true
+    },
+    "originalPropertiesSha256VerifiedUnchanged": true,
+    "latestHeadingMarker": "Verified visually in actual fresh-server overview/local PNGs",
+    "manualDecision": "Optional ninth demonstration omitted in this automated run; separately observed in the reference run."
+  },
+  "updatedAt": "2026-10-11T01:52:36.495335+00:00",
+  "latestAutomatedVerification": {
+    "runStartedAt": "2026-10-11T01:49:29.242Z",
+    "source": {
+      "commit": "3adbd26f1d215cc17990202fdf5d50dd757536ca",
+      "files": {
+        "package.json": "25a9045b4a581e8eb1b54cf455316d0203a48d2f576e889bba070a24a89a6418",
+        "package-lock.json": "963e808f65a5e4c44a1e381645d65713c5bafd667f58c5ba8fc9a911271982d3",
+        "packages/mf-bridge/index.mjs": "c41f6abd5c36dd29cb7dc7eca167bf363111480bb300522f82180ab3caf998bc",
+        "packages/mf-bridge/minecraft-compat.mjs": "d5591288fd30e0051cd84a9ada7924e5633683a25f7c4e2e3570faab84de192f",
+        "packages/bot-sdk/index.mjs": "7db24a0a05634f4f1c4cd8bd4b4ad021324d22050a729d9c6f475fe265b0056f",
+        "packages/bot-sdk/plugins.mjs": "6ea489b74d3134d96d5df02e34f4006eccf73a11e0246437316d67ff3909d28d",
+        "packages/observation/index.mjs": "2ce39cf32d3a101c4a1b8b6dccb00be66c8ba92920f24d292bdc757cf916059c",
+        "packages/observation/observe.mjs": "85fcbc068492d65d4e201f38b55a15de16af985509358d1b68fd459f359042c9",
+        "packages/pi-extension/perception-runtime.mjs": "ac1aea92a2c874ba1cf2d554399bfe6c5c88549fa7745f76af62fcef41c1822b",
+        "packages/inbox/tasks.mjs": "32298fbe932fa335b59b9def5a13a2636eb1a392daafcda25293a68fab10fd81",
+        "examples/plugin-goal.mjs": "c9b818d2e7e89b69790bb40a5923e494eae2739d08a67b95aaff229f75b14395",
+        "packages/world-visual/index.mjs": "4a8f486f527a5878efbe815f4e566c3bcc1a764dff5dcd6de9136783fc55e59d",
+        "packages/world-visual/surface-textures.mjs": "b858e02d578a78b10e099e6e8046335b0b81136b64beec9ed13f191b25ac48aa",
+        "packages/world-visual/prismarine.mjs": "11615b5ee5ea906109704ca15c777c4f414878ee8e5d4d721893cf0cddcc07ed",
+        "scripts/validate-observation-live.mjs": "e114ebef1673c60d5ecab2b479457f4e04c61c1e64fa1da4a620131df26cffa1"
+      },
+      "worldMemory": {
+        "name": "mineflayer-world-memory",
+        "version": "0.1.0",
+        "configuredSource": "github:ueagohbbcd/mineflayer-world-memory#8df14e7f79798d6aff5bff31e7f623ce54d12f41",
+        "resolved": "git+ssh://git@github.com/ueagohbbcd/mineflayer-world-memory.git#8df14e7f79798d6aff5bff31e7f623ce54d12f41",
+        "integrity": "sha512-SHolwmfHgfLakIi4SyEJS6VrWBNPSKGqIMPMHsmzxHxyZ01IIt1HleBxV95Q66DVeh1UyZksJqN6u8q8qBOB+Q==",
+        "files": {
+          "live.mjs": "78cbf6590ead91781bbd505e7a5d6bdd258e21f5ad8a61ccee99fd2c77d46db7",
+          "live.js": "e2257ffd3a3cd68dd0c4d9c55c4685d47348d48d3eba1f2f1a9e179d10e5a9d8",
+          "lib/live-raster.js": "d4f4ad98f4a5b42473f0ba8fa8a2bf609e0b2799e2c33dc84d1f2cbd7a7b77fd",
+          "lib/live-snapshot.js": "440522cf1ebea429c3409996931a46782edff64c25325e6989c215dacbe8853c",
+          "lib/live-textures.js": "bd9a9017373431babd8cf4ab325360ad0e2ccaf7d295e083976c055ab41ff91c"
+        }
+      },
+      "harness": "scripts/validate-observation-live.mjs"
+    },
+    "passed": true,
+    "automaticChecks": 9,
+    "checks": [
+      {
+        "name": "passive_default_snapshot_and_exact_quantities",
+        "passed": true,
+        "durationMs": 1023
+      },
+      {
+        "name": "real_chest_inspection_and_transfer_through_sdk",
+        "passed": true,
+        "durationMs": 678
+      },
+      {
+        "name": "real_walk_and_plugin_goal_arrival",
+        "passed": true,
+        "durationMs": 3990
+      },
+      {
+        "name": "task_manager_cancel_stops_real_plugin_goal",
+        "passed": true,
+        "durationMs": 3242
+      },
+      {
+        "name": "observed_player_and_block_update",
+        "passed": true,
+        "durationMs": 610
+      },
+      {
+        "name": "real_world_views_and_unknown_crop",
+        "passed": true,
+        "durationMs": 1886
+      },
+      {
+        "name": "health_loss_critical_death_and_respawn_events",
+        "passed": true,
+        "durationMs": 1874
+      },
+      {
+        "name": "actual_paused_transport_stale_then_restored",
+        "passed": true,
+        "durationMs": 6314
+      },
+      {
+        "name": "actual_minecraft_disconnect_marks_snapshot",
+        "passed": true,
+        "durationMs": 132
+      }
+    ],
+    "taskManagerCancellation": {
+      "start": {
+        "x": 8.581296249108807,
+        "y": 64,
+        "z": 0.48222004392657686
+      },
+      "atCancel": {
+        "x": 9.396096391310865,
+        "y": 64,
+        "z": 0.49322565459830037
+      },
+      "controlsAtCancel": {
+        "forward": true,
+        "back": false,
+        "left": false,
+        "right": false,
+        "jump": false,
+        "sprint": true,
+        "sneak": false
+      },
+      "cleanupMs": 163,
+      "afterCancelControls": {
+        "forward": false,
+        "back": false,
+        "left": false,
+        "right": false,
+        "jump": false,
+        "sprint": false,
+        "sneak": false
+      },
+      "settled": {
+        "x": 9.699044736056093,
+        "y": 64,
+        "z": 0.49322565459830037
+      },
+      "after": {
+        "x": 9.699044736056093,
+        "y": 64,
+        "z": 0.49322565459830037
+      },
+      "postSettleDrift": 0,
+      "nativeConnectionStillAlive": true
+    },
+    "cancelledProcess": {
+      "status": "completed",
+      "stdout": "",
+      "stderr": "",
+      "outputDroppedBytes": 0,
+      "exitCode": 143,
+      "signal": null
+    },
+    "otherPlayerItemUse": {
+      "observedEvents": ["entityEquip", "entityUpdate", "entityUpdate"],
+      "usingShield": {
+        "usingItem": true,
+        "activeHand": "offhand",
+        "activeItem": {
+          "name": "shield",
+          "type": 1162,
+          "metadata": 0,
+          "count": 1,
+          "variant": "8d398f4701a724b0",
+          "displayName": "Shield",
+          "durability": {
+            "used": null,
+            "max": 336,
+            "remaining": null
+          }
+        },
+        "activityCandidate": "blocking"
+      },
+      "afterRelease": {
+        "usingItem": false,
+        "activeHand": null,
+        "activeItem": null,
+        "activityCandidate": null
+      }
+    },
+    "observationActionRequests": 0,
+    "viewVerification": {
+      "combinedDurationMs": 1886,
+      "visuallyInspected": true,
+      "outputs": [
+        {
+          "name": "overview",
+          "renderer": "cpu-minecraft-top-textures",
+          "knownFraction": 0.9506172839506173,
+          "headingMarker": "white heading arrow with black outline"
+        },
+        {
+          "name": "local",
+          "renderer": "cpu-minecraft-top-textures",
+          "knownFraction": 1,
+          "headingMarker": "white heading arrow with black outline"
+        },
+        {
+          "name": "3d",
+          "renderer": "schematic",
+          "knownFraction": 1,
+          "headingMarker": null
+        }
+      ],
+      "unknownCropKnownFraction": 0
+    },
+    "shutdown": {
+      "perceptionClosed": true,
+      "actionClosed": true,
+      "bridgeClosed": true,
+      "serverExitCode": 0,
+      "serverStopped": true,
+      "originalPropertiesRestored": true
+    },
+    "originalPropertiesSha256VerifiedUnchanged": true,
+    "testPortReleased": true,
+    "manualDecision": "The optional manual demonstration was not rerun here; the earlier reference records it separately. The updated script has nine automated checks, plus one optional manual-decision check.",
+    "limits": [
+      "Short flat-ground controller cancellation is verified; this is not a general navigation or tactical benchmark.",
+      "Textured WebGL 3D remains blocked by Chromium Unix-socket permissions; schematic fallback is explicit."
+    ],
+    "afterRunPackagingVerification": {
+      "note": "After gameplay verification, the dependency transport changed from a Git dependency tarball to an HTTPS archive of the same commit. Every installed live-module SHA256 below matches the gameplay-tested bytes. Historical tested-source metadata is retained unchanged.",
+      "configuredSource": "https://codeload.github.com/ueagohbbcd/mineflayer-world-memory/tar.gz/8df14e7f79798d6aff5bff31e7f623ce54d12f41",
+      "resolved": "https://codeload.github.com/ueagohbbcd/mineflayer-world-memory/tar.gz/8df14e7f79798d6aff5bff31e7f623ce54d12f41",
+      "integrity": "sha512-U+oL2a5aJYAsiUyFkfCgTyhUWFW0buvX3sN1Ol49Ac0KOPqCK4/IjBlQn3G0L/kGRqnQl/56nDsEcvZGj/m0Eg==",
+      "liveModuleHashesMatchTestedBytes": true,
+      "files": {
+        "live.mjs": "78cbf6590ead91781bbd505e7a5d6bdd258e21f5ad8a61ccee99fd2c77d46db7",
+        "live.js": "e2257ffd3a3cd68dd0c4d9c55c4685d47348d48d3eba1f2f1a9e179d10e5a9d8",
+        "lib/live-raster.js": "d4f4ad98f4a5b42473f0ba8fa8a2bf609e0b2799e2c33dc84d1f2cbd7a7b77fd",
+        "lib/live-snapshot.js": "440522cf1ebea429c3409996931a46782edff64c25325e6989c215dacbe8853c",
+        "lib/live-textures.js": "bd9a9017373431babd8cf4ab325360ad0e2ccaf7d295e083976c055ab41ff91c"
+      }
+    }
+  }
+}

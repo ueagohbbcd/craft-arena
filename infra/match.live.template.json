@@ -56,7 +56,7 @@
     "minecraft": {
       "host": "minecraft",
       "port": 25565,
-      "version": "OPERATOR_SELECT_EXACT_VERSION",
+      "version": "1.21.1",
       "auth": "offline"
     },
     "rcon": {
@@ -152,6 +152,9 @@
       }
     ],
     "startSignalFile": "/control/start",
-    "briefing": "OPERATOR_REPLACE_WITH_PUBLIC_MAP_RULES_AND_START_INSTRUCTIONS. Complete all configured team monument objectives. Same-poll completion draws; disconnect abandons; deaths do not end the match."
+    "briefing": "OPERATOR_REPLACE_WITH_PUBLIC_MAP_RULES_AND_START_INSTRUCTIONS. Complete all configured team monument objectives. Same-poll completion draws; disconnect abandons; deaths do not end the match.",
+    "replay": {
+      "enabled": true
+    }
   }
 }

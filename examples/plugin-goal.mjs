@@ -1,4 +1,4 @@
-/** Optional participant-written ordinary Goal; movement is only triggered by this explicit CLI. */
+/** Pathfinder trip with arrival checks and an Inbox judgment request on stalls. */
 import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
@@ -19,6 +19,24 @@ const stallMs = 30_000,
   reviewMs = 120_000;
 let watchdog;
 let latestPath = null;
+let stopping = false;
+// All connections share movement controls. Finish the previous movement
+// controller before starting this one.
+const stop = (signal) => {
+  if (stopping) return;
+  stopping = true;
+  process.exitCode = signal === "SIGINT" ? 130 : 143;
+  clearInterval(watchdog);
+  // stop() waits for the next path node. Clearing the goal stops immediately
+  // and rejects the pending goto, allowing its finally to flush before close.
+  bot.pathfinder.setGoal(null);
+};
+const onTerm = () => stop("SIGTERM"),
+  onInterrupt = () => stop("SIGINT");
+process.on("SIGTERM", onTerm);
+process.on("SIGINT", onInterrupt);
+// Synchronous-style SDK actions report their errors here and through flush.
+bot.on("error", console.error);
 const reportPath = (path) => {
   latestPath = { status: path.status, steps: path.path?.length ?? 0 };
   void inbox
@@ -70,7 +88,7 @@ try {
       anchor = position.clone();
       lastMoved = now;
     }
-    if (requested || goal.isEnd(position.floored())) return;
+    if (stopping || requested || goal.isEnd(position.floored())) return;
     if (now - lastMoved < stallMs && now - started < reviewMs) return;
     requested = true; // One request per goal, including while IPC is in flight.
     let terrain;
@@ -113,31 +131,47 @@ try {
       });
   }, 1000);
   await bot.pathfinder.goto(goal);
-  // Pathfinder 2.4.5 can resolve an empty noPath result. Check actual arrival.
-  if (!goal.isEnd(bot.entity.position.floored()))
-    throw new Error("Pathfinder finished without reaching the goal");
-  await inbox.post({ type: "route.arrived", position: bot.entity.position });
+  if (!stopping) {
+    // Pathfinder 2.4.5 can resolve an empty noPath result. Check actual arrival.
+    if (!goal.isEnd(bot.entity.position.floored()))
+      throw new Error("Pathfinder finished without reaching the goal");
+    await inbox.post({ type: "route.arrived", position: bot.entity.position });
+  }
 } catch (error) {
-  const goalLoaded = bot.blockAt({ x: xyz[0], y: xyz[1], z: xyz[2] }) !== null;
-  console.error(
-    JSON.stringify({
-      type: "route.failed",
-      error: error.message,
-      goal: xyz,
-      position: bot.entity.position,
-      loadedColumns: bot.columns.size,
-      goalLoaded,
-      note: goalLoaded
-        ? "No route found with the current terrain and Movements settings."
-        : "The destination is outside the Minecraft connection’s loaded terrain; unknown blocks are not treated as air.",
-    }),
-  );
-  process.exitCode = 1;
+  if (!stopping) {
+    const goalLoaded =
+      bot.blockAt({ x: xyz[0], y: xyz[1], z: xyz[2] }) !== null;
+    console.error(
+      JSON.stringify({
+        type: "route.failed",
+        error: error.message,
+        goal: xyz,
+        position: bot.entity.position,
+        loadedColumns: bot.columns.size,
+        goalLoaded,
+        note: goalLoaded
+          ? "No route found with the current terrain and Movements settings."
+          : "The destination is outside the Minecraft connection’s loaded terrain; unknown blocks are not treated as air.",
+      }),
+    );
+    process.exitCode = 1;
+  }
 } finally {
   clearInterval(watchdog);
   bot.off("path_update", reportPath);
-  bot.pathfinder.stop();
-  bot.clearControlStates();
-  await bot.flush();
-  bot.closeBridge();
+  try {
+    try {
+      bot.pathfinder.setGoal(null);
+      // Control RPCs run concurrently. Drain earlier presses before sending
+      // the final release, or an older press could arrive after the clear.
+      await bot.flush();
+    } finally {
+      bot.clearControlStates();
+      await bot.flush();
+    }
+  } finally {
+    bot.closeBridge();
+    process.off("SIGTERM", onTerm);
+    process.off("SIGINT", onInterrupt);
+  }
 }

@@ -33,3 +33,9 @@ Live monument progress tracks current state: each poll recomputes all configured
 ## Opening images
 
 Optional `live.openingViews` is keyed by team ID; only that team's entry is published to its participant. Each entry has `course: {bounds, entryBounds}` and optional `lobby: {bounds}`. All boxes use inclusive integer `{min:{x,y,z}, max:{x,y,z}}`. `bounds` crops the image; `entryBounds` identifies the course entrance for one-time delivery. Choose these with the map, alongside spawn/start commands. Omit `lobby` for direct course starts. Captures read participant-loaded chunks, not the operator's map files. Each image crop is limited to one million cells.
+
+## Trusted server replay lifecycle
+
+`live.replay.enabled` defaults to true in the live connector (simulation is unchanged). `src/replay.mjs` prepares a per-run ServerReplay config, verifies each participant recorder before game start, disables recording at every normal end path, and waits for actual `.mcpr` finalization and readable basic metadata after game cleanup. The CLI passes the parent of its result path, so files stay under the existing `runs/<runId>/replays` tree; final/current operator JSON includes replay state and file metadata. Replay state, private paths, and files are absent from participant match responses. Opt-out does not require the mod or any replay filesystem access.
+
+`stopConfirmed` remains game-cleanup evidence. Check `replay.status` independently: `saved`, `ready` (no game start), `disabled`, or an explicit failure. The CLI exits unsuccessfully on replay failure. Configure `live.replay.saveTimeoutMs` and container shutdown grace together; storage/permissions, supported playback, and recovery instructions are in the [operator guide](../../infra/README.md#server-side-match-replays). A mocked lifecycle or valid ZIP alone does not establish visual playback.

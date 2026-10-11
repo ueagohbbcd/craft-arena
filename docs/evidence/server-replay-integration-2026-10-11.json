@@ -1,0 +1,35 @@
+{
+  "checkedAt": "2026-10-11T11:41:00Z",
+  "baseCommit": "3c73f50ee39edca3b46a6085c232289b322f096f",
+  "downloadManifest": "infra/minecraft-download.json",
+  "implementation": {
+    "defaultLiveRecording": true,
+    "globalModAutoRecording": false,
+    "start": "Explicit per-participant replay start players followed by a run marker",
+    "archive": "results/runs/<runId>/replays/<username>/*.mcpr",
+    "routineSaveCheck": "Wait for output and recorder cache removal, then read ZIP directory and ReplayMod metadata",
+    "deepCheck": "Optional scripts/verify-server-replay.mjs checks full ZIP CRC, nonempty recording.tmcpr and SHA-256",
+    "participantStorageAccess": false
+  },
+  "verified": {
+    "focusedTestCommand": "node --test tests/server-replay.test.mjs tests/arena-live.test.mjs tests/arena-lifecycle.test.mjs tests/arena-run-files.test.mjs tests/prepare-minecraft.test.mjs tests/deployment.test.mjs",
+    "focusedTestsPassed": 34,
+    "javascriptSyntax": true,
+    "composeYamlParsed": true,
+    "defaultPreparedBuildContext": "Generated using the actual pinned Minecraft, Fabric installer and three mod JARs; artifact size/hash checks passed",
+    "fullSuite": {
+      "command": "npm run validate",
+      "tests": 434,
+      "passed": 432,
+      "failed": 0,
+      "skipped": 2
+    }
+  },
+  "notEstablished": {
+    "dockerBuildAndComposeRuntime": "Docker executable unavailable in this executor",
+    "windowsPowerShellExecution": "PowerShell executable unavailable in this executor",
+    "liveServerReplayOutput": "Pending post-match smoke; no second Minecraft server started during the ongoing competition",
+    "visualReplayPlayback": "Not tested"
+  },
+  "scope": "Independent checkout only; no changes to the active competition or its world, no push or merge"
+}

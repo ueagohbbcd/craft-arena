@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
+import { execFileSync } from "node:child_process";
 import { compatibleMinecraftOptions } from "../packages/mf-bridge/minecraft-compat.mjs";
 const require = createRequire(import.meta.url);
 const loadData = require("minecraft-data");
@@ -39,7 +40,7 @@ test("protocol 767 recipe serializer IDs decode without obsolete banner recipe",
 });
 
 test("compatibility leaves other versions, corrected schemas and explicit overrides unchanged", () => {
-  const other = { version: "1.21.1" };
+  const other = { version: "1.21.2" };
   assert.equal(compatibleMinecraftOptions(other), other);
   const explicit = {
     version: "1.21",
@@ -64,4 +65,32 @@ test("compatibility leaves other versions, corrected schemas and explicit overri
     compatibleMinecraftOptions(options, () => fixed),
     options,
   );
+});
+
+test("explicit 1.21.1 alias gets the exact protocol-767 correction before parser caching", () => {
+  // Each process has an independent minecraft-protocol parser cache. A previous
+  // 1.21 test must not mask the real 1.21.1 startup regression.
+  const source = `
+    import assert from "node:assert/strict";
+    import { createRequire } from "node:module";
+    import { compatibleMinecraftOptions } from "./packages/mf-bridge/minecraft-compat.mjs";
+    const require = createRequire(import.meta.url);
+    const loadData = require("minecraft-data");
+    const original = structuredClone(loadData("1.21.1").protocol);
+    const options = compatibleMinecraftOptions({version:"1.21.1"});
+    assert.equal(options.version, "1.21.1");
+    assert(options.customPackets["1.21"].play.toClient.types.arenaRecipeSerializer767);
+    assert.deepEqual(loadData("1.21.1").protocol, original);
+    const {createDeserializer} = require("minecraft-protocol/src/transforms/serializer");
+    const packet = Buffer.from([0x77,3,1,97,11,0,1,98,15,0,0,0,0,0,0,0,0,1,1,99,22,0]);
+    const parsed = createDeserializer({state:"play", ...options}).parsePacketBuffer(packet);
+    assert.equal(parsed.metadata.size, packet.length);
+    assert.deepEqual(parsed.data.params.recipes.map(recipe=>recipe.type), [
+      "minecraft:crafting_special_shielddecoration", "minecraft:smelting", "minecraft:crafting_decorated_pot"
+    ]);
+  `;
+  execFileSync(process.execPath, ["--input-type=module", "-e", source], {
+    cwd: new URL("..", import.meta.url),
+    stdio: "pipe",
+  });
 });

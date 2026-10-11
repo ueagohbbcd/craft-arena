@@ -1,0 +1,10 @@
+FROM eclipse-temurin:21-jre
+WORKDIR /opt/minecraft
+COPY . .
+# Install the pinned Fabric runtime at build time, then verify its exact libraries.
+# Runtime backend networks are internal and need no downloads.
+RUN sh install.sh && mkdir -p /data /results /data/config/ServerReplay \
+    && chown -R 1000:1000 /opt/minecraft /data /results
+USER 1000:1000
+WORKDIR /data
+CMD ["sh", "/opt/minecraft/run.sh"]

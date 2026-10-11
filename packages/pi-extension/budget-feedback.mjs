@@ -72,7 +72,23 @@ function projectBudget({
     return undefined;
   return {
     type: "arena.budget",
-    accounting,
+    accounting: [
+      accounting,
+      ...(reservedTokens === undefined
+        ? []
+        : [
+            "requestReservedTokens is this request's reservation; final settled usage can differ",
+          ]),
+      ...(participantRemainingTokens === undefined &&
+      teamRemainingTokens === undefined
+        ? []
+        : ["token remaining excludes in-flight reservations"]),
+      ...(Object.keys(cash).length
+        ? [
+            "cash shares cover current-window priced usage at official API reference prices; rate ratios track repaid debt plus in-flight reservations and pre-wait projected pressure",
+          ]
+        : []),
+    ].join("; "),
     ...(queueDelayMs > 0 ? { queueDelayMs } : {}),
     ...(reservedTokens === undefined
       ? {}
@@ -113,8 +129,7 @@ export function budgetFromHeaders(input) {
     teamRemainingTokens: number("x-arena-team-remaining-tokens"),
     participantCash: sanitizeCashRatios(rawCash?.participant),
     teamCash: sanitizeCashRatios(rawCash?.team),
-    accounting:
-      "admission reservation snapshot; remaining excludes all in-flight reservations; final settled usage can differ; cash cost shares use official API list-price reference costs for settled priced usage in the current window, not actual payments; cash rate ratios describe continuously repaid settled debt plus in-flight reservation pressure and pre-wait projected pressure, not cumulative spending or a final settled overrun",
+    accounting: "admission reservation snapshot",
   });
 }
 
@@ -127,7 +142,6 @@ export function budgetFromSnapshot(input) {
     teamRemainingTokens: finite(input.team?.remainingTokens),
     participantCash: sanitizeCashRatios(input.participant?.cash),
     teamCash: sanitizeCashRatios(input.team?.cash),
-    accounting:
-      "authenticated budget snapshot; token remaining excludes in-flight reservations; cash cost shares use official API list-price reference costs for settled priced usage in the current window, not actual payments; cash rate ratios describe continuously repaid settled debt plus in-flight reservation pressure and pre-wait projected pressure, not cumulative spending or a final settled overrun",
+    accounting: "authenticated budget snapshot",
   });
 }

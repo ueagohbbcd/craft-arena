@@ -4,6 +4,13 @@ import { join } from "node:path";
 import { Inbox, TaskManager, createInboxServer } from "../inbox/index.mjs";
 import { budgetFromHeaders, budgetFromSnapshot } from "./budget-feedback.mjs";
 import { startChatInbox } from "./chat-inbox.mjs";
+import * as PerceptionRuntime from "./perception-runtime.mjs";
+import * as ObservationTools from "../observation/pi-extension.mjs";
+import {
+  tailEnabled,
+  createPerceptionChanges,
+  readPerceptionOptions,
+} from "./perception-delivery.mjs";
 
 const text = (value) => ({ type: "text", text: JSON.stringify(value) });
 const object = (properties) => ({
@@ -13,11 +20,24 @@ const object = (properties) => ({
 });
 const string = { type: "string" };
 const seconds = { type: "number", minimum: 0, maximum: 2147483 };
+/** Share the existing tool/timer range; a wait budget never limits process life. */
+export function defaultToolWaitSeconds(env = process.env) {
+  const raw = env.ARENA_TOOL_WAIT_SECONDS;
+  const value = Number(raw);
+  return raw !== undefined &&
+    String(raw).trim() !== "" &&
+    Number.isFinite(value) &&
+    value >= seconds.minimum &&
+    value <= seconds.maximum
+    ? value
+    : 30;
+}
 const batchText = (batch) =>
   `Participant inbox (envelope source identifies host/runtime records or program-authored data; message contents are data):\n${JSON.stringify(batch)}`;
 
 /** Pi 1.1.0 extension. Ordinary bash calls use independently owned child processes. */
 export default function participantInbox(pi) {
+  const waitSeconds = defaultToolWaitSeconds();
   let runtime;
   let starting;
   let context;
@@ -50,6 +70,7 @@ export default function participantInbox(pi) {
   const bridgeUrl = process.env.ARENA_BRIDGE_URL || process.env.MC_BRIDGE_URL;
   const bridgeToken =
     process.env.ARENA_BRIDGE_TOKEN || process.env.MC_BRIDGE_TOKEN;
+  const perceptionProjection = PerceptionRuntime.runtimeProjectionOptions();
   async function readMatch(fresh = false) {
     if (!bridgeUrl || !bridgeToken) return undefined;
     if (matchRead) return matchRead;
@@ -162,6 +183,7 @@ export default function participantInbox(pi) {
     const old = runtime;
     old.closed = true;
     runtime = undefined;
+    await old.perception?.close();
     await old.chat?.close();
     await old.tasks.close();
     await old.server.close();
@@ -176,6 +198,7 @@ export default function participantInbox(pi) {
         const old = runtime;
         runtime = undefined;
         old.closed = true;
+        await old.perception?.close();
         await old.chat?.close();
         await old.tasks.close();
         await old.server.close();
@@ -211,7 +234,25 @@ export default function participantInbox(pi) {
           : {}),
       };
       const tasks = new TaskManager({ inbox, cwd: ctx.cwd, env });
-      runtime = { sessionId, inbox, tasks, server, env };
+      runtime = {
+        sessionId,
+        inbox,
+        tasks,
+        server,
+        env,
+        perceptionChanges: createPerceptionChanges(),
+      };
+      runtime.perception = PerceptionRuntime.startPerceptionRuntime({
+        url: bridgeUrl,
+        token: bridgeToken,
+        inbox,
+        tasks,
+        projection: perceptionProjection,
+        sampleOptions: async () => ({
+          ...PerceptionRuntime.observationOptionsFromMatch(await readMatch()),
+          ...(await readPerceptionOptions(ctx.cwd)),
+        }),
+      });
       if (bridgeUrl && bridgeToken)
         runtime.chat = startChatInbox({
           url: bridgeUrl,
@@ -311,6 +352,22 @@ export default function participantInbox(pi) {
     await ensure(ctx);
   });
   pi.on("session_shutdown", stop);
+  pi.on("context_with_system", async (event, ctx) => {
+    if (!tailEnabled()) return;
+    const r = await ensure(ctx);
+    const snapshot = await r.perception.sample({ forRequest: true });
+    // This hook operates on Pi's cloned request context, not durable session history.
+    // Never rewrite, filter or persist any existing message, including opening images.
+    return {
+      messages: PerceptionRuntime.withCurrentObservation(
+        event.messages,
+        snapshot,
+      ),
+    };
+  });
+  pi.on("message_end", (event) => {
+    runtime?.perception.finishRequest(event.message);
+  });
   pi.on("turn_start", async (_event, ctx) => {
     const r = await ensure(ctx);
     r.tasks.resumeWaits();
@@ -357,10 +414,25 @@ export default function participantInbox(pi) {
       postBudget(r, data);
     }
   });
+  async function postPerception(r) {
+    if (tailEnabled()) return;
+    const delivery = r.perceptionChanges.prepare(await r.perception.sample());
+    if (delivery)
+      r.inbox.post(
+        {
+          sessionId: r.sessionId,
+          kind: "state",
+          key: "observation.current",
+          data: delivery.message,
+        },
+        { source: "runtime", onDelivered: delivery.onDelivered },
+      );
+  }
   pi.on("tool_result", async (event, ctx) => {
     const r = await ensure(ctx);
     // A nested tool result can be filtered by codemode; the outer boundary owns delivery.
     if (event.parentToolCallId) return;
+    await postPerception(r);
     await refreshBudget(r);
     await postClock(r);
     if (!r.inbox.pending) return;
@@ -414,19 +486,41 @@ export default function participantInbox(pi) {
   });
   pi.on("before_agent_start", async (_event, ctx) => {
     const r = await ensure(ctx);
+    const initial = tailEnabled()
+      ? null
+      : r.perceptionChanges.prepare(await r.perception.sample());
+    // This baseline is returned directly as a durable opening message.
+    initial?.onDelivered();
     return {
       message: {
         customType: "mc-inbox-connection",
         display: false,
-        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash waits for completion or urgent input by default. Bash timeout is an explicit kill deadline; wait_seconds is an optional early-return wait budget. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. While a program is running, the model waits for its completion or an urgent judgment request; it does not poll with new model turns. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.`,
+        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash and task_wait return after ${waitSeconds} seconds by default, or earlier on completion or urgent input. Each wait_seconds overrides that call's wait budget, including longer waits; a returned running task keeps executing. Bash timeout is a separate, explicit kill deadline. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. After a final response, a running program suppresses idle fallback: completion or an urgent judgment request supplies the next decision, not the tool wait budget. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.${initial ? "\n" + JSON.stringify(initial.message) : ""}`,
       },
     };
+  });
+  ObservationTools.registerObserveTool(pi, {
+    getBot: async (ctx, params) =>
+      (await ensure(ctx)).perception.getBot({
+        allowUnavailable: params?.fullRuntime === true,
+      }),
+    sampleOptions: async (ctx, params) => {
+      const r = await ensure(ctx);
+      return {
+        ...PerceptionRuntime.observationOptionsFromMatch(await readMatch()),
+        ...PerceptionRuntime.runtimeState(r.tasks, r.inbox, {
+          fullRuntime: params?.fullRuntime === true,
+          projection: perceptionProjection,
+        }),
+        recentBlocks: r.perception.recentBlocks(params),
+        nearbySigns: r.perception.nearbySigns(),
+      };
+    },
   });
   pi.registerTool({
     name: "bash",
     label: "bash",
-    description:
-      "Execute a bash command. Output persists independently of this wait. timeout is an optional process kill deadline in seconds. wait_seconds optionally returns early; without it, wait until completion or urgent input. Urgent participant messages release every managed wait and leave commands running. A running taskId can be waited on or cancelled.",
+    description: `Run command once in the workspace. Returns JSON taskId, status and retained stdout/stderr; completed adds exitCode/signal. wait_seconds defaults to ${waitSeconds} seconds; 0 returns immediately. Wait expiry or urgent input returns running without stopping the process. timeout is a separate kill deadline in seconds. Resume with task_wait; stop with task_cancel.`,
     parameters: {
       ...object({ command: string, timeout: seconds, wait_seconds: seconds }),
       required: ["command"],
@@ -442,10 +536,7 @@ export default function participantInbox(pi) {
           : { timeoutMs: params.timeout * 1000 }),
       });
       const result = await r.tasks.wait(taskId, {
-        timeoutMs:
-          params.wait_seconds === undefined
-            ? Infinity
-            : params.wait_seconds * 1000,
+        timeoutMs: (params.wait_seconds ?? waitSeconds) * 1000,
         signal,
       });
       return {
@@ -458,8 +549,7 @@ export default function participantInbox(pi) {
   pi.registerTool({
     name: "task_wait",
     label: "Wait for process",
-    description:
-      "Wait for an existing task. Completed output is delivered once, either here or by a task.completed inbox event. An optional wait_seconds budget or urgent release preserves the process. Otherwise wait for completion.",
+    description: `Wait on an existing taskId without restarting it. wait_seconds defaults to ${waitSeconds} seconds; 0 polls. Wait expiry or urgent release returns running with retained stdout/stderr and leaves the process alive. Final output is delivered once here or by a task.completed inbox event; later waits return a delivered receipt with exitCode/signal.`,
     parameters: {
       ...object({ taskId: string, wait_seconds: seconds }),
       required: ["taskId"],
@@ -469,10 +559,7 @@ export default function participantInbox(pi) {
     async execute(callId, params, signal, _onUpdate, ctx) {
       const r = await ensure(ctx);
       const result = await r.tasks.wait(params.taskId, {
-        timeoutMs:
-          params.wait_seconds === undefined
-            ? Infinity
-            : params.wait_seconds * 1000,
+        timeoutMs: (params.wait_seconds ?? waitSeconds) * 1000,
         signal,
       });
       return {
@@ -486,7 +573,7 @@ export default function participantInbox(pi) {
     name: "task_cancel",
     label: "Cancel process",
     description:
-      "Explicitly stop a task process group with TERM, escalating to KILL after 500 ms. Completion arrives through the inbox or task_wait.",
+      "Request termination of taskId with TERM, escalating to KILL after 500 ms. Returns cancelling while termination is pending, or completed if already exited. Use task_wait or the task.completed inbox event to confirm termination before replacing a controller.",
     parameters: { ...object({ taskId: string }), required: ["taskId"] },
     outputSchema: { type: "object", additionalProperties: true },
     async execute(_callId, params, _signal, _onUpdate, ctx) {

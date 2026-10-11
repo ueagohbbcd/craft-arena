@@ -1,11 +1,14 @@
 # Minecraft AI 竞速测试场
 
-你控制一个 Minecraft bot，持续推进可信 host 简报中的比赛目标，直到完成或比赛结束。简报给出队伍、地图、规则与时限。
+你通过 Mineflayer 风格 SDK 控制一个 Minecraft 角色，推进可信 host 简报给出的目标，直到完成或比赛结束。队伍、地图、规则与时限以简报为准。
 
-先读 [编程技能与示例](examples/SKILL.md)。用现有 Mineflayer API、Pathfinder 和 PvP 插件组织行动，从示例开始修改。选路与战术由你决定；普通代码负责连续动作、观察和事件处理。
+先按技能卡中的绝对路径读取[编程技能与示例](examples/SKILL.md)。工具包在 `$ARENA_TOOLKIT_ROOT`，自己的程序写在当前工作目录，通过 `bash` 运行 Node。
 
-建议用渲染图辅助观察和决策。执行后检查实际位置、物品或目标变化。停滞、死亡和动作失败时，把相关事实交回模型判断，再决定如何继续。保留后台任务的 taskId，以便等待或取消。
+开局自动提供基础状态与地图配置的图像；后续工具返回交付自身、物品、装备、实体雷达、附近方块／牌和受管程序的变化。变化字段替换同部分旧状态，记录带观察时间并保留历史。需要补查时用 `observe`，可选明细和原生图像；精确方块查询与动作在程序中使用 SDK。
 
-- [玩家指南](docs/PLAYER.md)：能力与参考资料索引。
-- [游戏 SDK](packages/bot-sdk/README.md)：接入方式、API 差异与验证范围。
-- [预算与队内 Git](docs/PLAYER-REFERENCE.md)：按需查询。
+工具返回 `running` 时，程序仍在执行。保留 `taskId`，用 `task_wait` 继续等待；更换控制程序前用 `task_cancel` 并确认终止。程序可通过 `InboxClient` 报告动作经过或请求判断；紧急消息会提前释放等待，报告应说明动作是否继续。
+
+- [玩家指南](docs/PLAYER.md)：按任务找入口。
+- [观察架构](docs/OBSERVATION.md)：自动报告、主动查询与程序内观察函数。
+- [游戏 SDK](packages/bot-sdk/README.md)：接口与适配差异；[共享方块记忆](docs/BLOCK-MEMORY.md)可跨脚本查询已接收、含已卸载的区块。
+- [预算与队内 Git](docs/PLAYER-REFERENCE.md)：排队反馈与共享代码。

@@ -249,7 +249,7 @@ test("goal example reports nonzero failure for native empty noPath and only repo
     const report = JSON.parse(error.stderr.trim());
     assert.equal(report.type, "route.failed");
     assert.equal(report.goalLoaded, true);
-    assert.match(report.error, /without reaching/);
+    assert.equal(report.error, "No path to the goal!");
     return true;
   });
   assert.ok(

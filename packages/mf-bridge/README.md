@@ -16,7 +16,10 @@ arbitrary filesystem or network operations.
 
 Policy defaults: chat enabled, no action-rate/concurrency/subscriber-count cap.
 Transport budgets remain 16 KiB request bodies, 8 MiB per chunk transfer, and
-4 MiB queued SSE output before disconnecting a slow reader. Optional trusted
+4 MiB of accumulated SSE backlog beyond the largest queued frame before
+disconnecting a slow reader. Complete large reset frames drain in order; Node
+buffers its normal high-water mark plus one frame, while the application queue
+holds at most its largest frame plus that 4 MiB allowance. Optional trusted
 `maxActionsPerSecond` and `maxConcurrentActions` can enforce operator policy. Minecraft
 enforces gameplay reach by default; operators may explicitly set `maxReach` to
 add a bridge policy checked against authoritative position. The dispatcher
@@ -135,3 +138,14 @@ cleanup failed. The arena host may retain read-only status until operator
 shutdown. Standalone CLI disables outgoing chat only when
 `BRIDGE_ALLOW_CHAT=false`; Minecraft enforces command permissions.
 
+
+## Read-only full-column memory
+
+Authenticated GET `/v1/memory/block?dimension=...&x=...&y=...&z=...`,
+`/v1/memory/chunk?dimension=...&x=...&z=...`, and
+`/v1/memory/chunks?dimension=...&offset=...&limit=...` read only this bot's received
+terrain. Unloaded columns remain historical, reload replaces them, and unknown
+coordinates never cause server loads. These routes do not dispatch actions or
+consume their rate/concurrency slots. There is no remote write/clear endpoint.
+The arena sets trusted world/run/participant identity; optional persistence
+requires all three explicit IDs. See [memory isolation and lifecycle](../../docs/BLOCK-MEMORY.md).

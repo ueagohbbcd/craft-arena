@@ -7,6 +7,7 @@ import {
   rm,
   symlink,
   lstat,
+  realpath,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -28,6 +29,25 @@ const positiveInteger = (value, fallback) => {
     );
   return n;
 };
+
+/** Keep arena guidance once without disabling Pi's user/project context discovery. */
+export async function arenaGuidanceArgs({ cwd, agentDir, args = [] }) {
+  const guidance = join(projectRoot, "AGENTS.md");
+  if (!args.includes("--no-context-files") && !args.includes("-nc")) {
+    const { loadProjectContextFiles } =
+      await import("@earendil-works/pi-coding-agent");
+    // A spawned Node process reports the physical cwd, even when its caller used
+    // a symlink. Match that discovery scope and compare file identity, not text.
+    const files = loadProjectContextFiles({
+      cwd: await realpath(cwd),
+      agentDir,
+    });
+    const target = await realpath(guidance);
+    for (const file of files)
+      if ((await realpath(file.path).catch(() => null)) === target) return [];
+  }
+  return ["--append-system-prompt", guidance];
+}
 
 /** Generate a private Pi profile containing an environment reference, never the bearer token. */
 export async function preparePiProfile({
@@ -153,6 +173,11 @@ export async function launchPi({
       "ARENA_WAIT_FOR_MATCH requires authenticated ARENA_BRIDGE_URL and ARENA_BRIDGE_TOKEN",
     );
   const profile = await preparePiProfile({ env, cwd });
+  const guidanceArgs = await arenaGuidanceArgs({
+    cwd,
+    agentDir: profile.agentDir,
+    args,
+  });
   const initialPrompt =
     env.ARENA_PROMPT ||
     "Participate in the Minecraft arena using the local bridge and your available tools. Write and run your own programs as useful. Use the participant inbox for observations and urgent judgment. Continue pursuing the arena objective until it is complete or the host ends the match.";
@@ -162,9 +187,7 @@ export async function launchPi({
     "--model",
     profile.modelId,
     ...(args.includes("--mode") ? [] : ["--mode", resident ? "rpc" : "json"]),
-    ...(args.includes("--tools") ? [] : ["--tools", "+codemode"]),
-    "--append-system-prompt",
-    join(projectRoot, "AGENTS.md"),
+    ...guidanceArgs,
     "--skill",
     join(projectRoot, "examples/SKILL.md"),
     ...profile.extensions.flatMap((path) => ["-e", path]),

@@ -7,13 +7,15 @@ Use `connectBot({url,token})` from `index.mjs` to control your existing arena bo
 | Task | Available methods/state |
 | --- | --- |
 | Observe | `entity`, `entities`, `health`, `food`, `inventory.items()`, `blockAt`, `findBlock`, `findBlocks`, `nearestEntity` |
+| Trusted match state | `await getMatchState()`; the host's public match state, rules, timing and result |
 | Navigate | adapted `bot.pathfinder`, native `Movements` and `goals` |
 | Fight | adapted `bot.pvp`, `attack(entity, swing?)` |
 | Move / look | `setControlState`, `clearControlStates`, `look`, `lookAt` |
 | Blocks | `dig(block, forceLook?, digFace?)`, `stopDigging`, `placeBlock`, `activateBlock(block, direction?, cursorPos?)` |
-| Items | `equip`, `unequip`, `activateItem`, `deactivateItem`, `setQuickBarSlot`, `tossStack` |
+| Items | `equip`, `unequip`, `consume`, `activateItem`, `deactivateItem`, `setQuickBarSlot`, `tossStack` |
 | Containers | `openContainer`, `closeWindow`, `clickWindow`; native Window queries and `withdraw/deposit/close` below |
-| Craft | `craftItem` (signature in `index.mjs`) |
+| Craft | `craftItem(itemType, count = 1, table = null)`; count is new result items, rounded up to whole recipe batches |
+| Sleep state / wake | `isSleeping`, `await wake()`; native `sleep`/`wake` events |
 | Events | ordinary `bot.on(...)`, including `death`, `spawn`, `health`, block/entity/window events and `bridgeReset` |
 
 Use the matching upstream documentation under `$ARENA_REFERENCE_ROOT` for Mineflayer and plugin behavior. This reference describes the arena-specific differences.
@@ -22,9 +24,24 @@ Use the matching upstream documentation under `$ARENA_REFERENCE_ROOT` for Minefl
 
 `connectBot` waits for initial state and all loaded chunk columns, including full dimension height. `blockAt` reads synchronously; null means unknown. Pathfinder plans locally against these columns. Block/chunk events keep them updated; entity/inventory state and `physicsTick` arrive at 20 Hz.
 
+`findBlocks` synchronously returns the nearest matching positions in loaded columns within `maxDistance`, measured from the supplied point without rounding it. Equal-distance results retain column insertion order, then x/z/y order. A `matching` callback filters actual blocks with their positions and extra data. Section distance bounds and numeric-ID palettes avoid unnecessary scans, but broad, sparse callback searches can still block the program's event loop.
+
+For named materials, pass their registry IDs so palette filtering can skip unrelated sections:
+
+```js
+const matching = ["chest", "trapped_chest"].map(
+  (name) => bot.registry.blocksByName[name].id,
+);
+const positions = bot.findBlocks({ matching, maxDistance: 130, count: 180 });
+```
+
+Use a callback when selection needs block position, light or other per-block data.
+
 Use bot methods to perform actions. Local writes to position, velocity or window objects only change the observation copy. Minecraft owns physics and gameplay reach; the operator may configure an additional reach limit.
 
-Await Promise-returning actions directly and catch their rejections. For synchronous-style controls, `await bot.flush()` waits for queued requests and reports the first unreported failure; these queued failures also emit `error`. Action errors retain native name/message plus action and HTTP status. Install an error listener for control diagnostics. `controlState` describes sent intent; check actual position to evaluate movement. `closeBridge()` closes the observation connection; clear controls separately when finishing an action.
+Await Promise-returning actions directly and catch their rejections. For synchronous-style controls, `await bot.flush()` waits for queued requests, including writes not yet sent, and reports the first unreported failure; these queued failures also emit `error`. Action errors retain native name/message plus action and HTTP status. Install an error listener for control diagnostics. `controlState` describes local intent; check actual position to evaluate movement. `closeBridge()` closes the observation connection and aborts this client’s pending action HTTP waits; it does not cancel authority-side actions. Release item use and controls before closing.
+
+Movement writes (`setControlState`, `clearControlStates`, `stop` / `stopAndCenter`) execute in call order within one facade. Failures still allow later releases to run; long actions such as digging remain independent. Identical states for the same control share a write only while it is still unsent; state transitions and every clear/stop barrier remain ordered. A dispatched write is never reused, so reassertions still reach the authority after errors or other controllers change native state. Repeated unchanged plugin ticks therefore do not build an unbounded duplicate backlog, but fast-changing controls or high round-trip latency can still delay releases beyond a task's cancellation grace. This ordering does not give separate programs ownership of shared bot controls. The offline diagnostic `node scripts/bench-control-queue.mjs --rtt=20 --ticks=20` measures enqueue/send/ack delay with a simulated transport; `--sdk=/path/to/other/checkout/packages/bot-sdk/index.mjs` compares another implementation and `--trace=true` includes individual timings.
 
 `death` and `spawn` observations carry updated state before the event. They are available to participant listeners; action-loop recovery is defined by your program. A stream gap or reconnection rebuilds the mirror and emits `bridgeReset`: reacquire entity/window references and goals. The adapter clears its Pathfinder/PvP targets on that reset.
 
@@ -34,16 +51,52 @@ Incoming `chat` and `messagestr` retain their normal string argument positions; 
 
 ## Pathfinder and PvP adaptation
 
-Load the adapters once with `loadSelectedPlugins(bot)`. Keep native Movements defaults unless the task calls for a change. [plugin-goal.mjs](../../examples/plugin-goal.mjs) demonstrates arrival verification, progress and stall reporting; `--no-dig` opts into preserving blocks. `NoPath` describes the loaded terrain and current movement settings, so inspect those when choosing the next attempt.
+Load the adapters once with `loadSelectedPlugins(bot)`. Keep native Movements defaults unless the task calls for a change. [plugin-goal.mjs](../../examples/plugin-goal.mjs) demonstrates arrival verification, progress and stall reporting; `--no-dig` opts into preserving blocks.
+[navigate-with-autoeat.mjs](../../examples/navigate-with-autoeat.mjs) demonstrates
+borrowing the hand from an active route, native consumption and restoring the
+same goal, with normal Inbox evidence for each meal. `NoPath` describes the loaded terrain and current movement settings, so inspect those when choosing the next attempt.
+
+The adapter's `goto(goal)` resolves only on native `goal_reached`, preserving native arrival tolerance and deferred cleanup. Empty `noPath` / `timeout` plans reject with `NoPath` / `Timeout`; an empty partial or successful plan alone cannot report arrival. This corrects Pathfinder 2.4.5's empty-path success shortcut without changing its public path or goal events.
 
 Pathfinder's native `fullStop` writes local position/velocity. The adapter replaces it with a remote control stop (`stopAndCenter`, a legacy name); server inertia remains. PvP's legacy `physicTick` subscription is connected to observed `physicsTick`. Plugin goals, movement callbacks and planning run in the participant process. Adapter details are in [plugins.mjs](plugins.mjs).
+
+Horizontal edge positioning waits for landing and releases inherited horizontal input before entering the placement step. The check precedes `fullStop`: upstream can recenter an airborne bot off its support, while a control-only stop can leave it drifting during edge positioning. Jump-up placement and door use retain their existing behavior. A synthetic ledge regression compares upstream, the former adapter and the current adapter with real prismarine-physics; it reproduces the execution failure mechanism, not a recorded live-match trajectory.
 
 ## API differences
 
 - Inventory queries follow native Window storage ranges; `items()` excludes armor and crafting slots. Container transfer and item components are described below.
-- Dig preserves `forceLook="ignore"`; optional attack/dig/activateBlock arguments are passed through. Click modes 0–6 and outside/drop slot -999 use the active window. Craft batches may exceed one stack.
+- Dig preserves `forceLook="ignore"`; optional attack/dig/activateBlock arguments are passed through. Click modes 0–6 and outside/drop slot -999 use the active window. Craft requests may exceed one stack.
 - The facade provides `craftItem`, not native `recipesFor`/`craft(recipe)`. Specialized furnace, villager and enchanting helpers are not implemented.
 - Packet access (`_client`), trusted-side plugin installation and reconnect are owned by the host. For an API absent from the table, check [index.mjs](index.mjs) before using it.
+
+`await bot.consume()` uses native Mineflayer completion and errors, then refreshes
+carried inventory before resolving. Equip the desired food first. Native completion
+can also follow a held-item change; inspect the resulting inventory/food evidence.
+`deactivateItem()` releases item use, but native consume may remain pending until
+its own completion or timeout. A cancelled controller must not resume movement
+when that pending Promise later settles.
+
+`bot.isSleeping` and default `self.isSleeping` carry the native observed sleep
+state (`null` when unavailable). `await bot.wake()` sends the normal native wake
+request and keeps its `already awake` error. Completion means the request was
+sent; wait for `wake` or check `isSleeping === false` to confirm server wake-up.
+
+## Craft quantities
+
+`await bot.craftItem(itemType, count = 1, table = null)` crafts at least `count`
+**new result items**, not a target inventory total or a number of recipe runs.
+It rounds up to complete recipe batches: requesting 20 planks uses five logs;
+requesting 5 planks uses two logs and produces 8. Items already in the inventory
+do not reduce the request. Pass a crafting-table block when the recipe needs one.
+On success, the Promise refreshes the inventory mirror from Mineflayer's state
+before resolving; it does not wait for separately delivered observation events.
+
+The bridge checks ingredient availability for that result quantity before calling
+native Mineflayer `craft(recipe, batches, table)`. If no recipe is available with
+the current ingredients/table, it rejects before crafting. Native failures after
+execution starts may still leave partial results; inspect inventory before retrying.
+Existing calls for one-output recipes keep their quantities. Code that previously
+treated `count` as recipe runs must instead pass its intended result quantity.
 
 ## Validation coverage
 
@@ -66,7 +119,9 @@ enchantment getters. BigInt NBT leaves survive the data-only transport.
 Omitted/null count keeps the native default of one, and multi-stack counts are
 supported. The returned Promise updates that window's slots before resolving.
 `await window.close()` or `await bot.closeWindow(window)` closes that specific
-window; `bot.closeWindow(bot.inventory)` is also supported. Opaque window references
+window and refreshes the carried inventory before resolving, so an immediate
+`bot.inventory` lookup uses native inventory slots. `bot.closeWindow(bot.inventory)`
+is also supported. Opaque window references
 prevent an old handle from transferring into or closing a newly opened window,
 even when Minecraft reuses its numeric ID.
 
@@ -90,3 +145,61 @@ Window regressions use the installed Mineflayer inventory/chest/transfer plugins
 with synthetic server events and captured native writes. They cover multi-stack
 transfer, query/slot events, reused IDs, delayed replies, exact-slot toss and item
 components. They are not a substitute for live-server container testing.
+
+## Default combat observation
+
+`loadSelectedPlugins(bot)` attaches `bot.combatObservation` alongside native PvP.
+In a managed program it uses the ordinary `InboxClient` environment automatically.
+You can pass `{ inbox }`, configure `{ combatObservation: { nearbyRadius: 16 } }`,
+or disable it with `{ combatObservation: false }`. Without an Inbox environment,
+`bot.combatObservation.summary()` still exposes bounded task-local results.
+
+One normal `combat.summary` combines actual start/stop events, attack attempts,
+target changes/disappearance, observed pursuit distance, your health changes and
+nearby observed potential-threat count changes. Large intermediate changes may
+produce a coalesced normal `combat.phase`, at most once per ten seconds. Neither
+wakes the model urgently; delivery follows the next natural tool boundary. The
+observer only reads events and state. Its `close()`/`flush()` drains reporting,
+without stopping PvP. Stop your controller separately before closing it.
+
+Nearby counts cover observed hostile mob names, other players and the selected
+target within 16 blocks by default. Other players may include teammates; pass
+`isPotentialThreat(entity)` in the observer options when you know team membership.
+These counts describe received observations and radius crossings, not a complete
+world census. `attackedTarget` counts attack attempts. `entityHurt` is observed
+hurt without attacker attribution. `entityGone` only establishes disappearance;
+summary `outcome` remains `unknown`.
+
+PvP follows the entity passed to `attack(entity)`. Your selector can provide its
+actual candidates and reason using `reportDecision({ candidates,
+selectedTargetId, reason })`; your controller can use `reportStopReason(reason)`.
+These are labeled `controller_report`. Unreported selection or stopping reasons
+stay unknown. The observer does not infer a multi-target algorithm inside PvP.
+The complete [trip/defense Inbox example](../../examples/navigate-with-defense.mjs)
+combines ready-made perception, native execution and route-specific reports.
+The thin [observe-pvp example](../../examples/observe-pvp.mjs) demonstrates this
+with explicit observed IDs and PvP's separate `movements` instance:
+
+```sh
+node /opt/arena/examples/observe-pvp.mjs 42 57
+```
+
+A normal report has this shape (illustrative values):
+
+```json
+{"type":"combat.summary","attackAttempts":6,"targetChanges":1,"health":{"start":20,"current":16,"lost":4},"nearby":{"start":2,"peak":4,"current":1,"added":2,"removed":3},"stop":{"observedEvent":"stoppedAttacking","cause":"see_evidence_or_unknown"},"outcome":"unknown"}
+```
+
+Installed PvP 1.3.2 event tests cover handoff timing, disappearance, range loss,
+nearby count changes, phase coalescing and reporting failures. This is bridge/
+plugin validation with fixtures, not live-server combat acceptance.
+
+## Shared block memory without a control connection
+
+`createBlockMemoryClient({url, token})` reads the existing trusted character's
+complete received columns, including unloaded history, independently of any
+controller. It creates no Minecraft login or SSE stream. Use asynchronous
+`block`, `chunk`, `chunks`, then explicit `prefetch` for synchronous local
+`blockAt`/`findBlocks`/`world.getColumn` queries. Local snapshots distinguish
+not-cached, service-unknown, currently-loaded-at-fetch and historical data.
+See the [contract, examples and freshness boundaries](../../docs/BLOCK-MEMORY.md).

@@ -1,0 +1,7 @@
+{
+  "required": true,
+  "package": "dev.craftarena.replaymyopia.mixin",
+  "compatibilityLevel": "JAVA_21",
+  "client": ["GameRendererMixin", "BackgroundRendererMixin", "WorldRendererMixin", "EntityRenderDispatcherMixin", "BlockEntityRenderDispatcherMixin"],
+  "injectors": { "defaultRequire": 1 }
+}

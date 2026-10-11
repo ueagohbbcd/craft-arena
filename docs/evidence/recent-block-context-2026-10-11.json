@@ -1,0 +1,260 @@
+{
+  "sourceManifest": {
+    "capturedAt": "2026-10-11T12:28:04.732120+00:00",
+    "files": {
+      "trajectory.ndjson": {
+        "bytes": 2213896,
+        "sha256": "155c367f0d45e74b0a713f82b24a37f18209e31840414321299627f2c60d5c4d"
+      },
+      "observation-boundaries.ndjson": {
+        "bytes": 3237846,
+        "sha256": "f14b1cb6aeb168fdfdf92b98147d33e0b260b0459c5ea5f9ec479c84d82c1225"
+      },
+      "queried-block-batches.ndjson": {
+        "bytes": 367053,
+        "sha256": "e4430e09f008a16e9f3ca3a0eba3a89dc127784e689047f40808b005ce9aa4d0"
+      }
+    }
+  },
+  "method": {
+    "counts": "Only supplied non-air names and coordinates. Boundary unions deduplicate by player, epoch, coordinate and type; dimension is not in this export, so no cross-world identity is claimed.",
+    "movement": "At least 3 consecutive native displacements >0.2 and <=20 blocks, gaps <=5 seconds and unchanged death count; boundary sampledAt lies within the span. Query batches remain separate because their sample time is only task-bounded.",
+    "tokens": "characters / 4 through characters / 3, rounded up; rough estimates, not tokenizer counts. Counts-object payload only; shared model envelope is additional.",
+    "limits": "Saved 5x5x5 detail is filtered and sometimes truncated. Even omitted=0 is not all non-air blocks. Missing detail is never air or an invented type. This is a lower-bound proxy, not radius-6 connected-space coverage."
+  },
+  "summary": {
+    "boundaries": 699,
+    "boundariesWithOmitted": 151,
+    "totalOmitted": 3218,
+    "filteredEvenWithoutOmitted": 543,
+    "boundaryTypes": {
+      "n": 699,
+      "min": 0,
+      "median": 1,
+      "p90": 2,
+      "p95": 2,
+      "max": 4
+    },
+    "boundaryCharacters": {
+      "n": 699,
+      "min": 2,
+      "median": 13,
+      "p90": 32,
+      "p95": 32,
+      "max": 65
+    },
+    "movementSpans": 159,
+    "movementTypes": {
+      "n": 159,
+      "min": 0,
+      "median": 1,
+      "p90": 2,
+      "p95": 2,
+      "max": 5
+    },
+    "movementCharacters": {
+      "n": 159,
+      "min": 2,
+      "median": 11,
+      "p90": 32,
+      "p95": 32,
+      "max": 67
+    },
+    "queryBatches": 60,
+    "queryTypes": {
+      "n": 60,
+      "min": 0,
+      "median": 1.5,
+      "p90": 4,
+      "p95": 5,
+      "max": 6
+    },
+    "queryCharacters": {
+      "n": 60,
+      "min": 2,
+      "median": 20.0,
+      "p90": 46,
+      "p95": 59,
+      "max": 103
+    },
+    "wholeExportTypesByPlayer": {
+      "a": 18,
+      "b": 9,
+      "c": 29
+    },
+    "wholeExportTypeUnion": 32
+  },
+  "boundaryExamples": [
+    {
+      "player": "a",
+      "omitted": 0,
+      "knownNonAir": 47,
+      "sourceResult": "players/a/.relay/results/477430b8-b380-4d36-bf23-347162d3b544.json",
+      "types": 4,
+      "characters": 65,
+      "bytes": 65,
+      "tokenEstimate": [
+        17,
+        22
+      ],
+      "counts": {
+        "chest": 1,
+        "crafting_table": 1,
+        "oak_wall_sign": 1,
+        "stone_button": 1
+      }
+    },
+    {
+      "player": "a",
+      "omitted": 0,
+      "knownNonAir": 64,
+      "sourceResult": "players/a/.relay/results/4ef14e3b-ec72-41dd-93b2-9efbb4de2e54.json",
+      "types": 4,
+      "characters": 56,
+      "bytes": 56,
+      "tokenEstimate": [
+        14,
+        19
+      ],
+      "counts": {
+        "chest": 2,
+        "oak_wall_sign": 2,
+        "stone_button": 2,
+        "water": 1
+      }
+    }
+  ],
+  "movementExamples": [
+    {
+      "player": "b",
+      "durationMs": 30161,
+      "distance": 42.53528655522985,
+      "trajectoryPoints": 14,
+      "boundaries": 2,
+      "omitted": 9,
+      "maxNearestTrajectoryTimeDifferenceMs": 600,
+      "sourceResults": [
+        "players/b/.relay/results/c00fef04-37db-46c0-9589-36bdc115cecf.json",
+        "players/b/.relay/results/5767ba42-e5f7-47e9-9873-f297a8d99aad.json"
+      ],
+      "types": 5,
+      "characters": 67,
+      "bytes": 67,
+      "tokenEstimate": [
+        17,
+        23
+      ],
+      "counts": {
+        "bedrock": 16,
+        "chest": 1,
+        "crafting_table": 1,
+        "furnace": 1,
+        "red_bed": 1
+      }
+    },
+    {
+      "player": "a",
+      "durationMs": 59802,
+      "distance": 111.04816744080033,
+      "trajectoryPoints": 27,
+      "boundaries": 5,
+      "omitted": 47,
+      "maxNearestTrajectoryTimeDifferenceMs": 1141,
+      "sourceResults": [
+        "players/a/.relay/results/cdcad823-59de-410c-8e9e-115c549d444e.json",
+        "players/a/.relay/results/f49b26c8-a860-4258-8cbe-b925744c6229.json",
+        "players/a/.relay/results/b1cef2fb-2faf-4553-bf39-f9dc54cad880.json",
+        "players/a/.relay/results/a793da1e-19ef-4db5-83a9-a2f6055e4b1e.json",
+        "players/a/.relay/results/f20c98be-15ca-4bba-90fa-55bc0d676302.json"
+      ],
+      "types": 4,
+      "characters": 57,
+      "bytes": 57,
+      "tokenEstimate": [
+        15,
+        19
+      ],
+      "counts": {
+        "bedrock": 16,
+        "crafting_table": 1,
+        "oak_door": 2,
+        "water": 16
+      }
+    }
+  ],
+  "queryExamples": [
+    {
+      "player": "c",
+      "cells": 150,
+      "unknown": 0,
+      "sourceResult": "players/c/.relay/results/450c0cdd-03c1-41b0-850a-f425a3ac14dc.json",
+      "sampleTimeInterval": {
+        "notBefore": 1791715414832,
+        "notAfter": 1791715416156
+      },
+      "types": 6,
+      "characters": 103,
+      "bytes": 103,
+      "tokenEstimate": [
+        26,
+        35
+      ],
+      "counts": {
+        "birch_leaves": 21,
+        "cobblestone_stairs": 6,
+        "dirt": 44,
+        "mossy_cobblestone": 74,
+        "red_bed": 2,
+        "short_grass": 3
+      }
+    },
+    {
+      "player": "c",
+      "cells": 72,
+      "unknown": 0,
+      "sourceResult": "players/c/.relay/results/21ff2c90-1f04-46c2-a302-48942c7c57ef.json",
+      "sampleTimeInterval": {
+        "notBefore": 1791720219514,
+        "notAfter": 1791721276909
+      },
+      "types": 5,
+      "characters": 70,
+      "bytes": 70,
+      "tokenEstimate": [
+        18,
+        24
+      ],
+      "counts": {
+        "bricks": 12,
+        "chest": 1,
+        "glass": 15,
+        "glowstone": 1,
+        "smooth_stone_slab": 1
+      }
+    },
+    {
+      "player": "a",
+      "cells": 18,
+      "unknown": 0,
+      "sourceResult": "players/a/.relay/results/ec8b1ee8-2823-462b-a321-09461fc6bb16.json",
+      "sampleTimeInterval": {
+        "notBefore": 1791717674093,
+        "notAfter": 1791717675798
+      },
+      "types": 5,
+      "characters": 68,
+      "bytes": 68,
+      "tokenEstimate": [
+        17,
+        23
+      ],
+      "counts": {
+        "crafting_table": 1,
+        "dirt": 3,
+        "farmland": 2,
+        "oak_planks": 10,
+        "wheat": 2
+      }
+    }
+  ]
+}

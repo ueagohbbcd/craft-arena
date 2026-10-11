@@ -1,3 +1,4 @@
+import { createBlockMemory } from "./block-memory.mjs";
 import http from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 const wireStringify = (value) =>
@@ -80,11 +81,13 @@ function entity(e) {
   const out = {};
   for (const k of [
     "id",
+    "uuid",
     "type",
     "name",
     "username",
     "displayName",
     "height",
+    "eyeHeight",
     "width",
     "yaw",
     "pitch",
@@ -118,6 +121,7 @@ export function serializeBlock(b) {
       boundingBox: b.boundingBox,
       hardness: b.hardness,
       diggable: b.diggable,
+      entity: b.entity ?? null,
     }
   );
 }
@@ -128,10 +132,15 @@ export function createAuthority(
     maxReach = Infinity,
     allowChat = true,
     authorizeAction,
+    getConnectionState = () => ({
+      status: bot.entity ? "connected" : "connecting",
+      reason: null,
+    }),
   } = {},
 ) {
   num(snapshotRadius, 0, Infinity, true);
   const windowRefs = new WeakMap();
+  const windowTargets = new WeakMap();
   let windowRevision = 0;
   const serializeWindow = (window) => {
     if (!window) return null;
@@ -155,8 +164,18 @@ export function createAuthority(
       ...out,
       slots: window.slots.map(item),
       selectedItem: item(window.selectedItem) ?? null,
+      ...(windowTargets.has(window)
+        ? { observationTarget: windowTargets.get(window) }
+        : {}),
     };
   };
+  const inventoryState = () => ({
+    version: bot.version ?? "1.21.1",
+    inventory: serializeWindow(bot.inventory),
+    heldItem: item(bot.heldItem),
+    quickBarSlot: bot.quickBarSlot ?? 0,
+    currentWindow: serializeWindow(bot.currentWindow),
+  });
   const currentWindow = (ref, includeInventory = false) => {
     const window = [
       bot.currentWindow,
@@ -289,6 +308,13 @@ export function createAuthority(
         ]),
       );
     },
+    wake() {
+      return bot.wake();
+    },
+    async consume() {
+      await bot.consume();
+      return inventoryState();
+    },
     activateItem(a) {
       return bot.activateItem(
         a.offHand === undefined ? false : bool(a.offHand),
@@ -317,28 +343,44 @@ export function createAuthority(
         fail("Window is no longer open");
       return bot.tossStack(inventoryItem(a.slot, window));
     },
-    craft(a) {
+    async craft(a) {
       const t = a.table ? block(a.table) : null;
       const type = num(a.itemType, 0, Infinity, true),
         count = num(a.count, 1, Infinity, true);
       const r = bot.recipesFor(type, null, count, t)[0];
-      if (!r) fail("No available recipe");
-      return bot.craft(r, count, t);
+      if (!r)
+        fail(
+          `No available recipe for at least ${count} new items with the current ingredients and crafting table`,
+        );
+      // recipesFor counts result items; native craft counts complete recipe runs.
+      await bot.craft(r, Math.ceil(count / r.result.count), t);
+      return inventoryState();
     },
     openContainer: async (a) => {
+      const container =
+        a.entityId === undefined ? block(a.position) : target(a.entityId);
       const window = await bot.openContainer(
-        a.entityId === undefined ? block(a.position) : target(a.entityId),
+        container,
         a.direction == null ? undefined : vector(pos(a.direction, false)),
         a.cursorPos == null ? undefined : vector(pos(a.cursorPos, false)),
       );
+      windowTargets.set(
+        window,
+        a.entityId === undefined
+          ? { kind: "block", position: vec(container.position) }
+          : { kind: "entity", entityId: container.id },
+      );
       return serializeWindow(window);
     },
-    closeWindow(a) {
+    async closeWindow(a) {
       const window =
         a.windowRef === undefined
           ? bot.currentWindow
           : currentWindow(a.windowRef, true);
-      if (window) return bot.closeWindow(window);
+      if (window) await bot.closeWindow(window);
+      // Native close copies the container's carried slots synchronously, but
+      // its SSE snapshot may arrive after this independent HTTP response.
+      return inventoryState();
     },
     windowWithdraw: (a) => transfer("withdraw", a),
     windowDeposit: (a) => transfer("deposit", a),
@@ -407,26 +449,30 @@ export function createAuthority(
       return {
         sampledAt: Date.now(),
         replaceBlocks: includeBlocks,
-        version: bot.version ?? "1.21.1",
+        ...inventoryState(),
         username: bot.username,
+        connectionStatus: getConnectionState().status,
+        disconnectReason: getConnectionState().reason,
         entity: entity(bot.entity),
         entities: Object.values(bot.entities ?? {}).map(entity),
-        inventory: serializeWindow(bot.inventory),
-        heldItem: item(bot.heldItem),
         game: bot.game ?? {},
         health: bot.health,
         food: bot.food,
+        isSleeping: typeof bot.isSleeping === "boolean" ? bot.isSleeping : null,
         oxygenLevel: bot.oxygenLevel,
-        quickBarSlot: bot.quickBarSlot ?? 0,
         jumpTicks: bot.jumpTicks ?? 0,
         jumpQueued: bot.jumpQueued ?? false,
-        controlState: bot.controlState ?? {},
+        controlState: Object.fromEntries(
+          controls.map((control) => [
+            control,
+            bot.controlState?.[control] ?? false,
+          ]),
+        ),
         blocks,
         columns: bot.world?.getColumns?.().map(({ chunkX, chunkZ }) => ({
           x: Number(chunkX),
           z: Number(chunkZ),
         })),
-        currentWindow: serializeWindow(bot.currentWindow),
       };
     },
   };
@@ -441,14 +487,20 @@ export function createBridgeServer({
   maxConcurrentActions = Infinity,
   authorizeAction,
   getMatchState,
+  blockMemory = {},
 } = {}) {
   if (!bot || typeof token !== "string" || token.length < 16)
     throw new Error("Bot and token (16+ characters) required");
+  let nativeConnection = {
+    status: bot.entity ? "connected" : "connecting",
+    reason: null,
+  };
   const authority = createAuthority(bot, {
     snapshotRadius,
     allowChat,
     maxReach,
     authorizeAction,
+    getConnectionState: () => nativeConnection,
   });
   const errorText = (value, fallback) =>
     (typeof value === "string" ? value : fallback)
@@ -469,10 +521,12 @@ export function createBridgeServer({
         : {}),
     ...(action ? { action } : {}),
   });
+  const terrainMemory = createBlockMemory(bot, blockMemory, serializeBlock);
   const epoch = randomUUID();
   let sequence = 0;
   const clients = new Set();
   const chatClients = new Set();
+  const writers = new WeakMap();
   const listeners = [];
   let tokens = maxActionsPerSecond,
     last = Date.now(),
@@ -484,15 +538,74 @@ export function createBridgeServer({
     data,
   });
   function write(res, event) {
-    if (res.writableLength > 4 * 1024 * 1024) {
-      res.destroy();
-      clients.delete(res);
-      chatClients.delete(res);
-      return;
+    if (res.destroyed || res.writableEnded) return;
+    let send = writers.get(res);
+    if (!send) {
+      const queue = [];
+      let queuedBytes = 0,
+        largestFrame = 0,
+        blocked = false;
+      const cleanup = () => {
+        queue.length = 0;
+        queuedBytes = largestFrame = 0;
+        res.off("drain", flush);
+        writers.delete(res);
+        clients.delete(res);
+        chatClients.delete(res);
+      };
+      const flush = () => {
+        blocked = false;
+        let sent = 0;
+        while (sent < queue.length && !blocked) {
+          const frame = queue[sent++];
+          queuedBytes -= frame.length;
+          blocked = !res.write(frame);
+        }
+        queue.splice(0, sent);
+        largestFrame = queue.reduce(
+          (max, frame) => Math.max(max, frame.length),
+          0,
+        );
+      };
+      send = (frame) => {
+        const largest = Math.max(largestFrame, frame.length);
+        // A full reset/sample can itself exceed 4 MiB. Bound accumulated
+        // backlog, not one legal frame: Node buffers up to its high-water
+        // mark plus one frame; our queue adds one largest frame plus 4 MiB.
+        if (queuedBytes + frame.length - largest > 4 * 1024 * 1024) {
+          cleanup();
+          // The server's clientError reports this code; the remote SDK sees
+          // a broken stream and uses its existing reconnect/reset behavior.
+          res.destroy(
+            Object.assign(
+              new Error("Bridge client exceeded SSE backlog budget"),
+              {
+                code: "ERR_BRIDGE_BACKPRESSURE",
+              },
+            ),
+          );
+          return;
+        }
+        queue.push(frame);
+        queuedBytes += frame.length;
+        largestFrame = largest;
+        if (!blocked) flush();
+      };
+      writers.set(res, send);
+      res.on("drain", flush);
+      res.once("close", cleanup);
     }
-    res.write(`data: ${wireStringify(event)}\n\n`);
+    send(Buffer.from(`data: ${wireStringify(event)}\n\n`));
   }
+  let pendingSlotSnapshot = false;
   function publish(type, data) {
+    // Slot bursts are one synchronous window transaction. Sample them once,
+    // but flush before a discrete event so callbacks see its preceding state.
+    // An explicit snapshot already includes those same pending slot changes.
+    if (pendingSlotSnapshot) {
+      pendingSlotSnapshot = false;
+      if (type !== "snapshot") publish("snapshot", authority.snapshot(false));
+    }
     const e = envelope(type, data);
     for (const res of clients) write(res, e);
     if (
@@ -502,7 +615,13 @@ export function createBridgeServer({
     )
       for (const res of chatClients) write(res, e);
   }
-  const onSlotUpdate = () => publish("snapshot", authority.snapshot(false));
+  const onSlotUpdate = () => {
+    if (pendingSlotSnapshot) return;
+    pendingSlotSnapshot = true;
+    queueMicrotask(() => {
+      if (pendingSlotSnapshot) publish("snapshot", authority.snapshot(false));
+    });
+  };
   let watchedWindow;
   const watchWindow = (window) => {
     watchedWindow?.off?.("updateSlot", onSlotUpdate);
@@ -549,7 +668,13 @@ export function createBridgeServer({
     "entityMoved",
     "entitySpawn",
     "entityGone",
+    "entityHurt",
+    "entityEquip",
+    "entityUpdate",
+    "entityEquipmentChange",
     "health",
+    "sleep",
+    "wake",
     "heldItemChanged",
     "windowOpen",
     "windowClose",
@@ -558,12 +683,18 @@ export function createBridgeServer({
     "chunkColumnLoad",
     "chunkColumnUnload",
     "blockUpdate",
+    "blockEntityData",
     "spawn",
     "death",
     "end",
+    "kicked",
   ]) {
     const fn = (...args) => {
       if (name === "physicsTick") return;
+      if (name === "end" || name === "kicked")
+        nativeConnection = { status: "disconnected", reason: args[0] ?? null };
+      else if (name === "spawn")
+        nativeConnection = { status: "connected", reason: null };
       // Mineflayer's death handler removes all digging listeners. Restore only
       // our transport callbacks after respawn, never a participant's listeners.
       if (name === "spawn")
@@ -579,20 +710,28 @@ export function createBridgeServer({
       if (
         [
           "health",
+          "sleep",
+          "wake",
           "heldItemChanged",
           "windowOpen",
           "windowClose",
           "spawn",
           "death",
+          "end",
+          "kicked",
         ].includes(name)
       )
         publish("snapshot", authority.snapshot(false));
       let data = [];
-      if (name.startsWith("entity")) data = [entity(args[0])];
+      if (name === "entityHurt") data = args.slice(0, 2).map(entity);
+      else if (name.startsWith("entity")) data = [entity(args[0])];
       else if (name === "blockUpdate")
         data = args.slice(0, 2).map(serializeBlock);
       else if (name === "diggingCompleted" || name === "diggingAborted")
         data = [serializeBlock(args[0])];
+      else if (name === "blockEntityData") data = [serializeBlock(args[0])];
+      else if (name === "end") data = [args[0] ?? null];
+      else if (name === "kicked") data = [args[0] ?? null, args[1] ?? null];
       else if (name === "chunkColumnLoad" || name === "chunkColumnUnload")
         data = [vec(args[0])];
       else if (name === "windowOpen" || name === "windowClose")
@@ -621,6 +760,29 @@ export function createBridgeServer({
     ) {
       res.writeHead(401);
       return res.end();
+    }
+    if (req.method === "GET" && req.url.startsWith("/v1/memory/")) {
+      try {
+        const result = await terrainMemory.query(
+          new URL(req.url, "http://bridge"),
+        );
+        res.writeHead(200, {
+          "content-type": "application/json",
+          "cache-control": "no-store",
+        });
+        res.end(wireStringify({ ok: true, result }));
+      } catch (error) {
+        res.writeHead(error.status ?? 400, {
+          "content-type": "application/json",
+        });
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: errorText(error.message, "Memory query failed"),
+          }),
+        );
+      }
+      return;
     }
     if (req.method === "GET" && req.url === "/v1/match") {
       if (typeof getMatchState !== "function") {
@@ -743,6 +905,7 @@ export function createBridgeServer({
       };
     },
     async close() {
+      pendingSlotSnapshot = false;
       clearInterval(timer);
       bot.inventory?.off?.("updateSlot", onSlotUpdate);
       watchWindow(null);
@@ -751,6 +914,7 @@ export function createBridgeServer({
       for (const c of chatClients) c.end();
       server.closeAllConnections();
       await new Promise((r) => server.close(r));
+      await terrainMemory.close();
     },
   };
 }

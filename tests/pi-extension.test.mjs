@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile, writeFile, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import extension from "../packages/pi-extension/index.mjs";
+import extension, {
+  defaultToolWaitSeconds,
+} from "../packages/pi-extension/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
 import { preparePiProfile } from "../packages/pi-extension/bootstrap.mjs";
 
@@ -58,6 +60,7 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
     "bash",
     {
       command: `${process.execPath} -e 'console.log(JSON.stringify({url:process.env.MC_INBOX_URL,sessionId:process.env.MC_INBOX_SESSION,token:process.env.MC_INBOX_TOKEN}))'`,
+      wait_seconds: 5,
     },
     "environment",
   );
@@ -77,6 +80,62 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
     },
   };
 }
+
+test("Pi shared wait budget defaults to 30 seconds and validates configuration", () => {
+  assert.equal(defaultToolWaitSeconds({}), 30);
+  for (const value of ["", "  ", "-1", "NaN", "Infinity", "2147484", "oops"])
+    assert.equal(
+      defaultToolWaitSeconds({ ARENA_TOOL_WAIT_SECONDS: value }),
+      30,
+    );
+  for (const value of ["0", "0.025", "120", "2147483"])
+    assert.equal(
+      defaultToolWaitSeconds({ ARENA_TOOL_WAIT_SECONDS: value }),
+      Number(value),
+    );
+});
+
+test("Pi per-call wait overrides preserve longer waits and explicit kill deadlines", async (t) => {
+  const h = await harness(t, { env: { ARENA_TOOL_WAIT_SECONDS: "0.02" } });
+  for (const name of ["bash", "task_wait"])
+    assert.match(h.tools.get(name).description, /defaults to 0\.02 seconds/);
+  const connection = await h.handlers.get("before_agent_start")({}, h.ctx);
+  assert.match(connection.message.content, /return after 0\.02 seconds/);
+  const longer = await h.run(
+    "bash",
+    { command: "sleep 0.1; printf longer-bash", wait_seconds: 2 },
+    "longer-bash",
+  );
+  assert.equal(longer.details.status, "completed");
+  assert.equal(longer.details.stdout, "longer-bash");
+  const started = await h.run(
+    "bash",
+    { command: "sleep 0.1; printf longer-wait", wait_seconds: 0 },
+    "longer-wait",
+  );
+  assert.equal(started.details.status, "running");
+  const immediate = await h.run("task_wait", {
+    taskId: started.details.taskId,
+    wait_seconds: 0,
+  });
+  assert.equal(immediate.details.status, "running");
+  assert.equal(immediate.details.taskId, started.details.taskId);
+  assert.equal(immediate.details.reason, "wait timeout");
+  const waited = await h.run("task_wait", {
+    taskId: started.details.taskId,
+    wait_seconds: 2,
+  });
+  assert.equal(waited.details.status, "completed");
+  assert.equal(waited.details.stdout, "longer-wait");
+  const limited = await h.run(
+    "bash",
+    { command: "sleep 30", timeout: 0.05, wait_seconds: 2 },
+    "explicit-kill-deadline",
+  );
+  assert.equal(limited.details.status, "completed");
+  assert.equal(limited.details.timedOut, true);
+  assert.ok(limited.details.signal);
+});
 
 test("Pi hooks coalesce at one top-level return and preserve existing result content", async (t) => {
   const h = await harness(t);
@@ -101,6 +160,37 @@ test("Pi hooks coalesce at one top-level return and preserve existing result con
   assert.equal(results.filter(Boolean).length, 1);
   assert.equal(results[0].content[0].text, "original");
   assert.match(results[0].content[1].text, /normal/);
+  assert.equal(h.sent.length, 0);
+});
+
+test("observe fullRuntime retrieves retained raw program state even while the game observer is unavailable", async (t) => {
+  const h = await harness(t, {
+    env: {
+      ARENA_BRIDGE_URL: "",
+      ARENA_BRIDGE_TOKEN: "",
+      MC_BRIDGE_URL: "",
+      MC_BRIDGE_TOKEN: "",
+    },
+  });
+  const value = { phase: "reported phase", payload: "x".repeat(24000) };
+  await h.client.publishCurrent("large-program-state", value);
+  const savedTail = process.env.ARENA_PERCEPTION_TAIL;
+  process.env.ARENA_PERCEPTION_TAIL = "1";
+  const context = await h.handlers.get("context_with_system")(
+    { messages: [] },
+    h.ctx,
+  );
+  if (savedTail === undefined) delete process.env.ARENA_PERCEPTION_TAIL;
+  else process.env.ARENA_PERCEPTION_TAIL = savedTail;
+  const compact = JSON.parse(context.messages[0].content.split("\n")[1]);
+  assert.equal(compact.programState[0].data, undefined);
+  assert.equal(compact.runtimeProjection.programState.dataOmitted, 1);
+  assert(Buffer.byteLength(JSON.stringify(compact.programState)) < 8192);
+  const full = await h.run("observe", { fullRuntime: true }, "full-current");
+  assert.deepEqual(full.details.state.programState[0].data, value);
+  assert.equal(full.details.state.runtimeProjection.mode, "full");
+  assert.equal(full.details.state.freshness.status, "unavailable");
+  assert.equal(full.details.state.tasks.length, 1);
   assert.equal(h.sent.length, 0);
 });
 
@@ -285,16 +375,18 @@ test(
       /examples\/SKILL\.md/,
     );
     const names = requests[0].body.tools.map((tool) => tool.function.name);
-    for (const name of [
+    assert.deepEqual(names.toSorted(), [
       "bash",
-      "task_wait",
+      "edit",
+      "observe",
+      "read",
       "task_cancel",
+      "task_wait",
       "world_minimap",
-      "world_render3d",
       "world_opening",
-      "codemode",
-    ])
-      assert.ok(names.includes(name), `${name} is active`);
+      "world_render3d",
+      "write",
+    ]);
   },
 );
 
@@ -342,6 +434,11 @@ test("authenticated host match clock preserves ended state and cached frozen ela
     if (req.url === "/v1/chat") {
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.write('data: {"type":"connected"}\n\n');
+      return;
+    }
+    if (req.url === "/v1/events") {
+      res.writeHead(503);
+      res.end();
       return;
     }
     assert.equal(req.url, "/v1/match");
@@ -430,6 +527,11 @@ test(
         );
         return;
       }
+      if (req.url === "/v1/events") {
+        res.writeHead(503);
+        res.end();
+        return;
+      }
       for await (const _part of req) {
       }
       count++;
@@ -448,7 +550,7 @@ test(
               type: "function",
               function: {
                 name: "bash",
-                arguments: JSON.stringify({ command, wait_seconds: 0 }),
+                arguments: JSON.stringify({ command }),
               },
             },
           ],
@@ -481,6 +583,7 @@ test(
       ARENA_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`,
       ARENA_BRIDGE_TOKEN: "host-resident-fixture",
       ARENA_CONTINUE_DELAY_MS: "30",
+      ARENA_TOOL_WAIT_SECONDS: "0.05",
       MC_INBOX_TRANSPORT: "http",
       MC_INBOX_TOKEN: "resident-loopback-fixture-token",
     };

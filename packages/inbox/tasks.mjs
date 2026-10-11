@@ -98,7 +98,7 @@ export class TaskManager {
     if (callId) this.calls.set(callId, { id, command, createdAt: this.now() });
     task.child = spawn("/bin/bash", ["-c", command], {
       cwd,
-      env: { ...process.env, ...this.env, ...env },
+      env: { ...process.env, ...this.env, ...env, MC_INBOX_TASK_ID: id },
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });

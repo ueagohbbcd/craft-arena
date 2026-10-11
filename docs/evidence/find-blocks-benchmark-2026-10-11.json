@@ -1,0 +1,409 @@
+{
+  "fixture": {
+    "columns": 324,
+    "minY": -64,
+    "height": 384,
+    "origin": [
+      0.5,
+      64,
+      0.5
+    ],
+    "source": "synthetic loaded chunks, not match/world data",
+    "node": "v24.19.0"
+  },
+  "results": [
+    {
+      "round": 0,
+      "case": "medium-iron-position-sparse",
+      "engine": "baseline",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 40,
+      "elapsedMs": 4520.998302,
+      "timerLagMs": 4521.108367,
+      "blockMaterializations": 7114752,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "medium-iron-position-sparse",
+      "engine": "candidate",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 40,
+      "elapsedMs": 1575.6294290000005,
+      "timerLagMs": 1576.1834660000004,
+      "blockMaterializations": 3706328,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "medium-features-position-sparse",
+      "engine": "baseline",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 11,
+      "elapsedMs": 4515.166328999999,
+      "timerLagMs": 4515.526672999999,
+      "blockMaterializations": 7114752,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "medium-features-position-sparse",
+      "engine": "candidate",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 11,
+      "elapsedMs": 1731.7177649999994,
+      "timerLagMs": 1732.1173170000002,
+      "blockMaterializations": 3706328,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "light-features-sparse",
+      "engine": "baseline",
+      "maxDistance": 130,
+      "count": 180,
+      "hits": 19,
+      "elapsedMs": 10428.981073,
+      "timerLagMs": 10429.658769,
+      "blockMaterializations": 17508400,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "light-features-sparse",
+      "engine": "candidate",
+      "maxDistance": 130,
+      "count": 180,
+      "hits": 19,
+      "elapsedMs": 3148.9099029999998,
+      "timerLagMs": 3149.175084999999,
+      "blockMaterializations": 9202116,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "medium-position-predicate-no-match",
+      "engine": "baseline",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 0,
+      "elapsedMs": 3203.031979000003,
+      "timerLagMs": 3203.3817420000014,
+      "blockMaterializations": 7114752,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "medium-position-predicate-no-match",
+      "engine": "candidate",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 0,
+      "elapsedMs": 1137.2951529999991,
+      "timerLagMs": 1137.4382819999992,
+      "blockMaterializations": 3706328,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "medium-id-sparse",
+      "engine": "baseline",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 57,
+      "elapsedMs": 2957.4370889999955,
+      "timerLagMs": 2957.628265999996,
+      "blockMaterializations": 7114752,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "medium-id-sparse",
+      "engine": "candidate",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 57,
+      "elapsedMs": 16.49793900000077,
+      "timerLagMs": 16.55954799999745,
+      "blockMaterializations": 0,
+      "typeReads": 230995
+    },
+    {
+      "round": 0,
+      "case": "light-id-array-absent",
+      "engine": "baseline",
+      "maxDistance": 130,
+      "count": 180,
+      "hits": 0,
+      "elapsedMs": 9038.789755000005,
+      "timerLagMs": 9039.192421,
+      "blockMaterializations": 17508400,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "light-id-array-absent",
+      "engine": "candidate",
+      "maxDistance": 130,
+      "count": 180,
+      "hits": 0,
+      "elapsedMs": 2.267190999999002,
+      "timerLagMs": 2.3240399999995134,
+      "blockMaterializations": 0,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "medium-dense-position-predicate",
+      "engine": "baseline",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 80,
+      "elapsedMs": 3018.343400000005,
+      "timerLagMs": 3018.5236790000054,
+      "blockMaterializations": 7114752,
+      "typeReads": 0
+    },
+    {
+      "round": 0,
+      "case": "medium-dense-position-predicate",
+      "engine": "candidate",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 80,
+      "elapsedMs": 5.210170999998809,
+      "timerLagMs": 5.25440399999934,
+      "blockMaterializations": 4545,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "medium-iron-position-sparse",
+      "engine": "candidate",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 40,
+      "elapsedMs": 1193.4652610000048,
+      "timerLagMs": 1193.6103000000003,
+      "blockMaterializations": 3706328,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "medium-iron-position-sparse",
+      "engine": "baseline",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 40,
+      "elapsedMs": 3042.366345000002,
+      "timerLagMs": 3042.5793489999996,
+      "blockMaterializations": 7114752,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "medium-features-position-sparse",
+      "engine": "candidate",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 11,
+      "elapsedMs": 1119.4905639999997,
+      "timerLagMs": 1119.676790000005,
+      "blockMaterializations": 3706328,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "medium-features-position-sparse",
+      "engine": "baseline",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 11,
+      "elapsedMs": 3041.6642310000025,
+      "timerLagMs": 3041.855542000005,
+      "blockMaterializations": 7114752,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "light-features-sparse",
+      "engine": "candidate",
+      "maxDistance": 130,
+      "count": 180,
+      "hits": 19,
+      "elapsedMs": 2906.4797990000006,
+      "timerLagMs": 2906.844441000001,
+      "blockMaterializations": 9202116,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "light-features-sparse",
+      "engine": "baseline",
+      "maxDistance": 130,
+      "count": 180,
+      "hits": 19,
+      "elapsedMs": 8133.020664000003,
+      "timerLagMs": 8133.680385,
+      "blockMaterializations": 17508400,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "medium-position-predicate-no-match",
+      "engine": "candidate",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 0,
+      "elapsedMs": 2218.690781000005,
+      "timerLagMs": 2218.817077000007,
+      "blockMaterializations": 3706328,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "medium-position-predicate-no-match",
+      "engine": "baseline",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 0,
+      "elapsedMs": 5471.221503999986,
+      "timerLagMs": 5471.417791,
+      "blockMaterializations": 7114752,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "medium-id-sparse",
+      "engine": "candidate",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 57,
+      "elapsedMs": 9.590872000000672,
+      "timerLagMs": 9.635529999999562,
+      "blockMaterializations": 0,
+      "typeReads": 230995
+    },
+    {
+      "round": 1,
+      "case": "medium-id-sparse",
+      "engine": "baseline",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 57,
+      "elapsedMs": 4176.610728999993,
+      "timerLagMs": 4176.787939999995,
+      "blockMaterializations": 7114752,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "light-id-array-absent",
+      "engine": "candidate",
+      "maxDistance": 130,
+      "count": 180,
+      "hits": 0,
+      "elapsedMs": 0.8074950000009267,
+      "timerLagMs": 1.0763870000082534,
+      "blockMaterializations": 0,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "light-id-array-absent",
+      "engine": "baseline",
+      "maxDistance": 130,
+      "count": 180,
+      "hits": 0,
+      "elapsedMs": 9968.376993999991,
+      "timerLagMs": 9969.018522999992,
+      "blockMaterializations": 17508400,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "medium-dense-position-predicate",
+      "engine": "candidate",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 80,
+      "elapsedMs": 2.673107999988133,
+      "timerLagMs": 2.727783999987878,
+      "blockMaterializations": 4545,
+      "typeReads": 0
+    },
+    {
+      "round": 1,
+      "case": "medium-dense-position-predicate",
+      "engine": "baseline",
+      "maxDistance": 96,
+      "count": 80,
+      "hits": 80,
+      "elapsedMs": 3423.0408190000016,
+      "timerLagMs": 3423.396921000007,
+      "blockMaterializations": 7114752,
+      "typeReads": 0
+    }
+  ],
+  "baselineCommit": "d88727f",
+  "sourceSha256": {
+    "packages/bot-sdk/find-blocks.mjs": "3ea1a963c0b60257c72c4171d3a7999d092d899a94a383040255f2c16401b70c",
+    "packages/bot-sdk/index.mjs": "9f685772889bf51f88c44b95205c360bb4f77ae97704d6653ee61868afc6d081"
+  },
+  "baselineSourceSha256": "49b03f4cf96fd24aa496a2f235225a632885e70eff56687ef3f54e0606e89ff0",
+  "candidateCommit": "b4c0e264e2f783c5533390e4fdff05e39ca08d7c",
+  "sequentialMedium": [
+    {
+      "round": 0,
+      "engine": "baseline",
+      "case": "medium-two-scans-sequential",
+      "hits": [
+        40,
+        11
+      ],
+      "elapsedMs": 7419.855468,
+      "timerLagMs": 7420.018434,
+      "blockMaterializations": 14229504
+    },
+    {
+      "round": 0,
+      "engine": "candidate",
+      "case": "medium-two-scans-sequential",
+      "hits": [
+        40,
+        11
+      ],
+      "elapsedMs": 2891.0106100000003,
+      "timerLagMs": 2891.8706869999996,
+      "blockMaterializations": 7412656
+    },
+    {
+      "round": 1,
+      "engine": "candidate",
+      "case": "medium-two-scans-sequential",
+      "hits": [
+        40,
+        11
+      ],
+      "elapsedMs": 2897.8376289999997,
+      "timerLagMs": 2898.0162330000003,
+      "blockMaterializations": 7412656
+    },
+    {
+      "round": 1,
+      "engine": "baseline",
+      "case": "medium-two-scans-sequential",
+      "hits": [
+        40,
+        11
+      ],
+      "elapsedMs": 8049.291332000001,
+      "timerLagMs": 8049.830944999998,
+      "blockMaterializations": 14229504
+    }
+  ]
+}

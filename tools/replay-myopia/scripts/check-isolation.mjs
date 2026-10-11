@@ -1,0 +1,14 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+const root = new URL('../../../', import.meta.url);
+const read = (path) => readFileSync(new URL(path, root), 'utf8');
+const packageJson = read('package.json');
+assert.doesNotMatch(packageJson, /gradle|replay-myopia|replay_myopia/i);
+assert.match(read('.dockerignore'), /^tools\/replay-myopia\s*$/m);
+const participant = read('infra/Dockerfile.participant');
+assert.doesNotMatch(participant, /COPY\s+(?:--\S+\s+)*\.\s+\./);
+assert.doesNotMatch(participant, /COPY.*\btools\b/);
+const metadata = JSON.parse(read('tools/replay-myopia/src/main/resources/fabric.mod.json'));
+assert.equal(metadata.environment, 'client');
+assert.deepEqual(Object.keys(metadata.entrypoints), ['client']);
+console.log('PASS: optional client tool is absent from npm and excluded from Docker contexts; player image uses explicit copies.');

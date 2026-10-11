@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
+import { findBlocksInColumns } from "./find-blocks.mjs";
 const require = createRequire(import.meta.url);
 const controls = [
   "forward",
@@ -91,6 +92,9 @@ export class BotFacade extends EventEmitter {
     this.epoch = null;
     this.closed = false;
     this._pending = new Set();
+    this._requests = new Set();
+    this._controlTail = Promise.resolve();
+    this._queuedControls = new Map();
     this._windows = new Map();
     this._closedWindowRefs = new Set();
     this._pendingOpens = 0;
@@ -114,28 +118,35 @@ export class BotFacade extends EventEmitter {
   }
   async action(action, args = {}) {
     if (this.closed) throw new Error("Bridge closed");
-    const res = await this.fetch(`${this.url}/v1/action`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.token}`,
-        "content-type": "application/json",
-      },
-      body: wireStringify({ action, args }),
-    });
-    const text = await res.text();
-    const body = text ? parseWire(text) : {};
-    if (!res.ok || !body.ok) {
-      const details = body.errorDetails ?? {};
-      const error = new Error(
-        details.message ?? body.error ?? `Bridge action HTTP ${res.status}`,
-      );
-      error.name = details.name ?? "Error";
-      if (details.code !== undefined) error.code = details.code;
-      error.action = details.action ?? action;
-      error.status = res.status;
-      throw error;
+    const request = new AbortController();
+    this._requests.add(request);
+    try {
+      const res = await this.fetch(`${this.url}/v1/action`, {
+        method: "POST",
+        signal: request.signal,
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          "content-type": "application/json",
+        },
+        body: wireStringify({ action, args }),
+      });
+      const text = await res.text();
+      const body = text ? parseWire(text) : {};
+      if (!res.ok || !body.ok) {
+        const details = body.errorDetails ?? {};
+        const error = new Error(
+          details.message ?? body.error ?? `Bridge action HTTP ${res.status}`,
+        );
+        error.name = details.name ?? "Error";
+        if (details.code !== undefined) error.code = details.code;
+        error.action = details.action ?? action;
+        error.status = res.status;
+        throw error;
+      }
+      return body.result;
+    } finally {
+      this._requests.delete(request);
     }
-    return body.result;
   }
   async getMatchState() {
     const res = await this.fetch(`${this.url}/v1/match`, {
@@ -146,7 +157,37 @@ export class BotFacade extends EventEmitter {
     return body.result;
   }
   _fire(action, args) {
-    const p = this.action(action, args);
+    // Native movement controls apply in call order. Concurrent HTTP requests
+    // can arrive out of order, so queue just these short writes per facade.
+    // Long actions (dig/equip/etc.) must not delay a release or stop.
+    const ordered =
+      action === "setControlState" ||
+      action === "clearControlStates" ||
+      action === "stop";
+    // Repeated plugin ticks can enqueue identical states faster than the
+    // transport drains them. Reuse only an equivalent *unsent* write. Remove
+    // it before dispatch, so a later assertion still reaches the authority
+    // after errors, native state changes or another client's control writes.
+    let queued;
+    if (action === "setControlState") {
+      const previous = this._queuedControls.get(args.control);
+      if (previous?.state === args.state) return previous.promise;
+      queued = { state: args.state };
+      this._queuedControls.set(args.control, queued);
+    } else if (ordered) {
+      // Clear/stop are ordering barriers; never merge assertions across them.
+      this._queuedControls.clear();
+    }
+    const p = ordered
+      ? this._controlTail.then(() => {
+          if (queued && this._queuedControls.get(args.control) === queued)
+            this._queuedControls.delete(args.control);
+          return this.action(action, args);
+        })
+      : this.action(action, args);
+    if (queued) queued.promise = p;
+    if (ordered) this._controlTail = p.catch(() => {});
+    // Include queued, not-yet-sent writes so flush observes the entire queue.
     this._pending.add(p);
     p.then(
       () => {
@@ -205,6 +246,7 @@ export class BotFacade extends EventEmitter {
       b.position = this._vector(data.position);
       b.light = data.light;
       b.skyLight = data.skyLight;
+      if (data.entity !== undefined) b.entity = data.entity;
     } else b = { ...data, position: this._vector(data.position) };
     return b;
   }
@@ -251,6 +293,13 @@ export class BotFacade extends EventEmitter {
           this._rememberBlock(local[1], Date.now());
           this._updateColumn(local[1]);
         }
+      } else if (name === "blockEntityData") {
+        local = args.map((b) => this._block(b));
+        if (local[0]) {
+          this.blocks.set(key(local[0].position), local[0]);
+          this._rememberBlock(local[0], Date.now());
+          this._updateColumn(local[0]);
+        }
       } else if (name === "chunkColumnLoad" || name === "chunkColumnUnload") {
         local = args.map((v) => this._vector(v));
         const x = Math.floor(args[0].x / 16),
@@ -290,11 +339,13 @@ export class BotFacade extends EventEmitter {
     for (const k of [
       "sampledAt",
       "username",
+      "connectionStatus",
+      "disconnectReason",
       "game",
       "health",
       "food",
+      "isSleeping",
       "oxygenLevel",
-      "quickBarSlot",
       "jumpTicks",
       "jumpQueued",
     ])
@@ -309,15 +360,7 @@ export class BotFacade extends EventEmitter {
     for (const id of Object.keys(this.entities))
       if (!ids.has(Number(id))) delete this.entities[id];
     this.controlState = { ...s.controlState };
-    this._window(s.inventory, this.inventory);
-    this.heldItem = this._item(s.heldItem);
-    this._setCurrentWindow(
-      s.currentWindow ? this._window(s.currentWindow) : null,
-      Math.max(
-        s.inventory?.windowRevision ?? -1,
-        s.currentWindow?.windowRevision ?? -1,
-      ),
-    );
+    this._applyInventoryState(s);
     this.hasColumnMirror = !!(s.columns && this.Chunk);
     if (this.hasColumnMirror) {
       const wanted = new Set(s.columns.map(({ x, z }) => `${x},${z}`));
@@ -340,6 +383,25 @@ export class BotFacade extends EventEmitter {
       this._rememberBlock(b, s.sampledAt ?? Date.now());
       this._updateColumn(b, s.sampledAt);
     }
+  }
+  _applyInventoryState(s) {
+    // HTTP inventory results and SSE snapshots share authority revisions.
+    // An older snapshot must not roll back held-item or quickbar state either.
+    if (
+      s.inventory?.windowRef !== this.inventory.windowRef ||
+      !(s.inventory?.windowRevision < this.inventory.windowRevision)
+    ) {
+      this.quickBarSlot = s.quickBarSlot;
+      this.heldItem = this._item(s.heldItem);
+      this._window(s.inventory, this.inventory);
+    }
+    this._setCurrentWindow(
+      s.currentWindow ? this._window(s.currentWindow) : null,
+      Math.max(
+        s.inventory?.windowRevision ?? -1,
+        s.currentWindow?.windowRevision ?? -1,
+      ),
+    );
   }
   _setCurrentWindow(window, revision = -1) {
     if (revision >= 0 && revision < this._windowStateRevision) return;
@@ -439,8 +501,18 @@ export class BotFacade extends EventEmitter {
       `${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`,
     );
     if (!column || sampledAt < column.sampledAt) return;
+    // Native blockAt can report air outside a loaded dimension during a fall.
+    // Keep the same bounds as blockAt(): those coordinates are not writable
+    // chunk sections, and upstream light setters do not guard their arrays.
+    const minY = column.chunk.minY ?? this.game?.minY ?? 0;
+    const height = column.chunk.worldHeight ?? this.game?.height ?? 256;
+    if (p.y < minY || p.y >= minY + height) return;
     const local = this._vector({ x: p.x & 15, y: p.y, z: p.z & 15 });
     column.chunk.setBlockStateId(local, block.stateId);
+    if (block.entity !== undefined) {
+      if (block.entity === null) column.chunk.removeBlockEntity?.(local);
+      else column.chunk.setBlockEntity?.(local, block.entity);
+    }
     if (block.light !== undefined)
       column.chunk.setBlockLight(local, block.light);
     if (block.skyLight !== undefined)
@@ -478,8 +550,13 @@ export class BotFacade extends EventEmitter {
       yield this.knownBlockAt(block.position);
     for (const entry of this.knownBlocks.values()) {
       const p = entry.block.position;
-      if (!this.columns.has(`${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`))
-        yield entry;
+      if (
+        !this.columns.has(`${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`) &&
+        ["x", "y", "z"].every(
+          (axis) => p[axis] >= bounds.min[axis] && p[axis] <= bounds.max[axis],
+        )
+      )
+        yield this.knownBlockAt(p);
     }
   }
   blockAt(position) {
@@ -517,6 +594,9 @@ export class BotFacade extends EventEmitter {
     count = 1,
     point = this.entity.position,
   }) {
+    if (this.hasColumnMirror && this.columns.size) {
+      return findBlocksInColumns(this, { matching, maxDistance, count, point });
+    }
     const match =
       typeof matching === "function"
         ? matching
@@ -673,6 +753,23 @@ export class BotFacade extends EventEmitter {
   unequip(destination) {
     return this.action("unequip", { destination });
   }
+  wake() {
+    return this.action("wake");
+  }
+  /** Native completion/error semantics, with authoritative carried slots. */
+  async consume() {
+    const epoch = this.epoch,
+      inventoryRef = this.inventory.windowRef;
+    const result = await this.action("consume");
+    if (
+      result?.inventory &&
+      this.epoch === epoch &&
+      this.inventory.windowRef === inventoryRef &&
+      result.version === this.version &&
+      result.inventory.windowRef === inventoryRef
+    )
+      this._applyInventoryState(result);
+  }
   activateItem(offHand = false) {
     this._fire("activateItem", { offHand });
   }
@@ -688,12 +785,23 @@ export class BotFacade extends EventEmitter {
   setQuickBarSlot(slot) {
     this._fire("setQuickBarSlot", { slot });
   }
-  craftItem(itemType, count = 1, table = null) {
-    return this.action("craft", {
+  /** Craft at least count new items, rounded up to complete recipe batches. */
+  async craftItem(itemType, count = 1, table = null) {
+    const epoch = this.epoch,
+      inventoryRef = this.inventory.windowRef;
+    const result = await this.action("craft", {
       itemType,
       count,
       table: table ? coords(table.position) : null,
     });
+    if (
+      result?.inventory &&
+      this.epoch === epoch &&
+      this.inventory.windowRef === inventoryRef &&
+      result.version === this.version &&
+      result.inventory.windowRef === inventoryRef
+    )
+      this._applyInventoryState(result);
   }
   tossStack(item) {
     return this.action("tossStack", {
@@ -722,10 +830,26 @@ export class BotFacade extends EventEmitter {
     }
   }
   async closeWindow(window = this.currentWindow) {
-    await this.action(
+    const epoch = this.epoch,
+      inventoryRef = this.inventory.windowRef;
+    const result = await this.action(
       "closeWindow",
       window ? { windowRef: window.windowRef } : {},
     );
+    // Reconnect/reset can replace the authority while an old HTTP request is
+    // still in flight. Never apply that response to the replacement mirror.
+    if (this.epoch !== epoch || this.inventory.windowRef !== inventoryRef)
+      return;
+    if (result?.inventory) {
+      if (
+        result.version !== this.version ||
+        result.inventory.windowRef !== inventoryRef
+      )
+        return;
+      this._applyInventoryState(result);
+      return;
+    }
+    // Keep compatibility with older bridges that return no close snapshot.
     if (this.currentWindow === window) {
       this._lastWindow = window;
       this.currentWindow = null;
@@ -759,6 +883,9 @@ export class BotFacade extends EventEmitter {
   closeBridge() {
     this.closed = true;
     this.abort?.abort();
+    // End local HTTP waits too. This does not cancel an authority-side action;
+    // controllers must release their item/movement controls before closing.
+    for (const request of this._requests) request.abort();
     this.emit("end", "bridge closed");
   }
 }
@@ -818,3 +945,5 @@ export async function connectBot(options) {
   })();
   return ready;
 }
+
+export { createBlockMemoryClient, BlockMemoryClient } from "./block-memory.mjs";

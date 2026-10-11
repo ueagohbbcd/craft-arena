@@ -1,0 +1,7 @@
+{
+  "category.replay_myopia": "Replay Myopia (illustration)",
+  "key.replay_myopia.settings": "Select player / settings",
+  "key.replay_myopia.toggle": "Toggle near-range filter / full replay",
+  "key.replay_myopia.smaller": "Decrease radius by 2 blocks",
+  "key.replay_myopia.larger": "Increase radius by 2 blocks"
+}
