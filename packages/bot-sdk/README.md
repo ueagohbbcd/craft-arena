@@ -85,7 +85,9 @@ enchantment getters. BigInt NBT leaves survive the data-only transport.
 Omitted/null count keeps the native default of one, and multi-stack counts are
 supported. The returned Promise updates that window's slots before resolving.
 `await window.close()` or `await bot.closeWindow(window)` closes that specific
-window; `bot.closeWindow(bot.inventory)` is also supported. Opaque window references
+window and refreshes the carried inventory before resolving, so an immediate
+`bot.inventory` lookup uses native inventory slots. `bot.closeWindow(bot.inventory)`
+is also supported. Opaque window references
 prevent an old handle from transferring into or closing a newly opened window,
 even when Minecraft reuses its numeric ID.
 

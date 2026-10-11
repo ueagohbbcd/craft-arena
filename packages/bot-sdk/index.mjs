@@ -316,7 +316,6 @@ export class BotFacade extends EventEmitter {
       "health",
       "food",
       "oxygenLevel",
-      "quickBarSlot",
       "jumpTicks",
       "jumpQueued",
     ])
@@ -331,15 +330,7 @@ export class BotFacade extends EventEmitter {
     for (const id of Object.keys(this.entities))
       if (!ids.has(Number(id))) delete this.entities[id];
     this.controlState = { ...s.controlState };
-    this._window(s.inventory, this.inventory);
-    this.heldItem = this._item(s.heldItem);
-    this._setCurrentWindow(
-      s.currentWindow ? this._window(s.currentWindow) : null,
-      Math.max(
-        s.inventory?.windowRevision ?? -1,
-        s.currentWindow?.windowRevision ?? -1,
-      ),
-    );
+    this._applyInventoryState(s);
     this.hasColumnMirror = !!(s.columns && this.Chunk);
     if (this.hasColumnMirror) {
       const wanted = new Set(s.columns.map(({ x, z }) => `${x},${z}`));
@@ -362,6 +353,25 @@ export class BotFacade extends EventEmitter {
       this._rememberBlock(b, s.sampledAt ?? Date.now());
       this._updateColumn(b, s.sampledAt);
     }
+  }
+  _applyInventoryState(s) {
+    // HTTP close results and SSE snapshots share the authority's revisions.
+    // An older snapshot must not roll back held-item or quickbar state either.
+    if (
+      s.inventory?.windowRef !== this.inventory.windowRef ||
+      !(s.inventory?.windowRevision < this.inventory.windowRevision)
+    ) {
+      this.quickBarSlot = s.quickBarSlot;
+      this.heldItem = this._item(s.heldItem);
+      this._window(s.inventory, this.inventory);
+    }
+    this._setCurrentWindow(
+      s.currentWindow ? this._window(s.currentWindow) : null,
+      Math.max(
+        s.inventory?.windowRevision ?? -1,
+        s.currentWindow?.windowRevision ?? -1,
+      ),
+    );
   }
   _setCurrentWindow(window, revision = -1) {
     if (revision >= 0 && revision < this._windowStateRevision) return;
@@ -749,10 +759,26 @@ export class BotFacade extends EventEmitter {
     }
   }
   async closeWindow(window = this.currentWindow) {
-    await this.action(
+    const epoch = this.epoch,
+      inventoryRef = this.inventory.windowRef;
+    const result = await this.action(
       "closeWindow",
       window ? { windowRef: window.windowRef } : {},
     );
+    // Reconnect/reset can replace the authority while an old HTTP request is
+    // still in flight. Never apply that response to the replacement mirror.
+    if (this.epoch !== epoch || this.inventory.windowRef !== inventoryRef)
+      return;
+    if (result?.inventory) {
+      if (
+        result.version !== this.version ||
+        result.inventory.windowRef !== inventoryRef
+      )
+        return;
+      this._applyInventoryState(result);
+      return;
+    }
+    // Keep compatibility with older bridges that return no close snapshot.
     if (this.currentWindow === window) {
       this._lastWindow = window;
       this.currentWindow = null;

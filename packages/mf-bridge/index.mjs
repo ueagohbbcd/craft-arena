@@ -167,6 +167,13 @@ export function createAuthority(
         : {}),
     };
   };
+  const inventoryState = () => ({
+    version: bot.version ?? "1.21.1",
+    inventory: serializeWindow(bot.inventory),
+    heldItem: item(bot.heldItem),
+    quickBarSlot: bot.quickBarSlot ?? 0,
+    currentWindow: serializeWindow(bot.currentWindow),
+  });
   const currentWindow = (ref, includeInventory = false) => {
     const window = [
       bot.currentWindow,
@@ -355,12 +362,15 @@ export function createAuthority(
       );
       return serializeWindow(window);
     },
-    closeWindow(a) {
+    async closeWindow(a) {
       const window =
         a.windowRef === undefined
           ? bot.currentWindow
           : currentWindow(a.windowRef, true);
-      if (window) return bot.closeWindow(window);
+      if (window) await bot.closeWindow(window);
+      // Native close copies the container's carried slots synchronously, but
+      // its SSE snapshot may arrive after this independent HTTP response.
+      return inventoryState();
     },
     windowWithdraw: (a) => transfer("withdraw", a),
     windowDeposit: (a) => transfer("deposit", a),
@@ -429,19 +439,16 @@ export function createAuthority(
       return {
         sampledAt: Date.now(),
         replaceBlocks: includeBlocks,
-        version: bot.version ?? "1.21.1",
+        ...inventoryState(),
         username: bot.username,
         connectionStatus: getConnectionState().status,
         disconnectReason: getConnectionState().reason,
         entity: entity(bot.entity),
         entities: Object.values(bot.entities ?? {}).map(entity),
-        inventory: serializeWindow(bot.inventory),
-        heldItem: item(bot.heldItem),
         game: bot.game ?? {},
         health: bot.health,
         food: bot.food,
         oxygenLevel: bot.oxygenLevel,
-        quickBarSlot: bot.quickBarSlot ?? 0,
         jumpTicks: bot.jumpTicks ?? 0,
         jumpQueued: bot.jumpQueued ?? false,
         controlState: Object.fromEntries(
@@ -455,7 +462,6 @@ export function createAuthority(
           x: Number(chunkX),
           z: Number(chunkZ),
         })),
-        currentWindow: serializeWindow(bot.currentWindow),
       };
     },
   };
