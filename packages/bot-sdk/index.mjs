@@ -92,6 +92,7 @@ export class BotFacade extends EventEmitter {
     this.epoch = null;
     this.closed = false;
     this._pending = new Set();
+    this._requests = new Set();
     this._controlTail = Promise.resolve();
     this._queuedControls = new Map();
     this._windows = new Map();
@@ -117,28 +118,35 @@ export class BotFacade extends EventEmitter {
   }
   async action(action, args = {}) {
     if (this.closed) throw new Error("Bridge closed");
-    const res = await this.fetch(`${this.url}/v1/action`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${this.token}`,
-        "content-type": "application/json",
-      },
-      body: wireStringify({ action, args }),
-    });
-    const text = await res.text();
-    const body = text ? parseWire(text) : {};
-    if (!res.ok || !body.ok) {
-      const details = body.errorDetails ?? {};
-      const error = new Error(
-        details.message ?? body.error ?? `Bridge action HTTP ${res.status}`,
-      );
-      error.name = details.name ?? "Error";
-      if (details.code !== undefined) error.code = details.code;
-      error.action = details.action ?? action;
-      error.status = res.status;
-      throw error;
+    const request = new AbortController();
+    this._requests.add(request);
+    try {
+      const res = await this.fetch(`${this.url}/v1/action`, {
+        method: "POST",
+        signal: request.signal,
+        headers: {
+          authorization: `Bearer ${this.token}`,
+          "content-type": "application/json",
+        },
+        body: wireStringify({ action, args }),
+      });
+      const text = await res.text();
+      const body = text ? parseWire(text) : {};
+      if (!res.ok || !body.ok) {
+        const details = body.errorDetails ?? {};
+        const error = new Error(
+          details.message ?? body.error ?? `Bridge action HTTP ${res.status}`,
+        );
+        error.name = details.name ?? "Error";
+        if (details.code !== undefined) error.code = details.code;
+        error.action = details.action ?? action;
+        error.status = res.status;
+        throw error;
+      }
+      return body.result;
+    } finally {
+      this._requests.delete(request);
     }
-    return body.result;
   }
   async getMatchState() {
     const res = await this.fetch(`${this.url}/v1/match`, {
@@ -870,6 +878,9 @@ export class BotFacade extends EventEmitter {
   closeBridge() {
     this.closed = true;
     this.abort?.abort();
+    // End local HTTP waits too. This does not cancel an authority-side action;
+    // controllers must release their item/movement controls before closing.
+    for (const request of this._requests) request.abort();
     this.emit("end", "bridge closed");
   }
 }

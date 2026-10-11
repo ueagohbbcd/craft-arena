@@ -124,3 +124,20 @@ test("late consume response cannot overwrite a replacement inventory", async () 
   await consuming;
   assert.equal(bot.inventory.count(bread), 7);
 });
+
+test("closeBridge aborts a pending consume HTTP wait without claiming to cancel native action", async (t) => {
+  const { native, bot } = await fixture(t);
+  const consuming = bot.consume();
+  const rejected = assert.rejects(consuming, { name: "AbortError" });
+  while (!native.usingHeldItem) await new Promise(setImmediate);
+  bot.closeBridge();
+  await rejected;
+  assert.equal(
+    native.usingHeldItem,
+    true,
+    "bridge closure only cancels the local wait",
+  );
+  native.deactivateItem();
+  native._client.emit("entity_status", { entityId: 1, entityStatus: 9 });
+  assert.equal(bot._requests.size, 0);
+});
