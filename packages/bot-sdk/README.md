@@ -56,6 +56,8 @@ Horizontal edge positioning waits for landing and releases inherited horizontal 
 It rounds up to complete recipe batches: requesting 20 planks uses five logs;
 requesting 5 planks uses two logs and produces 8. Items already in the inventory
 do not reduce the request. Pass a crafting-table block when the recipe needs one.
+On success, the Promise refreshes the inventory mirror from Mineflayer's state
+before resolving; it does not wait for separately delivered observation events.
 
 The bridge checks ingredient availability for that result quantity before calling
 native Mineflayer `craft(recipe, batches, table)`. If no recipe is available with

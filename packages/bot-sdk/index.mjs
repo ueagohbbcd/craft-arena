@@ -355,7 +355,7 @@ export class BotFacade extends EventEmitter {
     }
   }
   _applyInventoryState(s) {
-    // HTTP close results and SSE snapshots share the authority's revisions.
+    // HTTP inventory results and SSE snapshots share authority revisions.
     // An older snapshot must not roll back held-item or quickbar state either.
     if (
       s.inventory?.windowRef !== this.inventory.windowRef ||
@@ -725,12 +725,22 @@ export class BotFacade extends EventEmitter {
     this._fire("setQuickBarSlot", { slot });
   }
   /** Craft at least count new items, rounded up to complete recipe batches. */
-  craftItem(itemType, count = 1, table = null) {
-    return this.action("craft", {
+  async craftItem(itemType, count = 1, table = null) {
+    const epoch = this.epoch,
+      inventoryRef = this.inventory.windowRef;
+    const result = await this.action("craft", {
       itemType,
       count,
       table: table ? coords(table.position) : null,
     });
+    if (
+      result?.inventory &&
+      this.epoch === epoch &&
+      this.inventory.windowRef === inventoryRef &&
+      result.version === this.version &&
+      result.inventory.windowRef === inventoryRef
+    )
+      this._applyInventoryState(result);
   }
   tossStack(item) {
     return this.action("tossStack", {

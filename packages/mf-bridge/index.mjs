@@ -334,7 +334,7 @@ export function createAuthority(
         fail("Window is no longer open");
       return bot.tossStack(inventoryItem(a.slot, window));
     },
-    craft(a) {
+    async craft(a) {
       const t = a.table ? block(a.table) : null;
       const type = num(a.itemType, 0, Infinity, true),
         count = num(a.count, 1, Infinity, true);
@@ -344,7 +344,8 @@ export function createAuthority(
           `No available recipe for at least ${count} new items with the current ingredients and crafting table`,
         );
       // recipesFor counts result items; native craft counts complete recipe runs.
-      return bot.craft(r, Math.ceil(count / r.result.count), t);
+      await bot.craft(r, Math.ceil(count / r.result.count), t);
+      return inventoryState();
     },
     openContainer: async (a) => {
       const container =

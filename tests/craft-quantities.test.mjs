@@ -15,7 +15,7 @@ function fixture(stock) {
   const native = {
     registry,
     entity: { position: new Vector(0, 64, 0) },
-    inventory: { count: (type) => counts.get(type) ?? 0 },
+    inventory: { slots: [], count: (type) => counts.get(type) ?? 0 },
     blockAt: (position) => ({ name: "crafting_table", position }),
   };
   // Use installed Mineflayer recipe selection/ingredient checks and real recipes.
