@@ -65,6 +65,37 @@ Both keyed APIs require a nonempty string key. Current identity is `(source, key
 
 `TaskManager.start` supplies `MC_INBOX_TASK_ID` to each managed child, and `InboxClient` includes it in every report. An explicit `taskId` option can correlate a report when the caller already knows that ID. Reports stay `source:"program"`; the runtime separately provides authoritative task status. Describe your current goal/activity in the data when useful, so the model can connect intent with actual process lifetime.
 
+## Short actions during a longer program
+
+[build-with-autoeat.mjs](../../examples/build-with-autoeat.mjs) is a complete
+example of a program that handles a short interruption and returns to its
+original work. Health events trigger independent auto-eating; a shared hand
+Promise serializes equip/place/use-item with construction. For each eating
+attempt it posts one normal `food.action` event with an attempt number, trigger,
+start/end times and observed before/after health, food and item count. Resume is
+explicitly pending at that moment. The final result updates it only after build
+hand control actually resumes and the material is re-equipped; it does not claim
+the next placement succeeded. Failed/cancelled attempts and failures to resume
+are explicit; holding use-item without an observed change is unconfirmed.
+
+These are `post` events, not repeated `upsert("food", ...)` values: separate
+actions cannot overwrite each other under one key. They do not request an early
+model turn. At the original tool's normal return, pending events join its result.
+A task-local summary in the program's final JSON also contains cumulative outcome
+and resume counts plus the latest 16 attempt records (and an omitted count).
+That summary preserves the overall history if a long wait outlives queued
+messages' TTL or queue capacity. It is bounded diagnostic output, not a durable
+queue; a killed process may never produce its final output. The example reserves
+`requestJudgment` for a real decision such as unavailable food.
+
+The same pattern applies to travel interrupted by participant-authored combat:
+serialize ownership of movement/hand controls, retain the original goal, record
+why combat began, its observed outcome and whether travel actually resumed, and
+post the short action's result normally. Entity disappearance alone does not
+prove a kill. Use an urgent judgment only when the program genuinely needs a new
+decision. The inbox transports these reports; it does not provide a combat
+controller or automatically restore the travel goal.
+
 ## Protocol and bounds
 
 Message: `{sessionId, kind: "event"|"state"|"judgment"|"current", key?, data, priority?: "normal"|"urgent", ttlMs?, taskId?}`. `state` and `current` require a nonempty string key. A newer `state` replaces its queued predecessor within the same source; a newer `current` replaces the separate current-only value. Current-only values accept normal priority; use a judgment event when a new decision is needed. Envelope source is assigned by the receiver (`program` for IPC, `runtime` for task completions, `host` for trusted budget data); sender-supplied source is ignored. `requestJudgment` selects kind judgment and priority urgent; raw callers choose priority themselves. The returned Promise resolves with acceptance, not with a model answer. The program continues according to its own control flow while the model independently decides how to proceed; [plugin-goal](../../examples/plugin-goal.mjs) demonstrates an active action and a separate stall report.
