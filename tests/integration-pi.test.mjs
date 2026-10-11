@@ -297,6 +297,129 @@ function nodeCommand(script) {
 const ipcImport = `import {InboxClient} from ${JSON.stringify(resolve("packages/inbox/index.mjs"))};const client=new InboxClient();`;
 
 test(
+  "real Pi omitted bash and task_wait budgets resume with fresh state while one command continues",
+  { timeout: 90000 },
+  async (t) => {
+    // The opt-in run exercises the actual 30-second default twice; normal CI
+    // exercises the identical path with a short configured budget.
+    const realDefault = process.env.ARENA_TEST_REAL_DEFAULT_WAIT === "1";
+    const seconds = realDefault ? 30 : 0.12;
+    const saved = process.env.ARENA_TOOL_WAIT_SECONDS;
+    if (realDefault) delete process.env.ARENA_TOOL_WAIT_SECONDS;
+    else process.env.ARENA_TOOL_WAIT_SECONDS = String(seconds);
+    let h, taskId, pid, previousObservation, firstStartedAt;
+    const waits = [];
+    try {
+      h = await harness(t, async (body, n, dir) => {
+        if (n === 1)
+          return [
+            {
+              id: "budget-command",
+              name: "bash",
+              args: {
+                command: nodeCommand(
+                  `import{appendFile,writeFile,access}from'node:fs/promises';await appendFile(${JSON.stringify(join(dir, "starts"))},'start\\n');await writeFile(${JSON.stringify(join(dir, "worker.json"))},JSON.stringify({pid:process.pid,taskId:process.env.MC_INBOX_TASK_ID}));while(await access(${JSON.stringify(join(dir, "release"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,10));await new Promise(r=>setTimeout(r,250));console.log('one-command-finished');`,
+                ),
+              },
+            },
+          ];
+        const result = JSON.parse(
+          body.messages
+            .filter((message) => message.role === "tool")
+            .at(-1)
+            .content.split("\n")[0],
+        );
+        const tailContent = body.messages.at(-1).content;
+        const tail =
+          typeof tailContent === "string"
+            ? tailContent
+            : tailContent.map((block) => block.text ?? "").join("\n");
+        assert.match(
+          tail,
+          /^Current observation for this model request only\./,
+        );
+        const observation = JSON.parse(tail.slice(tail.indexOf("\n") + 1));
+        if (n === 2 || n === 3) {
+          assert.equal(result.status, "running");
+          assert.equal(result.reason, "wait timeout");
+          assert.equal(result.timedOut, undefined);
+          assert.equal(result.taskId, taskId ?? result.taskId);
+          taskId = result.taskId;
+          const task = observation.tasks.find((task) => task.taskId === taskId);
+          assert.equal(task.status, "running");
+          assert.equal(task.startedAt, firstStartedAt ?? task.startedAt);
+          firstStartedAt = task.startedAt;
+          if (previousObservation)
+            assert.ok(observation.observedAt > previousObservation.observedAt);
+          previousObservation = observation;
+          // Allow startup to finish even on a heavily loaded CI machine.
+          for (let i = 0; i < 200; i++) {
+            const worker = await readFile(join(dir, "worker.json"), "utf8")
+              .then(JSON.parse)
+              .catch(() => null);
+            if (worker) {
+              assert.equal(worker.taskId, taskId);
+              assert.equal(worker.pid, pid ?? worker.pid);
+              pid = worker.pid;
+              break;
+            }
+            await sleep(10);
+          }
+          assert.ok(pid);
+          assert.doesNotThrow(() => process.kill(pid, 0));
+          assert.equal(await readFile(join(dir, "starts"), "utf8"), "start\n");
+          if (n === 2) {
+            waits.push(Date.now() - firstStartedAt);
+            return [{ id: "budget-wait", name: "task_wait", args: { taskId } }];
+          }
+          waits.push(Date.now() - firstStartedAt - waits[0]);
+          await writeFile(join(dir, "release"), "go");
+          return [
+            {
+              id: "finish-same-task",
+              name: "task_wait",
+              args: { taskId, wait_seconds: 5 },
+            },
+          ];
+        }
+        assert.equal(n, 4);
+        assert.equal(result.taskId, taskId);
+        assert.equal(result.status, "completed");
+        assert.equal(result.stdout.trim(), "one-command-finished");
+        assert.equal(result.exitCode, 0);
+        assert.equal(result.signal, null);
+        assert.equal(result.timedOut, undefined);
+        return "Both budget returns and the same command's completion observed.";
+      });
+    } finally {
+      if (saved === undefined) delete process.env.ARENA_TOOL_WAIT_SECONDS;
+      else process.env.ARENA_TOOL_WAIT_SECONDS = saved;
+    }
+    await h.session.prompt(
+      "Run once, inspect each budget return, and finish the same task.",
+    );
+    assert.equal(
+      h.requests.length,
+      4,
+      JSON.stringify(h.session.messages.at(-1)),
+    );
+    for (const ms of waits) assert.ok(ms >= seconds * 1000 - 10, `${ms} ms`);
+    const results = h.events.filter(
+      (event) => event.type === "tool_execution_end",
+    );
+    assert.deepEqual(
+      results.map((event) => event.toolName),
+      ["bash", "task_wait", "task_wait"],
+    );
+    assert.equal(await readFile(join(h.dir, "starts"), "utf8"), "start\n");
+    assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
+    t.diagnostic(
+      `Shared budget ${seconds}s; bash/task_wait returns ${waits.map((ms) => `${ms}ms`).join(" / ")}; one start, four model requests, normal exit.`,
+    );
+  },
+);
+
+test(
   "real Pi loads extension; normal program IPC joins bash result without an extra model invocation",
   { timeout: 15000 },
   async (t) => {

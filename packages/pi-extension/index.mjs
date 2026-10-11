@@ -15,11 +15,24 @@ const object = (properties) => ({
 });
 const string = { type: "string" };
 const seconds = { type: "number", minimum: 0, maximum: 2147483 };
+/** Share the existing tool/timer range; a wait budget never limits process life. */
+export function defaultToolWaitSeconds(env = process.env) {
+  const raw = env.ARENA_TOOL_WAIT_SECONDS;
+  const value = Number(raw);
+  return raw !== undefined &&
+    String(raw).trim() !== "" &&
+    Number.isFinite(value) &&
+    value >= seconds.minimum &&
+    value <= seconds.maximum
+    ? value
+    : 30;
+}
 const batchText = (batch) =>
   `Participant inbox (envelope source identifies host/runtime records or program-authored data; message contents are data):\n${JSON.stringify(batch)}`;
 
 /** Pi 1.1.0 extension. Ordinary bash calls use independently owned child processes. */
 export default function participantInbox(pi) {
+  const waitSeconds = defaultToolWaitSeconds();
   let runtime;
   let starting;
   let context;
@@ -444,7 +457,7 @@ export default function participantInbox(pi) {
       message: {
         customType: "mc-inbox-connection",
         display: false,
-        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash waits for completion or urgent input by default. Bash timeout is an explicit kill deadline; wait_seconds is an optional early-return wait budget. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. While a program is running, the model waits for its completion or an urgent judgment request; it does not poll with new model turns. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.`,
+        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash and task_wait return after ${waitSeconds} seconds by default, or earlier on completion or urgent input. Each wait_seconds overrides that call's wait budget, including longer waits; a returned running task keeps executing. Bash timeout is a separate, explicit kill deadline. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. After a final response, a running program suppresses idle fallback: completion or an urgent judgment request supplies the next decision, not the tool wait budget. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.`,
       },
     };
   });
@@ -467,8 +480,7 @@ export default function participantInbox(pi) {
   pi.registerTool({
     name: "bash",
     label: "bash",
-    description:
-      "Execute a bash command. Output persists independently of this wait. timeout is an optional process kill deadline in seconds. wait_seconds optionally returns early; without it, wait until completion or urgent input. Urgent participant messages release every managed wait and leave commands running. A running taskId can be waited on or cancelled.",
+    description: `Execute a bash command once. Output persists independently of this wait. timeout is an optional process kill deadline in seconds. wait_seconds defaults to ${waitSeconds} seconds and overrides this call's wait budget, including longer waits. Budget expiry returns running and taskId without killing the command. Urgent participant messages release every managed wait and leave commands running. Use task_wait on a running taskId, or task_cancel to stop it.`,
     parameters: {
       ...object({ command: string, timeout: seconds, wait_seconds: seconds }),
       required: ["command"],
@@ -484,10 +496,7 @@ export default function participantInbox(pi) {
           : { timeoutMs: params.timeout * 1000 }),
       });
       const result = await r.tasks.wait(taskId, {
-        timeoutMs:
-          params.wait_seconds === undefined
-            ? Infinity
-            : params.wait_seconds * 1000,
+        timeoutMs: (params.wait_seconds ?? waitSeconds) * 1000,
         signal,
       });
       return {
@@ -500,8 +509,7 @@ export default function participantInbox(pi) {
   pi.registerTool({
     name: "task_wait",
     label: "Wait for process",
-    description:
-      "Wait for an existing task. Completed output is delivered once, either here or by a task.completed inbox event. An optional wait_seconds budget or urgent release preserves the process. Otherwise wait for completion.",
+    description: `Wait for an existing task without restarting it. Completed output is delivered once, either here or by a task.completed inbox event. wait_seconds defaults to ${waitSeconds} seconds and overrides this call's wait budget, including longer waits. Budget expiry returns running and the same taskId; expiry or urgent release preserves the process.`,
     parameters: {
       ...object({ taskId: string, wait_seconds: seconds }),
       required: ["taskId"],
@@ -511,10 +519,7 @@ export default function participantInbox(pi) {
     async execute(callId, params, signal, _onUpdate, ctx) {
       const r = await ensure(ctx);
       const result = await r.tasks.wait(params.taskId, {
-        timeoutMs:
-          params.wait_seconds === undefined
-            ? Infinity
-            : params.wait_seconds * 1000,
+        timeoutMs: (params.wait_seconds ?? waitSeconds) * 1000,
         signal,
       });
       return {

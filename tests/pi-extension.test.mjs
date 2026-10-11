@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, rm, readFile, writeFile, lstat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import extension from "../packages/pi-extension/index.mjs";
+import extension, {
+  defaultToolWaitSeconds,
+} from "../packages/pi-extension/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
 import { preparePiProfile } from "../packages/pi-extension/bootstrap.mjs";
 
@@ -58,6 +60,7 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
     "bash",
     {
       command: `${process.execPath} -e 'console.log(JSON.stringify({url:process.env.MC_INBOX_URL,sessionId:process.env.MC_INBOX_SESSION,token:process.env.MC_INBOX_TOKEN}))'`,
+      wait_seconds: 5,
     },
     "environment",
   );
@@ -77,6 +80,62 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
     },
   };
 }
+
+test("Pi shared wait budget defaults to 30 seconds and validates configuration", () => {
+  assert.equal(defaultToolWaitSeconds({}), 30);
+  for (const value of ["", "  ", "-1", "NaN", "Infinity", "2147484", "oops"])
+    assert.equal(
+      defaultToolWaitSeconds({ ARENA_TOOL_WAIT_SECONDS: value }),
+      30,
+    );
+  for (const value of ["0", "0.025", "120", "2147483"])
+    assert.equal(
+      defaultToolWaitSeconds({ ARENA_TOOL_WAIT_SECONDS: value }),
+      Number(value),
+    );
+});
+
+test("Pi per-call wait overrides preserve longer waits and explicit kill deadlines", async (t) => {
+  const h = await harness(t, { env: { ARENA_TOOL_WAIT_SECONDS: "0.02" } });
+  for (const name of ["bash", "task_wait"])
+    assert.match(h.tools.get(name).description, /defaults to 0\.02 seconds/);
+  const connection = await h.handlers.get("before_agent_start")({}, h.ctx);
+  assert.match(connection.message.content, /return after 0\.02 seconds/);
+  const longer = await h.run(
+    "bash",
+    { command: "sleep 0.1; printf longer-bash", wait_seconds: 2 },
+    "longer-bash",
+  );
+  assert.equal(longer.details.status, "completed");
+  assert.equal(longer.details.stdout, "longer-bash");
+  const started = await h.run(
+    "bash",
+    { command: "sleep 0.1; printf longer-wait", wait_seconds: 0 },
+    "longer-wait",
+  );
+  assert.equal(started.details.status, "running");
+  const immediate = await h.run("task_wait", {
+    taskId: started.details.taskId,
+    wait_seconds: 0,
+  });
+  assert.equal(immediate.details.status, "running");
+  assert.equal(immediate.details.taskId, started.details.taskId);
+  assert.equal(immediate.details.reason, "wait timeout");
+  const waited = await h.run("task_wait", {
+    taskId: started.details.taskId,
+    wait_seconds: 2,
+  });
+  assert.equal(waited.details.status, "completed");
+  assert.equal(waited.details.stdout, "longer-wait");
+  const limited = await h.run(
+    "bash",
+    { command: "sleep 30", timeout: 0.05, wait_seconds: 2 },
+    "explicit-kill-deadline",
+  );
+  assert.equal(limited.details.status, "completed");
+  assert.equal(limited.details.timedOut, true);
+  assert.ok(limited.details.signal);
+});
 
 test("Pi hooks coalesce at one top-level return and preserve existing result content", async (t) => {
   const h = await harness(t);
@@ -485,7 +544,7 @@ test(
               type: "function",
               function: {
                 name: "bash",
-                arguments: JSON.stringify({ command, wait_seconds: 0 }),
+                arguments: JSON.stringify({ command }),
               },
             },
           ],
@@ -518,6 +577,7 @@ test(
       ARENA_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`,
       ARENA_BRIDGE_TOKEN: "host-resident-fixture",
       ARENA_CONTINUE_DELAY_MS: "30",
+      ARENA_TOOL_WAIT_SECONDS: "0.05",
       MC_INBOX_TRANSPORT: "http",
       MC_INBOX_TOKEN: "resident-loopback-fixture-token",
     };

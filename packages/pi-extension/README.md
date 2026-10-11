@@ -4,8 +4,8 @@ Load the real extension with `pi -e /opt/arena/packages/pi-extension/index.mjs`.
 
 ## Behavior
 
-- `bash({command, timeout?, wait_seconds?})` starts the command once. By default it waits for exit or urgent inbox data. `timeout` is an optional execution deadline in seconds that kills the process group. `wait_seconds` is a separately named, optional wait budget that returns a running task ID while the process continues.
-- `task_wait({taskId, wait_seconds?})` waits for the existing process, indefinitely by default. It attaches to the same running command. A consumed final result returns a small `delivered` receipt.
+- `bash({command, timeout?, wait_seconds?})` starts the command once. By default it waits up to 30 seconds, returning earlier on exit or urgent inbox data. `timeout` is an optional execution deadline in seconds that kills the process group. `wait_seconds` overrides only this call's wait budget, including longer waits. Budget expiry returns `status:"running"`, `taskId` and `reason:"wait timeout"` while the same process continues; it does not set a process deadline.
+- `task_wait({taskId, wait_seconds?})` attaches to that existing process and uses the same 30-second default and per-call override. Keep the returned ID and wait again instead of starting a replacement. A consumed final result returns a small `delivered` receipt.
 - `task_cancel({taskId})` requests process-group termination and returns `cancelling`. Use `task_wait` until `completed`/`delivered`, then verify actual bot controls before starting a replacement controller. Signal-aware program cleanup can release its controls; forced KILL or a disconnected bridge can prevent that cleanup. Session shutdown also terminates active groups.
 - Urgent data releases every managed outstanding wait, including waits joining the current tool batch after the signal. This gets past Pi's same-batch result barrier without aborting the target processes. Only managed bash/task_wait waits can be released; arbitrary network waits or endless codemode computation are outside their scope.
 - Normal data is coalesced into the next top-level tool result. `parentToolCallId` identifies nested calls, whose hooks do not drain the queue. Codemode receives structured command results and can deliberately filter normal command output. Independently posted inbox data is appended to the final outer tool result, preserving delivery through codemode output filtering.
@@ -16,6 +16,8 @@ Load the real extension with `pi -e /opt/arena/packages/pi-extension/index.mjs`.
 - Aborting a tool caller detaches its wait while the command continues. Use task_cancel for explicit cancellation. On Pi session shutdown the manager cleans up process groups. Restart does not recover running child ownership or undelivered inbox data.
 
 Tools return both text JSON and `structuredContent`, with an output schema, so direct model calls and codemode can consume status without parsing human prose. The process manager output retention and transport limits are detailed in [the inbox module](../inbox/README.md).
+
+Set `ARENA_TOOL_WAIT_SECONDS` before loading Pi to change both tools' default. For example, `ARENA_TOOL_WAIT_SECONDS=10` uses ten-second waits; `task_wait({taskId, wait_seconds:120})` still waits up to two minutes for that call. `wait_seconds:0` returns immediately. These budgets release individual tool waits so Pi can make its next normal model request, including a freshly sampled current-observation tail. They do not schedule periodic model turns. If the model gives a final answer with a program still running, resident mode keeps that program alive but waits for completion or an urgent judgment request; its idle fallback remains suppressed. One-shot CLI shutdown still cleans up background commands.
 
 ## Default observation and request context
 
@@ -82,6 +84,7 @@ Configuration:
 
 - `ARENA_MODEL_CONFIG`: required path to the same public JSON descriptor used by the gateway: `{id,api,reasoning,input,contextWindow,maxOutputTokens,requestTimeoutMs,compaction?}`. Participant URL/key remain separate environment values; duplicated `MODEL_ID` and `PI_*` capability environment settings are no longer used.
 - `ARENA_CONTINUE_DELAY_MS` (default 5000): genuine-stall delay, never a polling interval while ordinary programs are running.
+- `ARENA_TOOL_WAIT_SECONDS` (default 30): shared default wait budget for `bash` and `task_wait`, captured when the extension loads. Accepts finite nonnegative seconds, including fractions and zero, within the tools' existing timer range (0–2147483 seconds). Missing, blank or invalid values use 30. Each call's `wait_seconds` can be shorter or longer; `bash.timeout` remains a separate explicit process-killing deadline.
 - `ARENA_WAIT_FOR_MATCH=1`: defer the one resident initial prompt until trusted match state is running; `ARENA_START_TIMEOUT_MS` bounds that wait (default ten minutes).
 - `ARENA_MATCH_STARTED_AT`: optional trusted match-start epoch milliseconds or ISO timestamp; with `ARENA_DURATION_MS`, enables a clamped match countdown. Without it, clock feedback is explicitly participant agent uptime, not match elapsed/remaining.
 - `ARENA_EXTRA_EXTENSIONS`: comma-separated Pi extension paths (relative paths resolve from the participant working directory).
@@ -112,6 +115,8 @@ The exact installed 1.1.0 npm package was inspected, including `dist/core/extens
 Sources: [official Pi repository](https://github.com/earendil-works/pi), [pinned npm package](https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/1.1.0).
 
 The test suite includes actual Pi 1.1.0 AgentSession and codemode integration with a local fake OpenAI-compatible server, plus real subprocess and transport tests. The suite uses fixed local provider responses and game fixtures. A separate host constraint prevents Unix socket binding in the development environment (EPERM), so that transport test reports an explicit skip; authenticated loopback protocol tests run in full. Actual container deployment remains a deployment check. The separate real-game observation checks below cover selected local gameplay and CPU-textured surface views.
+
+The wait-budget integration runs a real gated child through Pi's `bash`, omitted-budget `task_wait`, and a final explicit longer wait. It asserts two `running` returns with the same task ID/PID, one process start, a newly sampled runtime-state tail on each next model request, and normal completion without a timeout signal. Normal CI uses a configured 0.12-second budget; run `ARENA_TEST_REAL_DEFAULT_WAIT=1 node --test --test-name-pattern='omitted bash' tests/integration-pi.test.mjs` to exercise the unset 30-second default. On 2026-10-11 that real-default run returned after 30019 ms and 30015 ms, then completed successfully through four model requests. This fixture verifies process/runtime-state delivery; game observation is explicitly unavailable in this fixture. Separate Pi tests verify per-call longer/zero waits, unchanged explicit kill deadlines, and resident final-answer behavior: no polling while the child remains alive, one urgent continuation, then cleanup on shutdown.
 
 
 

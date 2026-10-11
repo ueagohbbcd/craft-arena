@@ -7,7 +7,7 @@
 1. 读取开局简报、可用的开局图像，以及请求末尾的最新状态。运行时已接好只读观察，状态包括自身、背包物品数量、装备、已观察玩家和受管程序（`taskId`）。状态取自持续更新的镜像，并附源时间与年龄。
 2. 选择一个具体目标。信息足够时直接行动；需要已观察地形总览或脚边细节时，调用 `observe({views:["overview","local"]})`，一次取得状态、两张图及覆盖元数据。
 3. 用现成示例或自己的程序执行。例如按 [编程技能](../examples/SKILL.md#first-movement) 使用 Pathfinder 前往选定坐标；较短动作也可直接运行一小段 SDK 代码。
-4. 检查实际位置、物品或世界变化。`bash` 默认等待程序结束或紧急事件；`wait_seconds` 可提前返回。返回 `running` 时保存 `taskId`，通过 `task_wait` 接续同一程序；`task_cancel` 返回 `cancelling` 表示已请求终止，随后用 `task_wait` 等到 `completed`／`delivered`，再核查角色控制状态。
+4. 检查实际位置、物品或世界变化。`bash` 和 `task_wait` 默认最多等待 30 秒（`ARENA_TOOL_WAIT_SECONDS` 可配置），程序结束或紧急事件可提前返回；`wait_seconds` 可逐次覆盖为更短或更长的等待，不会杀死程序。返回 `running` 时保存 `taskId`，通过 `task_wait` 接续同一程序；`bash.timeout` 仍是明确的进程终止期限。`task_cancel` 返回 `cancelling` 表示已请求终止，随后用 `task_wait` 等到 `completed`／`delivered`，再核查角色控制状态。
 
 ## 哪些自动提供，哪些按需使用
 

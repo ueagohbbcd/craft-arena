@@ -79,7 +79,7 @@ A single owning process handles acceptance and synchronous drain atomically. Sim
 
 `new TaskManager({inbox,cwd,env,maxTasks,maxOutputBytes,...})`, `start(command,{callId,timeoutMs?})`, `wait(taskId,{timeoutMs?,signal?})`, `cancel(taskId)`, `resumeWaits()`, `close()`.
 
-`start` launches `/bin/bash -c` in its own process group and injects its actual task ID as `MC_INBOX_TASK_ID`. The start timeout is an explicit execution deadline that terminates the group. A wait timeout only releases that caller. Waits default to waiting indefinitely. Aborting a wait detaches the caller while the process continues. Urgent acceptance releases all active waits and all new waits in that same batch until `resumeWaits()`. Unrelated blocking operations retain their own waiting behavior.
+`start` launches `/bin/bash -c` in its own process group and injects its actual task ID as `MC_INBOX_TASK_ID`. The start timeout is an explicit execution deadline that terminates the group. A wait timeout only releases that caller. Core `TaskManager.wait` defaults to waiting indefinitely; the [Pi tools](../pi-extension/README.md#behavior) supply a separate configurable 30-second default wait budget. Aborting a wait detaches the caller while the process continues. Urgent acceptance releases all active waits and all new waits in that same batch until `resumeWaits()`. Unrelated blocking operations retain their own waiting behavior.
 
 Running results contain `taskId`, `status:"running"`, `reason`, stdout/stderr snapshots, and dropped-output bytes. Final results use `status:"completed"`, `exitCode`, `signal`, optional `error`, optional `timedOut`, and final stdout/stderr. Check exitCode and signal; completed means the process exited, not that it succeeded.
 
