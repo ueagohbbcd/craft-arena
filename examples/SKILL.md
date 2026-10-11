@@ -130,7 +130,7 @@ try {
 | --- | --- |
 | Navigate | `await bot.pathfinder.goto(new goals.GoalNear(x,y,z,1))`; [plugin-goal.mjs](plugin-goal.mjs) includes progress and arrival checks |
 | Fight a selected entity | `await bot.pvp.attack(entity)` starts combat; `await bot.pvp.stop()` stops it |
-| Craft | `await bot.craftItem(itemType, count, table)`; use `null` for a recipe needing no table |
+| Craft | `await bot.craftItem(itemType, count, table)`; count is new result items, rounded up to whole recipe batches (20 planks uses 5 logs; 5 planks produces 8); use `null` for a recipe needing no table |
 | Send game chat | `bot.chat(message)` then `await bot.flush()`; visibility follows the server/map rules |
 | Query terrain | `bot.blockAt(position)`, `bot.findBlock`, `bot.findBlocks` |
 | Dig / place / equip | `await bot.dig(block)`, `await bot.placeBlock(reference, face)`, `await bot.equip(item, "hand")` |

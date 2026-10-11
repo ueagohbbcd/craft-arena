@@ -332,8 +332,12 @@ export function createAuthority(
       const type = num(a.itemType, 0, Infinity, true),
         count = num(a.count, 1, Infinity, true);
       const r = bot.recipesFor(type, null, count, t)[0];
-      if (!r) fail("No available recipe");
-      return bot.craft(r, count, t);
+      if (!r)
+        fail(
+          `No available recipe for at least ${count} new items with the current ingredients and crafting table`,
+        );
+      // recipesFor counts result items; native craft counts complete recipe runs.
+      return bot.craft(r, Math.ceil(count / r.result.count), t);
     },
     openContainer: async (a) => {
       const container =

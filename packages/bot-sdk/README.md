@@ -13,7 +13,7 @@ Use `connectBot({url,token})` from `index.mjs` to control your existing arena bo
 | Blocks | `dig(block, forceLook?, digFace?)`, `stopDigging`, `placeBlock`, `activateBlock(block, direction?, cursorPos?)` |
 | Items | `equip`, `unequip`, `activateItem`, `deactivateItem`, `setQuickBarSlot`, `tossStack` |
 | Containers | `openContainer`, `closeWindow`, `clickWindow`; native Window queries and `withdraw/deposit/close` below |
-| Craft | `craftItem` (signature in `index.mjs`) |
+| Craft | `craftItem(itemType, count = 1, table = null)`; count is new result items, rounded up to whole recipe batches |
 | Events | ordinary `bot.on(...)`, including `death`, `spawn`, `health`, block/entity/window events and `bridgeReset` |
 
 Use the matching upstream documentation under `$ARENA_REFERENCE_ROOT` for Mineflayer and plugin behavior. This reference describes the arena-specific differences.
@@ -43,11 +43,26 @@ Pathfinder's native `fullStop` writes local position/velocity. The adapter repla
 ## API differences
 
 - Inventory queries follow native Window storage ranges; `items()` excludes armor and crafting slots. Container transfer and item components are described below.
-- Dig preserves `forceLook="ignore"`; optional attack/dig/activateBlock arguments are passed through. Click modes 0–6 and outside/drop slot -999 use the active window. Craft batches may exceed one stack.
+- Dig preserves `forceLook="ignore"`; optional attack/dig/activateBlock arguments are passed through. Click modes 0–6 and outside/drop slot -999 use the active window. Craft requests may exceed one stack.
 - The facade provides `craftItem`, not native `recipesFor`/`craft(recipe)`. Specialized furnace, villager and enchanting helpers are not implemented.
 - Packet access (`_client`), trusted-side plugin installation and reconnect are owned by the host. For an API absent from the table, check [index.mjs](index.mjs) before using it.
 
 ## Validation coverage
+
+## Craft quantities
+
+`await bot.craftItem(itemType, count = 1, table = null)` crafts at least `count`
+**new result items**, not a target inventory total or a number of recipe runs.
+It rounds up to complete recipe batches: requesting 20 planks uses five logs;
+requesting 5 planks uses two logs and produces 8. Items already in the inventory
+do not reduce the request. Pass a crafting-table block when the recipe needs one.
+
+The bridge checks ingredient availability for that result quantity before calling
+native Mineflayer `craft(recipe, batches, table)`. If no recipe is available with
+the current ingredients/table, it rejects before crafting. Native failures after
+execution starts may still leave partial results; inspect inventory before retrying.
+Existing calls for one-output recipes keep their quantities. Code that previously
+treated `count` as recipe runs must instead pass its intended result quantity.
 
 The installed Pathfinder 2.4.5 and PvP 1.3.2 run against the facade. Tests exercise native chunk-based planning across a 40-block route, custom goals/movement callbacks, semantic attacks, event/state reconstruction and action errors. These tests establish those contracts; full navigation through changing terrain, digging/placing during navigation, fall recovery and combat still need isolated live-server evaluation. This is a testing limitation, separate from the API availability above.
 

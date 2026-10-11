@@ -75,7 +75,7 @@ export function fakeBot() {
     bot[n] = (...args) => {
       bot.calls.push([n, ...args]);
     };
-  bot.recipesFor = () => [{ result: { id: 1 } }];
+  bot.recipesFor = () => [{ result: { id: 1, count: 1 } }];
   return bot;
 }
 const token = "test-token-long-enough";

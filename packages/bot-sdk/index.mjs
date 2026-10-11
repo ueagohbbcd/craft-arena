@@ -724,6 +724,7 @@ export class BotFacade extends EventEmitter {
   tossStack(item) {
     return this.action("tossStack", {
       slot: item.slot,
+  /** Craft at least count new items, rounded up to complete recipe batches. */
       windowRef: (this.currentWindow ?? this.inventory).windowRef,
     });
   }

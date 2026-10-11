@@ -32,7 +32,7 @@
 | 连接 bot、读取原始位置／血量／物品／方块 | [SDK 接入与 API](../packages/bot-sdk/README.md) |
 | 使用现成状态与一次看图 | [观察指南](OBSERVATION.md)、[编程示例](../examples/SKILL.md) |
 | 寻路到坐标 | [Pathfinder 示例](../examples/plugin-goal.mjs)，包含停滞报告和到达核验 |
-| 合成物品 | SDK 的 `craftItem(itemType, count, table)` |
+| 合成物品 | SDK 的 `craftItem(itemType, count, table)`；count 为本次新增成品数，按完整配方向上取整 |
 | 战斗 | SDK 的 PvP 适配器和 `attack(entity)`，见 [控制程序](../examples/SKILL.md#write-a-bot-control-program) |
 | 开箱、查看后再取物 | [两步容器操作](../examples/SKILL.md#inspect-a-container-then-transfer) |
 | 发送游戏聊天 | `bot.chat(message)` 后 `await bot.flush()`；聊天范围依地图规则 |
