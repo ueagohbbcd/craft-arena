@@ -1,0 +1,135 @@
+{
+  "schemaVersion": 1,
+  "kind": "solo-live-efficiency-trial",
+  "date": "2026-10-11",
+  "map": {
+    "name": "Direct Fire",
+    "version": "1.2",
+    "author": "Vechs",
+    "source": "https://map-index.herokuapp.com/maps/direct-fire/",
+    "archiveSha256": "114382c55ecfd1e67a6806570883d5895972b878861eb5dd56d6d1f30f66dd85",
+    "runtimeVersion": "1.21.1",
+    "conversion": "Original map upgraded by vanilla server; distinct from the earlier Java 1.21 conversion package."
+  },
+  "conditions": {
+    "players": 1,
+    "opponents": 0,
+    "difficulty": "normal",
+    "monsters": true,
+    "mode": "survival",
+    "normalDeathDrops": true,
+    "adminItemGrants": false
+  },
+  "timing": {
+    "startedAt": "2026-10-11T07:42:38.545Z",
+    "endedAt": "2026-10-11T10:00:16.397Z",
+    "elapsedMs": 8257852,
+    "includes": "Reasoning, script editing, observation hookup changes, gameplay and recovery."
+  },
+  "outcome": {
+    "completed": false,
+    "reason": "Evaluation ended after repeated recovery cycles; world preserved for subsequent work.",
+    "deaths": 17,
+    "goalWoolAcquired": 0,
+    "monumentGoals": 0,
+    "requiredGoals": 3
+  },
+  "persistentProgress": {
+    "bridge": {
+      "x": [
+        206,
+        229
+      ],
+      "y": 63,
+      "z": -26,
+      "continuousBlocks": 24
+    },
+    "shaft": {
+      "x": 136,
+      "z": -26,
+      "lowestFootY": 15,
+      "continuousLadderRoute": false,
+      "note": "Partially sealed working shaft, not a completed safe return route."
+    },
+    "cache": {
+      "position": [
+        114,
+        61,
+        -31
+      ],
+      "contents": {
+        "ladder": 12,
+        "oak_planks": 5,
+        "stick": 5,
+        "wooden_pickaxe": 1,
+        "wooden_sword": 1
+      }
+    },
+    "forwardBedStillPresent": false,
+    "originalBedStillPresent": true,
+    "verification": "Read from saved world NBT after normal shutdown."
+  },
+  "statistics": {
+    "nativeBlocksMined": 621,
+    "nativeChestInteractions": 37,
+    "nativeMobKills": 31,
+    "bridgeRequests": 77503,
+    "note": "Low-level bridge requests are not model calls or successful task counts."
+  },
+  "observation": {
+    "firstDefaultAttachment": "2026-10-11T07:59:27.997Z",
+    "earlyPhaseMs": 1009452,
+    "earlyDeaths": 3,
+    "laterPhaseMs": 7248400,
+    "laterDeaths": 14,
+    "limitations": [
+      "Initial player-written SDK harness omitted the default observer/inbox. Hookup and cursor handling were repaired during the run.",
+      "Later user and supervisor feedback was supplied; this is not an independent blinded model benchmark.",
+      "Native coding agent with a local relay; not the full Pi/container/budget gateway deployment.",
+      "An emitted event or fresh snapshot alone does not establish that the model consumed it at that moment."
+    ]
+  },
+  "findings": [
+    {
+      "area": "SSE slot bursts",
+      "observation": "Crafting coincided with repeated terminated disconnects and navigation goal resets.",
+      "verification": "Separate deterministic native-inventory plus HTTP reproduction showed two 46-slot updates overfilled the queue for an actively reading client. Candidate coalesces synchronous slot notifications."
+    },
+    {
+      "area": "Pathfinder placement transition",
+      "observation": "Falling during dig/edge-positioning lost the initial equipment.",
+      "verification": "Separate representative terrain plus physics reproduction identified entering horizontal placement before landing. Original per-tick path was not recorded; this is not a complete live replay."
+    },
+    {
+      "area": "Inventory completion",
+      "observation": "Immediately after closing a transfer window the SDK could briefly retain old carried inventory.",
+      "verification": "Native inventory versus delayed SSE/HTTP comparison reproduced a missing completion barrier."
+    },
+    {
+      "area": "Craft quantity",
+      "observation": "Five logs produced twenty planks, then an erroneous additional recipe iteration failed.",
+      "verification": "Bridge used one number as both result-item quantity and recipe-iteration count."
+    },
+    {
+      "area": "Target-cell entities",
+      "observation": "A bat about 1.1 blocks away was omitted by risk-ranked summary; raw entity query exposed it during placement troubleshooting.",
+      "verification": "Targeted geometry query is additional evidence, not proof of server rejection cause."
+    },
+    {
+      "area": "Player control",
+      "observation": "Partial route construction persisted, but exposed pauses, incomplete enclosure, resource recovery and target selection repeatedly lost time and equipment."
+    }
+  ],
+  "source": {
+    "localCommit": "7dcb0669048ec1cf9cd74435b984b8819e0b98bf",
+    "remoteEquivalent": "8c4d9122efff5a7d711d28952daef6662261e7f2",
+    "candidateFixesAppliedDuringRun": false
+  },
+  "shutdown": {
+    "worldSaved": true,
+    "worldReset": false,
+    "processesStopped": true,
+    "portsReleased": true,
+    "originalArchivePreserved": true
+  }
+}
