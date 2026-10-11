@@ -156,3 +156,24 @@ test("native item metadata decoded into names and item counts", () => {
 });
 test("no current player position produces unavailable radar", () =>
   assert.equal(entityRadar({}).known, false));
+
+test("default observation radar keeps trusted team relation", async () => {
+  const { sampleObservation } =
+    await import("../packages/observation/index.mjs");
+  const b = bot({
+    2: {
+      id: 2,
+      name: "player",
+      username: "ally",
+      metadata: { 0: 0 },
+      position: { x: 5, y: 0, z: 0 },
+    },
+  });
+  b.username = "self";
+  const r = sampleObservation(b, {
+    teams: { selfTeam: "blue", byUsername: { ally: "blue" } },
+    localRadius: 0,
+  });
+  assert.equal(r.radar.players[0].team, "blue");
+  assert.equal(r.radar.players[0].relation, "ally");
+});

@@ -759,7 +759,20 @@ export function sampleObservation(bot, options = {}) {
         z: Math.floor(position.z),
       }
     : null;
+  const observedEntities = entitiesSummary(bot, options, position);
   const radar = entityRadar(bot, options.radar);
+  const playersById = new Map(
+    observedEntities.players.map((player) => [player.id, player]),
+  );
+  for (const entry of radar.players) {
+    const player = playersById.get(entry.id);
+    if (player)
+      Object.assign(entry, {
+        team: player.team,
+        relation: player.relation,
+        state: player.state,
+      });
+  }
   for (const entry of radar.entities) {
     const source = bot?.entities?.[entry.id];
     if (source)
@@ -819,7 +832,7 @@ export function sampleObservation(bot, options = {}) {
     heldItem: describeItem(heldItem(bot), options.fullItems),
     cursor: describeItem(cursorItem(bot), options.fullItems),
     window: windowSummary(bot, options),
-    ...entitiesSummary(bot, options, position),
+    ...observedEntities,
     radar,
     local: localSummary(bot, options, position),
     tasks: plain(options.tasks ?? []),
