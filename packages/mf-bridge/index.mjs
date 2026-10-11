@@ -580,6 +580,8 @@ export function createBridgeServer({
     "entitySpawn",
     "entityGone",
     "entityHurt",
+    "entityEquip",
+    "entityUpdate",
     "entityEquipmentChange",
     "health",
     "heldItemChanged",
