@@ -127,7 +127,7 @@ test("headers and active snapshots apply the same explicit privacy allowlist", (
     assert.equal(result.cash.team.quality, "estimated");
     assert.equal(result.cash.participant.rate.overRateRatioBeforeWait, 0.4);
     assert.match(result.accounting, /pre-wait projected pressure/);
-    assert.match(result.accounting, /not cumulative spending/);
+    assert.match(result.accounting, /rate ratios track repaid debt/);
   }
   assert.equal(headers.participantRemainingTokens, 8000);
   assert.equal(snapshot.participantRemainingTokens, 7900);
@@ -179,4 +179,23 @@ test("unknown or malformed cash fields never become an amount or a fabricated pu
     undefined,
   );
   assert.equal(budgetFromHeaders({ "x-arena-queue-delay-ms": "0" }), undefined);
+});
+
+test("budget descriptions explain only the fields actually delivered", () => {
+  const token = budgetFromHeaders({
+    "x-arena-reserved-tokens": "100",
+    "x-arena-participant-remaining-tokens": "900",
+  });
+  assert.match(token.accounting, /requestReservedTokens/);
+  assert.match(token.accounting, /token remaining excludes/);
+  assert.doesNotMatch(token.accounting, /cash|prices|rate ratios/);
+  const queued = budgetFromSnapshot({ lastRequest: { queueDelayMs: 10 } });
+  assert.equal(queued.accounting, "authenticated budget snapshot");
+  const priced = budgetFromSnapshot({ participant: { cash: cash() } });
+  assert.match(priced.accounting, /official API reference prices/);
+  assert.match(priced.accounting, /pre-wait projected pressure/);
+  assert.doesNotMatch(
+    priced.accounting,
+    /requestReservedTokens|token remaining/,
+  );
 });
