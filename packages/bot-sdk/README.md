@@ -141,3 +141,49 @@ Window regressions use the installed Mineflayer inventory/chest/transfer plugins
 with synthetic server events and captured native writes. They cover multi-stack
 transfer, query/slot events, reused IDs, delayed replies, exact-slot toss and item
 components. They are not a substitute for live-server container testing.
+
+## Default combat observation
+
+`loadSelectedPlugins(bot)` attaches `bot.combatObservation` alongside native PvP.
+In a managed program it uses the ordinary `InboxClient` environment automatically.
+You can pass `{ inbox }`, configure `{ combatObservation: { nearbyRadius: 16 } }`,
+or disable it with `{ combatObservation: false }`. Without an Inbox environment,
+`bot.combatObservation.summary()` still exposes bounded task-local results.
+
+One normal `combat.summary` combines actual start/stop events, attack attempts,
+target changes/disappearance, observed pursuit distance, your health changes and
+nearby observed potential-threat count changes. Large intermediate changes may
+produce a coalesced normal `combat.phase`, at most once per ten seconds. Neither
+wakes the model urgently; delivery follows the next natural tool boundary. The
+observer only reads events and state. Its `close()`/`flush()` drains reporting,
+without stopping PvP. Stop your controller separately before closing it.
+
+Nearby counts cover observed hostile mob names, other players and the selected
+target within 16 blocks by default. Other players may include teammates; pass
+`isPotentialThreat(entity)` in the observer options when you know team membership.
+These counts describe received observations and radius crossings, not a complete
+world census. `attackedTarget` counts attack attempts. `entityHurt` is observed
+hurt without attacker attribution. `entityGone` only establishes disappearance;
+summary `outcome` remains `unknown`.
+
+PvP follows the entity passed to `attack(entity)`. Your selector can provide its
+actual candidates and reason using `reportDecision({ candidates,
+selectedTargetId, reason })`; your controller can use `reportStopReason(reason)`.
+These are labeled `controller_report`. Unreported selection or stopping reasons
+stay unknown. The observer does not infer a multi-target algorithm inside PvP.
+The thin [observe-pvp example](../../examples/observe-pvp.mjs) demonstrates this
+with explicit observed IDs and PvP's separate `movements` instance:
+
+```sh
+node /opt/arena/examples/observe-pvp.mjs 42 57
+```
+
+A normal report has this shape (illustrative values):
+
+```json
+{"type":"combat.summary","attackAttempts":6,"targetChanges":1,"health":{"start":20,"current":16,"lost":4},"nearby":{"start":2,"peak":4,"current":1,"added":2,"removed":3},"stop":{"observedEvent":"stoppedAttacking","cause":"see_evidence_or_unknown"},"outcome":"unknown"}
+```
+
+Installed PvP 1.3.2 event tests cover handoff timing, disappearance, range loss,
+nearby count changes, phase coalescing and reporting failures. This is bridge/
+plugin validation with fixtures, not live-server combat acceptance.

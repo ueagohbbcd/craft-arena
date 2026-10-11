@@ -1,9 +1,14 @@
 import { createRequire, Module } from "node:module";
 import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { InboxClient } from "../inbox/index.mjs";
+import { observeCombat } from "./combat-observation.mjs";
 const require = createRequire(import.meta.url);
 /** Local plugin adaptation. No participant code is sent to the authority. */
-export function loadSelectedPlugins(bot, { pvp = true } = {}) {
+export function loadSelectedPlugins(
+  bot,
+  { pvp = true, combatObservation = true, inbox } = {},
+) {
   const filename = require.resolve("mineflayer-pathfinder");
 
   const source = readFileSync(filename, "utf8");
@@ -94,6 +99,17 @@ export function loadSelectedPlugins(bot, { pvp = true } = {}) {
   bot.loadPlugin(m.exports.pathfinder);
   if (pvp) {
     bot.loadPlugin(require("mineflayer-pvp").plugin);
+    if (combatObservation) {
+      inbox ??=
+        (process.env.MC_INBOX_SOCKET || process.env.MC_INBOX_URL) &&
+        process.env.MC_INBOX_SESSION
+          ? new InboxClient()
+          : null;
+      bot.combatObservation = observeCombat(bot, {
+        inbox,
+        ...(typeof combatObservation === "object" ? combatObservation : {}),
+      });
+    }
     // PvP 1.3.2 still subscribes to the legacy singular spelling.
     bot.on("physicsTick", () => bot.emit("physicTick"));
   }
