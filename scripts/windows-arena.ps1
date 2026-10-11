@@ -69,8 +69,16 @@ function Read-MatchState {
   return ''
 }
 function Stop-Arena {
-  Invoke-Compose @('stop','-t','30','arena-host')
-  Invoke-Compose @('stop','-t','20','participant-red1','participant-blue1','budget-gateway','budget-blue','codex-adapter','deepseek-adapter','minecraft')
+  Invoke-Compose @('stop','arena-host')
+  Invoke-Compose @('stop','-t','20','participant-red1','participant-blue1','budget-gateway','budget-blue','codex-adapter','deepseek-adapter')
+  $resultPath = Join-Path $deployment 'results/match-result.json'
+  if (Test-Path -LiteralPath $resultPath) {
+    $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
+    if ($result.replay.startRequested -and $result.replay.status -ne 'saved') {
+      throw 'Replay saving is unconfirmed. Minecraft remains running; inspect results and replay caches before stopping or resetting.'
+    }
+  }
+  Invoke-Compose @('stop','minecraft')
   Stop-ProxyRelay
 }
 switch ($Action) {

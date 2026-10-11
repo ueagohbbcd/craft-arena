@@ -19,11 +19,16 @@ services:
     mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
     cpus: ${ARENA_CPU_LIMIT:-2.0}
     restart: 'no'
-    image: ${MC_SERVER_IMAGE:?Provide a vetted preconfigured Minecraft server image}
+    image: ${MC_SERVER_IMAGE:-craft-arena-minecraft:local}
+    build:
+      context: ${MC_SERVER_BUILD_CONTEXT:-../runtime/server}
+    stop_grace_period: 180s
     networks:
     - backend
     volumes:
     - world:/data
+    - match-results:/results
+    - replay-config:/data/config/ServerReplay
   budget-gateway:
     user: 1000:1000
     cap_drop: *id001
@@ -115,6 +120,7 @@ services:
     stdin_open: true
     tty: true
   arena-host:
+    stop_grace_period: ${ARENA_HOST_STOP_GRACE_PERIOD:-180s}
     user: 1000:1000
     cap_drop: *id001
     security_opt: *id002
@@ -143,6 +149,7 @@ services:
     - ./match.live.json:/config/match.live.json:ro
     - match-results:/results
     - match-control:/control
+    - replay-config:/replay-config
 networks:
   backend:
     internal: true
@@ -160,3 +167,4 @@ volumes:
   match-results: {}
   match-control: {}
 
+  replay-config: {}

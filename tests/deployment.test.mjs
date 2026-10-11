@@ -115,7 +115,11 @@ test("Windows deployment uses operator world/config and one server metadata sour
   assert.match(init, /\[Parameter\(Mandatory\)\]\[string\]\$WorldDir/);
   assert.match(init, /\[Parameter\(Mandatory\)\]\[string\]\$MatchConfig/);
   assert.match(init, /Get-Content -LiteralPath \$ServerDownload/);
-  assert.match(init, /Get-FileHash[^\n]+\$download\.sha1/);
+  assert.match(init, /prepare-minecraft-server\.mjs/);
+  assert.match(
+    init,
+    /matchConfig\.live\.minecraft\.version -ne \$download\.minecraftVersion/,
+  );
   assert.match(init, /DeploymentDir must not be inside WorldDir/);
   assert.match(init, /\[IO\.Directory\]::Move\(\$stage, \$destination\)/);
   assert.match(init, /Assert-ArenaPath \$stage -Root \$parent -Tree/);
@@ -127,4 +131,42 @@ test("Windows deployment uses operator world/config and one server metadata sour
     );
   }
   assert.match(control, /archive-participant-state\.mjs/);
+});
+
+test("live deployment exposes replay storage only to the two trusted services", async () => {
+  for (const path of ["compose.live.yaml", "windows-local/compose.yaml"]) {
+    const text = await readFile(
+      new URL(`../infra/${path}`, import.meta.url),
+      "utf8",
+    );
+    const sections = Object.fromEntries(
+      [
+        ...text.matchAll(
+          /^  ([a-z][a-z0-9-]+):\n([\s\S]*?)(?=^  [a-z][a-z0-9-]+:|^networks:|^volumes:|(?![\s\S]))/gm,
+        ),
+      ].map((match) => [match[1], match[2]]),
+    );
+    for (const service of ["minecraft", "arena-host"]) {
+      assert.match(sections[service], /:\/results/);
+      assert.match(sections[service], /replay-config/);
+      assert.match(sections[service], /stop_grace_period/);
+    }
+    for (const [name, section] of Object.entries(sections))
+      if (name.startsWith("participant-"))
+        assert.doesNotMatch(
+          section,
+          /replay-config|:\/results|minecraft-data|world:\/data/,
+        );
+  }
+  const init = await readFile(
+    new URL("../scripts/initialize-windows-arena.ps1", import.meta.url),
+    "utf8",
+  );
+  const control = await readFile(
+    new URL("../scripts/windows-arena.ps1", import.meta.url),
+    "utf8",
+  );
+  assert.match(init, /\.\.\/infra\/minecraft-download\.json/);
+  assert.doesNotMatch(control, /'stop','-t','30','arena-host'/);
+  assert.match(control, /Replay saving is unconfirmed/);
 });

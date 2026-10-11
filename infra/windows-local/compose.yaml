@@ -15,13 +15,18 @@ services:
     image: craft-arena-minecraft:local
     mem_limit: 3g
     networks: [backend]
-    volumes: [./minecraft-data:/data]
+    volumes:
+      - ./minecraft-data:/data
+      - ./results:/results
+      - ./replay-config:/data/config/ServerReplay
+    stop_grace_period: 180s
   arena-host:
     <<: *common
     build:
       context: ${ARENA_SOURCE_DIR}
       dockerfile: infra/Dockerfile.trusted
     image: craft-arena-trusted:local
+    stop_grace_period: ${ARENA_HOST_STOP_GRACE_PERIOD:-180s}
     command: [node, packages/arena/src/live-cli.mjs, /config/match.live.json, /results/match-result.json]
     environment:
       MC_RCON_PASSWORD: ${MC_RCON_PASSWORD}
@@ -32,6 +37,7 @@ services:
       - ./match.live.json:/config/match.live.json:ro
       - ./results:/results
       - ./control:/control
+      - ./replay-config:/replay-config
   codex-adapter:
     <<: *common
     profiles: [agents]
