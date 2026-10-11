@@ -28,8 +28,12 @@ export function compactPerception(snapshot) {
     players,
     entities,
     runtimeProjection,
+    recentBlocks,
+    nearbySigns,
     ...state
   } = snapshot;
+  // Interval reports and signs own their Inbox cadence; copying them here would
+  // bypass the minimum delay and duplicate every changing sample timestamp.
   if (!state.radar) Object.assign(state, { players, entities });
   delete state.type;
   // Delivery age changes every call; source availability changes are meaningful.

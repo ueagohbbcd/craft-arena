@@ -56,3 +56,16 @@ test("sub-decimeter idle jitter and task duration do not create repeated reports
   s.tasks[0].durationMs = 200;
   assert.equal(c.next(s), null);
 });
+
+test("interval and sign producers retain their own delivery cadence", () => {
+  const c = createPerceptionChanges(),
+    s = sample();
+  s.recentBlocks = { samples: 1 };
+  s.nearbySigns = { observedAt: 1, signs: [] };
+  const first = c.next(s);
+  assert.equal(first.changes.recentBlocks, undefined);
+  assert.equal(first.changes.nearbySigns, undefined);
+  s.recentBlocks.samples++;
+  s.nearbySigns.observedAt++;
+  assert.equal(c.next(s), null);
+});
