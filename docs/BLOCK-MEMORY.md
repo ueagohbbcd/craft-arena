@@ -49,6 +49,14 @@ imposed by these memory queries.
 The response's `scope` identifies its world, run and participant, and `revision`
 is the live memory revision. `error` reports persistence trouble if configured.
 
+Native `block.entity` NBT is retained, including modern signs' `front_text` and
+`back_text`. Block-entity-only updates replace that data even when the block state
+ID is unchanged. Native block/sky lighting also survives unloading and optional
+gzip restoration. A prefetched sign is a native Prismarine block, so
+`view.blockAt(position).getSignText()` reads both sides; `block.entity` remains
+available for exact fields. Returned local block entities are copies, so editing
+a returned sign cannot change the cached column or the trusted character's world.
+
 ## Explicit prefetch, then a synchronous Mineflayer-style subset
 
 Network queries cannot transparently implement synchronous Mineflayer methods.
