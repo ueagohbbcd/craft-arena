@@ -16,13 +16,30 @@ const bot = await connectBot({
     token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
   }),
   inbox = new InboxClient();
-// A single shared Promise serializes hand use. Movement/observation may remain independent.
+// This program owns equip/place/use-item; do not overlap another hand controller.
+// Its shared Promise serializes hand use. Movement/observation remain independent.
 let hand = Promise.resolve(),
   feeding = false,
   reportedNoFood = false,
   closed = false;
+const controller = new AbortController(),
+  { signal } = controller;
+const stop = (name) => {
+  if (signal.aborted) return;
+  closed = true;
+  process.exitCode = name === "SIGINT" ? 130 : 143;
+  controller.abort();
+};
+const onTerm = () => stop("SIGTERM"),
+  onInterrupt = () => stop("SIGINT");
+process.on("SIGTERM", onTerm);
+process.on("SIGINT", onInterrupt);
+bot.on("error", console.error);
 const withHand = (fn) => {
-  const next = hand.then(fn);
+  const next = hand.then(() => {
+    signal.throwIfAborted();
+    return fn();
+  });
   hand = next.catch(() => {});
   return next;
 };
@@ -54,11 +71,14 @@ async function checkFood() {
     await withHand(async () => {
       const before = bot.food;
       await bot.equip(food, "hand");
-      bot.activateItem();
-      await bot.flush();
+      signal.throwIfAborted();
       try {
-        await sleep(1800);
+        bot.activateItem();
+        await bot.flush();
+        await sleep(1800, undefined, { signal });
       } finally {
+        // This example owns hand use, but never owns movement. Release only
+        // its item activation, leaving an independent movement program alone.
         bot.deactivateItem();
         await bot.flush();
       }
@@ -77,11 +97,12 @@ async function checkFood() {
   }
 }
 const healthListener = () => {
-  void checkFood().catch((error) =>
-    inbox
+  void checkFood().catch((error) => {
+    if (signal.aborted) return;
+    return inbox
       .post({ type: "food.error", message: error.message })
-      .catch(console.error),
-  );
+      .catch(console.error);
+  });
 };
 bot.on("health", healthListener);
 healthListener();
@@ -96,8 +117,10 @@ try {
       const against = bot.blockAt(step.against);
       if (!against) throw new Error("Placement reference is unknown");
       await bot.equip(material, "hand");
+      signal.throwIfAborted();
       await bot.placeBlock(against, step.face);
     });
+    signal.throwIfAborted();
     placed++;
     await inbox.upsert(
       "build.progress",
@@ -108,11 +131,18 @@ try {
     await checkFood();
   }
   console.log(JSON.stringify({ built: placed, total: plan.steps.length }));
+} catch (error) {
+  if (!signal.aborted) throw error;
 } finally {
   closed = true;
   bot.off("health", healthListener);
-  await hand;
-  bot.clearControlStates();
-  await bot.flush();
-  bot.closeBridge();
+  try {
+    // Let any in-flight hand action settle; aborted queued work never starts.
+    await hand;
+    await bot.flush();
+  } finally {
+    bot.closeBridge();
+    process.off("SIGTERM", onTerm);
+    process.off("SIGINT", onInterrupt);
+  }
 }

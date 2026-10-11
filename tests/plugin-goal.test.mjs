@@ -13,11 +13,12 @@ const source = (
     "utf8",
   )
 ).replace(/^import .*;\r?\n/gm, "");
-async function harness({ failDelivery = false } = {}) {
+async function harness({ failDelivery = false, failFlush = false } = {}) {
   const bot = new EventEmitter(),
     reports = [],
     events = [],
-    errors = [];
+    errors = [],
+    cleanup = [];
   let now = 0,
     tick,
     cleared = false,
@@ -36,17 +37,26 @@ async function harness({ failDelivery = false } = {}) {
       setMovements() {},
       goto: () => pending,
       setGoal() {
+        stopped = true;
+        cleanup.push("stop");
         reject(new Error("Goal changed"));
       },
-      stop() {
-        stopped = true;
-      },
     },
-    clearControlStates() {},
-    async flush() {},
-    closeBridge() {},
+    clearControlStates() {
+      cleanup.push("clear");
+    },
+    async flush() {
+      cleanup.push("flush");
+      if (failFlush) throw new Error("Release failed");
+    },
+    closeBridge() {
+      cleanup.push("close");
+    },
   });
-  const proc = { argv: ["node", "example", "10", "1", "0"], env: {} };
+  const proc = Object.assign(new EventEmitter(), {
+    argv: ["node", "example", "10", "1", "0"],
+    env: {},
+  });
   const done = runInNewContext(`(async () => {${source}\n})()`, {
     connectBot: async () => bot,
     summarizeTerrain: () => ({
@@ -85,6 +95,7 @@ async function harness({ failDelivery = false } = {}) {
     events,
     proc,
     errors,
+    cleanup,
     async advance(ms, x = bot.entity.position.x) {
       now = ms;
       bot.entity.position.x = x;
@@ -98,6 +109,8 @@ async function harness({ failDelivery = false } = {}) {
       assert.equal(cleared, true);
       assert.equal(stopped, true);
       assert.equal(bot.listenerCount("path_update"), 0);
+      assert.equal(proc.listenerCount("SIGTERM"), 0);
+      assert.equal(proc.listenerCount("SIGINT"), 0);
     },
     done,
   };
@@ -148,4 +161,39 @@ test("failed urgent delivery cancels pending goal and exits nonzero", async () =
   assert.equal(h.events.length, 0);
   assert.match(String(h.errors[0]), /IPC unavailable/);
   await h.finish();
+});
+
+for (const [signal, exitCode] of [
+  ["SIGTERM", 143],
+  ["SIGINT", 130],
+]) {
+  test(`${signal} stops the pending goal, flushes releases, and closes without reporting route failure`, async () => {
+    const h = await harness();
+    h.proc.emit(signal);
+    h.proc.emit(signal); // Repeated requests cannot skip the in-flight cleanup.
+    await h.done;
+    assert.equal(h.proc.exitCode, exitCode);
+    assert.equal(h.events.length, 0);
+    assert.equal(h.errors.length, 0);
+    assert.deepEqual(h.cleanup, [
+      "stop",
+      "stop",
+      "flush",
+      "clear",
+      "flush",
+      "close",
+    ]);
+    assert.equal(h.bot.listenerCount("path_update"), 0);
+    assert.equal(h.proc.listenerCount(signal), 0);
+  });
+}
+
+test("failed release flush still closes the bridge and removes signal handlers", async () => {
+  const h = await harness({ failFlush: true });
+  h.proc.emit("SIGTERM");
+  await assert.rejects(h.done, /Release failed/);
+  assert.deepEqual(h.cleanup.slice(-4), ["flush", "clear", "flush", "close"]);
+  assert.equal(h.cleanup.at(-1), "close");
+  assert.equal(h.proc.listenerCount("SIGTERM"), 0);
+  assert.equal(h.proc.listenerCount("SIGINT"), 0);
 });
