@@ -118,7 +118,7 @@ test("Windows deployment uses operator world/config and one server metadata sour
   assert.match(init, /prepare-minecraft-server\.mjs/);
   assert.match(
     init,
-    /matchConfig\.live\.minecraft\.version -ne \$download\.minecraftVersion/,
+    /matchDocument\.live\.minecraft\.version -ne \$download\.minecraftVersion/,
   );
   assert.match(init, /DeploymentDir must not be inside WorldDir/);
   assert.match(init, /\[IO\.Directory\]::Move\(\$stage, \$destination\)/);

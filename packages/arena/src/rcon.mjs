@@ -88,17 +88,24 @@ export class RconClient {
         throw new Error("RCON not connected");
       const id = this.next++,
         fence = this.next++;
-      let result = "";
+      let result = "",
+        fenceSent = false;
       this.pending.set(id, (p) => {
         if (p.error) return;
         result += p.text;
         if (result.length > 1024 * 1024)
           this.socket.destroy(new Error("RCON response too large"));
+        // Minecraft may close when two requests arrive in one TCP read. Wait
+        // for its first response before sending the fence; keep collecting all
+        // response fragments until the fence acknowledgement arrives.
+        if (!fenceSent && !this.socket.destroyed) {
+          fenceSent = true;
+          this.socket.write(packet(fence, 2, ""));
+        }
       });
       try {
         await this.wait(fence, () => {
           this.socket.write(packet(id, 2, text));
-          this.socket.write(packet(fence, 2, ""));
         });
         return result;
       } finally {

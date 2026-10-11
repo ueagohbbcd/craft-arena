@@ -174,6 +174,61 @@ test("real local TCP RCON handshake, split packets and fenced command responses"
   await client.connect();
   assert.equal(await client.command("say fixture"), "part1part2");
 });
+
+test("RCON waits for command response before sending its fence", async (t) => {
+  let earlyFence = false;
+  const server = net.createServer((socket) => {
+    let buffer = Buffer.alloc(0),
+      commandPending = false;
+    socket.on("data", (chunk) => {
+      buffer = Buffer.concat([buffer, chunk]);
+      while (buffer.length >= 4 && buffer.length >= buffer.readInt32LE(0) + 4) {
+        const length = buffer.readInt32LE(0) + 4;
+        const request = buffer.subarray(0, length);
+        buffer = buffer.subarray(length);
+        const id = request.readInt32LE(4),
+          type = request.readInt32LE(8);
+        const body = request.toString("utf8", 12, length - 2);
+        if (type === 3) socket.write(packet(id, 2, ""));
+        else if (body) {
+          commandPending = true;
+          setTimeout(() => {
+            commandPending = false;
+            socket.write(
+              Buffer.concat([packet(id, 0, "first"), packet(id, 0, "second")]),
+            );
+          }, 20);
+        } else {
+          if (commandPending) {
+            earlyFence = true;
+            socket.destroy();
+          } else socket.write(packet(id, 0, "Unknown command"));
+        }
+      }
+    });
+  });
+  server.listen(0, "127.0.0.1");
+  await once(server, "listening");
+  const client = new RconClient({
+    host: "127.0.0.1",
+    port: server.address().port,
+    password: "fixture",
+    timeoutMs: 1000,
+  });
+  t.after(() => {
+    client.close();
+    server.close();
+  });
+  await client.connect();
+  assert.deepEqual(
+    await Promise.all([
+      client.command("first command"),
+      client.command("second command"),
+    ]),
+    ["firstsecond", "firstsecond"],
+  );
+  assert.equal(earlyFence, false);
+});
 test("simultaneous observed completions draw instead of awarding configured team order", async () => {
   const cells = new Map([
     [0, "air"],

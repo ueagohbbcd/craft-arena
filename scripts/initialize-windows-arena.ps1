@@ -21,11 +21,11 @@ if (-not (Test-Path -LiteralPath (Join-Path $world 'level.dat') -PathType Leaf))
 if ($destination.StartsWith($world.TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'DeploymentDir must not be inside WorldDir.' }
 $match = (Resolve-Path -LiteralPath $MatchConfig).Path
 # The host validates the match schema. Here we only require readable JSON before copying it.
-$matchConfig = Get-Content -LiteralPath $match -Raw | ConvertFrom-Json
+$matchDocument = Get-Content -LiteralPath $match -Raw | ConvertFrom-Json
 # Download schema and integrity are checked once by prepare-minecraft-server.mjs.
 $download = Get-Content -LiteralPath $ServerDownload -Raw | ConvertFrom-Json
 if ($ServerJar) { $ServerJar = (Resolve-Path -LiteralPath $ServerJar).Path }
-if ($matchConfig.live.minecraft.version -ne $download.minecraftVersion) { throw 'Match Minecraft version must match ServerDownload.minecraftVersion.' }
+if ($matchDocument.live.minecraft.version -ne $download.minecraftVersion) { throw 'Match Minecraft version must match ServerDownload.minecraftVersion.' }
 $node = (Get-Command node -ErrorAction Stop).Source
 if ((& $node -p 'Number(process.versions.node.split(".")[0]) >= 24') -ne 'true') { throw 'Node.js 24 or newer is required.' }
 $key = [Environment]::GetEnvironmentVariable($DeepSeekApiKeyEnv)
