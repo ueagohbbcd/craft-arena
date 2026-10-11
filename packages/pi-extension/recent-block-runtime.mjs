@@ -188,14 +188,16 @@ export function startRecentBlockRuntime({
       };
       samplingStatus = "sampled";
       samplingError = null;
+      publishPending();
+      return true;
     } catch (error) {
       samplingStatus = "error";
       samplingError = error?.message ?? String(error);
     }
   }
   function poll() {
-    sampleNow();
-    if (!closed) publishIfDue();
+    const sampled = sampleNow();
+    if (!closed && !sampled) publishPending();
     if (!closed) {
       timer = schedule(poll, settings.intervalMs);
       timer?.unref?.();
@@ -230,19 +232,24 @@ export function startRecentBlockRuntime({
       now() - lastReportAt >= settings.minReportMs
     );
   }
-  function publishIfDue() {
-    if (settings.delivery === "tail" || !due()) return;
+  function publishPending() {
+    if (settings.delivery === "tail" || !settings.enabled || closed) return;
     const value = snapshot();
     if (!value?.samples) return;
     try {
-      const accepted = postReport(projectRecentBlocks(value, now()));
+      const accepted = postReport(projectRecentBlocks(value, now()), {
+        minDeliveryDelayMs: settings.minReportMs,
+        onDelivered() {
+          accumulator.retireThrough(value.throughSample);
+          if (settings.delivery === "both") latestPublished = value;
+          // Samples after this queued watermark belong to a fresh pending interval.
+          publishPending();
+        },
+      });
       if (accepted?.accepted !== true)
         throw new Error(
           accepted?.reason ?? "Inbox did not accept the interval report",
         );
-      accumulator.retireThrough(value.throughSample);
-      lastReportAt = now();
-      if (settings.delivery === "both") latestPublished = value;
     } catch (error) {
       // Failed enqueue retains all samples for a later natural poll/boundary.
       samplingError = error?.message ?? String(error);
@@ -253,7 +260,6 @@ export function startRecentBlockRuntime({
     snapshot,
     prepareRequest() {
       if (settings.delivery !== "tail") {
-        publishIfDue();
         const value = settings.delivery === "both" ? latestPublished : null;
         pendingThrough = value?.throughSample ?? null;
         return value ?? undefined;

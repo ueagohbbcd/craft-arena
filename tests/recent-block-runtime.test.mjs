@@ -39,17 +39,19 @@ function fixture(options = {}) {
     connectionStatus: () => status,
     now: () => time,
     options,
-    postReport(data) {
+    postReport(data, { onDelivered, minDeliveryDelayMs }) {
       reports.push(data);
       return accepted
         ? inbox.post(
             {
               sessionId: inbox.sessionId,
-              kind: "event",
+              kind: "state",
+              key: "observation.recent_blocks",
+              minDeliveryDelayMs,
               priority: "normal",
               data,
             },
-            { source: "runtime" },
+            { source: "runtime", onDelivered },
           )
         : { accepted: false, reason: "fixture queue rejected" };
     },
@@ -291,53 +293,78 @@ test("tail minimum report interval is independent from sampling and resets coord
   f.runtime.close();
 });
 
-test("inbox mode batches at its minimum interval using normal existing queue semantics", () => {
+test("inbox keeps one complete interval pending until an eligible boundary drains it", () => {
   const f = fixture({ delivery: "inbox" });
   f.tick();
-  assert.equal(f.runtime.prepareRequest(), undefined);
+  assert.equal(f.inbox.items.length, 1);
+  assert.equal(f.inbox.pending, false);
   f.advance(29000);
+  f.bot.entity.position.x = 2;
   f.tick();
-  assert.equal(f.reports.length, 0);
+  assert.equal(f.inbox.items.length, 1);
+  assert.equal(f.inbox.pending, false);
   f.advance(1000);
   f.tick();
-  assert.equal(f.reports.length, 1);
-  assert.equal(f.runtime.snapshot().samples, 0);
-  assert.equal(f.inbox.items[0].message.priority, "normal");
-  assert.equal(f.inbox.items[0].message.kind, "event");
+  assert.equal(f.inbox.pending, true);
+  assert.equal(
+    f.runtime.snapshot().samples,
+    3,
+    "eligibility does not seal or reset the report",
+  );
+  f.advance(30000);
+  f.bot.entity.position.x = 4;
+  f.tick();
+  assert.equal(
+    f.inbox.items.length,
+    1,
+    "another interval worth of wall time still updates the same pending report",
+  );
+  assert.equal(f.inbox.items[0].message.kind, "state");
   assert.equal(f.runtime.prepareRequest(), undefined);
+  const report = f.inbox.drain().messages[0];
+  assert.equal(report.data.samples, 4);
+  assert.equal(report.data.dimensions[0].counts.oak_log, 3);
+  assert.equal(report.data.dimensions[0].opaqueBoundaryArea, 3);
+  assert.equal(f.runtime.snapshot().samples, 0);
+  f.advance();
+  f.tick();
+  assert.equal(f.inbox.pending, false);
   f.advance(30000);
   f.tick();
-  assert.equal(f.reports.length, 2);
-  assert.equal(f.reports[1].dimensions[0].counts.oak_log, 1);
-  assert.equal(f.inbox.drain().messages.length, 2);
+  assert.equal(
+    f.inbox.drain().messages[0].data.dimensions[0].counts.oak_log,
+    1,
+    "same coordinate counts again after actual delivery",
+  );
   f.runtime.close();
 });
 
-test("both mode keeps each accepted interval in Inbox and presents its latest report once in the tail", () => {
+test("both mode shows the latest actually delivered report without clearing a newer one", () => {
   const f = fixture({ delivery: "both", minReportMs: 1000 });
   f.tick();
   f.advance();
   f.tick();
+  assert.equal(f.runtime.prepareRequest(), undefined);
+  assert.equal(f.inbox.drain().messages.length, 1);
   const first = f.runtime.prepareRequest();
-  assert.equal(f.reports.length, 1);
   f.runtime.finishRequest({ role: "assistant", stopReason: "error" });
   assert.deepEqual(f.runtime.prepareRequest(), first);
   f.advance();
   f.tick();
-  assert.equal(f.reports.length, 2);
+  f.advance(1000, false);
+  f.tick();
+  assert.equal(f.inbox.drain().messages.length, 1);
   f.runtime.finishRequest({ role: "assistant", stopReason: "stop" });
   assert.notEqual(
     f.runtime.prepareRequest().throughSample,
     first.throughSample,
-    "reply to earlier tail cannot clear a newer published report",
   );
   f.runtime.finishRequest({ role: "assistant", stopReason: "stop" });
   assert.equal(f.runtime.prepareRequest(), undefined);
-  assert.equal(f.inbox.drain().messages.length, 2);
   f.runtime.close();
 });
 
-test("failed history enqueue never retires samples", () => {
+test("failed history enqueue never retires samples and delayed acceptance still waits for drain", () => {
   const f = fixture({ delivery: "inbox", minReportMs: 1000 });
   f.acceptReports(false);
   f.tick();
@@ -348,7 +375,29 @@ test("failed history enqueue never retires samples", () => {
   f.acceptReports(true);
   f.advance();
   f.tick();
-  assert.equal(f.runtime.snapshot().samples, 0);
+  assert.equal(f.runtime.snapshot().samples, 3);
+  assert.equal(f.inbox.drain().messages.length, 0);
+  f.advance(1000, false);
+  f.tick();
   assert.equal(f.inbox.drain().messages[0].data.samples, 3);
+  assert.equal(f.runtime.snapshot().samples, 0);
+  f.runtime.close();
+});
+
+test("draining an older accepted watermark leaves later rejected samples for the next batch", () => {
+  const f = fixture({ delivery: "inbox", minReportMs: 1000 });
+  f.tick();
+  f.acceptReports(false);
+  f.advance();
+  f.tick();
+  assert.equal(f.inbox.drain().messages[0].data.samples, 1);
+  assert.equal(f.runtime.snapshot().samples, 1);
+  f.acceptReports(true);
+  f.tick();
+  assert.equal(f.inbox.pending, false);
+  f.advance(1000, false);
+  f.tick();
+  assert.equal(f.inbox.drain().messages[0].data.samples, 1);
+  assert.equal(f.runtime.snapshot().samples, 0);
   f.runtime.close();
 });

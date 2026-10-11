@@ -66,9 +66,11 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 面积单位为整格面面积（block²）：每条“已触达透明格—六邻接已知不透明整格”邻接计不透明块朝向透明格的一个面，区间按维度、方块坐标和面方向去重。透明格之间的内部面、未知边缘和采样球的范围边缘不计。绕到同一块另一侧可增加另一个面；同面反复采样不增加。bbox 只是实际触达已知格的外包范围，内部可含孔洞，绝不拿 bbox 的壳面积代替边界面集合。该数不是部分方块精细网格面积。
 
-报告最小间隔与采样频率独立。默认 `delivery=inbox`、最小 30000 ms，通过原有 `Inbox.post` 普通事件 `observation.recent_blocks` 保留每个区间历史；未到间隔继续累计，入队被拒绝不会丢样本。这些报告不唤起模型、不逐秒投递采样状态。可选 `tail` 默认最小间隔 0，沿用请求时展示；显式设置最小间隔后，未到间隔直接省略该段。重复上下文或失败／中止／length 响应不清空；成功 `stop`／`toolUse` 只释放该请求已包含的样本。`both` 默认最小 30000 ms，普通 Inbox 保存每条报告，同时将最近一条已入队报告放入尾部直到成功响应；未展示的更早报告仍在原 Inbox，无另建确认队列。现有生命、物资、战斗和程序报告保持原样，没有新增“重要类型”白名单。
+报告延迟与采样频率独立。默认 `delivery=inbox`，生产者从第一份样本开始以 `kind:"state"`、固定 key `observation.recent_blocks` 更新原有 Inbox 的同一待交付条目；每次提供本区间完整累计结果。Inbox 的 `minDeliveryDelayMs=30000` 从首个待交付条目创建时计时，后续覆盖不延后到期。到期只使条目可交付，等待原有工具／回合自然边界；未到期条目不使 `pending` 为真，也不唤醒模型。真正 `drain` 后通过同进程 `onDelivered` 释放该条目水位以内的样本，期间新增样本仍保留。入队被拒绝、过期或被挤出都不会自行清空生产者累计器；下次采样再提供完整累计。普通交付后的历史保留，不覆盖历史，也不把多个已封口报告简单相加。
 
-可用 `ARENA_PERCEPTION_RECENT_BLOCKS=0` 关闭；`ARENA_PERCEPTION_RECENT_BLOCK_RADIUS=6`、`ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS=1000`、`ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS=4096` 调整范围、频率和单次预算。`ARENA_PERCEPTION_RECENT_BLOCK_DELIVERY=inbox|tail|both` 选择报告通道，`ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS` 独立设置最小报告间隔。`ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS=3` 仅调整完整查询的代表位置数。采样中断／源过期不被记作完整空白观察，间隔内没有采到的瞬间不能追补。
+可选 `tail` 默认最小间隔 0，沿用请求时展示；显式设置最小间隔后，未到间隔直接省略该段。重复上下文或失败／中止／length 响应不清空；成功 `stop`／`toolUse` 只释放该请求已包含的样本。`both` 使用与 `inbox` 相同的队列延迟，并将最近一条已实际 drain 的报告放入尾部直到成功响应。现有生命、物资、战斗和程序报告保持原样，没有新增“重要类型”白名单。
+
+可用 `ARENA_PERCEPTION_RECENT_BLOCKS=0` 关闭；`ARENA_PERCEPTION_RECENT_BLOCK_RADIUS=6`、`ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS=1000`、`ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS=4096` 调整范围、频率和单次预算。`ARENA_PERCEPTION_RECENT_BLOCK_DELIVERY=inbox|tail|both` 选择报告通道，`ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS` 设置 Inbox 的首次 pending 创建到可交付延迟；仅在 `tail` 模式表示尾部最小展示间隔。`ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS=3` 仅调整完整查询的代表位置数。采样中断／源过期不被记作完整空白观察，间隔内没有采到的瞬间不能追补。
 
 这些是观察事实：`null`／`known:false` 表示缺少对应数据。实体覆盖范围来自 bot 的观察镜像；玩家队伍关系使用可信 host 的公开参与者身份映射，缺少对应映射时为 `unknown`。当前窗口反映已打开窗口的槽位，容器位置需要明确的窗口关联。告示牌文字来自实际已加载数据，并保留来源时间。方块的 `unknown` 和已知 `air` 分别统计。
 

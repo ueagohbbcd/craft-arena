@@ -274,15 +274,17 @@ export function startPerceptionRuntime({
     connectionStatus: () => status,
     now,
     options: recentBlocks,
-    postReport: (data) =>
+    postReport: (data, { onDelivered, minDeliveryDelayMs }) =>
       inbox.post(
         {
           sessionId: inbox.sessionId,
-          kind: "event",
+          kind: "state",
+          key: "observation.recent_blocks",
+          minDeliveryDelayMs,
           priority: "normal",
           data: { type: "observation.recent_blocks", ...data },
         },
-        { source: "runtime" },
+        { source: "runtime", onDelivered },
       ),
   });
   function warn(error) {

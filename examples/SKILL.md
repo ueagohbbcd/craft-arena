@@ -11,7 +11,7 @@ The runtime supplies default read-only situational awareness. Loading the standa
 
 Ordinary tool results, explicit query outputs and delivered inbox events stay in conversation history. The automatic latest-state snapshot is rebuilt for each request. Its timestamps, connection state and unknown fields tell you what evidence is available now. See the [observation guide](../docs/OBSERVATION.md) for the full contract.
 
-`recentBlocks` adds interval counts of all sampled non-air types, deduplicated by dimension and coordinate. It is nearby coarse transparent connectivity and can turn corners. Default reports use ordinary Inbox history at a minimum 30-second interval; transient tail delivery is optional. A report shares one time interval, bbox and opaque boundary area, with only type and count per entry. Use detailed queries when a type is worth investigating.
+`recentBlocks` adds interval counts of all sampled non-air types, deduplicated by dimension and coordinate. It is nearby coarse transparent connectivity and can turn corners. Default reports keep updating one pending ordinary Inbox summary, eligible 30 seconds after first creation and finalized only at natural-boundary delivery; transient tail delivery is optional. A report shares one time interval, bbox and opaque boundary area, with only type and count per entry. Use detailed queries when a type is worth investigating.
 
 ## Choose the next tool
 
