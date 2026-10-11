@@ -174,10 +174,14 @@ test("observe fullRuntime retrieves retained raw program state even while the ga
   });
   const value = { phase: "reported phase", payload: "x".repeat(24000) };
   await h.client.publishCurrent("large-program-state", value);
+  const savedTail = process.env.ARENA_PERCEPTION_TAIL;
+  process.env.ARENA_PERCEPTION_TAIL = "1";
   const context = await h.handlers.get("context_with_system")(
     { messages: [] },
     h.ctx,
   );
+  if (savedTail === undefined) delete process.env.ARENA_PERCEPTION_TAIL;
+  else process.env.ARENA_PERCEPTION_TAIL = savedTail;
   const compact = JSON.parse(context.messages[0].content.split("\n")[1]);
   assert.equal(compact.programState[0].data, undefined);
   assert.equal(compact.runtimeProjection.programState.dataOmitted, 1);

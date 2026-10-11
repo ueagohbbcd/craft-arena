@@ -49,6 +49,7 @@ async function harness(
   reply,
   {
     extensions = [],
+    tail = false,
     tools = ["bash", "task_wait", "task_cancel"],
     settings = {},
     gateway = false,
@@ -56,6 +57,12 @@ async function harness(
     usage = { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
   } = {},
 ) {
+  const oldTail = process.env.ARENA_PERCEPTION_TAIL;
+  process.env.ARENA_PERCEPTION_TAIL = tail ? "1" : "0";
+  t.after(() => {
+    if (oldTail === undefined) delete process.env.ARENA_PERCEPTION_TAIL;
+    else process.env.ARENA_PERCEPTION_TAIL = oldTail;
+  });
   const dir = await mkdtemp(join(tmpdir(), "mc-pi-integration-"));
   const requests = [],
     errors = [],
@@ -310,87 +317,100 @@ test(
     let h, taskId, pid, previousObservation, firstStartedAt;
     const waits = [];
     try {
-      h = await harness(t, async (body, n, dir) => {
-        if (n === 1)
-          return [
-            {
-              id: "budget-command",
-              name: "bash",
-              args: {
-                command: nodeCommand(
-                  `import{appendFile,writeFile,access}from'node:fs/promises';await appendFile(${JSON.stringify(join(dir, "starts"))},'start\\n');await writeFile(${JSON.stringify(join(dir, "worker.json"))},JSON.stringify({pid:process.pid,taskId:process.env.MC_INBOX_TASK_ID}));while(await access(${JSON.stringify(join(dir, "release"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,10));await new Promise(r=>setTimeout(r,250));console.log('one-command-finished');`,
-                ),
+      h = await harness(
+        t,
+        async (body, n, dir) => {
+          if (n === 1)
+            return [
+              {
+                id: "budget-command",
+                name: "bash",
+                args: {
+                  command: nodeCommand(
+                    `import{appendFile,writeFile,access}from'node:fs/promises';await appendFile(${JSON.stringify(join(dir, "starts"))},'start\\n');await writeFile(${JSON.stringify(join(dir, "worker.json"))},JSON.stringify({pid:process.pid,taskId:process.env.MC_INBOX_TASK_ID}));while(await access(${JSON.stringify(join(dir, "release"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,10));await new Promise(r=>setTimeout(r,250));console.log('one-command-finished');`,
+                  ),
+                },
               },
-            },
-          ];
-        const result = JSON.parse(
-          body.messages
-            .filter((message) => message.role === "tool")
-            .at(-1)
-            .content.split("\n")[0],
-        );
-        const tailContent = body.messages.at(-1).content;
-        const tail =
-          typeof tailContent === "string"
-            ? tailContent
-            : tailContent.map((block) => block.text ?? "").join("\n");
-        assert.match(
-          tail,
-          /^Current observation for this model request only\./,
-        );
-        const observation = JSON.parse(tail.slice(tail.indexOf("\n") + 1));
-        if (n === 2 || n === 3) {
-          assert.equal(result.status, "running");
-          assert.equal(result.reason, "wait timeout");
-          assert.equal(result.timedOut, undefined);
-          assert.equal(result.taskId, taskId ?? result.taskId);
-          taskId = result.taskId;
-          const task = observation.tasks.find((task) => task.taskId === taskId);
-          assert.equal(task.status, "running");
-          assert.equal(task.startedAt, firstStartedAt ?? task.startedAt);
-          firstStartedAt = task.startedAt;
-          if (previousObservation)
-            assert.ok(observation.observedAt > previousObservation.observedAt);
-          previousObservation = observation;
-          // Allow startup to finish even on a heavily loaded CI machine.
-          for (let i = 0; i < 200; i++) {
-            const worker = await readFile(join(dir, "worker.json"), "utf8")
-              .then(JSON.parse)
-              .catch(() => null);
-            if (worker) {
-              assert.equal(worker.taskId, taskId);
-              assert.equal(worker.pid, pid ?? worker.pid);
-              pid = worker.pid;
-              break;
+            ];
+          const result = JSON.parse(
+            body.messages
+              .filter((message) => message.role === "tool")
+              .at(-1)
+              .content.split("\n")[0],
+          );
+          const tailContent = body.messages.at(-1).content;
+          const tail =
+            typeof tailContent === "string"
+              ? tailContent
+              : tailContent.map((block) => block.text ?? "").join("\n");
+          assert.match(
+            tail,
+            /^Current observation for this model request only\./,
+          );
+          const observation = JSON.parse(tail.slice(tail.indexOf("\n") + 1));
+          if (n === 2 || n === 3) {
+            assert.equal(result.status, "running");
+            assert.equal(result.reason, "wait timeout");
+            assert.equal(result.timedOut, undefined);
+            assert.equal(result.taskId, taskId ?? result.taskId);
+            taskId = result.taskId;
+            const task = observation.tasks.find(
+              (task) => task.taskId === taskId,
+            );
+            assert.equal(task.status, "running");
+            assert.equal(task.startedAt, firstStartedAt ?? task.startedAt);
+            firstStartedAt = task.startedAt;
+            if (previousObservation)
+              assert.ok(
+                observation.observedAt > previousObservation.observedAt,
+              );
+            previousObservation = observation;
+            // Allow startup to finish even on a heavily loaded CI machine.
+            for (let i = 0; i < 200; i++) {
+              const worker = await readFile(join(dir, "worker.json"), "utf8")
+                .then(JSON.parse)
+                .catch(() => null);
+              if (worker) {
+                assert.equal(worker.taskId, taskId);
+                assert.equal(worker.pid, pid ?? worker.pid);
+                pid = worker.pid;
+                break;
+              }
+              await sleep(10);
             }
-            await sleep(10);
+            assert.ok(pid);
+            assert.doesNotThrow(() => process.kill(pid, 0));
+            assert.equal(
+              await readFile(join(dir, "starts"), "utf8"),
+              "start\n",
+            );
+            if (n === 2) {
+              waits.push(Date.now() - firstStartedAt);
+              return [
+                { id: "budget-wait", name: "task_wait", args: { taskId } },
+              ];
+            }
+            waits.push(Date.now() - firstStartedAt - waits[0]);
+            await writeFile(join(dir, "release"), "go");
+            return [
+              {
+                id: "finish-same-task",
+                name: "task_wait",
+                args: { taskId, wait_seconds: 5 },
+              },
+            ];
           }
-          assert.ok(pid);
-          assert.doesNotThrow(() => process.kill(pid, 0));
-          assert.equal(await readFile(join(dir, "starts"), "utf8"), "start\n");
-          if (n === 2) {
-            waits.push(Date.now() - firstStartedAt);
-            return [{ id: "budget-wait", name: "task_wait", args: { taskId } }];
-          }
-          waits.push(Date.now() - firstStartedAt - waits[0]);
-          await writeFile(join(dir, "release"), "go");
-          return [
-            {
-              id: "finish-same-task",
-              name: "task_wait",
-              args: { taskId, wait_seconds: 5 },
-            },
-          ];
-        }
-        assert.equal(n, 4);
-        assert.equal(result.taskId, taskId);
-        assert.equal(result.status, "completed");
-        assert.equal(result.stdout.trim(), "one-command-finished");
-        assert.equal(result.exitCode, 0);
-        assert.equal(result.signal, null);
-        assert.equal(result.timedOut, undefined);
-        return "Both budget returns and the same command's completion observed.";
-      });
+          assert.equal(n, 4);
+          assert.equal(result.taskId, taskId);
+          assert.equal(result.status, "completed");
+          assert.equal(result.stdout.trim(), "one-command-finished");
+          assert.equal(result.exitCode, 0);
+          assert.equal(result.signal, null);
+          assert.equal(result.timedOut, undefined);
+          return "Both budget returns and the same command's completion observed.";
+        },
+        { tail: true },
+      );
     } finally {
       if (saved === undefined) delete process.env.ARENA_TOOL_WAIT_SECONDS;
       else process.env.ARENA_TOOL_WAIT_SECONDS = saved;
@@ -902,6 +922,7 @@ for (const nested of [false, true])
           extensions: nested
             ? [createCodemodeExtension({ models: false })]
             : [],
+          tail: true,
           tools: ["observe", ...(nested ? ["codemode"] : [])],
           gateway: true,
         },
@@ -1951,3 +1972,29 @@ test(
     assert.equal(h.requests.length, 0);
   },
 );
+
+test("default real Pi persists perception changes and has no temporary tail", async (t) => {
+  const h = await harness(t, async (_body, n) =>
+    n === 1
+      ? [
+          {
+            id: "one",
+            name: "bash",
+            args: { command: "printf hello", wait_seconds: 1 },
+          },
+        ]
+      : "done",
+  );
+  await h.session.prompt("Run one command.");
+  assert.equal(h.requests.length, 2);
+  const request = JSON.stringify(h.requests[1].messages);
+  assert.match(request, /perception.baseline/);
+  assert.match(request, /perception.changed/);
+  assert.doesNotMatch(
+    request,
+    /Current observation for this model request only/,
+  );
+  const history = JSON.stringify(h.session.agent.state.messages);
+  assert.match(history, /perception.baseline/);
+  assert.match(history, /perception.changed/);
+});

@@ -6,6 +6,11 @@ import { budgetFromHeaders, budgetFromSnapshot } from "./budget-feedback.mjs";
 import { startChatInbox } from "./chat-inbox.mjs";
 import * as PerceptionRuntime from "./perception-runtime.mjs";
 import * as ObservationTools from "../observation/pi-extension.mjs";
+import {
+  tailEnabled,
+  createPerceptionChanges,
+  readPerceptionOptions,
+} from "./perception-delivery.mjs";
 
 const text = (value) => ({ type: "text", text: JSON.stringify(value) });
 const object = (properties) => ({
@@ -229,15 +234,24 @@ export default function participantInbox(pi) {
           : {}),
       };
       const tasks = new TaskManager({ inbox, cwd: ctx.cwd, env });
-      runtime = { sessionId, inbox, tasks, server, env };
+      runtime = {
+        sessionId,
+        inbox,
+        tasks,
+        server,
+        env,
+        perceptionChanges: createPerceptionChanges(),
+      };
       runtime.perception = PerceptionRuntime.startPerceptionRuntime({
         url: bridgeUrl,
         token: bridgeToken,
         inbox,
         tasks,
         projection: perceptionProjection,
-        sampleOptions: async () =>
-          PerceptionRuntime.observationOptionsFromMatch(await readMatch()),
+        sampleOptions: async () => ({
+          ...PerceptionRuntime.observationOptionsFromMatch(await readMatch()),
+          ...(await readPerceptionOptions(ctx.cwd)),
+        }),
       });
       if (bridgeUrl && bridgeToken)
         runtime.chat = startChatInbox({
@@ -339,6 +353,7 @@ export default function participantInbox(pi) {
   });
   pi.on("session_shutdown", stop);
   pi.on("context_with_system", async (event, ctx) => {
+    if (!tailEnabled()) return;
     const r = await ensure(ctx);
     const snapshot = await r.perception.sample();
     // This hook operates on Pi's cloned request context, not durable session history.
@@ -396,10 +411,20 @@ export default function participantInbox(pi) {
       postBudget(r, data);
     }
   });
+  async function postPerception(r) {
+    if (tailEnabled()) return;
+    const change = r.perceptionChanges.next(await r.perception.sample());
+    if (change)
+      r.inbox.post(
+        { sessionId: r.sessionId, kind: "event", data: change },
+        { source: "runtime" },
+      );
+  }
   pi.on("tool_result", async (event, ctx) => {
     const r = await ensure(ctx);
     // A nested tool result can be filtered by codemode; the outer boundary owns delivery.
     if (event.parentToolCallId) return;
+    await postPerception(r);
     await refreshBudget(r);
     await postClock(r);
     if (!r.inbox.pending) return;
@@ -453,11 +478,14 @@ export default function participantInbox(pi) {
   });
   pi.on("before_agent_start", async (_event, ctx) => {
     const r = await ensure(ctx);
+    const initial = tailEnabled()
+      ? null
+      : r.perceptionChanges.next(await r.perception.sample());
     return {
       message: {
         customType: "mc-inbox-connection",
         display: false,
-        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash and task_wait return after ${waitSeconds} seconds by default, or earlier on completion or urgent input. Each wait_seconds overrides that call's wait budget, including longer waits; a returned running task keeps executing. Bash timeout is a separate, explicit kill deadline. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. After a final response, a running program suppresses idle fallback: completion or an urgent judgment request supplies the next decision, not the tool wait budget. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.`,
+        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash and task_wait return after ${waitSeconds} seconds by default, or earlier on completion or urgent input. Each wait_seconds overrides that call's wait budget, including longer waits; a returned running task keeps executing. Bash timeout is a separate, explicit kill deadline. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. After a final response, a running program suppresses idle fallback: completion or an urgent judgment request supplies the next decision, not the tool wait budget. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.${initial ? "\n" + JSON.stringify(initial) : ""}`,
       },
     };
   });

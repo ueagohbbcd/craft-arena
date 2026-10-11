@@ -463,6 +463,7 @@ test(
       PI_OFFLINE: "1",
       ARENA_BRIDGE_URL: bridge.url,
       ARENA_BRIDGE_TOKEN: "perception-integration-token",
+      ARENA_PERCEPTION_TAIL: "1",
       MC_INBOX_TRANSPORT: "http",
       MC_INBOX_TOKEN: "perception-integration-token",
     });
