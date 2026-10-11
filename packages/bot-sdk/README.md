@@ -22,6 +22,8 @@ Use the matching upstream documentation under `$ARENA_REFERENCE_ROOT` for Minefl
 
 `connectBot` waits for initial state and all loaded chunk columns, including full dimension height. `blockAt` reads synchronously; null means unknown. Pathfinder plans locally against these columns. Block/chunk events keep them updated; entity/inventory state and `physicsTick` arrive at 20 Hz.
 
+`findBlocks` synchronously returns the nearest matching positions in loaded columns within `maxDistance`, measured from the supplied point without rounding it. Equal-distance results retain column insertion order, then x/z/y order. A `matching` callback filters actual blocks with their positions and extra data. Section distance bounds and numeric-ID palettes avoid unnecessary scans, but broad, sparse callback searches can still block the program's event loop.
+
 Use bot methods to perform actions. Local writes to position, velocity or window objects only change the observation copy. Minecraft owns physics and gameplay reach; the operator may configure an additional reach limit.
 
 Await Promise-returning actions directly and catch their rejections. For synchronous-style controls, `await bot.flush()` waits for queued requests, including writes not yet sent, and reports the first unreported failure; these queued failures also emit `error`. Action errors retain native name/message plus action and HTTP status. Install an error listener for control diagnostics. `controlState` describes local intent; check actual position to evaluate movement. `closeBridge()` closes the observation connection; clear controls separately when finishing an action.

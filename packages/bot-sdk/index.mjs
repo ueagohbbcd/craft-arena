@@ -1,6 +1,7 @@
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
+import { findBlocksInColumns } from "./find-blocks.mjs";
 const require = createRequire(import.meta.url);
 const controls = [
   "forward",
@@ -559,6 +560,9 @@ export class BotFacade extends EventEmitter {
     count = 1,
     point = this.entity.position,
   }) {
+    if (this.hasColumnMirror && this.columns.size) {
+      return findBlocksInColumns(this, { matching, maxDistance, count, point });
+    }
     const match =
       typeof matching === "function"
         ? matching
