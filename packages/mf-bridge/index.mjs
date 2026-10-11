@@ -420,7 +420,14 @@ export function createAuthority(
         quickBarSlot: bot.quickBarSlot ?? 0,
         jumpTicks: bot.jumpTicks ?? 0,
         jumpQueued: bot.jumpQueued ?? false,
-        controlState: bot.controlState ?? {},
+        // Mineflayer exposes these as non-enumerable getters. Copy their values
+        // explicitly so JSON transport does not turn the control state into {}.
+        controlState: Object.fromEntries(
+          controls.map((control) => [
+            control,
+            bot.controlState?.[control] ?? false,
+          ]),
+        ),
         blocks,
         columns: bot.world?.getColumns?.().map(({ chunkX, chunkZ }) => ({
           x: Number(chunkX),

@@ -1,0 +1,278 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { EventEmitter, once } from "node:events";
+import { createRequire } from "node:module";
+import { createAuthority, startBridge } from "../packages/mf-bridge/index.mjs";
+import { connectBot } from "../packages/bot-sdk/index.mjs";
+import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
+
+const require = createRequire(import.meta.url);
+const registry = require("prismarine-registry")("1.21.1");
+const Chunk = require("prismarine-chunk")(registry);
+const { Vec3 } = require("vec3");
+const PathfinderPhysics = require("mineflayer-pathfinder/lib/physics.js");
+const controls = [
+  "forward",
+  "back",
+  "left",
+  "right",
+  "jump",
+  "sprint",
+  "sneak",
+];
+const token = "native-physics-controls-test";
+
+// Native Mineflayer physics, including its non-enumerable control getters and
+// tick loop. Only the world/connection are synthetic; writes never leave memory.
+function nativeBot() {
+  const bot = new EventEmitter();
+  Object.assign(bot, {
+    version: "1.21.1",
+    registry,
+    username: "controls",
+    isAlive: true,
+    health: 20,
+    food: 20,
+    entities: {},
+    entity: {
+      id: 1,
+      position: new Vec3(0.5, 1, 4.5),
+      velocity: new Vec3(0, 0, 0),
+      yaw: 0,
+      pitch: 0,
+      height: 1.8,
+      width: 0.6,
+      eyeHeight: 1.62,
+      onGround: true,
+      effects: {},
+      attributes: {},
+      equipment: [],
+    },
+    inventory: {
+      slots: Array(46).fill(null),
+      inventoryStart: 9,
+      inventoryEnd: 45,
+    },
+    game: {
+      minY: -64,
+      height: 384,
+      dimension: "overworld",
+      gameMode: "survival",
+    },
+    supportFeature: (name) => registry.supportFeature(name),
+    _client: new EventEmitter(),
+    writes: [],
+  });
+  bot._client.state = "play";
+  bot._client.write = (name, packet) => bot.writes.push({ name, packet });
+  const columns = new Map();
+  for (let x = 0; x < 2; x++)
+    for (let z = 0; z < 2; z++) {
+      const chunk = new Chunk({ minY: -64, worldHeight: 384 });
+      for (let bx = 0; bx < 16; bx++)
+        for (let bz = 0; bz < 16; bz++)
+          chunk.setBlockStateId(
+            new Vec3(bx, 0, bz),
+            registry.blocksByName.stone.defaultState,
+          );
+      columns.set(`${x},${z}`, chunk);
+    }
+  bot.world = {
+    getColumn: (x, z) => columns.get(`${x},${z}`),
+    getColumns: () =>
+      [...columns].map(([key, column]) => {
+        const [chunkX, chunkZ] = key.split(",").map(Number);
+        return { chunkX, chunkZ, column };
+      }),
+  };
+  bot.blockAt = (position) => {
+    const p = position.floored();
+    const chunk = bot.world.getColumn(
+      Math.floor(p.x / 16),
+      Math.floor(p.z / 16),
+    );
+    if (!chunk) return null;
+    const block = chunk.getBlock(new Vec3(p.x & 15, p.y, p.z & 15));
+    block.position = p;
+    return block;
+  };
+  require("mineflayer/lib/plugins/physics.js")(bot, { physicsEnabled: true });
+  return bot;
+}
+async function fixture(t) {
+  const native = nativeBot();
+  const service = await startBridge({ bot: native, token, snapshotRadius: 0 });
+  let bot;
+  t.after(async () => {
+    native.emit("end");
+    bot?.closeBridge();
+    await service.close();
+  });
+  bot = await connectBot({ url: service.url, token });
+  return { native, bot };
+}
+function finite(state) {
+  return [
+    state.pos.x,
+    state.pos.y,
+    state.pos.z,
+    state.vel.x,
+    state.vel.y,
+    state.vel.z,
+  ].every(Number.isFinite);
+}
+async function observedControls(bot, expected) {
+  const signal = AbortSignal.timeout(2000);
+  while (
+    Object.entries(expected).some(
+      ([key, value]) => bot.controlState[key] !== value,
+    )
+  )
+    await once(bot, "physicsTick", { signal });
+}
+
+test("snapshot explicitly copies real Mineflayer non-enumerable control getters", () => {
+  const native = nativeBot();
+  assert.deepEqual(Object.keys(native.controlState), []);
+  assert.equal(
+    Object.getOwnPropertyDescriptor(native.controlState, "forward").enumerable,
+    false,
+  );
+  native.setControlState("forward", true);
+  const snapshot = createAuthority(native).snapshot(false);
+  const wire = JSON.parse(JSON.stringify(snapshot));
+  assert.deepEqual(
+    wire.controlState,
+    Object.fromEntries(controls.map((name) => [name, name === "forward"])),
+  );
+  native.clearControlStates();
+  assert.equal(
+    snapshot.controlState.forward,
+    true,
+    "a sampled snapshot is not a live getter object",
+  );
+});
+
+test("native controls survive HTTP/SSE and keep Pathfinder predictions finite through on/off updates", async (t) => {
+  const { native, bot } = await fixture(t);
+  const prediction = new PathfinderPhysics(bot);
+  const nativePrediction = new PathfinderPhysics(native);
+  assert.ok(
+    finite(prediction.simulateUntilNextTick()),
+    "baseline controls must not produce NaN",
+  );
+  assert.deepEqual(
+    bot.controlState,
+    Object.fromEntries(controls.map((name) => [name, false])),
+  );
+  // Exercise HTTP actions and subsequent SSE snapshots, not an in-process copy.
+  bot.setControlState("forward", true);
+  await bot.flush();
+  await once(bot, "physicsTick", { signal: AbortSignal.timeout(2000) });
+  await observedControls(bot, { forward: true });
+  const moving = prediction.simulateUntilNextTick();
+  assert.ok(finite(moving));
+  assert.ok(moving.pos.equals(nativePrediction.simulateUntilNextTick().pos));
+  assert.ok(moving.pos.z < bot.entity.position.z);
+  bot.clearControlStates();
+  await bot.flush();
+  await once(bot, "physicsTick", { signal: AbortSignal.timeout(2000) });
+  await observedControls(
+    bot,
+    Object.fromEntries(controls.map((name) => [name, false])),
+  );
+  const idle = prediction.simulateUntilNextTick();
+  assert.ok(finite(idle));
+  assert.ok(idle.pos.equals(native.entity.position));
+
+  // Each native getter must survive subsequent frames in both directions;
+  // setting native state avoids mistaking SDK optimistic intent for SSE data.
+  for (const control of controls) {
+    native.setControlState(control, true);
+    await observedControls(bot, { [control]: true });
+    assert.deepEqual(
+      bot.controlState,
+      Object.fromEntries(controls.map((name) => [name, name === control])),
+    );
+    native.setControlState(control, false);
+    await observedControls(bot, { [control]: false });
+    assert.deepEqual(
+      bot.controlState,
+      Object.fromEntries(controls.map((name) => [name, false])),
+    );
+  }
+});
+
+test(
+  "adapted Pathfinder reaches a goal over HTTP/SSE using native Mineflayer physics ticks",
+  { timeout: 10000 },
+  async (t) => {
+    const { native, bot } = await fixture(t);
+    const { Movements, goals } = loadSelectedPlugins(bot, { pvp: false });
+    bot.pathfinder.setMovements(new Movements(bot));
+    const goal = new goals.GoalBlock(8, 1, 4);
+    const start = native.entity.position.clone();
+    let planned = false,
+      predictedTicks = 0;
+    const predictions = [];
+    bot.on("path_update", (path) => {
+      if (path.status === "success") planned = true;
+    });
+    const prediction = new PathfinderPhysics(bot);
+    bot.on("physicsTick", () => {
+      predictedTicks++;
+      predictions.push(finite(prediction.simulateUntilNextTick()));
+    });
+    native.emit("login");
+    native._client.emit("position", {
+      x: 0.5,
+      y: 1,
+      z: 4.5,
+      yaw: 180,
+      pitch: 0,
+      flags: {},
+      teleportId: 1,
+    });
+    let deadline;
+    try {
+      await Promise.race([
+        bot.pathfinder.goto(goal),
+        new Promise((_, reject) => {
+          deadline = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `Pathfinder did not arrive: ${native.entity.position}`,
+                ),
+              ),
+            6000,
+          );
+        }),
+      ]);
+      await bot.flush();
+    } finally {
+      clearTimeout(deadline);
+      bot.pathfinder.setGoal(null);
+    }
+    assert.equal(planned, true);
+    assert.ok(predictedTicks > 3);
+    assert.ok(
+      predictions.every(Boolean),
+      "every execution-tick prediction stays finite",
+    );
+    assert.ok(
+      goal.isEnd(bot.entity.position.floored()),
+      "observed goal, not merely a planned path",
+    );
+    assert.ok(
+      goal.isEnd(native.entity.position.floored()),
+      "trusted simulation also arrived",
+    );
+    assert.ok(native.entity.position.distanceTo(start) > 7);
+    assert.ok(
+      native.writes.some(
+        ({ name }) => name === "position" || name === "position_look",
+      ),
+    );
+  },
+);

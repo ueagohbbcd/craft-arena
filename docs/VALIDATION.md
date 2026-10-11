@@ -122,3 +122,13 @@ npm run demo:visual
 独立复核发现的窗口目标、JSON 凭据脱敏、物品组件和事件/响应时序问题已修复。全量运行还暴露一个预算测试的真实时钟假设：1 毫秒正常偿债使精确金额断言偶发失败；该例现使用注入的固定时钟，保留原严格业务断言。
 
 这些测试没有启动真实 Minecraft 服务器。Windows 操作、Docker 构建、真实地图导航与战斗仍待部署验收；特殊熔炉、村民交易、附魔等高层 API 尚未作为本轮接口提供。
+
+## 2026-10-11：原生控制状态与 Pathfinder 执行闭环
+
+`tests/sdk-controls.test.mjs` 使用真正注入 Mineflayer physics 插件的控制对象。补丁前，七个非枚举 getter 被 JSON 序列化成 `{}`，通过实际 HTTP/SSE 到达 SDK 后，Pathfinder 的下一 tick 物理预测出现 NaN；新增的两个基线回归均失败。桥接快照改为显式读取七个控制值后，三个回归全部通过，包括每个控制键 true/false 的后续 SSE 更新。
+
+执行回归由原生 Mineflayer physics tick 推进可信侧角色，Pathfinder 通过真实 HTTP 动作控制它，SDK 通过 SSE 观察运动；原生 look 未替换，也未直接修改 SDK 位置。角色移动超过七格并到达八格外目标，可信侧与观察侧均满足 `goal.isEnd`，执行期间的物理预测均为有限数。此项验证覆盖实际运动闭环，不仅验证 A* 规划成功。
+
+场地、登录/位置事件及 Minecraft 连接为隔离夹具，发包仅记录到内存，没有连接或操作正在进行的比赛。真实服务器、实际地图及跨容器网络上的完整导航仍需部署验收。
+
+以 main `d7e2715` 为基线，修复后执行 `PI_OFFLINE=1 npm run validate`：251 项，249 通过，0 失败，2 跳过（Unix socket 环境限制、未启用真实 Chromium）。修改的 JavaScript 文件通过 Prettier，diff 空白检查通过。
