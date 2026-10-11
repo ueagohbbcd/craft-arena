@@ -369,6 +369,14 @@ test(
       columns,
     };
     const result = renderTexturedSurface(snapshot, { width: 96, height: 16 });
+    assert.equal(
+      result.metadata.renderer.actual,
+      "cpu-minecraft-top-textures",
+      result.metadata.renderer.reason ?? "expected genuine Minecraft textures",
+    );
+    assert.equal(result.metadata.renderer.fallback, false);
+    assert.equal(result.metadata.renderVersion, "1.21.1");
+    assert.equal(result.metadata.kind, "top-down-minecraft-texture-surface");
     const p = pixels(result.png);
     const redModel = states.red_wool.variants[""];
     const face = (Array.isArray(redModel) ? redModel[0] : redModel).model
@@ -394,7 +402,6 @@ test(
       "rotated log state needs bark overhead instead of exposed end grain",
     );
     assert.deepEqual(p.at(90, 9), UNKNOWN_COLOR);
-    assert.equal(result.metadata.kind, "top-down-minecraft-texture-surface");
     assert.equal(result.metadata.renderer.texturedColumns, 4);
     assert.equal(result.metadata.renderer.schematicFallbackColumns, 1);
     assert.match(
