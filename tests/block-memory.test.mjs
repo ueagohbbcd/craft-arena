@@ -251,7 +251,7 @@ test("HTTP memory authenticates and isolates bots, scopes and unknown data witho
     "/v1/memory/chunk?x=Infinity&z=0",
     "/v1/memory/block?x=0&z=0",
     "/v1/memory/chunk?x=&z=0",
-    "/v1/memory/chunks?limit=513",
+    "/v1/memory/chunks?limit=0",
     "/v1/memory/chunk?x=0&z=0&dimension=",
   ])
     assert.equal((await request(path)).status, 400, path);
@@ -357,4 +357,70 @@ test("documented memory CLI reads retained columns from a separate process witho
   assert.equal(direct.block, "diamond_ore");
   assert.deepEqual(local.matchesInCachedColumns, [{ x: -1, y: -40, z: 3 }]);
   assert.deepEqual(bot.calls, []);
+});
+
+test("memory reads use native heights and caller page sizes without invented coordinate or payload caps", async (t) => {
+  const { bot, columns } = fixture();
+  const dimension = `custom:${"dimension".repeat(40)}`;
+  bot.game.dimension = dimension;
+  const tall = new Chunk({ minY: -64, worldHeight: 8192 });
+  tall.setBlockStateId(
+    { x: 1, y: 4096, z: 1 },
+    registry.blocksByName.gold_ore.defaultState,
+  );
+  columns.set("0,0", tall);
+  const deep = new Chunk({ minY: -4096, worldHeight: 16 });
+  deep.setBlockStateId(
+    { x: 1, y: -4095, z: 1 },
+    registry.blocksByName.diamond_ore.defaultState,
+  );
+  columns.set("-1,0", deep);
+  const empty = new Chunk({ minY: 0, worldHeight: 16 });
+  for (let x = 1; x <= 600; x++) columns.set(`${x},0`, empty);
+  const service = await startBridge({ bot, token, blockMemory: scope });
+  t.after(() => service.close());
+  const reader = createBlockMemoryClient({ url: service.url, token });
+  assert.equal(
+    (await reader.block({ dimension, x: 1, y: 4096, z: 1 })).block.name,
+    "gold_ore",
+  );
+  assert.equal(
+    (await reader.block({ dimension, x: -15, y: -4095, z: 1 })).block.name,
+    "diamond_ore",
+  );
+  assert.equal(
+    (await reader.block({ dimension, x: 1, y: 8128, z: 1 })).reason,
+    "outside_dimension_height",
+  );
+  assert.equal(
+    (await reader.block({ dimension, x: 2 ** 40, y: 2 ** 40, z: -(2 ** 40) }))
+      .status,
+    "unknown",
+  );
+  assert.equal(
+    (await reader.chunk({ dimension, x: 2 ** 40, z: -(2 ** 40) })).status,
+    "unknown",
+  );
+  const page = await reader.chunks({ dimension, limit: 1000 });
+  assert.equal(page.chunks.length, 602);
+  assert.equal(page.nextOffset, null);
+  const view = await reader.prefetch({
+    dimension,
+    columns: [
+      { x: 0, z: 0 },
+      { x: -1, z: 0 },
+    ],
+  });
+  assert.equal(view.blockAt({ x: 1, y: 4096, z: 1 }).name, "gold_ore");
+  assert.equal(view.blockAt({ x: -15, y: -4095, z: 1 }).name, "diamond_ore");
+  // Native chunk JSON is valid with trailing whitespace; transfer size does not
+  // change its meaning or justify rejecting an otherwise valid received column.
+  const json = empty.toJson();
+  empty.toJson = () => json + " ".repeat(8 * 1024 * 1024);
+  const large = await reader.chunk({ dimension, x: 1, z: 0 });
+  assert.ok(Buffer.byteLength(large.data) > 8 * 1024 * 1024);
+  assert.equal(
+    Chunk.fromJson(large.data).getBlock({ x: 1, y: 0, z: 1 }).name,
+    "air",
+  );
 });

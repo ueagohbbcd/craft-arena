@@ -4,7 +4,13 @@ import { createWorldMemory } from "mineflayer-world-memory";
 const bad = (message) => {
   throw Object.assign(new Error(message), { status: 400 });
 };
-const integer = (query, key, min, max, fallback) => {
+const integer = (
+  query,
+  key,
+  min = Number.MIN_SAFE_INTEGER,
+  max = Number.MAX_SAFE_INTEGER,
+  fallback,
+) => {
   const text = query.get(key);
   if (text === null && fallback !== undefined) return fallback;
   const value = text === null || text.trim() === "" ? NaN : Number(text);
@@ -51,11 +57,11 @@ export function createBlockMemory(bot, options = {}, serializeBlock) {
       const query = url.searchParams;
       const dimension =
         query.get("dimension") ?? String(bot.game?.dimension || "overworld");
-      if (!dimension || dimension.length > 256) bad("Invalid dimension");
+      if (!dimension) bad("Invalid dimension");
       const info = envelope();
       if (url.pathname === "/v1/memory/chunks") {
         const offset = integer(query, "offset", 0, Number.MAX_SAFE_INTEGER, 0);
-        const limit = integer(query, "limit", 1, 512, 256);
+        const limit = integer(query, "limit", 1, Number.MAX_SAFE_INTEGER, 256);
         const chunks = memory.chunks(
           query.has("dimension") ? { dimension } : {},
         );
@@ -69,10 +75,9 @@ export function createBlockMemory(bot, options = {}, serializeBlock) {
       const blockQuery = url.pathname === "/v1/memory/block";
       if (!blockQuery && url.pathname !== "/v1/memory/chunk")
         throw Object.assign(new Error("Unknown memory query"), { status: 404 });
-      const limit = blockQuery ? 2 ** 25 : 2 ** 21;
-      const x = integer(query, "x", -limit, limit - 1);
-      const z = integer(query, "z", -limit, limit - 1);
-      const y = blockQuery ? integer(query, "y", -2048, 2047) : undefined;
+      const x = integer(query, "x");
+      const z = integer(query, "z");
+      const y = blockQuery ? integer(query, "y") : undefined;
       const column = {
         x: blockQuery ? Math.floor(x / 16) : x,
         z: blockQuery ? Math.floor(z / 16) : z,
@@ -102,10 +107,6 @@ export function createBlockMemory(bot, options = {}, serializeBlock) {
           : unknown("outside_dimension_height");
       }
       const data = memory.chunk(column).toJson();
-      if (Buffer.byteLength(data) > 8 * 1024 * 1024)
-        throw Object.assign(new Error("Chunk transfer exceeds 8 MiB"), {
-          status: 413,
-        });
       return { ...result, data };
     },
     close: () => memory.dispose(),

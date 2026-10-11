@@ -41,7 +41,11 @@ All direct calls are asynchronous HTTP reads of the shared service. Omitted
 `dimension` uses the character's current dimension; supply it explicitly for
 reproducible historical queries. `block` uses integer world coordinates. `chunk`
 uses integer chunk coordinates, with `Math.floor(worldX / 16)` for negatives.
-`chunks` returns one page (1–512 entries) and does not download their block data.
+`chunks` returns one page (positive integer `limit`, default 256) and does not
+download their block data. Coordinates accept safe integers; the received
+column's actual minimum Y and height determine whether a block is known. No
+extra protocol-coordinate, dimension-name-length or native-JSON-size cap is
+imposed by these memory queries.
 The response's `scope` identifies its world, run and participant, and `revision`
 is the live memory revision. `error` reports persistence trouble if configured.
 
