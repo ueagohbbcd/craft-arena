@@ -1,6 +1,6 @@
 # 默认态势感知与观察工具
 
-默认采用普通 ReAct 工具结果与收件箱历史：开局提供基础状态，随后交付变化部分。按需 `observe` 返回完整快照与所选图像。临时请求尾部保留为默认关闭的实验选项，见[历史与状态](#历史与本次请求状态)。
+默认采用普通 ReAct 工具结果与收件箱历史：开局提供基础状态，随后交付变化部分。按需 `observe` 返回完整快照与所选图像。后台采集、主动返回、普通 Inbox 与 early 的设计取舍见[上下文交付设计](CONTEXT-DELIVERY.md)。
 
 ## 系统是什么
 
@@ -15,7 +15,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 | 能力 | 默认行为／使用入口 |
 | --- | --- |
 | 当前状态变化 | 开局基础状态，后续顶层工具返回与新一轮入口合并变化部分，省略未变部分；`observe` 返回完整状态 |
-| 沿途方块摘要 | 低频采样近距透明连通空间，区间按类型／坐标去重；默认普通 Inbox 报告保留历史，临时尾部可选 |
+| 沿途方块摘要 | 低频采样近距透明连通空间，区间按类型／坐标去重；普通 Inbox 报告保留历史 |
 | 自身与物品 | 位置、生命、食物、装备、背包数量、手持物和当前打开窗口 |
 | 玩家与附近环境 | 中心可见实体雷达、较大范围非潜行玩家、掉落物群、脚边地形和告示牌 |
 | 变化事件 | 默认监听受伤、生命、关键物品耗尽／损失、死亡／出生和观察连接变化；游戏聊天另有默认通道 |
@@ -55,7 +55,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 | `radar` | 按距离与中心可见性筛选的实体、较大范围玩家和掉落物群；玩家保留可信队伍关系与已有状态，范围见[雷达说明](#实体雷达与普通历史交付) |
 | `local` | 脚边默认 5×5×5 范围的已知／未知、空气／实体方块统计，最多 16 个相关方块及省略数量 |
 | 方块区间报告 | `observation.recent_blocks` 经普通 Inbox 交付：各维度整体区间、实际已知格 bbox、唯一不透明边界面面积与类型数量 |
-| 附近牌变化 | `observation.nearby_signs` 经普通 Inbox 独立交付：本次近距连通样本遇到的牌及正反面已知／未知文字 |
+| 附近牌变化 | `observation.nearby_signs` 以可替换待交付状态经普通 Inbox 报告：近距连通样本遇到的牌及正反面已知／未知文字 |
 | `tasks` | 默认最多 16 条程序详情，优先运行中程序；额外运行中程序全部保留 `taskId`／状态，附 `detailOmitted` |
 | `programState` | 默认最多 8 条当前程序报告、总计 8 KiB、每条 2 KiB，保留来源、关联任务和有效期；超大正文以 `dataOmitted` 标明 |
 | `runtimeProjection` | 报告总数、已显示／省略条数、正文省略数及完整查询入口 |
@@ -74,11 +74,9 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 报告延迟与采样频率独立。默认 `delivery=inbox`，生产者从第一份样本开始以 `kind:"state"`、固定 key `observation.recent_blocks` 更新原有 Inbox 的同一待交付条目；每次提供本区间完整累计结果。Inbox 的 `minDeliveryDelayMs=30000` 从首个待交付条目创建时计时，后续覆盖不延后到期。到期只使条目可交付，等待原有工具／回合自然边界；未到期条目不使 `pending` 为真，也不唤醒模型。真正 `drain` 后通过同进程 `onDelivered` 释放该条目水位以内的样本，期间新增样本仍保留。入队被拒绝、过期或被挤出都不会自行清空生产者累计器；下次采样再提供完整累计。普通交付后的历史保留，不覆盖历史，也不把多个已封口报告简单相加。
 
-开启实验尾部 `ARENA_PERCEPTION_TAIL=1` 后，可选 `tail` 默认最小间隔 0，沿用请求时展示；显式设置最小间隔后，未到间隔直接省略该段。重复上下文或失败／中止／length 响应保留样本；成功 `stop`／`toolUse` 只释放该请求已包含的样本。`both` 使用与 `inbox` 相同的队列延迟，并将最近一条已实际 drain 的报告放入尾部直到成功响应。现有生命、物资、战斗和程序报告保持原样。
+可用 `ARENA_PERCEPTION_RECENT_BLOCKS=0` 关闭；`ARENA_PERCEPTION_RECENT_BLOCK_RADIUS=6`、`ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS=1000`、`ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS=4096` 调整范围、频率和单次预算。`ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS` 设置 Inbox 的首次 pending 创建到可交付延迟。`ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS=3` 仅调整完整查询的代表位置数。采样中断／源过期不被记作完整空白观察，间隔内没有采到的瞬间不能追补。
 
-可用 `ARENA_PERCEPTION_RECENT_BLOCKS=0` 关闭；`ARENA_PERCEPTION_RECENT_BLOCK_RADIUS=6`、`ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS=1000`、`ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS=4096` 调整范围、频率和单次预算。`ARENA_PERCEPTION_RECENT_BLOCK_DELIVERY=inbox|tail|both` 选择报告通道，`ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS` 设置 Inbox 的首次 pending 创建到可交付延迟；仅在 `tail` 模式表示尾部最小展示间隔。`ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS=3` 仅调整完整查询的代表位置数。采样中断／源过期不被记作完整空白观察，间隔内没有采到的瞬间不能追补。
-
-近距采样还复用现有告示牌文字读取，单独提供 `nearbySigns`，区分 `front`／`back` 的 `known` 与 `text`。只处理这次连通扫描实际遇到的牌，双方都确定为空白时省略；缺少 block entity 或某一侧消息字段时保留未知，不编成空牌。每面沿用 240 字符预览上限及 `textTruncated` 标记。默认仅在附近牌集合／文字变化时投递普通 `observation.nearby_signs` 事件；时间戳变化本身不重复发送。集合变空只说明本次近距样本没遇到文字牌，不证明原牌被破坏。显式 `tail`／`both` 时当前牌文字可持续放入最新状态，与区间方块报告的间隔独立；`observe` 也可读取当前附近牌。
+近距采样还复用现有告示牌文字读取，单独提供 `nearbySigns`，区分 `front`／`back` 的 `known` 与 `text`。只处理这次连通扫描实际遇到的牌，双方都确定为空白时省略；缺少 block entity 或某一侧消息字段时保留未知，不编成空牌。每面沿用 240 字符预览上限及 `textTruncated` 标记。附近牌集合／文字改变后，以可替换待交付状态投递普通 `observation.nearby_signs` 报告。同一未交付集合的往返观察合并，先前文字报告与走开后的空集合分别保留到实际交付；过期或挤出后仍可补交。时间戳变化本身不新增报告，空集合表示本次样本未遇到文字牌。该交付独立于区间方块报告的延迟；`observe` 也可读取当前附近牌。
 
 这些是观察事实：`null`／`known:false` 表示缺少对应数据。实体覆盖范围来自 bot 的观察镜像；玩家队伍关系使用可信 host 的公开参与者身份映射，缺少对应映射时为 `unknown`。当前窗口反映已打开窗口的槽位，容器位置需要明确的窗口关联。告示牌文字来自实际已加载数据，并保留来源时间。方块的 `unknown` 和已知 `air` 分别统计。
 
@@ -110,7 +108,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 | `lost` | 桥观察流丢失，普通报告，游戏状态变为未知／过期 |
 | `reset`／`restored` | 镜像重建或恢复，普通报告 |
 | `disconnected` | bot 的实际 `end`／`kicked` 事件，紧急报告 |
-| `nearby_signs` | 近距连通采样中的告示牌文字／集合变化，普通事件，前后面与未知文本分别表示 |
+| `nearby_signs` | 近距连通采样的文字／集合变化，普通 Inbox 可替换待交付状态；前后面与未知文本分别表示 |
 | `stale` | 取样发现源数据首次跨过过期阈值，普通报告 |
 
 生命下降的升级是可解释的显示启发式：默认最近 2 秒累计损失至少 4 点生命，或至少 3 次下降且累计至少 3 点，才将 `health_loss` 升级为紧急。`urgency` 中包含触发理由、窗口、实测损失／次数和阈值；没有来源时仍是 `unknown`，不把小额生命变化推断为战斗。单次小伤、超出短窗的零散损失、只有 `entityHurt` 而没有可测生命下降的事件保持普通。
@@ -166,10 +164,6 @@ observe({ views: ["3d"] })
 
 例如：一次查询得到位置 A，该输出成为历史事实。后来 bot 到达 B，后续工具结果中的 changed 用新的 `self` 替换旧状态，原查询仍在原位置。`publishCurrent` 值过期或清除后，后续 `programState` 更新体现移除；已经交付的旧记录仍属于当时的历史。若某个短动作的经过值得单独保留，用 `post` 报告。
 
-### 可选实验：临时请求尾部
-
-`ARENA_PERCEPTION_TAIL=1` 将默认状态变化交付切换为 `context_with_system` 请求尾部：每次请求的消息副本末尾追加 `mc-current-observation`，下次请求重建。普通工具结果、显式查询和 Inbox 事件仍进入历史。该功能尚未完成使用效果验收；需要验证模型如何理解随后消失的临时观察。稳定历史前缀理论上仍可利用前缀缓存，实际端点与断点效果以 provider 回报为准。[模型适配器](../packages/codex-adapter/README.md)记录缓存实验，[态势感知 TODO](PERCEPTION-TODO.md)记录后续工作。
-
 ## 进阶复用与扩展
 
 下面是开发扩展入口；日常比赛直接使用上述默认套组即可。所有函数都是普通 JavaScript，可与自己写的控制代码组合。
@@ -211,7 +205,7 @@ Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报
 
 - [观察核心](../packages/observation/index.mjs)：状态投影、数量、范围和事件。
 - [一次观察](../packages/observation/observe.mjs)与 [Pi 工具](../packages/observation/pi-extension.mjs)：JSON、冻结取样、原生图像与回退。
-- [会话观察运行时](../packages/pi-extension/perception-runtime.mjs)与 [Pi 扩展](../packages/pi-extension/index.mjs)：连接、自动生命周期、普通历史交付、可选尾部和任务关联。
+- [会话观察运行时](../packages/pi-extension/perception-runtime.mjs)与 [Pi 扩展](../packages/pi-extension/index.mjs)：连接、自动生命周期、普通历史交付和任务关联。
 - [验证记录](VALIDATION.md)：当前离线、真实 Pi、渲染与实服证据；各项能力的实现范围与实战验证分别记录。
 
 需要复现真实游戏链路时，使用 [显式启用的验收脚本](../scripts/validate-observation-live.mjs) 的 `--help`。它要求已有、已停机且已接受 EULA 的隔离测试服，验证官方 1.21.1 JAR，为本次检查创建新世界，并在退出后恢复服务器配置。
@@ -234,4 +228,4 @@ Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报
 
 普通历史交付省略未变状态段，忽略采样年龄与任务运行时长的自然增长。自身位置／速度展示到一位小数、朝向两位小数；按需查询保留原精度。雷达的新空列表会清除上次名单。每条报告的 `observedAt` 表示观察时刻，旧坐标始终是历史记录。
 
-临时尾部选项与验证范围见[历史与状态](#历史与本次请求状态)。
+早期临时请求尾部的状态见[历史实验记录](CONTEXT-DELIVERY.md#历史实验记录临时请求尾部)。

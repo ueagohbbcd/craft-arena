@@ -59,7 +59,7 @@ Same-process producers can use `Inbox.post(input, {onDelivered})` to retire the 
 
 `publishCurrent` writes a separate latest-value store without queuing an event or waking the model. Reading `currentSnapshot()` and draining events leave those values available until replacement, expiry or clearing. By default, Pi samples them at agent-start and top-level tool-result boundaries; changed `programState` sections enter ordinary history. Expiry or clearing appears in a later observation update. A value that comes and goes between samples may never be displayed; use `post` to retain the event's own report.
 
-The unfinished `ARENA_PERCEPTION_TAIL=1` option instead reads current values into a request-only tail through `context_with_system`. Explicit `observe` results and delivered Inbox events keep their ordinary history in either mode. See [observation delivery](../../docs/OBSERVATION.md#历史与本次请求状态).
+See [observation delivery](../../docs/OBSERVATION.md#历史与本次请求状态) for state projection and the [context design](../../docs/CONTEXT-DELIVERY.md) for collection and delivery choices.
 
 Clear one current value by keeping its key and sending `null` as the data:
 

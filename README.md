@@ -22,7 +22,7 @@
 
 ## 平台提供哪些条件
 
-**参赛容器内**运行 Pi、工具扩展、普通游戏程序和本地状态镜像。启动入口加载短说明、编程指南、示例、图像工具与 codemode，运行时自动接入只读局势观察。普通工具结果和收件箱事件保留在历史；开局提供基础状态，后续按状态部分省略未变内容、将变化与收件箱合并交付。临时请求尾部状态栏是默认关闭的实验选项。可复用的采样、监听与图像函数也供参赛程序按需组合。具体第一轮流程与数据边界见 [观察架构](docs/OBSERVATION.md)。
+**参赛容器内**运行 Pi、工具扩展、普通游戏程序和本地状态镜像。启动入口加载短说明、编程指南、示例、图像工具与 codemode，运行时自动接入只读局势观察。普通工具结果和收件箱事件保留在历史；开局提供基础状态，后续按状态部分省略未变内容、将变化与收件箱合并交付。可复用的采样、监听与图像函数也供参赛程序按需组合。具体第一轮流程与数据边界见 [观察架构](docs/OBSERVATION.md)。
 
 **可信服务侧**运行真实 Mineflayer bot、游戏动作校验、模型预算网关和比赛宿主。默认观察器和各控制程序都是同一个参赛角色的桥客户端；各自通过语义桥读取状态，控制程序发送动作。真实 Minecraft 连接、模型上游凭证、权威预算与计分留在可信服务侧。
 
@@ -55,6 +55,7 @@ node examples/render-fixture.mjs
 模拟比赛和渲染示例使用合成数据；测试的模型响应由本地假上游提供。依赖版本由 `package-lock.json` 固定，npm 依赖与材质通过安装获取。
 
 - **了解范围：** [主要特性](docs/FEATURES.md)、[项目规格](docs/SPEC.txt)。规格记录目标与待决策项，验证记录说明当前证据。
+- **上下文设计：** [信息来源、交付时机与默认选择](docs/CONTEXT-DELIVERY.md)，说明主动返回、后台按需读、普通 Inbox、early，以及默认采集与默认交付各自的责任。
 - **参赛编程：** [玩家入门](docs/PLAYER.md)、[观察架构](docs/OBSERVATION.md)、[短说明](AGENTS.md)、[编程指南与示例](examples/SKILL.md)、[Pi 启动配置](packages/pi-extension/README.md)。入口为 `packages/pi-extension/bootstrap.mjs`。
 - **部署比赛：** [运营指南](infra/README.md)。Windows 本机使用 `scripts/initialize-windows-arena.ps1` 和 `scripts/windows-arena.ps1`，输入准备好的世界目录与比赛配置，统一保存为 `map-original/world` 供重置使用。Direct Fire 配置作为示例保留；Codex OAuth、DeepSeek 和自动系统代理按部署需要选择。通用部署使用 `infra/compose.live.yaml` 与 `infra/match.live.template.json`；`compose.yaml` 用于单独服务调试。默认 live 部署使用固定版本的 Fabric + ServerReplay：开局录制、结束校验并按 runId 保存到可信 results；可用 `live.replay.enabled:false` 关闭。回放查看、升级和存储管理见运营指南。
 - **开发验证：** 修改后运行 `npm test`；涉及 Pi 或插件适配时检查相应集成用例。部署前固定地图、依赖与镜像版本，保存配置和结果。
