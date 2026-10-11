@@ -276,3 +276,29 @@ test("default adapter delivers task-associated normal summaries through managed 
   assert.equal(messages[0].priority, "normal");
   assert.equal(messages[0].data.type, "combat.summary");
 });
+
+test("attaching mid-combat and observing a surviving target after spawn do not invent start events", async (t) => {
+  const f = await fixture(t);
+  await f.observer.close();
+  await f.bot.pvp.attack(f.entity(2));
+  const { observeCombat } =
+    await import("../packages/bot-sdk/combat-observation.mjs");
+  const observer = observeCombat(f.bot);
+  assert.equal(
+    observer.summary().active.startEvidence,
+    "active_target_observed_on_attach",
+  );
+  assert.ok(
+    !observer
+      .summary()
+      .active.evidence.some((e) => e.kind === "startedAttacking"),
+  );
+  f.bot.emit("death");
+  f.bot.emit("spawn");
+  assert.equal(
+    observer.summary().active.startEvidence,
+    "active_target_observed_on_spawn",
+  );
+  assert.equal(f.bot.pvp.target.id, 2);
+  await observer.close();
+});

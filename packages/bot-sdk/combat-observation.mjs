@@ -236,7 +236,7 @@ export function observeCombat(
     nearby = new Set();
     deliver(result);
   }
-  function started() {
+  function started(startEvidence = "startedAttacking") {
     if (closed) return;
     clearImmediate(stopping);
     stopping = null;
@@ -247,6 +247,7 @@ export function observeCombat(
         combatId: randomUUID(),
         sequence: ++sequence,
         startedAt: now(),
+        startEvidence,
         origin: "mineflayer-pvp events and observed mirror",
         attackAttempts: 0,
         targetHurtEvents: 0,
@@ -294,11 +295,14 @@ export function observeCombat(
       bounded(active.decisions, pendingDecision);
       pendingDecision = null;
     }
-    evidence("startedAttacking", { targetId: target?.id ?? null });
+    evidence(startEvidence, { targetId: target?.id ?? null });
     sample();
     phase();
   }
-  listen("startedAttacking", started);
+  listen("startedAttacking", () => started());
+  listen("spawn", () => {
+    if (!active && bot.pvp.target) started("active_target_observed_on_spawn");
+  });
   listen("attackedTarget", () => {
     if (active) {
       active.attackAttempts++;
@@ -403,6 +407,6 @@ export function observeCombat(
       await observer.flush();
     },
   };
-  if (bot.pvp.target) started();
+  if (bot.pvp.target) started("active_target_observed_on_attach");
   return observer;
 }
