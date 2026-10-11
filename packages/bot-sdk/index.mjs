@@ -91,6 +91,7 @@ export class BotFacade extends EventEmitter {
     this.epoch = null;
     this.closed = false;
     this._pending = new Set();
+    this._controlTail = Promise.resolve();
     this._windows = new Map();
     this._closedWindowRefs = new Set();
     this._pendingOpens = 0;
@@ -146,7 +147,18 @@ export class BotFacade extends EventEmitter {
     return body.result;
   }
   _fire(action, args) {
-    const p = this.action(action, args);
+    // Native movement controls apply in call order. Concurrent HTTP requests
+    // can arrive out of order, so queue just these short writes per facade.
+    // Long actions (dig/equip/etc.) must not delay a release or stop.
+    const ordered =
+      action === "setControlState" ||
+      action === "clearControlStates" ||
+      action === "stop";
+    const p = ordered
+      ? this._controlTail.then(() => this.action(action, args))
+      : this.action(action, args);
+    if (ordered) this._controlTail = p.catch(() => {});
+    // Include queued, not-yet-sent writes so flush observes the entire queue.
     this._pending.add(p);
     p.then(
       () => {
