@@ -1,0 +1,200 @@
+{
+  "schemaVersion": 1,
+  "kind": "independent-coding-agent-live-sdk-demonstration",
+  "date": "2026-10-11",
+  "summary": "PASS: One fresh coding agent completed a small unknown-layout Minecraft courtyard task through the public toolkit, without a supplied route or chest coordinates.",
+  "task": "Find supplies, take exactly 3 diamonds while preserving other chest items, carry them to a clearly marked finish, and submit a tree candidate query without chopping or altering terrain.",
+  "setup": {
+    "minecraftVersion": "1.21.1",
+    "isolatedLocalOfflineServer": true,
+    "mapBounds": {
+      "min": {
+        "x": 0,
+        "y": 62,
+        "z": 0
+      },
+      "max": {
+        "x": 19,
+        "y": 71,
+        "z": 19
+      }
+    },
+    "features": [
+      "Two supply chests with different contents",
+      "Two walkable wall passages requiring turns",
+      "Gold finish platform with signs",
+      "A queryable log-and-leaf tree candidate"
+    ],
+    "initialKnowledge": "Task, public bounds, normal player documentation and SDK/observation/query modules; no fixture source, authoritative world data, route or chest coordinates."
+  },
+  "independence": {
+    "freshPlayerAgent": true,
+    "refereeBuiltAndScoredOnly": true,
+    "playerChoseScriptsAndParameters": true,
+    "executionRelay": "Command sessions were agent-scoped. The referee executed only exact player-authored script paths and arguments, returning stdout/stderr without route suggestions or tactical assistance.",
+    "playerUsed": [
+      "connectBot",
+      "SDK loaded-column block queries",
+      "schematic minimap and oblique render",
+      "queryTreeCandidate",
+      "loadSelectedPlugins with Pathfinder",
+      "GoalNear and GoalBlock",
+      "container withdraw",
+      "sampleObservation sign verification"
+    ],
+    "playerInspectedGeneratedImages": true
+  },
+  "timing": {
+    "firstSuccessfulObservationUtc": "2026-10-11T06:30:14.801Z",
+    "finalVerificationUtc": "2026-10-11T06:33:40.675Z",
+    "elapsedSeconds": 205.874,
+    "elapsedDisplay": "3m26s",
+    "budgetSeconds": 360,
+    "environmentSetupAndInitialSessionHandoffExcluded": true
+  },
+  "result": {
+    "passed": true,
+    "position": {
+      "x": 16.499513664193103,
+      "y": 64,
+      "z": 3.31402101779525
+    },
+    "finishReached": true,
+    "inventoryBefore": [
+      {
+        "name": "wooden_pickaxe",
+        "count": 1
+      },
+      {
+        "name": "bread",
+        "count": 2
+      }
+    ],
+    "inventoryAfter": [
+      {
+        "name": "diamond",
+        "count": 3
+      },
+      {
+        "name": "wooden_pickaxe",
+        "count": 1
+      },
+      {
+        "name": "bread",
+        "count": 2
+      }
+    ],
+    "chests": [
+      {
+        "position": {
+          "x": 4,
+          "y": 64,
+          "z": 14
+        },
+        "before": {
+          "bread": 7,
+          "iron_ingot": 11
+        },
+        "after": {
+          "bread": 7,
+          "iron_ingot": 11
+        }
+      },
+      {
+        "position": {
+          "x": 14,
+          "y": 64,
+          "z": 14
+        },
+        "before": {
+          "diamond": 8,
+          "iron_ingot": 5
+        },
+        "after": {
+          "diamond": 5,
+          "iron_ingot": 5
+        }
+      }
+    ],
+    "chestAndInventoryVerification": "Independent Minecraft server data-get checks corroborated the player SDK result.",
+    "treeQuery": {
+      "status": "candidate",
+      "seed": {
+        "x": 4,
+        "y": 64,
+        "z": 7
+      },
+      "logCount": 4,
+      "leafEvidenceCount": 58,
+      "truncated": false,
+      "uncertaintyCodes": [
+        "artificial_structure_possible",
+        "adjacent_trees_may_merge",
+        "persistent_leaves_present"
+      ]
+    },
+    "treeLogsIntact": true,
+    "publicMapCellsCompared": 4000,
+    "publicMapBlockChanges": 0,
+    "refereeBlockChangeEvents": 0,
+    "deaths": 0,
+    "digOrPlaceRequests": 0
+  },
+  "metrics": {
+    "bridgeActionRequests": 723,
+    "actionKinds": {
+      "clearControlStates": 15,
+      "closeWindow": 2,
+      "look": 140,
+      "openContainer": 2,
+      "setControlState": 560,
+      "stop": 3,
+      "windowWithdraw": 1
+    },
+    "countMeaning": "723 low-level bridge requests, largely control and look updates; this is not a model round-trip, tool-call, or reasoning-step count.",
+    "gameplayErrors": 0,
+    "negativeExplorationResults": 1,
+    "negativeExplorationDetail": "The first opened chest had no diamonds; player left it unchanged and independently tried the other observed chest."
+  },
+  "observedLimitations": [
+    {
+      "item": "Immediate inventory observation lag",
+      "detail": "Immediately after closing the successful transfer window, the same-process SDK inventory briefly showed the pre-transfer contents. A later fresh SDK connection and authoritative NBT both showed the correct 3 diamonds."
+    },
+    {
+      "item": "Schematic readability",
+      "detail": "Player reported generic material colors and no in-image coordinates/text; metadata, raw block names and the oblique view were used to resolve geometry."
+    },
+    {
+      "item": "Preparation-only large SSE frame issue",
+      "detail": "An experimental snapshotRadius of 24 caused an initial SSE connection to terminate during setup. The demonstrated trial used the existing default radius of 8, while the SDK still mirrored all loaded columns. This was not a player failure, and the subsequent backpressure fix is not covered by this trial."
+    }
+  ],
+  "source": {
+    "repository": "craft-arena",
+    "baseCommit": "d3b76207c6d6cafc8f13a62f809eee8ca489fb55",
+    "workingTreeBoundary": "Not a clean-commit-only run: the checkout already contained observation index, observation tests and observation documentation edits. Source hashes were captured before the player gameplay scripts. This evidence does not claim to exercise subsequent bridge backpressure changes.",
+    "hashAlgorithm": "sha256",
+    "files": {
+      "packages/mf-bridge/index.mjs": "c41f6abd5c36dd29cb7dc7eca167bf363111480bb300522f82180ab3caf998bc",
+      "packages/mf-bridge/live.mjs": "efd0ffae23cb069866e613286ca9d005818896014f79240c8118e1a03cb75f7c",
+      "packages/bot-sdk/index.mjs": "7db24a0a05634f4f1c4cd8bd4b4ad021324d22050a729d9c6f475fe265b0056f",
+      "packages/bot-sdk/plugins.mjs": "6ea489b74d3134d96d5df02e34f4006eccf73a11e0246437316d67ff3909d28d",
+      "packages/observation/index.mjs": "05b00cdb5e7b96caa74d360bff55f37f407a61fc42975a2f080b8fe55357fd55",
+      "packages/observation/observe.mjs": "85fcbc068492d65d4e201f38b55a15de16af985509358d1b68fd459f359042c9",
+      "packages/observation/queries.mjs": "576ffb6ac3f1cee3e08c52db707c574039f0fa4b3e60b9333e71d87e4cc65315",
+      "node_modules/mineflayer-world-memory/package.json": "e2c51c79f527acac42bdb403b37feaa019bfacb900f5e37834644fd884fa0151"
+    }
+  },
+  "scope": "One native coding-agent CLI/SDK task and observation/query usability demonstration. It does not validate a complete real Pi default-state-injection loop, a full autonomous match, Windows deployment, or generalized/statistical model performance.",
+  "shutdown": {
+    "serverStopped": true,
+    "serverExitCode": 0,
+    "bridgeClosed": true,
+    "originalQaConfigurationRestored": true,
+    "eulaUnchanged": true,
+    "ownJavaAndNodeProcessesRemaining": 0,
+    "minecraftAndBridgePortsReleased": true,
+    "allPreparationAndTrialWorldLocksReleased": true
+  }
+}
