@@ -148,7 +148,9 @@ test("full loaded-map overview above old voxel acquisition limits retains the en
   bot.columns = new Map();
   for (let x = 0; x < 8; x++)
     for (let z = 0; z < 8; z++)
-      bot.columns.set(`${x},${z}`, { chunk: { minY: -64, worldHeight: 384 } });
+      bot.columns.set(`${x},${z}`, {
+        chunk: { minY: -64, worldHeight: 384, getBlockStateId: () => 1 },
+      });
   let calls = 0;
   bot.blockAt = (p) => {
     calls++;
@@ -504,4 +506,59 @@ test("full-height overview retains overhead roof while local current-Y slice rev
     result.views[1].metadata.notes.join(" "),
     /above the slice are omitted/,
   );
+});
+
+test("requested views without a valid player position preserve available state and report each view unavailable", async () => {
+  for (const entity of [undefined, {}, { position: new Vector(NaN, 2, 0) }]) {
+    const bot = fakeBot();
+    bot.entity = entity;
+    const result = await observeForModel(
+      bot,
+      { views: ["overview", "local", "3d"] },
+      {
+        captureTextured: () =>
+          assert.fail("unavailable position must not start a renderer"),
+      },
+    );
+    assert.equal(result.content.length, 1);
+    assert.equal(result.content[0].type, "text");
+    const payload = JSON.parse(result.content[0].text);
+    assert.equal(payload.state.self.health, 20);
+    assert.equal(payload.state.self.position, null);
+    assert.equal(payload.state.inventory.items[0].count, 3);
+    assert.equal(payload.state.freshness.sequence, 17);
+    assert.deepEqual(
+      payload.views.map((view) => view.name),
+      ["overview", "local", "3d"],
+    );
+    for (const view of payload.views) {
+      assert.equal(view.status, "unavailable");
+      assert.equal(view.selection, null);
+      assert.equal(view.contentIndex, null);
+      assert.equal(view.sequence, 17);
+      assert.match(view.error, /known player position/);
+    }
+  }
+});
+
+test("missing live position does not mask invalid observation view parameters", async () => {
+  const bot = fakeBot();
+  delete bot.entity;
+  for (const options of [
+    { views: ["invalid"] },
+    {
+      views: ["overview"],
+      overviewBounds: { min: { x: 0, y: 0, z: 0 }, max: { x: -1, y: 0, z: 0 } },
+    },
+    { views: ["overview"], localBounds: null },
+    { views: ["overview"], viewRadius: -1 },
+    { views: ["overview"], width: 0 },
+    { views: ["3d"], viewDirection: "invalid" },
+    { views: ["overview"], textured: "true" },
+    { views: ["overview"], fallback: "invalid" },
+  ])
+    await assert.rejects(
+      observe(bot, options),
+      (error) => error instanceof TypeError || error instanceof RangeError,
+    );
 });

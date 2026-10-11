@@ -8,6 +8,8 @@ import {
   renderSurfaceMinimap,
   renderOblique,
   encodePNG,
+  validateImageDimensions,
+  viewDirectionSigns,
 } from "../world-visual/index.mjs";
 import { capturePrismarineSnapshot } from "../world-visual/prismarine.mjs";
 import { renderTexturedSurface } from "../world-visual/surface-textures.mjs";
@@ -171,7 +173,7 @@ export function surfaceSnapshotFromBot(bot, bounds) {
       const chunkHeight = chunk?.worldHeight ?? bot.game?.height;
       // Full transmitted chunks establish all cells within their declared height, including air.
       const fullColumn =
-        chunk &&
+        typeof chunk?.getBlockStateId === "function" &&
         Number.isSafeInteger(chunkMin) &&
         Number.isSafeInteger(chunkHeight) &&
         chunkHeight > 0;
@@ -381,19 +383,47 @@ export async function observe(
     throw new TypeError("views must contain overview, local, or 3d");
   if (!["schematic", "error"].includes(options.fallback ?? "schematic"))
     throw new TypeError("fallback must be schematic or error");
+  // Validate caller mistakes separately from missing live data. A missing position
+  // must not hide an invalid crop, dimension, radius or renderer option.
+  if (options.viewRadius !== undefined) radiusValue(options.viewRadius);
+  for (const field of [
+    "overviewBounds",
+    "publicMapBounds",
+    "localBounds",
+    "structureBounds",
+  ])
+    if (options[field] !== undefined) validBounds(options[field]);
+  if (options.width !== undefined || options.height !== undefined)
+    for (const name of views.length ? views : ["overview"])
+      validateImageDimensions(
+        options.width ?? (name === "3d" ? 768 : 512),
+        options.height ?? 512,
+      );
+  if (options.viewDirection !== undefined)
+    viewDirectionSigns(options.viewDirection);
+  if (options.textured !== undefined && typeof options.textured !== "boolean")
+    throw new TypeError("textured must be a boolean");
   const state = sample(bot, options);
   const stamp = {
-    epoch: bot.epoch ?? null,
-    sequence: bot.sequence ?? null,
-    sampledAt: bot.sampledAt ?? null,
+    epoch: bot?.epoch ?? null,
+    sequence: bot?.sequence ?? null,
+    sampledAt: bot?.sampledAt ?? null,
   };
-  const selected = views.length ? observationViewBounds(bot, options) : null;
-  const position = bot.entity?.position ? point(bot.entity.position) : null;
-  const yaw = bot.entity?.yaw;
+  const currentPosition = bot?.entity?.position;
+  const position =
+    currentPosition &&
+    ["x", "y", "z"].every((axis) => Number.isFinite(currentPosition[axis]))
+      ? point(currentPosition)
+      : null;
+  const selected =
+    views.length && position ? observationViewBounds(bot, options) : null;
+  const yaw = bot?.entity?.yaw;
   // No await between the state sample and any selected snapshot acquisitions.
   const acquired = [...new Set(views)].map((name) => {
-    const selection = selected[name];
+    const selection = selected?.[name] ?? null;
     try {
+      if (!position)
+        throw new Error("Observation views require a known player position");
       const snapshot =
         name === "3d"
           ? snapshotFromBot(bot, { bounds: selection.bounds })
