@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { resolve, join } from "node:path";
+import { resolve, join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
 import { EventEmitter, once } from "node:events";
@@ -11,6 +11,7 @@ import {
   appendFileSync,
   mkdirSync,
   existsSync,
+  readdirSync,
 } from "node:fs";
 import { createServer } from "node:net";
 import { setTimeout as delay } from "node:timers/promises";
@@ -26,6 +27,8 @@ import { observe } from "../packages/observation/observe.mjs";
 import { snapshotFromBot } from "../packages/world-visual/index.mjs";
 import { startPerceptionRuntime } from "../packages/pi-extension/perception-runtime.mjs";
 import { Inbox } from "../packages/inbox/queue.mjs";
+import { createInboxServer } from "../packages/inbox/ipc.mjs";
+import { TaskManager } from "../packages/inbox/tasks.mjs";
 // Opt-in only: this script is never part of npm test. It starts an official
 // offline loopback server and mutates a NEW test world, never the existing world.
 // The operator must provide a stopped isolated QA installation that has already
@@ -65,12 +68,17 @@ mkdirSync(out, { recursive: true });
 let originalProperties,
   propertiesChanged = false;
 const sourceFiles = [
+  "package.json",
+  "package-lock.json",
   "packages/mf-bridge/index.mjs",
   "packages/mf-bridge/minecraft-compat.mjs",
   "packages/bot-sdk/index.mjs",
+  "packages/bot-sdk/plugins.mjs",
   "packages/observation/index.mjs",
   "packages/observation/observe.mjs",
   "packages/pi-extension/perception-runtime.mjs",
+  "packages/inbox/tasks.mjs",
+  "examples/plugin-goal.mjs",
   "packages/world-visual/index.mjs",
   "packages/world-visual/surface-textures.mjs",
   "packages/world-visual/prismarine.mjs",
@@ -89,6 +97,39 @@ const commit =
     cwd: root,
     encoding: "utf8",
   }).stdout?.trim() || null;
+const worldMemoryRoot = dirname(
+  fileURLToPath(import.meta.resolve("mineflayer-world-memory/package.json")),
+);
+const worldMemoryPackage = JSON.parse(
+  readFileSync(join(worldMemoryRoot, "package.json")),
+);
+const arenaPackage = JSON.parse(readFileSync(join(root, "package.json")));
+const arenaLock = JSON.parse(readFileSync(join(root, "package-lock.json")));
+const worldMemoryLock =
+  arenaLock.packages["node_modules/mineflayer-world-memory"];
+const worldMemoryFiles = [
+  "live.mjs",
+  "live.js",
+  ...readdirSync(join(worldMemoryRoot, "lib"))
+    .filter((name) => /^live-.*\.js$/.test(name))
+    .sort()
+    .map((name) => "lib/" + name),
+];
+const worldMemory = {
+  name: worldMemoryPackage.name,
+  version: worldMemoryPackage.version,
+  configuredSource: arenaPackage.dependencies["mineflayer-world-memory"],
+  resolved: worldMemoryLock?.resolved ?? null,
+  integrity: worldMemoryLock?.integrity ?? null,
+  files: Object.fromEntries(
+    worldMemoryFiles.map((name) => [
+      name,
+      createHash("sha256")
+        .update(readFileSync(join(worldMemoryRoot, name)))
+        .digest("hex"),
+    ]),
+  ),
+};
 
 const report = {
   run,
@@ -99,6 +140,7 @@ const report = {
   source: {
     commit,
     files: sourceHashes,
+    worldMemory,
     harness: "scripts/validate-observation-live.mjs",
   },
   tests: [],
@@ -545,6 +587,112 @@ async function main() {
       controls: s.self.controlFlags,
     };
   });
+  await test("task_manager_cancel_stops_real_plugin_goal", async () => {
+    const start = bridge.bot.entity.position.clone();
+    const ipc = await createInboxServer({ inbox, token });
+    const tasks = new TaskManager({
+      inbox,
+      cwd: root,
+      env: {
+        ARENA_BRIDGE_URL: bridge.url,
+        ARENA_BRIDGE_TOKEN: token,
+        MC_INBOX_URL: `http://127.0.0.1:${ipc.address.port}`,
+        MC_INBOX_SOCKET: "",
+        MC_INBOX_TOKEN: token,
+        MC_INBOX_SESSION: inbox.sessionId,
+      },
+    });
+    const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+    const controls = [
+      "forward",
+      "back",
+      "left",
+      "right",
+      "jump",
+      "sprint",
+      "sneak",
+    ];
+    const flags = () =>
+      Object.fromEntries(
+        controls.map((name) => [name, bridge.bot.controlState[name]]),
+      );
+    const horizontalDistance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+    try {
+      const id = tasks.start(
+        `exec ${quote(process.execPath)} ${quote(join(root, "examples/plugin-goal.mjs"))} 16 64 0 --no-dig`,
+      );
+      await waitFor(
+        () => {
+          const task = tasks.get(id);
+          assert.equal(task.status, "running", tasks.snapshot(task).stderr);
+          return (
+            bridge.bot.controlState.forward &&
+            horizontalDistance(bridge.bot.entity.position, start) > 0.6
+          );
+        },
+        15000,
+        "real plugin-goal must be moving before cancellation",
+      );
+      const atCancel = bridge.bot.entity.position.clone();
+      const controlsAtCancel = flags();
+      const requestedAt = Date.now();
+      assert.equal(tasks.cancel(id).status, "cancelling");
+      const result = await tasks.wait(id, { timeoutMs: 5000 });
+      const cleanupMs = Date.now() - requestedAt;
+      assert.equal(result.status, "completed", result.stderr);
+      assert.equal(
+        result.signal,
+        null,
+        "cleanup must finish before forced SIGKILL",
+      );
+      assert.equal(result.exitCode, 143, result.stderr);
+      assert.equal(result.stderr, "");
+      assert(Object.values(flags()).every((value) => value === false));
+      await delay(700); // Allow ordinary Minecraft ground friction to settle.
+      const settled = bridge.bot.entity.position.clone();
+      await delay(1200); // The native Minecraft connection remains alive and ticking.
+      const after = bridge.bot.entity.position.clone();
+      const drift = horizontalDistance(after, settled);
+      assert(Object.values(flags()).every((value) => value === false));
+      assert(
+        drift < 0.03,
+        `position continued moving after cancellation: ${drift}`,
+      );
+      assert(
+        Math.hypot(bridge.bot.entity.velocity.x, bridge.bot.entity.velocity.z) <
+          0.01,
+      );
+      assert(
+        horizontalDistance(after, { x: 16.5, z: 0.5 }) > 5,
+        "cancelled before goal arrival",
+      );
+      assert.equal(
+        bridge.bot._client?.state,
+        "play",
+        "native Minecraft connection must survive controller cancellation",
+      );
+      return {
+        start,
+        atCancel,
+        controlsAtCancel,
+        cleanupMs,
+        task: result,
+        afterCancelControls: flags(),
+        settled,
+        after,
+        postSettleDrift: drift,
+        nativeConnectionStillAlive: bridge.bot._client?.state === "play",
+      };
+    } finally {
+      await tasks.close();
+      await ipc.close();
+      // Fixture reset happens only after cancellation evidence and assertions.
+      action.clearControlStates();
+      await action.flush();
+      await command(`tp ${NAME} ${start.x} ${start.y} ${start.z}`);
+      await delay(400);
+    }
+  });
   await test("observed_player_and_block_update", async () => {
     companion = createCompatibleBot({
       host: "127.0.0.1",
@@ -562,6 +710,53 @@ async function main() {
       10000,
       "player mirror",
     );
+    const otherState = () =>
+      sampleObservation(observer).players.find(
+        (player) => player.username === OTHER,
+      );
+    const observedEvents = [];
+    const onEquip = (entity) => {
+      if (entity?.username === OTHER) observedEvents.push("entityEquip");
+    };
+    const onUpdate = (entity) => {
+      if (entity?.username === OTHER) observedEvents.push("entityUpdate");
+    };
+    observer.on("entityEquip", onEquip);
+    observer.on("entityUpdate", onUpdate);
+    let usingShield, afterRelease;
+    try {
+      await command(
+        `item replace entity ${OTHER} weapon.offhand with minecraft:shield`,
+      );
+      await waitFor(
+        () => companion.inventory.slots[45]?.name === "shield",
+        5000,
+        "companion shield receipt",
+      );
+      companion.activateItem(true);
+      await waitFor(
+        () => otherState()?.state?.itemUse?.usingItem === true,
+        5000,
+        "live player use-item metadata",
+      );
+      usingShield = otherState().state.itemUse;
+      assert.equal(usingShield.activeHand, "offhand");
+      assert.equal(usingShield.activeItem?.name, "shield");
+      assert.equal(usingShield.activityCandidate, "blocking");
+      assert(observedEvents.includes("entityEquip"));
+      assert(observedEvents.includes("entityUpdate"));
+      companion.deactivateItem();
+      await waitFor(
+        () => otherState()?.state?.itemUse?.usingItem === false,
+        5000,
+        "released use-item metadata",
+      );
+      afterRelease = otherState().state.itemUse;
+    } finally {
+      companion.deactivateItem();
+      observer.off("entityEquip", onEquip);
+      observer.off("entityUpdate", onUpdate);
+    }
     await command("setblock 8 64 2 minecraft:gold_block");
     await waitFor(
       () =>
@@ -580,6 +775,7 @@ async function main() {
     );
     return {
       players: s.players,
+      otherPlayerItemUse: { observedEvents, usingShield, afterRelease },
       updatedBlock: observer.blockAt(new observer.Vec3(8, 64, 2)).name,
       unknownFarBlock: null,
     };
