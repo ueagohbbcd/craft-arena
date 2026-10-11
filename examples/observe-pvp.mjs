@@ -13,7 +13,11 @@ const bot = await connectBot({
   token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
 });
 const controller = new AbortController();
-const cancel = () => controller.abort(new Error("Controller cancelled"));
+const cancel = () => {
+  controller.abort(new Error("Controller cancelled"));
+  bot.pvp?.forceStop();
+  bot.pathfinder?.setGoal(null);
+};
 process.on("SIGTERM", cancel);
 process.on("SIGINT", cancel);
 for (const name of ["death", "bridgeReset", "end"]) bot.on(name, cancel);
