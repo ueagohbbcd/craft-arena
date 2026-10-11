@@ -57,17 +57,18 @@ function fixture(options = {}) {
           )
         : { accepted: false, reason: "fixture queue rejected" };
     },
-    postSigns(data) {
+    postSigns(data, { key, onDelivered }) {
       signReports.push(data);
       return accepted
         ? inbox.post(
             {
               sessionId: inbox.sessionId,
-              kind: "event",
+              kind: "state",
+              key,
               priority: "normal",
               data: { type: "observation.nearby_signs", ...data },
             },
-            { source: "runtime" },
+            { source: "runtime", onDelivered },
           )
         : { accepted: false };
     },
@@ -453,9 +454,15 @@ test("nearby signs post ordinary changes independently of interval reports and s
   f.bot.signs = [];
   f.advance();
   f.tick();
-  assert.equal(f.signReports.length, 3);
+  const pendingSigns = f.inbox
+    .drain()
+    .messages.filter(
+      (message) => message.data.type === "observation.nearby_signs",
+    );
+  assert.equal(pendingSigns.length, 2);
+  assert.equal(pendingSigns[0].data.signs[0].front.text, "Exit");
   assert.deepEqual(
-    f.signReports[2].signs,
+    pendingSigns[1].data.signs,
     [],
     "current sampled set changed; no claim the world sign was destroyed",
   );
@@ -499,5 +506,109 @@ test("sign change comparison ignores enumeration order and retries rejected enqu
   f.advance();
   f.tick();
   assert.equal(f.signReports.length, attempts);
+  f.runtime.close();
+});
+
+const signWithText = (text) => ({
+  position: { x: 1, y: 65, z: 0 },
+  name: "oak_sign",
+  front: { known: true, text },
+  back: { known: true, text: "" },
+});
+const signMessages = (batch) =>
+  batch.messages.filter(
+    (message) => message.data.type === "observation.nearby_signs",
+  );
+
+test("expired nearby signs are retried until actual delivery, then unchanged samples stay quiet", () => {
+  const f = fixture({ delivery: "inbox" });
+  f.bot.signs = [signWithText("Objective wool through left tunnel")];
+  f.tick();
+  f.advance(301000);
+  const expired = f.inbox.drain();
+  assert.equal(signMessages(expired).length, 0);
+  assert.ok(expired.dropped.expired > 0);
+  f.tick();
+  const restored = signMessages(f.inbox.drain());
+  assert.equal(restored.length, 1);
+  assert.equal(
+    restored[0].data.signs[0].front.text,
+    "Objective wool through left tunnel",
+  );
+  assert.equal(
+    restored[0].data.observedAt,
+    1000,
+    "retry retains the observation time",
+  );
+  const attempts = f.signReports.length;
+  for (let n = 0; n < 3; n++) {
+    f.advance();
+    f.tick();
+    assert.equal(signMessages(f.inbox.drain()).length, 0);
+  }
+  assert.equal(f.signReports.length, attempts);
+  f.runtime.close();
+});
+
+test("overflow cannot erase an undelivered sign when a newer sample walks away", () => {
+  const f = fixture({ delivery: "inbox" });
+  f.bot.signs = [signWithText("Take the lower passage")];
+  f.tick();
+  for (let n = 0; n < 256; n++)
+    f.inbox.post({ sessionId: f.inbox.sessionId, data: { filler: n } });
+  const evicted = f.inbox.drain();
+  assert.ok(evicted.dropped.overflow > 0);
+  assert.equal(signMessages(evicted).length, 0);
+  f.bot.signs = [];
+  f.advance();
+  f.tick();
+  const delivered = signMessages(f.inbox.drain());
+  assert.equal(delivered.length, 2);
+  assert.equal(delivered[0].data.signs[0].front.text, "Take the lower passage");
+  assert.deepEqual(delivered[1].data.signs, []);
+  f.advance();
+  f.tick();
+  assert.equal(signMessages(f.inbox.drain()).length, 0);
+  f.runtime.close();
+});
+
+test("pending sign revisits coalesce, edited text survives, and old acknowledgments retain newer samples", () => {
+  const f = fixture({ delivery: "inbox" });
+  f.bot.signs = [signWithText("One")];
+  f.tick();
+  const old = f.inbox.items.find(
+    (item) => item.message.data.type === "observation.nearby_signs",
+  );
+  for (let n = 0; n < 20; n++) {
+    f.bot.signs = [signWithText(n % 2 ? "One" : "Two")];
+    f.advance();
+    f.tick();
+  }
+  old.onDelivered();
+  f.advance();
+  f.tick();
+  const delivered = signMessages(f.inbox.drain());
+  assert.equal(
+    delivered.length,
+    2,
+    "A/B revisits do not grow the pending queue",
+  );
+  assert.deepEqual(
+    delivered.map((message) => message.data.signs[0].front.text),
+    ["Two", "One"],
+  );
+  assert.equal(delivered[1].data.observedAt, 21000);
+  const attempts = f.signReports.length;
+  f.advance();
+  f.tick();
+  assert.equal(f.signReports.length, attempts);
+  f.bot.signs = [signWithText("Two")];
+  f.advance();
+  f.tick();
+  assert.equal(
+    signMessages(f.inbox.drain()).length,
+    1,
+    "a revisit after delivery remains reportable",
+  );
   f.runtime.close();
 });

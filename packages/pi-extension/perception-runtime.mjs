@@ -286,15 +286,16 @@ export function startPerceptionRuntime({
         },
         { source: "runtime", onDelivered },
       ),
-    postSigns: (data) =>
+    postSigns: (data, { key, onDelivered }) =>
       inbox.post(
         {
           sessionId: inbox.sessionId,
-          kind: "event",
+          kind: "state",
+          key,
           priority: "normal",
           data: { type: "observation.nearby_signs", ...data },
         },
-        { source: "runtime" },
+        { source: "runtime", onDelivered },
       ),
   });
   function warn(error) {

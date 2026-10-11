@@ -127,7 +127,11 @@ export function startRecentBlockRuntime({
   let samplingStatus = settings.enabled ? "waiting" : "disabled";
   let samplingError = null;
   let nearbySigns = null,
-    acceptedSignSignature = null;
+    observedSignSignature = null,
+    signSequence = 0;
+  // Keep distinct undelivered observations, not just the latest nearby set:
+  // walking away must not erase a sign before the model has read it.
+  const pendingSigns = new Map();
   function sampleNow() {
     if (closed || !settings.enabled) return;
     const bot = getBot();
@@ -212,7 +216,7 @@ export function startRecentBlockRuntime({
               a.name.localeCompare(b.name),
           ),
       };
-      publishSignsIfChanged();
+      publishSigns();
       publishPending();
       return true;
     } catch (error) {
@@ -222,8 +226,10 @@ export function startRecentBlockRuntime({
   }
   function poll() {
     const sampled = sampleNow();
-    if (!closed) publishSignsIfChanged();
-    if (!closed && !sampled) publishPending();
+    if (!closed && !sampled) {
+      publishSigns();
+      publishPending();
+    }
     if (!closed) {
       timer = schedule(poll, settings.intervalMs);
       timer?.unref?.();
@@ -281,22 +287,42 @@ export function startRecentBlockRuntime({
       samplingError = error?.message ?? String(error);
     }
   }
-  function publishSignsIfChanged() {
+  function publishSigns() {
     if (!nearbySigns || typeof postSigns !== "function" || closed) return;
     const signature = JSON.stringify([
       nearbySigns.dimension,
       nearbySigns.signs,
     ]);
-    if (signature === acceptedSignSignature) return;
-    if (acceptedSignSignature === null && !nearbySigns.signs.length) {
-      acceptedSignSignature = signature;
-      return;
+    if (signature !== observedSignSignature) {
+      const initialEmpty =
+        observedSignSignature === null && !nearbySigns.signs.length;
+      observedSignSignature = signature;
+      if (!initialEmpty) {
+        const key =
+          pendingSigns.get(signature)?.key ??
+          `observation.nearby_signs:${++signSequence}`;
+        // Revisiting the same set within this undelivered interval updates its
+        // latest observation, instead of growing an A/B/A/B event backlog.
+        pendingSigns.delete(signature);
+        pendingSigns.set(signature, {
+          key,
+          data: structuredClone(nearbySigns),
+        });
+      }
     }
-    try {
-      const result = postSigns(structuredClone(nearbySigns));
-      if (result?.accepted === true) acceptedSignSignature = signature;
-    } catch {
-      /* Retry the observed change at a later sample; no extra framework. */
+    for (const [signature, { key, data }] of [...pendingSigns]) {
+      try {
+        postSigns(structuredClone(data), {
+          key,
+          onDelivered() {
+            // An older delivery cannot retire a newer observation of this set.
+            if (pendingSigns.get(signature)?.data === data)
+              pendingSigns.delete(signature);
+          },
+        });
+      } catch {
+        /* Refresh the same pending state on the next sample or poll. */
+      }
     }
   }
   return {
