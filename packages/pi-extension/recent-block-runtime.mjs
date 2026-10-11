@@ -14,12 +14,22 @@ export function recentBlockOptions(env = process.env) {
       ? value
       : fallback;
   };
+  const delivery = ["tail", "inbox", "both"].includes(
+    env.ARENA_PERCEPTION_RECENT_BLOCK_DELIVERY,
+  )
+    ? env.ARENA_PERCEPTION_RECENT_BLOCK_DELIVERY
+    : "inbox";
   return {
     enabled: env.ARENA_PERCEPTION_RECENT_BLOCKS !== "0",
     radius: integer("ARENA_PERCEPTION_RECENT_BLOCK_RADIUS", 6),
     intervalMs: integer("ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS", 1000, 1),
     maxReads: integer("ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS", 4096, 1),
     positionLimit: integer("ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS", 3),
+    delivery,
+    minReportMs: integer(
+      "ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS",
+      delivery === "tail" ? 0 : 30000,
+    ),
   };
 }
 
@@ -33,14 +43,18 @@ export function projectRecentBlocks(snapshot, asOf = Date.now()) {
     if (!dimensions.has(entry.dimension)) dimensions.set(entry.dimension, {});
     dimensions.get(entry.dimension)[entry.name] = entry.distinctPositions;
   }
+  const ranges = new Map(
+    snapshot.sampledRanges.map(({ dimension, bounds }) => [dimension, bounds]),
+  );
+  const areas = new Map(
+    snapshot.opaqueBoundaryArea.map(({ dimension, area }) => [dimension, area]),
+  );
   return {
     coverage: snapshot.coverage,
     radius: snapshot.sampling.radius,
     everyMs: snapshot.sampling.intervalMs,
     samples: snapshot.samples,
-    spanMs: snapshot.samples
-      ? Math.max(0, snapshot.lastSampleAt - snapshot.firstSampleAt)
-      : null,
+    interval: [snapshot.firstSampleAt, snapshot.lastSampleAt],
     ageMs:
       snapshot.lastSampleAt === null
         ? null
@@ -56,12 +70,18 @@ export function projectRecentBlocks(snapshot, asOf = Date.now()) {
     ...(snapshot.sampling.error ? { error: snapshot.sampling.error } : {}),
     dimensions: [...dimensions].map(([dimension, counts]) => ({
       dimension,
+      bbox: ranges.has(dimension)
+        ? ["min", "max"].map((side) =>
+            ["x", "y", "z"].map((axis) => ranges.get(dimension)[side][axis]),
+          )
+        : null,
+      opaqueBoundaryArea: areas.get(dimension) ?? 0,
       counts,
     })),
   };
 }
 
-/** A session-local collector on the existing mirror; no Inbox entries or model wakes. */
+/** A session-local collector; optional normal Inbox reports never request model wakes. */
 export function startRecentBlockRuntime({
   getBot,
   connectionStatus,
@@ -70,13 +90,27 @@ export function startRecentBlockRuntime({
   scan = sampleNearbyConnectedBlocks,
   schedule = setTimeout,
   cancel = clearTimeout,
+  postReport,
 }) {
   const settings = { ...recentBlockOptions({}), ...options };
+  if (options.minReportMs === undefined)
+    settings.minReportMs = settings.delivery === "tail" ? 0 : 30000;
+  if (!["tail", "inbox", "both"].includes(settings.delivery))
+    throw new RangeError("delivery must be tail, inbox or both");
+  if (
+    settings.enabled &&
+    settings.delivery !== "tail" &&
+    typeof postReport !== "function"
+  )
+    throw new TypeError(
+      "Inbox delivery requires a synchronous postReport callback",
+    );
   for (const [key, minimum] of [
     ["radius", 0],
     ["intervalMs", 1],
     ["maxReads", 1],
     ["positionLimit", 0],
+    ["minReportMs", 0],
   ])
     if (!Number.isSafeInteger(settings[key]) || settings[key] < minimum)
       throw new RangeError(`${key} must be an integer >= ${minimum}`);
@@ -84,7 +118,10 @@ export function startRecentBlockRuntime({
   let closed = false,
     timer,
     lastSource = null,
-    pendingThrough = null;
+    pendingThrough = null,
+    pendingAt = null,
+    lastReportAt = now(),
+    latestPublished = null;
   let lastSample = null;
   let samplingStatus = settings.enabled ? "waiting" : "disabled";
   let samplingError = null;
@@ -134,7 +171,8 @@ export function startRecentBlockRuntime({
         unknownCells: result.counts.unknown,
         airCells: result.counts.air,
         truncated: result.truncated,
-        bounds: result.bounds,
+        bounds: result.knownBounds ?? null,
+        opaqueFaces: result.opaqueFaces ?? [],
       });
       lastSource = source;
       lastSample = {
@@ -143,6 +181,7 @@ export function startRecentBlockRuntime({
         dimension,
         head,
         bounds: result.bounds,
+        knownBounds: result.knownBounds ?? null,
         counts: result.counts,
         truncated: result.truncated,
         seedStatus: result.seedStatus,
@@ -156,6 +195,7 @@ export function startRecentBlockRuntime({
   }
   function poll() {
     sampleNow();
+    if (!closed) publishIfDue();
     if (!closed) {
       timer = schedule(poll, settings.intervalMs);
       timer?.unref?.();
@@ -176,17 +216,53 @@ export function startRecentBlockRuntime({
         intervalMs: settings.intervalMs,
         maxReads: settings.maxReads,
         status: samplingStatus,
+        delivery: settings.delivery,
+        minReportMs: settings.minReportMs,
         ...(samplingError ? { error: samplingError } : {}),
       },
       lastSample: lastSample ? structuredClone(lastSample) : null,
     };
   }
+  function due() {
+    return (
+      settings.enabled &&
+      !closed &&
+      now() - lastReportAt >= settings.minReportMs
+    );
+  }
+  function publishIfDue() {
+    if (settings.delivery === "tail" || !due()) return;
+    const value = snapshot();
+    if (!value?.samples) return;
+    try {
+      const accepted = postReport(projectRecentBlocks(value, now()));
+      if (accepted?.accepted !== true)
+        throw new Error(
+          accepted?.reason ?? "Inbox did not accept the interval report",
+        );
+      accumulator.retireThrough(value.throughSample);
+      lastReportAt = now();
+      if (settings.delivery === "both") latestPublished = value;
+    } catch (error) {
+      // Failed enqueue retains all samples for a later natural poll/boundary.
+      samplingError = error?.message ?? String(error);
+    }
+  }
   return {
     sampleNow,
     snapshot,
     prepareRequest() {
+      if (settings.delivery !== "tail") {
+        publishIfDue();
+        const value = settings.delivery === "both" ? latestPublished : null;
+        pendingThrough = value?.throughSample ?? null;
+        return value ?? undefined;
+      }
+      if (!due()) return undefined;
       const value = snapshot();
+      if (!value?.samples) return undefined;
       pendingThrough = value?.throughSample ?? null;
+      pendingAt = now();
       return value;
     },
     finishRequest(message) {
@@ -197,8 +273,13 @@ export function startRecentBlockRuntime({
         pendingThrough !== null &&
         ["stop", "toolUse"].includes(message.stopReason)
       )
-        accumulator.retireThrough(pendingThrough);
+        if (settings.delivery === "tail") {
+          accumulator.retireThrough(pendingThrough);
+          lastReportAt = pendingAt;
+        } else if (latestPublished?.throughSample === pendingThrough)
+          latestPublished = null;
       pendingThrough = null;
+      pendingAt = null;
     },
     close() {
       closed = true;

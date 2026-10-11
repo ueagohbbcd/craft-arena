@@ -10,6 +10,7 @@ export function createRecentBlockAccumulator({ positionLimit = 3 } = {}) {
   let sequence = 0;
   const frames = new Map();
   const types = new Map();
+  const faces = new Map();
   const timestamp = (value) => (Number.isFinite(value) ? value : null);
   const positionKey = ({ x, y, z }) => `${x},${y},${z}`;
   const cellCount = (value) => {
@@ -30,6 +31,7 @@ export function createRecentBlockAccumulator({ positionLimit = 3 } = {}) {
       airCells = null,
       truncated = false,
       bounds = null,
+      opaqueFaces = [],
     }) {
       if (!Number.isFinite(observedAt))
         throw new TypeError("observedAt must be a finite timestamp");
@@ -67,6 +69,26 @@ export function createRecentBlockAccumulator({ positionLimit = 3 } = {}) {
           position: { x: position.x, y: position.y, z: position.z },
         };
       });
+      const selectedFaces = opaqueFaces.map(({ position, normal }) => {
+        if (
+          !position ||
+          ![position.x, position.y, position.z].every(Number.isSafeInteger) ||
+          !Array.isArray(normal) ||
+          normal.length !== 3 ||
+          !normal.every(Number.isInteger) ||
+          normal.reduce((sum, value) => sum + Math.abs(value), 0) !== 1
+        )
+          throw new TypeError(
+            "Opaque faces need integer coordinates and a unit axis normal",
+          );
+        return JSON.stringify([
+          dimension,
+          position.x,
+          position.y,
+          position.z,
+          ...normal,
+        ]);
+      });
       const id = ++sequence;
       const frame = {
         observedAt,
@@ -80,6 +102,7 @@ export function createRecentBlockAccumulator({ positionLimit = 3 } = {}) {
         bounds: bounds === null ? null : structuredClone(bounds),
       };
       frames.set(id, frame);
+      for (const key of selectedFaces) faces.set(key, { dimension, id });
       for (const { name, position } of selected) {
         const key = JSON.stringify([dimension, name]);
         let type = types.get(key);
@@ -144,6 +167,9 @@ export function createRecentBlockAccumulator({ positionLimit = 3 } = {}) {
             range.max[axis] = Math.max(range.max[axis], frame.bounds.max[axis]);
           }
       }
+      const surface = new Map();
+      for (const face of faces.values())
+        surface.set(face.dimension, (surface.get(face.dimension) ?? 0) + 1);
       return {
         throughSample: sequence,
         samples: retained.length,
@@ -181,6 +207,10 @@ export function createRecentBlockAccumulator({ positionLimit = 3 } = {}) {
           dimension,
           bounds,
         })),
+        opaqueBoundaryArea: [...surface].map(([dimension, area]) => ({
+          dimension,
+          area,
+        })),
         entries,
         coverage:
           "Sampled observations only, not continuous visual coverage or proof of reachability. distinctPositions counts coordinate values per dimension and type; a null dimension does not identify a world. sampleFrames counts samples containing the type, not block instances or elapsed time. Cell reads include repeat coordinates across samples.",
@@ -197,6 +227,8 @@ export function createRecentBlockAccumulator({ positionLimit = 3 } = {}) {
         );
       for (const id of frames.keys())
         if (id <= throughSample) frames.delete(id);
+      for (const [key, face] of faces)
+        if (face.id <= throughSample) faces.delete(key);
       for (const [key, type] of types) {
         for (const id of type.frames)
           if (id <= throughSample) type.frames.delete(id);

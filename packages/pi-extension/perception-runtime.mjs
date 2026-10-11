@@ -274,6 +274,16 @@ export function startPerceptionRuntime({
     connectionStatus: () => status,
     now,
     options: recentBlocks,
+    postReport: (data) =>
+      inbox.post(
+        {
+          sessionId: inbox.sessionId,
+          kind: "event",
+          priority: "normal",
+          data: { type: "observation.recent_blocks", ...data },
+        },
+        { source: "runtime" },
+      ),
   });
   function warn(error) {
     failure = error?.message ?? String(error);

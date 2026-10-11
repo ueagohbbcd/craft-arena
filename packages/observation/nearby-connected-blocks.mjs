@@ -87,6 +87,8 @@ export function sampleNearbyConnectedBlocks({
   const queue = [{ ...origin }];
   const seen = new Set([key(origin)]);
   const blocks = [];
+  const known = new Map();
+  let knownBounds = null;
   const counts = {
     sampledCells: 0,
     air: 0,
@@ -125,6 +127,14 @@ export function sampleNearbyConnectedBlocks({
         : transparent
           ? "transparent"
           : "opaque";
+    known.set(key(position), { position, transparent });
+    if (!knownBounds)
+      knownBounds = { min: { ...position }, max: { ...position } };
+    else
+      for (const axis of axes) {
+        knownBounds.min[axis] = Math.min(knownBounds.min[axis], position[axis]);
+        knownBounds.max[axis] = Math.max(knownBounds.max[axis], position[axis]);
+      }
     counts[classification]++;
     if (index === 1) seedStatus = classification;
     if (transparent !== true) continue;
@@ -148,6 +158,22 @@ export function sampleNearbyConnectedBlocks({
       queue.push(neighbor);
     }
   }
+  // Only faces between reached transparent cells and sampled opaque cells count.
+  // The sampling sphere edge, unknown frontier and known-space bbox add no faces.
+  const opaqueFaces = [];
+  for (const { position, transparent } of known.values()) {
+    if (transparent !== false) continue;
+    for (const normal of offsets) {
+      const [dx, dy, dz] = normal;
+      const neighbor = {
+        x: position.x + dx,
+        y: position.y + dy,
+        z: position.z + dz,
+      };
+      if (known.get(key(neighbor))?.transparent === true)
+        opaqueFaces.push({ position: { ...position }, normal: [...normal] });
+    }
+  }
   return {
     origin: { ...origin },
     radius,
@@ -164,6 +190,8 @@ export function sampleNearbyConnectedBlocks({
     seedStatus,
     counts,
     blocks,
+    knownBounds,
+    opaqueFaces,
     truncated: index < queue.length,
     pendingCells: queue.length - index,
     maxReads,

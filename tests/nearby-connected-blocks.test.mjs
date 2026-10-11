@@ -163,3 +163,55 @@ test("head origin uses observed eye height or labels the entity-height approxima
   );
   assert.equal(observedHeadCell({ position: origin }).position, null);
 });
+
+test("opaque area counts sampled transparent-to-opaque unit faces, not bbox shell or unknown frontier", () => {
+  const one = sampleNearbyConnectedBlocks({
+    origin,
+    radius: 2,
+    blockAt: (p) => (key(p) === key(origin) ? native("air") : native("stone")),
+  });
+  assert.equal(one.opaqueFaces.length, 6);
+  assert.deepEqual(one.knownBounds, {
+    min: { x: -1, y: 63, z: -1 },
+    max: { x: 1, y: 65, z: 1 },
+  });
+  const two = sampleNearbyConnectedBlocks({
+    origin,
+    radius: 3,
+    blockAt: (p) =>
+      ["0,64,0", "1,64,0"].includes(key(p)) ? native("air") : native("stone"),
+  });
+  assert.equal(
+    two.opaqueFaces.length,
+    10,
+    "internal transparent-to-transparent face is not area",
+  );
+  const unknown = sampleNearbyConnectedBlocks({
+    origin,
+    blockAt: (p) => (key(p) === key(origin) ? native("air") : null),
+  });
+  assert.equal(unknown.opaqueFaces.length, 0);
+  assert.deepEqual(unknown.knownBounds, { min: origin, max: origin });
+});
+
+test("turning a corner exposes multiple distinct faces of one opaque block", () => {
+  const transparent = new Set(["0,64,0", "1,64,0", "1,64,1"]);
+  const scan = sampleNearbyConnectedBlocks({
+    origin,
+    radius: 4,
+    blockAt: (p) =>
+      transparent.has(key(p)) ? native("glass") : native("stone"),
+  });
+  const corner = scan.opaqueFaces.filter(
+    (face) => key(face.position) === "0,64,1",
+  );
+  assert.equal(corner.length, 2);
+  assert.deepEqual(
+    corner.map((face) => face.normal),
+    [
+      [1, 0, 0],
+      [0, 0, -1],
+    ],
+  );
+  assert.equal(scan.opaqueFaces.length, 14);
+});

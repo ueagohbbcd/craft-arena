@@ -482,6 +482,7 @@ test(
       MC_INBOX_TRANSPORT: "http",
       MC_INBOX_TOKEN: "perception-integration-token",
       ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS: "20",
+      ARENA_PERCEPTION_RECENT_BLOCK_DELIVERY: "tail",
     });
     for (const key of [
       "MC_INBOX_SOCKET",

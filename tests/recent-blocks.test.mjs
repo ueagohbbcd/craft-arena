@@ -145,3 +145,33 @@ test("invalid samples are atomic and future retire watermarks cannot discard evi
   assert.throws(() => recent.retireThrough(2), /existing sample prefix/);
   assert.equal(recent.snapshot().samples, 1);
 });
+
+test("surface faces deduplicate spatially within intervals and can reappear in later reports", () => {
+  const recent = createRecentBlockAccumulator();
+  const face = { position: { x: 1, y: 64, z: 0 }, normal: [-1, 0, 0] };
+  recent.record(sample([], 1000, { opaqueFaces: [face, face] }));
+  const displayed = recent.snapshot();
+  recent.record(
+    sample([], 2000, { opaqueFaces: [face, { ...face, normal: [0, 1, 0] }] }),
+  );
+  assert.deepEqual(recent.snapshot().opaqueBoundaryArea, [
+    { dimension: "overworld", area: 2 },
+  ]);
+  recent.retireThrough(displayed.throughSample);
+  assert.deepEqual(recent.snapshot().opaqueBoundaryArea, [
+    { dimension: "overworld", area: 2 },
+  ]);
+  recent.retireThrough(recent.snapshot().throughSample);
+  recent.record(sample([], 3000, { opaqueFaces: [face] }));
+  assert.deepEqual(recent.snapshot().opaqueBoundaryArea, [
+    { dimension: "overworld", area: 1 },
+  ]);
+  assert.throws(
+    () =>
+      recent.record(
+        sample([], 4000, { opaqueFaces: [{ ...face, normal: [1, 1, 0] }] }),
+      ),
+    /unit axis/,
+  );
+  assert.equal(recent.snapshot().samples, 1);
+});
