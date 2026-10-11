@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { MatchHost } from "./index.mjs";
 import { RconClient } from "./rcon.mjs";
+import { createReplayRecorder, validateReplay } from "./replay.mjs";
 function validateLive(c) {
   if (
     !c.live?.minecraft?.host ||
@@ -57,6 +58,7 @@ function validateLive(c) {
     throw new Error("Goal positions must be distinct");
   if (c.live.goals.length !== c.teams.length * c.rules.objectives.length)
     throw new Error("Exactly one configured goal per team/objective required");
+  validateReplay(c);
   for (const [team, views] of Object.entries(c.live.openingViews ?? {})) {
     if (!c.teams.some((t) => t.id === team))
       throw new Error("Unknown openingViews team");
@@ -121,6 +123,8 @@ export async function createLiveMatch(
     rconFactory = (options) => new RconClient(options),
     now = Date.now,
     runId,
+    resultDir = process.cwd(),
+    replayFactory = createReplayRecorder,
   } = {},
 ) {
   validateLive(config);
@@ -140,7 +144,8 @@ export async function createLiveMatch(
     host,
     timer,
     polling = false,
-    eventCounter = 0;
+    eventCounter = 0,
+    replay;
   const timeout = config.live.readyTimeoutMs ?? 30000;
   const execute = async (phase) => {
     for (const { command, expect } of phase === "observer"
@@ -218,6 +223,7 @@ export async function createLiveMatch(
     prepare: async () => {
       try {
         await rcon.connect();
+        await replay.prepare();
         await execute("prepare");
         observer = createBot({
           ...config.live.minecraft,
@@ -356,6 +362,7 @@ export async function createLiveMatch(
         [...bridges.values()].some((b) => endedBots.has(b.bot))
       )
         throw new Error("Game connection ended before match start");
+      await replay.start();
       await execute("start");
     },
     stop: async () => {
@@ -379,12 +386,14 @@ export async function createLiveMatch(
       } catch (e) {
         error = e;
       } finally {
+        await replay.requestStop();
         try {
           await cleanup(true);
         } catch (e) {
           error = error ? new Error(`${error.message}; ${e.message}`) : e;
         }
       }
+      await replay.finish();
       if (error) throw error;
     },
   };
@@ -395,6 +404,8 @@ export async function createLiveMatch(
     runId,
     eventToken: env[config.live.eventTokenEnv] ?? "internal-observer-only",
   });
+  replay = replayFactory({ config, runId: host.runId, resultDir, rcon });
+  host.replay = replay.state;
   const poll = async () => {
     if (polling || host.state !== "running") return;
     polling = true;

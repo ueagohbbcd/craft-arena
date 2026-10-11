@@ -292,6 +292,7 @@ export class MatchHost {
       stopConfirmed: this.stopConfirmed,
       stopError: this.stopError,
       observerError: this.observerError,
+      ...(this.replay ? { replay: this.replay } : {}),
     });
   }
 }

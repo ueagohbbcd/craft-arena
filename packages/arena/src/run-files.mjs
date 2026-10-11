@@ -21,6 +21,7 @@ export async function writeRunState(host, currentPath, error) {
           startedAt: host.startedAt ?? null,
           winner: null,
           reason: null,
+          ...(host.replay ? { replay: host.replay } : {}),
         };
   if (error) state.error = error.message;
   if (host.state === "ended") {

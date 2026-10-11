@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { dirname, resolve } from "node:path";
 import { randomUUID } from "node:crypto";
 import { readFile, access } from "node:fs/promises";
 import { createLiveMatch } from "./live.mjs";
@@ -20,7 +21,10 @@ if (!path) {
   try {
     await writeRunState(run, resultPath);
     run.config = JSON.parse(await readFile(path, "utf8"));
-    match = await createLiveMatch(run.config, { runId: run.runId });
+    match = await createLiveMatch(run.config, {
+      runId: run.runId,
+      resultDir: dirname(resolve(resultPath)),
+    });
     await writeRunState(match.host, resultPath);
     for (const signal of ["SIGINT", "SIGTERM"])
       process.once(signal, () => {
@@ -87,9 +91,11 @@ if (!path) {
         winner: result.winner,
         resultPath,
         stopConfirmed: result.stopConfirmed,
+        replay: result.replay,
       }),
     );
-    if (!result.stopConfirmed) process.exitCode = 1;
+    if (!result.stopConfirmed || result.replay?.status === "failed")
+      process.exitCode = 1;
     if (!shutdownRequested) {
       console.log(
         JSON.stringify({

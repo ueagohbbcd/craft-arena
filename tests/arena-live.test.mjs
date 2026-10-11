@@ -31,6 +31,7 @@ const config = {
   },
   versions: { participantImage: "fixture", bridge: "fixture" },
   live: {
+    replay: { enabled: false },
     minecraft: { host: "fixture", version: "1.21.11" },
     rcon: { host: "fixture", passwordEnv: "RCON" },
     observer: { username: "ref" },
@@ -265,6 +266,7 @@ test("terminal match status remains authenticated and readable after actual game
   assert.equal(data.result.winner, "r");
   assert.equal(data.result.teamId, "r");
   assert.equal(data.result.publicGoalPositions, undefined);
+  assert.equal(data.result.replay, undefined);
   assert.equal((await fetch(`${bridge.url}/v1/match`)).status, 401);
   await match.close();
   assert.equal(bridge.server.listening, false);
@@ -357,4 +359,69 @@ test("opening image regions require a known team, course trigger and bounded cro
     },
   };
   assert.throws(() => validateLive(c), /1,000,000/);
+});
+
+test("recording is confirmed before running and saved after game cleanup", async () => {
+  const calls = [];
+  const local = structuredClone(config);
+  local.live.replay = { enabled: true };
+  const state = { enabled: true, status: "pending", files: [] };
+  const match = await createLiveMatch(local, {
+    env: { R_TOKEN: "r", B_TOKEN: "b", RCON: "x" },
+    createBot: () => ({
+      entity: {},
+      blockAt: () => ({ name: "air" }),
+      quit() {
+        calls.push("observer-quit");
+      },
+    }),
+    rconFactory: () => ({
+      connect: async () => {},
+      command: async (text) => {
+        calls.push(text);
+        return "OK";
+      },
+      close() {
+        calls.push("rcon-close");
+      },
+    }),
+    startLiveBridge: async () => ({
+      bot: { entity: {} },
+      close: async () => {
+        calls.push("bridge-close");
+      },
+    }),
+    replayFactory: ({ runId }) => {
+      assert.ok(runId);
+      return {
+        state,
+        prepare: async () => {
+          calls.push("replay-prepare");
+          state.status = "ready";
+        },
+        start: async () => {
+          calls.push("replay-start");
+          state.status = "recording";
+        },
+        requestStop: async () => {
+          calls.push("replay-stop");
+          state.status = "saving";
+        },
+        finish: async () => {
+          calls.push("replay-save");
+          state.status = "saved";
+        },
+      };
+    },
+  });
+  await match.prepare();
+  await match.start();
+  await match.host.end("abandoned");
+  assert.ok(calls.indexOf("replay-prepare") < calls.indexOf("reset"));
+  assert.ok(calls.indexOf("replay-start") < calls.indexOf("start"));
+  assert.ok(calls.indexOf("stop") < calls.indexOf("replay-stop"));
+  assert.ok(calls.indexOf("replay-stop") < calls.indexOf("rcon-close"));
+  assert.ok(calls.indexOf("rcon-close") < calls.indexOf("replay-save"));
+  assert.equal(match.host.result().replay.status, "saved");
+  assert.equal(match.host.result().stopConfirmed, true);
 });
