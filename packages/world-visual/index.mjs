@@ -273,10 +273,14 @@ function metadata(norm, kind, width, height, start) {
     sequence: norm.snapshot.sequence ?? null,
     renderedAt: new Date().toISOString(),
     renderMs: Math.round((performance.now() - start) * 100) / 100,
-    staleVoxels: [...norm.voxels.values()].filter((b) => b.stale).length,
-    knownVoxels: norm.voxels.size,
+    staleVoxels:
+      norm.staleVoxels ??
+      [...norm.voxels.values()].filter((b) => b.stale).length,
+    knownVoxels: norm.knownVoxels ?? norm.voxels.size,
     totalVoxels: norm.size.x * norm.size.y * norm.size.z,
-    knownFraction: norm.voxels.size / (norm.size.x * norm.size.y * norm.size.z),
+    knownFraction:
+      (norm.knownVoxels ?? norm.voxels.size) /
+      (norm.size.x * norm.size.y * norm.size.z),
     textures: "schematic material palette; no Minecraft resource-pack textures",
     legend: {
       unknown: UNKNOWN_COLOR,
@@ -294,8 +298,7 @@ export function renderMinimap(
     throw new TypeError("horizontalAxis must be x or z");
   const start = performance.now(),
     norm = normalizeSnapshot(snapshot),
-    { bounds, size, voxels } = norm,
-    r = raster(width, height, UNKNOWN_COLOR);
+    { bounds, size, voxels } = norm;
   const columns = new Map();
   let missing = 0,
     partial = 0,
@@ -319,6 +322,104 @@ export function renderMinimap(
       else if (!top) clear++;
       columns.set(`${x},${z}`, { top, unknownAbove, known });
     }
+  return renderMinimapColumns(
+    norm,
+    columns,
+    { missing, partial, clear },
+    {
+      width,
+      height,
+      horizontalAxis,
+      start,
+    },
+  );
+}
+/** Render a compact surface scan without allocating the full selected 3D volume. */
+export function renderSurfaceMinimap(
+  snapshot,
+  { width = 512, height = 512, horizontalAxis = "x" } = {},
+) {
+  if (!["x", "z"].includes(horizontalAxis))
+    throw new TypeError("horizontalAxis must be x or z");
+  const bounds = snapshot?.bounds;
+  if (
+    !bounds ||
+    !["min", "max"].every((end) =>
+      ["x", "y", "z"].every((axis) =>
+        Number.isSafeInteger(bounds[end]?.[axis]),
+      ),
+    )
+  )
+    throw new TypeError("bounds require integer min/max x,y,z (inclusive)");
+  const size = Object.fromEntries(
+    ["x", "y", "z"].map((axis) => [
+      axis,
+      bounds.max[axis] - bounds.min[axis] + 1,
+    ]),
+  );
+  const volume = size.x * size.y * size.z;
+  if (Object.values(size).some((n) => n < 1) || !Number.isSafeInteger(volume))
+    throw new RangeError("invalid surface bounds");
+  if (!Array.isArray(snapshot.columns))
+    throw new TypeError("surface snapshot.columns must be an array");
+  const columns = new Map();
+  let knownVoxels = 0,
+    missing = size.x * size.z,
+    partial = 0,
+    clear = 0;
+  for (const column of snapshot.columns) {
+    const { x, z, top, known, unknownAbove } = column;
+    if (
+      ![x, z, known].every(Number.isSafeInteger) ||
+      known < 0 ||
+      known > size.y ||
+      x < bounds.min.x ||
+      x > bounds.max.x ||
+      z < bounds.min.z ||
+      z > bounds.max.z
+    )
+      throw new TypeError("invalid surface column coordinates or coverage");
+    if (columns.has(`${x},${z}`))
+      throw new TypeError("duplicate surface column");
+    if (
+      top &&
+      (!Number.isSafeInteger(top.y) ||
+        top.y < bounds.min.y ||
+        top.y > bounds.max.y ||
+        typeof top.name !== "string")
+    )
+      throw new TypeError("invalid surface block");
+    columns.set(`${x},${z}`, {
+      ...column,
+      top: top && { ...top, name: nameOf(top) },
+    });
+    knownVoxels += known;
+    if (known) {
+      missing--;
+      if (unknownAbove) partial++;
+      else if (!top) clear++;
+    }
+  }
+  return renderMinimapColumns(
+    { bounds, size, snapshot, knownVoxels, staleVoxels: 0 },
+    columns,
+    { missing, partial, clear },
+    {
+      width,
+      height,
+      horizontalAxis,
+      start: performance.now(),
+    },
+  );
+}
+function renderMinimapColumns(
+  norm,
+  columns,
+  { missing, partial, clear },
+  { width, height, horizontalAxis, start },
+) {
+  const { bounds, size } = norm;
+  const r = raster(width, height, UNKNOWN_COLOR);
   const rotated = horizontalAxis === "z",
     across = rotated ? size.z : size.x,
     down = rotated ? size.x : size.z,
@@ -340,7 +441,11 @@ export function renderMinimap(
         z > bounds.max.z
       )
         continue;
-      const col = columns.get(`${x},${z}`);
+      const col = columns.get(`${x},${z}`) ?? {
+        top: null,
+        known: 0,
+        unknownAbove: true,
+      };
       let c = col.top
         ? materialColor(col.top.name)
         : col.known && !col.unknownAbove
