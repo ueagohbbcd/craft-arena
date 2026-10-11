@@ -1,6 +1,7 @@
 import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { once } from "node:events";
+import { createCacheBoundaryPolicy } from "./cache-boundary.mjs";
 import {
   publicPiEvent,
   PiRequestValidationError,
@@ -111,10 +112,16 @@ export function createCodexAdapter({
   provider = "openai-codex",
   token,
   maxBodyBytes = 8 * 1024 * 1024,
+  promptCacheStrategy,
+  onCacheBoundary,
 }) {
   if (!["openai-codex", "deepseek"].includes(provider))
     throw new Error("Unsupported trusted provider");
   if (!token) throw new Error("Configure trusted adapter token");
+  const cachePolicy = createCacheBoundaryPolicy({
+    provider,
+    promptCacheStrategy,
+  });
   return http.createServer(async (req, res) => {
     const abort = new AbortController();
     req.on("aborted", () => abort.abort());
@@ -161,6 +168,11 @@ export function createCodexAdapter({
         toolChoice: options.toolChoice,
         transport: "sse",
         maxRetries: 0,
+        onPayload(payload) {
+          const adapted = cachePolicy.adapt(payload, model);
+          onCacheBoundary?.(adapted.diagnostic);
+          return adapted.payload;
+        },
         onProviderStreamEvent(value) {
           const raw = value?.response?.usage ?? value?.usage;
           if (raw) {
@@ -169,6 +181,9 @@ export function createCodexAdapter({
               raw.input_tokens_details?.cached_tokens ??
               raw.prompt_tokens_details?.cached_tokens ??
               raw.prompt_cache_hit_tokens;
+            const written =
+              raw.input_tokens_details?.cache_write_tokens ??
+              raw.prompt_tokens_details?.cache_write_tokens;
             const reasoning =
               raw.output_tokens_details?.reasoning_tokens ??
               raw.completion_tokens_details?.reasoning_tokens;
@@ -176,9 +191,18 @@ export function createCodexAdapter({
               prompt_tokens: raw.input_tokens ?? raw.prompt_tokens,
               completion_tokens: raw.output_tokens ?? raw.completion_tokens,
               total_tokens: raw.total_tokens,
-              ...(cached === undefined
+              ...(cached === undefined && written === undefined
                 ? {}
-                : { prompt_tokens_details: { cached_tokens: cached } }),
+                : {
+                    prompt_tokens_details: {
+                      ...(cached === undefined
+                        ? {}
+                        : { cached_tokens: cached }),
+                      ...(written === undefined
+                        ? {}
+                        : { cache_write_tokens: written }),
+                    },
+                  }),
               ...(reasoning === undefined
                 ? {}
                 : {
