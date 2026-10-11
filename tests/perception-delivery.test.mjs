@@ -69,3 +69,14 @@ test("interval and sign producers retain their own delivery cadence", () => {
   s.nearbySigns.observedAt++;
   assert.equal(c.next(s), null);
 });
+
+test("ordinary local changes do not repeat the legacy loaded-world sign list", () => {
+  const c = createPerceptionChanges(),
+    s = sample();
+  s.local = { blocks: [], signs: [{ text: "far away" }] };
+  assert.equal(c.next(s).changes.local.signs, undefined);
+  s.local.signs = [{ text: "another far away sign" }];
+  assert.equal(c.next(s), null);
+  s.local.blocks = [{ name: "stone" }];
+  assert.deepEqual(c.next(s).changes.local, { blocks: [{ name: "stone" }] });
+});

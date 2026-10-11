@@ -36,6 +36,12 @@ export function compactPerception(snapshot) {
   // bypass the minimum delay and duplicate every changing sample timestamp.
   if (!state.radar) Object.assign(state, { players, entities });
   delete state.type;
+  // Legacy local.signs may list loaded distant signs. Nearby text is delivered
+  // by its own producer; unrelated local terrain changes must not repeat it.
+  if (state.local) {
+    const { signs, ...local } = state.local;
+    state.local = local;
+  }
   // Delivery age changes every call; source availability changes are meaningful.
   state.connection = {
     status: freshness?.status ?? "unknown",
