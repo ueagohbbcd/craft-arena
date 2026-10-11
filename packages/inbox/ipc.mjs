@@ -105,6 +105,7 @@ export class InboxClient {
     url = process.env.MC_INBOX_URL,
     sessionId = process.env.MC_INBOX_SESSION,
     token = process.env.MC_INBOX_TOKEN,
+    taskId = process.env.MC_INBOX_TASK_ID,
     timeoutMs = 5000,
   } = {}) {
     if (!socketPath && !url)
@@ -118,13 +119,29 @@ export class InboxClient {
       )
         throw new Error("Inbox URL must use loopback HTTP");
     }
-    Object.assign(this, { socketPath, url, sessionId, token, timeoutMs });
+    Object.assign(this, {
+      socketPath,
+      url,
+      sessionId,
+      token,
+      taskId,
+      timeoutMs,
+    });
   }
   post(data, options = {}) {
     return this.send({ ...options, kind: "event", data });
   }
   upsert(key, data, options = {}) {
     return this.send({ ...options, kind: "state", key, data });
+  }
+  publishCurrent(key, data, options = {}) {
+    return this.send({
+      ...options,
+      kind: "current",
+      key,
+      data,
+      priority: "normal",
+    });
   }
   requestJudgment(data, options = {}) {
     return this.send({
@@ -135,7 +152,11 @@ export class InboxClient {
     });
   }
   send(message) {
-    const body = JSON.stringify({ ...message, sessionId: this.sessionId });
+    const body = JSON.stringify({
+      ...(this.taskId ? { taskId: this.taskId } : {}),
+      ...message,
+      sessionId: this.sessionId,
+    });
     return new Promise((resolve, reject) => {
       const opts = this.socketPath
         ? { socketPath: this.socketPath, path: "/messages" }

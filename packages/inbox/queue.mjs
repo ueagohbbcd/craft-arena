@@ -24,6 +24,9 @@ export class Inbox extends EventEmitter {
     this.bytes = 0;
     this.dropped = { overflow: 0, expired: 0 };
     this.totalDropped = { overflow: 0, expired: 0 };
+    // Latest program facts are independent of delivery history. Reads never drain them.
+    this.current = new Map();
+    this.currentBytes = 0;
   }
   prune() {
     const now = this.now();
@@ -43,12 +46,19 @@ export class Inbox extends EventEmitter {
     if (input.sessionId !== this.sessionId) throw new Error("Session mismatch");
     const { kind = "event", key, data, priority = "normal" } = input;
     if (
-      !["event", "state", "judgment"].includes(kind) ||
+      !["event", "state", "judgment", "current"].includes(kind) ||
       !["normal", "urgent"].includes(priority)
     )
       throw new Error("Invalid kind or priority");
-    if (kind === "state" && (typeof key !== "string" || !key))
+    if (
+      ["state", "current"].includes(kind) &&
+      (typeof key !== "string" || !key)
+    )
       throw new Error("State needs a nonempty string key");
+    if (kind === "current" && priority !== "normal")
+      throw new Error(
+        "Current facts use normal priority; requestJudgment delivers an urgent event",
+      );
     if (data === undefined) throw new Error("Message data is required");
     const ttl = input.ttlMs ?? this.ttlMs;
     if (!Number.isFinite(ttl) || ttl <= 0)
@@ -64,9 +74,30 @@ export class Inbox extends EventEmitter {
       priority,
       createdAt: this.now(),
       expiresAt: this.now() + ttl,
+      ...(typeof input.taskId === "string" && input.taskId
+        ? { taskId: input.taskId }
+        : {}),
     };
     const encoded = JSON.stringify(message);
     const bytes = Buffer.byteLength(encoded);
+    if (kind === "current") {
+      this.pruneCurrent();
+      const identity = JSON.stringify([source, key]);
+      if (data === null) {
+        this.removeCurrent(identity);
+        return { accepted: true, id: message.id, cleared: true };
+      }
+      if (bytes > this.maxBytes) return { accepted: false, reason: "oversize" };
+      this.removeCurrent(identity);
+      while (
+        this.current.size >= this.maxItems ||
+        this.currentBytes + bytes > this.maxBytes
+      )
+        this.removeCurrent(this.current.keys().next().value);
+      this.current.set(identity, { message: JSON.parse(encoded), bytes });
+      this.currentBytes += bytes;
+      return { accepted: true, id: message.id };
+    }
     if (bytes > this.maxBytes) {
       this.drop("overflow");
       return { accepted: false, reason: "oversize" };
@@ -97,6 +128,28 @@ export class Inbox extends EventEmitter {
     if (priority === "urgent") this.emit("urgent", message);
     this.emit("message", message);
     return { accepted: true, id: message.id };
+  }
+  /** Publish a replaceable fact for request-local status, separate from inbox events. */
+  setCurrent(key, data, { source = "program", ttlMs, taskId } = {}) {
+    return this.post(
+      { sessionId: this.sessionId, kind: "current", key, data, ttlMs, taskId },
+      { source },
+    );
+  }
+  removeCurrent(identity) {
+    const value = this.current.get(identity);
+    if (value) this.currentBytes -= value.bytes;
+    return this.current.delete(identity);
+  }
+  pruneCurrent() {
+    for (const [identity, value] of this.current)
+      if (value.message.expiresAt <= this.now()) this.removeCurrent(identity);
+  }
+  currentSnapshot() {
+    this.pruneCurrent();
+    return structuredClone(
+      [...this.current.values()].map(({ message }) => message),
+    );
   }
   remove(id) {
     const i = this.items.findIndex((x) => x.id === id);
