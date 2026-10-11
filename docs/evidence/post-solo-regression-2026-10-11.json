@@ -1,0 +1,170 @@
+{
+  "createdAt": "2026-10-11T10:26:27.690295+00:00",
+  "status": "requested corrected behaviors verified; retain one unexplained historical native-craft result",
+  "finalCommit": "6ea4317af539136f8bfab2c0e48b28bcfbff0f2f",
+  "finalSourceHashes": {
+    "packages/mf-bridge/index.mjs": "1091baaaa7443d3c1cfd0b5397ced046d40ac5b71bd894cb02b419d37d359fe5",
+    "packages/bot-sdk/index.mjs": "49b03f4cf96fd24aa496a2f235225a632885e70eff56687ef3f54e0606e89ff0",
+    "packages/bot-sdk/plugins.mjs": "e695853c2ca574ed06aa7113cd8a3ba032573f65f1ddd835c860446a142d3add",
+    "packages/observation/queries.mjs": "f86be2e6e06c4e3688de0a2162d9e6295d567d643eba280c3f52c8534176adb5"
+  },
+  "craft": {
+    "report": "2026-10-11T10-23-45-304Z/report.json",
+    "rounds": 3,
+    "logsPerRound": 5,
+    "planksImmediatelyAtResolve": 20,
+    "nativeAndSdkAgreeImmediately": true,
+    "transportEvents": []
+  },
+  "close": {
+    "report": "2026-10-11T10-18-06-482Z/report.json",
+    "withdraw": 128,
+    "immediateSlots": [
+      9,
+      10
+    ],
+    "equipReturnedInventoryItem": true,
+    "depositImmediateRemaining": 0,
+    "delayedSseCasePassed": true,
+    "sourceNote": "Close implementation unchanged between tested bf431d0 and final6ea4317; later SDK change only adds craft completion barrier."
+  },
+  "placement": {
+    "report": "2026-10-11T10-24-35-456Z/report.json",
+    "tests": [
+      {
+        "name": "placement_airborne_handoff",
+        "passed": true,
+        "elapsedMs": 3829,
+        "detail": {
+          "fixture": "translated diagnosed ledge; real dig, deterministic public planned move, real PF executor and Java physics",
+          "armedAt": 1791714288842,
+          "armed": {
+            "position": {
+              "x": 0.77,
+              "y": 94.92159999847412,
+              "z": 0.4
+            },
+            "velocity": {
+              "x": 0,
+              "y": -0.1552320045166016,
+              "z": 0
+            },
+            "onGround": false,
+            "controlState": {
+              "forward": false,
+              "back": false,
+              "left": false,
+              "right": false,
+              "jump": false,
+              "sprint": false,
+              "sneak": false
+            }
+          },
+          "firstLanding": {
+            "at": 1791714289044,
+            "position": {
+              "x": 0.77,
+              "y": 94,
+              "z": 0.4
+            },
+            "velocity": {
+              "x": 0,
+              "y": -0.0784000015258789,
+              "z": 0
+            },
+            "onGround": true,
+            "controlState": {
+              "forward": false,
+              "back": false,
+              "left": false,
+              "right": false,
+              "jump": false,
+              "sprint": false,
+              "sneak": false
+            }
+          },
+          "minY": 94,
+          "placed": {
+            "x": 0,
+            "y": 93,
+            "z": 0
+          },
+          "airborneBackRequests": 0
+        }
+      },
+      {
+        "name": "placement_grounded_horizontal",
+        "passed": true,
+        "elapsedMs": 2292,
+        "detail": {
+          "placed": {
+            "x": 0,
+            "y": 93,
+            "z": 0
+          },
+          "state": {
+            "position": {
+              "x": 0.791439187993841,
+              "y": 94,
+              "z": 0.5000000000000635
+            },
+            "velocity": {
+              "x": 0,
+              "y": -0.0784000015258789,
+              "z": 0
+            },
+            "onGround": true,
+            "controlState": {
+              "forward": false,
+              "back": false,
+              "left": false,
+              "right": false,
+              "jump": false,
+              "sprint": false,
+              "sneak": false
+            }
+          }
+        }
+      }
+    ],
+    "transportEvents": []
+  },
+  "bufferedTwentyCrafts": {
+    "report": "2026-10-11T10-19-31-726Z/report.json",
+    "rounds": 20,
+    "passed": true,
+    "sourceNote": "Loaded then-uncommitted craft inventory response barrier; not an old-version control. Bridge hash equals final; final SDK added a result.inventory presence guard, separately retested."
+  },
+  "historicalAnomalies": [
+    {
+      "report": "2026-10-11T10-14-53-885Z/report.json",
+      "fact": "Old version craftItem resolved without SDK count reaching20 within5s; following unrestricted /clear removed17 total items. No exact ingredient/result/cursor split captured; no transport disconnect. Not established as17 planks, not established fixed by later snapshot barrier."
+    },
+    {
+      "report": "2026-10-11T10-13-09-380Z/report.json",
+      "fixtureErrors": [
+        "Repeated setblock of same chest cleared its items and then Vanilla refused replacement; fixed by explicit air then new chest.",
+        "Goal matched floored airborne position before placement branch; fixed by a farther goal."
+      ]
+    },
+    {
+      "report": "2026-10-11T10-16-41-009Z/report.json",
+      "fixtureError": "Plain-object deterministic path node lacked Vec3.minus, causing SDK event-handler error and reconnect after entering placement. Original per-case flag missed it; not accepted as clean navigation evidence. Fixed with real Vec3 nodes and transport assertion; final6ea4317 navigation retest is clean."
+    }
+  ],
+  "cleanup": {
+    "allRunsJavaExitZero": true,
+    "allRunsPortsReleased": true,
+    "allRunsSavedRaceWorldUnchanged": true,
+    "ports": [
+      25591,
+      25592
+    ],
+    "newTeamWorldStarted": false
+  },
+  "limitations": [
+    "Deterministic Java1.21.1 integration QA via original bridge/SDK, not full Pi/container validation or another race.",
+    "Navigation overrides public getPathTo to supply an already-planned side-placement move, then runs real PF executor and Java physics; does not claim natural A* always chooses this transition.",
+    "Craft response mirrors native Mineflayer completion state, not an additional authoritative Minecraft transaction confirmation. Historical17-total-item event remains unclassified."
+  ]
+}
