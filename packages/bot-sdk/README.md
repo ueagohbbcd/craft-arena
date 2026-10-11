@@ -14,6 +14,7 @@ Use `connectBot({url,token})` from `index.mjs` to control your existing arena bo
 | Items | `equip`, `unequip`, `consume`, `activateItem`, `deactivateItem`, `setQuickBarSlot`, `tossStack` |
 | Containers | `openContainer`, `closeWindow`, `clickWindow`; native Window queries and `withdraw/deposit/close` below |
 | Craft | `craftItem(itemType, count = 1, table = null)`; count is new result items, rounded up to whole recipe batches |
+| Sleep state / wake | `isSleeping`, `await wake()`; native `sleep`/`wake` events |
 | Events | ordinary `bot.on(...)`, including `death`, `spawn`, `health`, block/entity/window events and `bridgeReset` |
 
 Use the matching upstream documentation under `$ARENA_REFERENCE_ROOT` for Mineflayer and plugin behavior. This reference describes the arena-specific differences.
@@ -70,6 +71,11 @@ can also follow a held-item change; inspect the resulting inventory/food evidenc
 `deactivateItem()` releases item use, but native consume may remain pending until
 its own completion or timeout. A cancelled controller must not resume movement
 when that pending Promise later settles.
+
+`bot.isSleeping` and default `self.isSleeping` carry the native observed sleep
+state (`null` when unavailable). `await bot.wake()` sends the normal native wake
+request and keeps its `already awake` error. Completion means the request was
+sent; wait for `wake` or check `isSleeping === false` to confirm server wake-up.
 
 ## Craft quantities
 

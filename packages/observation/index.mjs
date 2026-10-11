@@ -760,6 +760,7 @@ export function sampleObservation(bot, options = {}) {
       velocity: vector(entity?.velocity),
       health: finite(bot?.health),
       food: finite(bot?.food),
+      isSleeping: boolean(bot?.isSleeping),
       oxygen: finite(bot?.oxygenLevel),
       effects: plain(entity?.effects),
       dimension: bot?.game?.dimension ?? null,

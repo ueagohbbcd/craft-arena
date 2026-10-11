@@ -336,6 +336,7 @@ export class BotFacade extends EventEmitter {
       "game",
       "health",
       "food",
+      "isSleeping",
       "oxygenLevel",
       "jumpTicks",
       "jumpQueued",
@@ -738,6 +739,9 @@ export class BotFacade extends EventEmitter {
   }
   unequip(destination) {
     return this.action("unequip", { destination });
+  }
+  wake() {
+    return this.action("wake");
   }
   /** Native completion/error semantics, with authoritative carried slots. */
   async consume() {

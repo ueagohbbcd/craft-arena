@@ -306,6 +306,9 @@ export function createAuthority(
         ]),
       );
     },
+    wake() {
+      return bot.wake();
+    },
     async consume() {
       await bot.consume();
       return inventoryState();
@@ -453,6 +456,7 @@ export function createAuthority(
         game: bot.game ?? {},
         health: bot.health,
         food: bot.food,
+        isSleeping: typeof bot.isSleeping === "boolean" ? bot.isSleeping : null,
         oxygenLevel: bot.oxygenLevel,
         jumpTicks: bot.jumpTicks ?? 0,
         jumpQueued: bot.jumpQueued ?? false,
@@ -665,6 +669,8 @@ export function createBridgeServer({
     "entityUpdate",
     "entityEquipmentChange",
     "health",
+    "sleep",
+    "wake",
     "heldItemChanged",
     "windowOpen",
     "windowClose",
@@ -700,6 +706,8 @@ export function createBridgeServer({
       if (
         [
           "health",
+          "sleep",
+          "wake",
           "heldItemChanged",
           "windowOpen",
           "windowClose",
