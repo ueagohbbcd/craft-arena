@@ -11,7 +11,7 @@ Use `connectBot({url,token})` from `index.mjs` to control your existing arena bo
 | Fight | adapted `bot.pvp`, `attack(entity, swing?)` |
 | Move / look | `setControlState`, `clearControlStates`, `look`, `lookAt` |
 | Blocks | `dig(block, forceLook?, digFace?)`, `stopDigging`, `placeBlock`, `activateBlock(block, direction?, cursorPos?)` |
-| Items | `equip`, `unequip`, `activateItem`, `deactivateItem`, `setQuickBarSlot`, `tossStack` |
+| Items | `equip`, `unequip`, `consume`, `activateItem`, `deactivateItem`, `setQuickBarSlot`, `tossStack` |
 | Containers | `openContainer`, `closeWindow`, `clickWindow`; native Window queries and `withdraw/deposit/close` below |
 | Craft | `craftItem(itemType, count = 1, table = null)`; count is new result items, rounded up to whole recipe batches |
 | Events | ordinary `bot.on(...)`, including `death`, `spawn`, `health`, block/entity/window events and `bridgeReset` |
@@ -63,6 +63,13 @@ Horizontal edge positioning waits for landing and releases inherited horizontal 
 - Dig preserves `forceLook="ignore"`; optional attack/dig/activateBlock arguments are passed through. Click modes 0–6 and outside/drop slot -999 use the active window. Craft requests may exceed one stack.
 - The facade provides `craftItem`, not native `recipesFor`/`craft(recipe)`. Specialized furnace, villager and enchanting helpers are not implemented.
 - Packet access (`_client`), trusted-side plugin installation and reconnect are owned by the host. For an API absent from the table, check [index.mjs](index.mjs) before using it.
+
+`await bot.consume()` uses native Mineflayer completion and errors, then refreshes
+carried inventory before resolving. Equip the desired food first. Native completion
+can also follow a held-item change; inspect the resulting inventory/food evidence.
+`deactivateItem()` releases item use, but native consume may remain pending until
+its own completion or timeout. A cancelled controller must not resume movement
+when that pending Promise later settles.
 
 ## Craft quantities
 

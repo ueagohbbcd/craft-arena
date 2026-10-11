@@ -306,6 +306,10 @@ export function createAuthority(
         ]),
       );
     },
+    async consume() {
+      await bot.consume();
+      return inventoryState();
+    },
     activateItem(a) {
       return bot.activateItem(
         a.offHand === undefined ? false : bool(a.offHand),

@@ -739,6 +739,20 @@ export class BotFacade extends EventEmitter {
   unequip(destination) {
     return this.action("unequip", { destination });
   }
+  /** Native completion/error semantics, with authoritative carried slots. */
+  async consume() {
+    const epoch = this.epoch,
+      inventoryRef = this.inventory.windowRef;
+    const result = await this.action("consume");
+    if (
+      result?.inventory &&
+      this.epoch === epoch &&
+      this.inventory.windowRef === inventoryRef &&
+      result.version === this.version &&
+      result.inventory.windowRef === inventoryRef
+    )
+      this._applyInventoryState(result);
+  }
   activateItem(offHand = false) {
     this._fire("activateItem", { offHand });
   }
