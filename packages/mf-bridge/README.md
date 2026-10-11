@@ -138,3 +138,14 @@ cleanup failed. The arena host may retain read-only status until operator
 shutdown. Standalone CLI disables outgoing chat only when
 `BRIDGE_ALLOW_CHAT=false`; Minecraft enforces command permissions.
 
+
+## Read-only full-column memory
+
+Authenticated GET `/v1/memory/block?dimension=...&x=...&y=...&z=...`,
+`/v1/memory/chunk?dimension=...&x=...&z=...`, and
+`/v1/memory/chunks?dimension=...&offset=...&limit=...` read only this bot's received
+terrain. Unloaded columns remain historical, reload replaces them, and unknown
+coordinates never cause server loads. These routes do not dispatch actions or
+consume their rate/concurrency slots. There is no remote write/clear endpoint.
+The arena sets trusted world/run/participant identity; optional persistence
+requires all three explicit IDs. See [memory isolation and lifecycle](../../docs/BLOCK-MEMORY.md).

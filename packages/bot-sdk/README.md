@@ -192,3 +192,13 @@ A normal report has this shape (illustrative values):
 Installed PvP 1.3.2 event tests cover handoff timing, disappearance, range loss,
 nearby count changes, phase coalescing and reporting failures. This is bridge/
 plugin validation with fixtures, not live-server combat acceptance.
+
+## Shared block memory without a control connection
+
+`createBlockMemoryClient({url, token})` reads the existing trusted character's
+complete received columns, including unloaded history, independently of any
+controller. It creates no Minecraft login or SSE stream. Use asynchronous
+`block`, `chunk`, `chunks`, then explicit `prefetch` for synchronous local
+`blockAt`/`findBlocks`/`world.getColumn` queries. Local snapshots distinguish
+not-cached, service-unknown, currently-loaded-at-fetch and historical data.
+See the [contract, examples and freshness boundaries](../../docs/BLOCK-MEMORY.md).
