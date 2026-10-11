@@ -9,3 +9,7 @@ runtime
 **/*.log
 out
 .pi
+
+
+# Optional desktop-only replay tooling never enters host or participant images.
+tools/replay-myopia
