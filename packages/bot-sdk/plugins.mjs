@@ -57,7 +57,37 @@ export function loadSelectedPlugins(bot, { pvp = true } = {}) {
       "        return\n" +
       "      }\n",
   );
+  // Upstream 2.4.5 resolves goto for *any* empty path, including noPath,
+  // timeout and partial search slices. A plan is not proof of arrival: leave
+  // success to the native goal_reached event (including its slab tolerance).
+  // Compile a private copy so unadapted users and shared dependencies stay intact.
+  const gotoFilename = require.resolve("mineflayer-pathfinder/lib/goto");
+  const gotoSource = readFileSync(gotoFilename, "utf8");
+  const emptyPathSuccess =
+    "      if (results.path.length === 0) {\n" +
+    "        cleanup()\n" +
+    "      } else if (results.status === 'noPath') {";
+  if (
+    !gotoSource.includes(emptyPathSuccess) ||
+    gotoSource.indexOf(emptyPathSuccess) !==
+      gotoSource.lastIndexOf(emptyPathSuccess)
+  )
+    throw new Error("Pathfinder goto arrival patch mismatch");
+  const gotoModule = new Module(gotoFilename);
+  gotoModule.filename = gotoFilename;
+  gotoModule.paths = Module._nodeModulePaths(dirname(gotoFilename));
+  gotoModule._compile(
+    gotoSource.replace(
+      emptyPathSuccess,
+      "      if (results.status === 'noPath') {",
+    ),
+    gotoFilename,
+  );
   const m = new Module(filename);
+  m.require = (id) =>
+    id === "./lib/goto"
+      ? gotoModule.exports
+      : Module.prototype.require.call(m, id);
   m.filename = filename;
   m.paths = Module._nodeModulePaths(dirname(filename));
   m._compile(guarded, filename);
