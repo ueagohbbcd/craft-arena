@@ -36,13 +36,16 @@
 | 战斗 | SDK 的 PvP 适配器和 `attack(entity)`，见 [控制程序](../examples/SKILL.md#write-a-bot-control-program) |
 | 开箱、查看后再取物 | [两步容器操作](../examples/SKILL.md#inspect-a-container-then-transfer) |
 | 发送游戏聊天 | `bot.chat(message)` 后 `await bot.flush()`；聊天范围依地图规则 |
-| 施工时自动吃饭 | [施工示例](../examples/build-with-autoeat.mjs) |
+| 导航途中自动吃饭并恢复原目标 | [导航进食主示例](../examples/navigate-with-autoeat.mjs)：借用现成 Pathfinder 的控制权插入短行为，再恢复 |
+| 自动战斗经过 | 加载标准 PvP 适配器后自动进普通收件箱；[薄示例](../examples/observe-pvp.mjs) 展示上层报告候选与选择理由 |
 | 看地图、地层、墙壁或隧道 | [视觉工具](../packages/world-visual/README.md)：俯视图、结构图、材质三维图 |
 | 精确检查局部空间与方块计数 | [地形摘要](../examples/summarize-terrain.mjs) |
 | 报告动作进展或请求判断 | [收件箱](../packages/inbox/README.md) |
 | 等待、取消、模型上下文和生命周期 | [Pi 运行说明](../packages/pi-extension/README.md) |
 
-工具包在 `$ARENA_TOOLKIT_ROOT`（默认 `/opt/arena`）。完整的 Mineflayer、Pathfinder、PvP 官方文档与源码在 `$ARENA_REFERENCE_ROOT`（默认 `/opt/mf-reference`），版本与安装的插件一致。先查所用方法的官方用法；遇到接入差异再查 SDK。
+工具包在 `$ARENA_TOOLKIT_ROOT`（默认 `/opt/arena`）。完整的 Mineflayer、Pathfinder、PvP 官方文档与源码在 `$ARENA_REFERENCE_ROOT`（默认 `/opt/mf-reference`），版本与安装的插件一致。不熟悉某个方法时按需查官方用法，接入细节见 SDK；行动中遇到的问题可先看 [短 FAQ](PLAYER-FAQ.md)。
+
+[施工时自动进食](../examples/build-with-autoeat.mjs) 保留为手部操作串行化的补充例子。主示例优先展示更容易遗漏的插件衔接：安全暂停通用寻路、插入短行为、恢复原目标，并把原因和实际结果交回收件箱。
 
 ## 模型预算与等待
 

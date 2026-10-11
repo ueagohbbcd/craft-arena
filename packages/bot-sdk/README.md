@@ -50,7 +50,10 @@ Incoming `chat` and `messagestr` retain their normal string argument positions; 
 
 ## Pathfinder and PvP adaptation
 
-Load the adapters once with `loadSelectedPlugins(bot)`. Keep native Movements defaults unless the task calls for a change. [plugin-goal.mjs](../../examples/plugin-goal.mjs) demonstrates arrival verification, progress and stall reporting; `--no-dig` opts into preserving blocks. `NoPath` describes the loaded terrain and current movement settings, so inspect those when choosing the next attempt.
+Load the adapters once with `loadSelectedPlugins(bot)`. Keep native Movements defaults unless the task calls for a change. [plugin-goal.mjs](../../examples/plugin-goal.mjs) demonstrates arrival verification, progress and stall reporting; `--no-dig` opts into preserving blocks.
+[navigate-with-autoeat.mjs](../../examples/navigate-with-autoeat.mjs) demonstrates
+borrowing the hand from an active route, native consumption and restoring the
+same goal, with normal Inbox evidence for each meal. `NoPath` describes the loaded terrain and current movement settings, so inspect those when choosing the next attempt.
 
 The adapter's `goto(goal)` resolves only on native `goal_reached`, preserving native arrival tolerance and deferred cleanup. Empty `noPath` / `timeout` plans reject with `NoPath` / `Timeout`; an empty partial or successful plan alone cannot report arrival. This corrects Pathfinder 2.4.5's empty-path success shortcut without changing its public path or goal events.
 

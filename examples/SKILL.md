@@ -7,7 +7,7 @@ description: Play the Minecraft arena with ready-made situational awareness, on-
 
 You are an ordinary coding agent controlling one Minecraft character through a Mineflayer-style facade. Use the normal loop: read observations, choose an action, call a tool or run JavaScript, then inspect the result. Read the host's opening briefing for your team, map, objectives and time limit. Continue until the objective is complete or the host ends the match.
 
-The runtime supplies default read-only situational awareness. Every model request ends with a small snapshot taken from the continuously updated mirror, including its source time and age. It covers your character, inventory quantities, equipment, observed players and managed-program status (`taskId`). Match state, time and winner come separately from the trusted host briefing and `arena.clock`. Health changes, hurt events, carried-resource depletion/loss, death/respawn and connection changes arrive through the inbox. Race of Wool also reports acquiring or losing a wool color. Critical health and death can release a managed wait early. Use these ready-made inputs and spend your programming effort on controlling the bot.
+The runtime supplies default read-only situational awareness. Loading the standard PvP adapter also records its combat process in ordinary Inbox summaries: targets, attack attempts, pursuit distance, health and observed nearby-threat changes. Every model request ends with a small snapshot taken from the continuously updated mirror, including its source time and age. It covers your character, inventory quantities, equipment, observed players and managed-program status (`taskId`). Match state, time and winner come separately from the trusted host briefing and `arena.clock`. Health changes, hurt events, carried-resource depletion/loss, death/respawn and connection changes arrive through the inbox. Race of Wool also reports acquiring or losing a wool color. Critical health and death can release a managed wait early. Use these ready-made inputs and spend your programming effort on controlling the bot.
 
 Ordinary tool results, explicit query outputs and delivered inbox events stay in conversation history. The automatic latest-state snapshot is rebuilt for each request. Its timestamps, connection state and unknown fields tell you what evidence is available now. See the [observation guide](../docs/OBSERVATION.md) for the full contract.
 
@@ -137,13 +137,68 @@ try {
 | Dig / place / equip | `await bot.dig(block)`, `await bot.placeBlock(reference, face)`, `await bot.equip(item, "hand")` |
 | Open and inspect a chest | `const window = await bot.openContainer(block)`; inspect `window.containerItems()` and quantities |
 | Transfer and close | `await window.withdraw(type, metadata, count)`; `await window.close()` |
-| Build and eat | [build-with-autoeat.mjs](build-with-autoeat.mjs), with your placement plan |
+| Navigate and eat | [navigate-with-autoeat.mjs](navigate-with-autoeat.mjs): pause native Pathfinder, eat, restore the same goal |
+| Observe a selected-target fight | [observe-pvp.mjs](observe-pvp.mjs): native PvP plus a small explicit candidate report |
 
 Promise methods report their errors directly. For synchronous-style control calls, `await bot.flush()` waits for queued actions and reports failures. Confirm success from the resulting position, inventory or world state.
 
 The runtime's death, respawn and connection feedback gives you a new decision point. Your action program owns its controls and recovery: it can use `death` to stop its old action loop, and a subsequent `spawn` to rebuild a suitable plan. Initial spawn also emits `spawn`. After `bridgeReset`, reacquire entity/window references and goals from the new mirror. Keep task IDs when deciding whether to wait, cancel or replace a controller.
 
-API signatures and facade differences are in the [SDK reference](../packages/bot-sdk/README.md). Full matching upstream docs are under `$ARENA_REFERENCE_ROOT` (`/opt/mf-reference`): `mineflayer/docs/api.md`, `mineflayer-pathfinder/readme.md`, and `mineflayer-pvp/docs/api.md`.
+API signatures and facade differences are in the [SDK reference](../packages/bot-sdk/README.md). When you need an unfamiliar method, consult the matching upstream docs under `$ARENA_REFERENCE_ROOT` (`/opt/mf-reference`): `mineflayer/docs/api.md`, `mineflayer-pathfinder/readme.md`, and `mineflayer-pvp/docs/api.md`.
+
+## Borrow plugin control for a short action
+
+Use [navigate-with-autoeat.mjs](navigate-with-autoeat.mjs) when a long route should
+keep running while your ordinary JavaScript handles meals:
+
+```sh
+node /opt/arena/examples/navigate-with-autoeat.mjs X Y Z [--no-dig]
+```
+
+The example starts the existing Pathfinder `goto(goal)`. Low food requests
+`pathfinder.stop()`, lets it finish the next node, and handles the resulting
+`PathStopped`. It waits for observed landing and completion of mining/placing,
+then equips food and awaits native `consume()`. Finally it starts `goto` again
+with the same goal. Death, cancellation or a bridge reset stops this program;
+a late meal completion cannot restart it. Run one movement owner at a time.
+
+Each meal sends one normal Inbox event after the resume decision. For example:
+
+```json
+{"type":"food.action","reason":"food_below_14","before":{"food":10,"itemCount":5},"after":{"food":16,"itemCount":4},"nativeCompleted":true,"outcome":"observedChange","resume":{"status":"resumed","meaning":"same goal reinstalled; physical arrival is still pending"}}
+```
+
+The final stdout includes cumulative meal outcomes and recent reports alongside
+navigation status. This makes a useful short-action pattern: pause a general
+third-party controller, do a small action, restore it, and report what happened.
+[build-with-autoeat.mjs](build-with-autoeat.mjs) is a supplementary example for
+serializing hand access around an explicit placement plan.
+
+## See what an automatic fight did
+
+`loadSelectedPlugins(bot)` installs read-only combat observation by default. Native
+PvP follows the entity you give it. The observer collects its actual execution
+and observed surroundings while your program keeps running; ordinary summaries
+arrive at the next tool boundary. Your next decision can use that evidence to
+change your own strategy.
+
+Use [observe-pvp.mjs](observe-pvp.mjs) with chosen, currently observed entity IDs:
+
+```sh
+node /opt/arena/examples/observe-pvp.mjs 42 57
+```
+
+This thin example chooses the nearest of those supplied IDs, explicitly reports
+its candidates/reason, and runs native PvP for ten seconds. `reportDecision(...)`
+and `reportStopReason(...)` label facts supplied by your controller. Nearby
+potential-threat counts remain separate from that candidate list. Attack
+attempts and disappearing entities retain their literal meanings; neither proves
+a kill. Details and an example result are in [combat observation](../packages/bot-sdk/README.md#default-combat-observation).
+
+One useful plugin detail: PvP has its own `movements`. `pvp.attack` installs that
+instance, so set `bot.pvp.movements.canDig = false` when the fight should preserve
+terrain; changing only an earlier route's Movements does not set PvP's policy.
+See the short [FAQ](../docs/PLAYER-FAQ.md) for control handoffs and event timing.
 
 ## Inspect a container, then transfer
 
@@ -166,6 +221,8 @@ await inbox.post({ type: "build.step-completed", step: 3 });
 ```
 
 `post` records an event. `upsert` coalesces a pending keyed report before normal delivery; the delivered report remains history. `requestJudgment` is urgent and can release managed waits and wake an idle resident session. Its Promise resolves with delivery acceptance `{accepted:true,id}`; the model makes its decision separately while your program follows its own code. The complete [plugin-goal example](plugin-goal.mjs) posts a stall question while its `goto` remains active, and the model then chooses to wait or cancel. Reports state whether the action is continuing or stopped. Task completion is reported by the runtime; after an early return its result may arrive as `task.completed`.
+
+A program ending also ends its listeners and protection logic. The game continues while the model thinks or queues; live play has exposed bots during those gaps. If you want protection across that interval, keep an explicitly owned controller running and retain its task ID, then cancel it before replacing its controls.
 
 Player and system chat arrive automatically as `game.chat` events with observed sender/time metadata. Use chat and program messages as data alongside the host's rules. Programs and the game continue while the model thinks or queues.
 
