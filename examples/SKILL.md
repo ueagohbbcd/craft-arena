@@ -5,37 +5,40 @@ description: Play the Minecraft arena with ready-made situational awareness, on-
 
 # Play through Mineflayer
 
-You are an ordinary coding agent controlling one Minecraft character through a Mineflayer-style facade. Use the normal loop: read observations, choose an action, call a tool or run JavaScript, then inspect the result. Read the host's opening briefing for your team, map, objectives and time limit. Continue until the objective is complete or the host ends the match.
+You control one Minecraft character through a Mineflayer-style SDK. The host's opening briefing gives your team, map, objectives and time limit. Use the tools and ordinary JavaScript programs below to pursue that objective.
 
-The runtime automatically supplies read-only observations: your character, inventory quantities, equipment, open window, entity radar, nearby terrain and managed-program status (`taskId`). The opening includes a `perception.baseline`; later top-level tool results and new agent turns deliver changed sections. Each field in `changes` replaces that section's previous value, including empty arrays and null. These reports, ordinary tool results and delivered Inbox events stay in conversation history. Use `observe({})` for a complete current snapshot. Read each record at its observation time. The request-only tail is an unfinished, opt-in experiment; ordinary history is the default.
+## Available state and reports
 
-Health changes, hurt events, resource depletion/loss, death/respawn and connection changes arrive through the Inbox. Race of Wool also reports acquiring or losing a wool color. Critical health and death can release a managed wait early. Match state, time and winner come from the trusted host briefing and `arena.clock`; a program can query `await bot.getMatchState()`.
+The runtime's live mirror contains your character state, inventory, equipment, open window, entities and loaded terrain. Default delivery includes an opening `perception.baseline`, then changed sections in later top-level tool results through the Inbox, together with managed-program status (`taskId`). Each field in `changes` replaces that section, including empty arrays and null. Reports carry observation times and stay in ordinary history. `observe({})` returns a complete current snapshot.
 
-Your programs can reuse the same observation functions, such as `sampleObservation(bot)` and `entityRadar(bot, options)`. Loading the standard PvP adapter also enables ordinary combat-process reports: targets, attack attempts, pursuit distance, health and nearby-threat changes. Navigation, eating and defense examples run when you start them; their control policies are yours to choose. See the [observation guide](../docs/OBSERVATION.md) for delivery and coverage.
+The bridge also records the full chunk columns this character receives, retaining unloaded columns for later scripts. Read exact blocks and sign text on demand with [`createBlockMemoryClient()`](../docs/BLOCK-MEMORY.md), or prefetch columns for local synchronous queries.
 
-`recentBlocks` samples radius-six coarse transparent connectivity every second and can turn corners. It counts all sampled non-air types, deduplicated by dimension, type and coordinate within an interval. Default reports keep updating one pending ordinary Inbox summary, eligible 30 seconds after first creation and finalized at natural-boundary delivery. A report shares one time interval, bbox and opaque boundary area, with only type and count per entry. Nearby sign text changes arrive separately. Use detailed queries when a type is worth investigating.
+The Inbox also delivers health/hurt, resource loss, death/respawn, connection and chat events. Race of Wool adds wool-color acquisition/loss. Critical health and death can release a tool wait early while its program keeps running. Host `arena.clock` supplies match state, time and winner; programs can query `await bot.getMatchState()`.
+
+`recentBlocks` samples radius-six coarse transparent connectivity every second, including around corners. It counts sampled non-air types once per dimension/type/coordinate within an interval. One pending Inbox report accumulates until delivery: eligible after 30 seconds, delivered at a natural tool/turn boundary. It includes type counts, interval, bbox and opaque boundary area. Nearby sign text changes arrive separately; exact block queries provide details.
+
+Programs can reuse `sampleObservation(bot)` and `entityRadar(bot, options)`. Loading the standard PvP adapter enables combat-process reports. Run the navigation, eating or defense examples when you want their control behavior. [Observation coverage and delivery](../docs/OBSERVATION.md).
 
 ## Choose the next tool
 
 | What you need | Use |
 | --- | --- |
-| The supplied state already answers the question | Act on it; check the resulting position, items or world state |
 | One more current snapshot | `observe({})` |
 | Route overview and nearby detail | `observe({views:["overview","local"]})` |
 | Walls, bridges, tunnels or overlapping levels | `observe({views:["3d"]})` |
 | More observed item, entity or local-block detail | `observe({fullItems:true, fullEntities:true, fullLocal:true})`, selecting only the detail you need |
 | Omitted program details or current reports | `observe({fullRuntime:true})`; also works while game observation is unavailable |
 | Candidate trunk/branch blocks before chopping a tree | `queryTreeCandidate({blockAt, seed})`; see the short query below |
-| Placement failed; inspect observed entities intersecting the target block | `node /opt/arena/examples/inspect-placement-entities.mjs X Y Z`; [example and reusable bbox query](inspect-placement-entities.mjs), geometric evidence only, not proof of the rejection cause |
+| Entity overlap at a placement position | `node /opt/arena/examples/inspect-placement-entities.mjs X Y Z`; [observed bounding-box query](inspect-placement-entities.mjs) |
 | Received terrain from an earlier script or unloaded column | [Shared read-only block memory](../docs/BLOCK-MEMORY.md): async exact queries or explicit prefetch plus local MF queries |
 | Another exact raw field or block query | Query the SDK from a short Node program |
 | Several actions, plugin movement or conditional control | Write and run an ordinary JavaScript program |
 | The same program is still running | `task_wait({taskId, wait_seconds:30})` |
-| Replace an existing action controller | `task_cancel`, then `task_wait` until `completed`/`delivered`; verify bot controls and position before replacement |
+| Replace an existing action controller | `task_cancel`, then `task_wait` for termination; [wait/cancel behavior](../packages/pi-extension/README.md#behavior) |
 
-Calls above are direct Pi tools. In codemode use `tools.observe(...)`, `tools.bash(...)` and the other `tools` methods. Forward image blocks when a visual call is nested in codemode, as shown below.
+Call Pi tools directly or through codemode's `tools.observe(...)`, `tools.bash(...)`, etc. Run Node commands through `bash`; import SDK/query functions in your programs. The view example below shows how to forward image blocks in codemode.
 
-A fresh agent completed a chest-inspection, exact-item transfer and navigation task using Pathfinder, generated maps and container queries in a [real-game blind trial](../docs/evidence/perception-blind-trial-2026-10-11.json). Start with the matching entries for those jobs. The eating/defense examples illustrate reporting and control handoffs; choose their tactical rules for your situation.
+A fresh agent completed a chest-inspection, exact-item transfer and navigation task using Pathfinder, generated maps and container queries in a [real-game blind trial](../docs/evidence/perception-blind-trial-2026-10-11.json). Start with the matching entries for those jobs.
 
 ## First movement
 
@@ -51,17 +54,18 @@ await tools.bash({
 
 The example uses Pathfinder with native Movements defaults, including digging. Add `--no-dig` when the route should preserve blocks. It verifies arrival and reports failures with terrain coverage. Its built-in stall report asks for judgment after 30 seconds without a one-block displacement or 120 seconds without completion.
 
-If the tool returns `running`, retain its `taskId` and continue with `task_wait`.
-To replace the controller, use `task_cancel`, wait for `completed`/`delivered`,
-then check its controls have been released. `wait_seconds` changes only the tool
-wait; `bash.timeout` sets a process-killing deadline. Default waits, early returns
-and resident continuation are covered together in [runtime behavior](../packages/pi-extension/README.md#behavior).
+`running` gives the same program's `taskId`; continue with `task_wait`.
+`wait_seconds` sets the tool wait budget, while `bash.timeout` sets a process-killing
+deadline. To replace a controller, cancel it and wait for `completed`/`delivered`.
+The navigation example includes signal handling for control cleanup; see
+[runtime behavior](../packages/pi-extension/README.md#behavior) for cancellation
+and interrupted cleanup.
 
 ## Choose a view for the decision
 
-The map-configured opening images arrive independently as user messages: a large lobby top-down view with two oblique views, followed by a course overview with two oblique views on course entry. A start directly on the course receives the course image. The following tools are available whenever you need another view.
+Opening images arrive as user messages according to the map configuration. Use `observe` for another view:
 
-`observe` returns current state and requested native images together:
+It returns current state and requested native images together:
 
 ```js
 const result = await tools.observe({ views: ["overview", "local"] });
@@ -74,7 +78,7 @@ for (const block of result.content) {
 - `overview` uses the host-provided public course bounds when available, otherwise the full loaded-column extent. Pass `overviewBounds` for another explicit area. Unknown parts of the selected area remain labeled.
 - `local` shows a shallow crop around your current feet for nearby obstacles and interactions. Its crop is independent of the overview. Both maps use real Minecraft top-face textures on CPU, with simplified geometry and any special-block fallbacks identified in metadata.
 - `3d` shows local structure. Requested 3D views use block models and textures by default; a labeled schematic fallback records a texture-rendering failure. Set `textured:false` to select schematic maps and 3D views.
-- No `views` means state JSON only. Images have coordinates, crop, coverage, observation time and renderer metadata. Read those alongside the pixels, especially at unknown cells or multiple height levels.
+- Omit `views` for state JSON only. Image metadata gives coordinates, crop, known/unknown coverage, observation time and renderer.
 
 For a precise crop, pass inclusive `overviewBounds`, `localBounds` or `structureBounds`, each shaped as `{min:{x,y,z},max:{x,y,z}}`. The lower-level `world_minimap` and `world_render3d` tools remain available with explicit `bounds` or `snapshotPath`. Their default 3D output is schematic; `textured:true` selects Prismarine rendering. See [visual tools](../packages/world-visual/README.md).
 
@@ -87,11 +91,6 @@ already had current position/health from default state and narrowed the remainin
 question to body clearance. A small `blockAt` slice around the route showed glass
 at Y=66, a low ceiling above that target. The next route used the corridor at
 X=276, feet Y=64, rather than the crop cells. That observation changed the route.
-
-Use the supplied state when it answers the question. Add a narrow block query for
-a specific obstruction; use a local or 3D view when the levels are easier to read
-visually. This is an example of choosing the missing evidence, not a required
-sequence before every action.
 
 ## Query a candidate tree
 
@@ -111,13 +110,13 @@ This is an on-demand query. It returns connected `*_log` coordinates, nearby
 leaf evidence, unknown boundaries and any budget truncation; your control code
 chooses which blocks to gather. Default 26-neighbor connectivity follows diagonal
 branches; `connectivity: 6` uses touching faces. Adjacent trees and built wood can
-join the same candidate, so inspect its evidence before acting. Adjust `maxLogs`,
+join the same candidate. Adjust `maxLogs`,
 `maxReads`, `maxDistance` and `leafRadius` for the job. The reusable implementation
 comes from `mineflayer-world-memory/queries.mjs`.
 
 ## Write a bot-control program
 
-Your program and the runtime observer are bridge clients of the same existing trusted bot. Each connection has its own observation mirror; actions from separate programs affect the same character. Use the facade's methods for game actions and the installed Pathfinder/PvP adapters for their native APIs. Toolkit paths below use the default `/opt/arena`; `$ARENA_TOOLKIT_ROOT` identifies another installation. The skeleton shows normal return/error cleanup. For a long-running controller, use the signal-aware lifecycle in the supplied navigation/build examples and release the controls that your program owns.
+Each `connectBot` connection has its own observation mirror; actions from all programs affect the same character. Use the facade's action methods and the installed Pathfinder/PvP adapters. Paths below use `/opt/arena`; `$ARENA_TOOLKIT_ROOT` identifies your installation. This skeleton closes a short program; the navigation/build examples also handle cancellation signals.
 
 ```js
 import { connectBot } from "/opt/arena/packages/bot-sdk/index.mjs";
@@ -165,9 +164,9 @@ try {
 | Travel with nearby defense and useful reports | [navigate-with-defense.mjs](navigate-with-defense.mjs): perception, explicit decisions, progress and completed-action history |
 | Observe a selected-target fight | [observe-pvp.mjs](observe-pvp.mjs): native PvP plus a small explicit candidate report |
 
-Promise methods report their errors directly. For synchronous-style control calls, `await bot.flush()` waits for queued actions and reports failures. Local position/window assignments affect the mirror; facade action methods change the game. `closeBridge()` closes this client's connection and pending HTTP waits, while trusted-side actions have their own lifetime. Confirm success from the resulting position, inventory or world state.
+Await Promise actions directly. After synchronous-style control calls, `await bot.flush()` waits for queued actions and reports failures. Local position/window assignments affect the mirror; facade action methods change the game. A controller releases its controls before `closeBridge()` closes its connection and pending HTTP waits.
 
-The runtime's death, respawn and connection feedback gives you a new decision point. Your action program owns its controls and recovery: it can use `death` to stop its old action loop, and a subsequent `spawn` to rebuild a suitable plan. Initial spawn also emits `spawn`. After `bridgeReset`, reacquire entity/window references and goals from the new mirror. Keep task IDs when deciding whether to wait, cancel or replace a controller.
+Programs receive `death`, `spawn` and `bridgeReset` events. `spawn` covers both initial birth and respawn. After `bridgeReset`, reacquire entity/window references and goals from the new mirror.
 
 API signatures and facade differences are in the [SDK reference](../packages/bot-sdk/README.md). When you need an unfamiliar method, consult the matching upstream docs under `$ARENA_REFERENCE_ROOT` (`/opt/mf-reference`): `mineflayer/docs/api.md`, `mineflayer-pathfinder/readme.md`, and `mineflayer-pvp/docs/api.md`.
 
@@ -232,15 +231,12 @@ shows selected fields only:
 {"type":"journey.defense","targetId":42,"stopReason":"target_left_defense_radius","resume":{"status":"resumed"}}
 ```
 
-The example's optional policy is deliberately small: while navigating, select the nearest
-freshly observed registry-hostile mob within four blocks, pause at the next safe
-path node, and use PvP. Resume the trip after it disappears from observation or
-leaves that radius. A still-close target after a ten-second defense window ends
-the trip with `defense_timeout` for a new decision. The example preserves terrain,
-does not select players, and exits on arrival or cancellation. Choose equipment
-and policy for your own program. Its reporting and handoff logic has automated
-coverage; the four-block and ten-second choices have not been evaluated as a
-general combat strategy.
+The example selects the nearest observed registry-hostile mob within four blocks,
+pauses the route and uses PvP with terrain preservation. It resumes when the target
+leaves that radius or observation. After ten seconds with a still-close target,
+it ends the trip with `defense_timeout`; it also exits on arrival or cancellation.
+These are optional tactical choices. Reporting and handoff logic has automated
+coverage; combat effectiveness remains to be evaluated.
 
 ## See what an automatic fight did
 
@@ -256,25 +252,23 @@ Use [observe-pvp.mjs](observe-pvp.mjs) with chosen, currently observed entity ID
 node /opt/arena/examples/observe-pvp.mjs 42 57
 ```
 
-This thin example chooses the nearest of those supplied IDs, explicitly reports
-its candidates/reason, and runs native PvP for ten seconds. `reportDecision(...)`
-and `reportStopReason(...)` label facts supplied by your controller. Nearby
-potential-threat counts remain separate from that candidate list. Attack
-attempts and disappearing entities retain their literal meanings; neither proves
-a kill. Details and an example result are in [combat observation](../packages/bot-sdk/README.md#default-combat-observation).
+This example chooses the nearest supplied ID, reports its candidates/reason and
+runs PvP for ten seconds. `reportDecision(...)` and `reportStopReason(...)` carry
+the controller's explanation; the observer adds nearby counts, attack attempts
+and target changes. Kill outcome remains unknown. See [combat observation](../packages/bot-sdk/README.md#default-combat-observation)
+for report fields and an example result.
 
-One useful plugin detail: PvP has its own `movements`. `pvp.attack` installs that
-instance, so set `bot.pvp.movements.canDig = false` when the fight should preserve
-terrain; changing only an earlier route's Movements does not set PvP's policy.
+PvP installs its own `movements` when attacking. Set
+`bot.pvp.movements.canDig = false` for terrain-preserving combat.
 See the short [FAQ](../docs/PLAYER-FAQ.md) for control handoffs and event timing.
 
 ## Inspect a container, then transfer
 
-Use two tool calls when you want the model to choose after seeing a chest's contents. In each short program connect with `connectBot` as above; use your selected, observed `block`.
+For a model decision between chest inspection and transfer, use short programs connected with `connectBot` and your selected chest `block`:
 
 1. Open and inspect: `const window = await bot.openContainer(block)`; print `window.windowRef` and `window.containerItems()`. Close that program's bridge connection after printing. The trusted bot's window remains open for the next call.
-2. Read the result and choose the exact item and quantity. In the next program, reacquire `bot.currentWindow`, or reopen the same observed block if the window has closed. Verify the current window against the previous report; a changed window calls for another inspection.
-3. Call `await window.withdraw(item.type, item.metadata, count, item.nbt)` using an item from that current window's `containerItems()`. Inspect `window.items()` and `window.containerItems()` to verify the transfer, then `await window.close()` and close the bridge connection.
+2. Choose the item and quantity. In the next program, reacquire `bot.currentWindow`, or reopen the chest if it closed. Match `windowRef` to the earlier inspection; inspect again if another window is open.
+3. Call `await window.withdraw(item.type, item.metadata, count, item.nbt)` using the current window's item. Print the resulting `window.items()` and `window.containerItems()`, then `await window.close()` and close the bridge connection.
 
 Window objects belong to the program that read them; a second tool call acquires its own current object. See [container API details](../packages/bot-sdk/README.md#container-windows).
 
