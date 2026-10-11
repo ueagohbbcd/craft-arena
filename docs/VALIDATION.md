@@ -175,3 +175,14 @@ npm run demo:visual
 独立复核发现的窗口目标、JSON 凭据脱敏、物品组件和事件/响应时序问题已修复。全量运行还暴露一个预算测试的真实时钟假设：1 毫秒正常偿债使精确金额断言偶发失败；该例现使用注入的固定时钟，保留原严格业务断言。
 
 这些测试没有启动真实 Minecraft 服务器。Windows 操作、Docker 构建、真实地图导航与战斗仍待部署验收；特殊熔炉、村民交易、附魔等高层 API 尚未作为本轮接口提供。
+
+## 2026-10-11：近距透明连通区间原型
+
+独立分支基于 `65046d4`，未热改活动比赛或推送部署。`node --test tests/nearby-connected-blocks.test.mjs tests/recent-blocks.test.mjs tests/recent-block-runtime.test.mjs tests/perception-runtime.test.mjs` 最终 27/27 通过，覆盖真实 registry/形状、未知边界、925 格距离范围、预算截断、类型／坐标去重、仅类型计数投影、按需读取不清空、重试／中止／length 保留、成功响应期间新增样本保留，以及真实 Pi 请求尾部与历史分离。真实 Pi 使用固定本地模型响应；本轮没有启动 Minecraft 服务器或调用付费模型。
+
+全量检查状态必须分开看：早期累计器版本 `npm run validate` 的 490 项为 487 通过、2 跳过、1 失败，失败在 `budget-config.test.mjs:114` 的预期 HTTP 200／实际 502。该文件窄重跑 2/2 通过，未改其代码。最终版本的全量复跑通过语法检查后，执行器报告 `automatic approval review was cancelled`，测试进程中止且没有最终汇总；这是未完成验证，既不是全量通过，也没有据此判定代码失败。最终修改文件的格式及 `git diff --check` 通过。
+
+- [可复跑性能与投影脚本](../scripts/benchmark-recent-blocks.mjs)：`node scripts/benchmark-recent-blocks.mjs`，仅使用内存中的真实 SDK／Prismarine chunk。500 次半径 6 全空气扫描，每次最多 925 次本地读取；本次记录 P50 1.91 ms、P95 3.18 ms、最大 14.09 ms。时间受运行负载影响，采样默认每秒一次。[精简证据](evidence/recent-block-benchmark-2026-10-11.json)
+- 同脚本的合成 10／20／30 类型默认模型投影分别 351／485／616 字符及 UTF-8 字节，按字符除以 4 至除以 3 粗估为 88–117／122–162／154–206 token。没有目标模型 tokenizer，不能称为精确 token 数；没有逐项坐标和时间。
+- [真实旧观察统计脚本](../scripts/estimate-recent-block-context.py)：`python scripts/estimate-recent-block-context.py EXPORT_DIR --output report.json`。先核对导出清单的文件哈希，再统计已提供坐标；不会读取服务器／世界或追补缺失格。[精简证据](evidence/recent-block-context-2026-10-11.json)
+- 实际导出含 699 个 5×5×5 工具边界、8961 个原生位置点和 60 批完整查询数组。151 个边界有明细省略；另有 543 个边界即使 `omitted=0`，非空气格数量仍大于明细数量，说明旧类型筛选让其成为严重偏低的代理。边界类型数中位 1、最多 4；严格限定的连续移动片段合并后最多 5；主动查询数组最多 6。它们不是新半径 6 连通雷达的实服测量或上界。查询时间只有任务区间，不与轨迹强行同步；原始比赛数据未提交。

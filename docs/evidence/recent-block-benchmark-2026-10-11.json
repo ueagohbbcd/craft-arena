@@ -1,0 +1,152 @@
+{
+  "benchmark": {
+    "source": "Real BotFacade.blockAt with in-memory Prismarine 1.21.1 chunks; empty radius-six sphere",
+    "warmup": 30,
+    "runs": 500,
+    "reads": 925,
+    "p50Ms": 1.9058410000000094,
+    "p95Ms": 3.1769259999999804,
+    "maxMs": 14.089130000000068
+  },
+  "tokenMethod": "Synthetic 10/20/30-type samples, not a live match. Characters / 4 through / 3, rounded up; not tokenizer counts.",
+  "projections": [
+    {
+      "types": 10,
+      "characters": 351,
+      "bytes": 351,
+      "tokenEstimate": [
+        88,
+        117
+      ],
+      "projection": {
+        "coverage": "Nearby coarse transparent connectivity; may go around corners.",
+        "radius": 6,
+        "everyMs": 1000,
+        "samples": 10,
+        "spanMs": 9000,
+        "ageMs": 0,
+        "status": "sampled",
+        "unknownReads": 10,
+        "dimensions": [
+          {
+            "dimension": "overworld",
+            "counts": {
+              "chest": 1,
+              "crafting_table": 2,
+              "dirt": 2,
+              "glass": 2,
+              "grass_block": 3,
+              "ladder": 4,
+              "oak_leaves": 1,
+              "oak_log": 4,
+              "stone": 1,
+              "water": 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "types": 20,
+      "characters": 485,
+      "bytes": 485,
+      "tokenEstimate": [
+        122,
+        162
+      ],
+      "projection": {
+        "coverage": "Nearby coarse transparent connectivity; may go around corners.",
+        "radius": 6,
+        "everyMs": 1000,
+        "samples": 10,
+        "spanMs": 9000,
+        "ageMs": 0,
+        "status": "sampled",
+        "unknownReads": 10,
+        "dimensions": [
+          {
+            "dimension": "overworld",
+            "counts": {
+              "chest": 1,
+              "coal_ore": 4,
+              "copper_ore": 2,
+              "crafting_table": 2,
+              "diamond_ore": 3,
+              "dirt": 2,
+              "furnace": 3,
+              "glass": 2,
+              "grass_block": 3,
+              "gravel": 1,
+              "iron_ore": 1,
+              "ladder": 4,
+              "oak_door": 4,
+              "oak_leaves": 1,
+              "oak_log": 4,
+              "oak_planks": 3,
+              "redstone_ore": 4,
+              "sand": 2,
+              "stone": 1,
+              "water": 3
+            }
+          }
+        ]
+      }
+    },
+    {
+      "types": 30,
+      "characters": 616,
+      "bytes": 616,
+      "tokenEstimate": [
+        154,
+        206
+      ],
+      "projection": {
+        "coverage": "Nearby coarse transparent connectivity; may go around corners.",
+        "radius": 6,
+        "everyMs": 1000,
+        "samples": 10,
+        "spanMs": 9000,
+        "ageMs": 0,
+        "status": "sampled",
+        "unknownReads": 10,
+        "dimensions": [
+          {
+            "dimension": "overworld",
+            "counts": {
+              "barrel": 1,
+              "chest": 1,
+              "coal_ore": 4,
+              "cobblestone": 2,
+              "copper_ore": 2,
+              "crafting_table": 2,
+              "diamond_ore": 3,
+              "dirt": 2,
+              "furnace": 3,
+              "glass": 2,
+              "grass_block": 3,
+              "gravel": 1,
+              "iron_ore": 1,
+              "ladder": 4,
+              "lever": 1,
+              "moss_block": 3,
+              "nether_portal": 2,
+              "oak_door": 4,
+              "oak_leaves": 1,
+              "oak_log": 4,
+              "oak_planks": 3,
+              "rail": 2,
+              "redstone_ore": 4,
+              "redstone_wire": 4,
+              "sand": 2,
+              "stone": 1,
+              "stone_slab": 1,
+              "torch": 3,
+              "vine": 4,
+              "water": 3
+            }
+          }
+        ]
+      }
+    }
+  ]
+}
