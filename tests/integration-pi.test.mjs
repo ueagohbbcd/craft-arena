@@ -691,6 +691,128 @@ for (const nested of [false, true])
     },
   );
 
+for (const nested of [false, true])
+  test(
+    `default observe tool ${nested ? "via real codemode" : "direct"} returns durable native images while latest state stays request-only`,
+    { timeout: 20000 },
+    async (t) => {
+      const saved = {
+        url: process.env.ARENA_BRIDGE_URL,
+        token: process.env.ARENA_BRIDGE_TOKEN,
+      };
+      const backend = new EventEmitter();
+      Object.assign(backend, {
+        version: "1.21.1",
+        username: "default-observer",
+        entity: {
+          id: 1,
+          position: new Vector(0, 1, 0),
+          velocity: new Vector(),
+          yaw: 0,
+          pitch: 0,
+          height: 1.8,
+        },
+        entities: {},
+        inventory: {
+          slots: Array(46).fill(null),
+          inventoryStart: 9,
+          inventoryEnd: 45,
+        },
+        health: 20,
+        food: 20,
+        game: {},
+        controlState: {},
+        blockAt: (position) => ({
+          position: new Vector(position.x, position.y, position.z),
+          name: position.y === 0 ? "stone" : "air",
+          stateId: position.y === 0 ? 1 : 0,
+          type: position.y === 0 ? 1 : 0,
+          shapes: position.y === 0 ? [[0, 0, 0, 1, 1, 1]] : [],
+          boundingBox: position.y === 0 ? "block" : "empty",
+        }),
+      });
+      let actions = 0;
+      const bridge = await startBridge({
+        bot: backend,
+        token: "observe-tool-integration-token",
+        snapshotRadius: 1,
+      });
+      bridge.server.on("request", (request) => {
+        if (request.url === "/v1/action") actions++;
+      });
+      process.env.ARENA_BRIDGE_URL = bridge.url;
+      process.env.ARENA_BRIDGE_TOKEN = "observe-tool-integration-token";
+      t.after(async () => {
+        await bridge.close();
+        for (const [name, value] of [
+          ["ARENA_BRIDGE_URL", saved.url],
+          ["ARENA_BRIDGE_TOKEN", saved.token],
+        ]) {
+          if (value === undefined) delete process.env[name];
+          else process.env[name] = value;
+        }
+      });
+      const h = await harness(
+        t,
+        (_body, n) => {
+          if (n !== 1) return "Current state and requested view received.";
+          const args = {
+            views: ["local"],
+            viewRadius: 1,
+            width: 64,
+            height: 64,
+            textured: false,
+          };
+          return nested
+            ? [
+                {
+                  id: "observe-outer",
+                  name: "codemode",
+                  args: {
+                    code: `const r=await tools.observe(${JSON.stringify(args)});for(const block of r.content){if(block.type==='image')image(block);else if(block.type==='text')text(block.text);}`,
+                  },
+                },
+              ]
+            : [{ id: "observe-direct", name: "observe", args }];
+        },
+        {
+          extensions: nested
+            ? [createCodemodeExtension({ models: false })]
+            : [],
+          tools: ["observe", ...(nested ? ["codemode"] : [])],
+          gateway: true,
+        },
+      );
+      await h.session.prompt("Inspect the current state and nearby layer.");
+      assert.equal(h.requests.length, 2);
+      const transcript = JSON.stringify(h.requests[1].messages);
+      assert.match(transcript, /data:image\/png;base64,/);
+      assert.match(transcript, /default-observer/);
+      const result = h.session.agent.state.messages.find(
+        (message) => message.role === "toolResult",
+      );
+      assert(
+        result.content.some((block) => block.type === "image"),
+        "ordinary observe image remains in durable tool result",
+      );
+      assert.doesNotMatch(
+        JSON.stringify(h.session.agent.state.messages),
+        /mc-current-observation|Current observation for this model request only\./,
+      );
+      assert.equal(
+        transcript.split("Current observation for this model request only.")
+          .length - 1,
+        1,
+      );
+      assert.equal(
+        actions,
+        0,
+        "requested observation and runtime setup do not act",
+      );
+      assert.equal(h.ledger.snapshot("fixture")[0].usedTokens, 30);
+    },
+  );
+
 test(
   "bootstrap launches shipped Pi CLI with shared model profile, scoped auth, cash reference configuration and both extensions",
   { timeout: 25000 },
