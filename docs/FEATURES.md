@@ -26,7 +26,7 @@
 
 8. **普通历史与可替换程序状态｜已实现。** 工具结果、查询、观察变化和已交付收件箱事件保留历史。程序可用 `post` 记录事件、`upsert` 合并待交付报告，或用 `publishCurrent` 维护有时效的当前值，供后续 `programState` 观察读取。紧急事件释放受管工具等待并保留进程，常驻模式可唤起空闲中的同一会话；程序报告携带任务关联。[历史与状态](OBSERVATION.md#历史与本次请求状态) · [收件箱](../packages/inbox/README.md)
 
-9. **程序化组合工具结果｜已接入 Pi codemode。** AI 可用 JavaScript 调用工具、筛选普通输出和组合结果，按需转交原生图像块；独立投递的收件箱消息在外层结果交付。[用法示例](../examples/SKILL.md#choose-a-view-for-the-decision)
+9. **直接工具与普通程序｜默认启用。** 文件工具处理代码，`bash` 运行 Node 程序，观察工具直接返回状态与原生图像；`task_wait`／`task_cancel` 管理同一程序的等待与取消。codemode 默认关闭，显式 CLI 工具选择仍保留。[用法示例](../examples/SKILL.md#choose-a-view-for-the-decision)
 
 10. **按 API 标价折算成本的窗口限速与反馈｜已实现，需配置模型价格与速率。** 网关统一计量个人／队伍的参考成本，覆盖主 agent、子代理和摘要请求，按时间窗口容量排队。模型看到窗口内各计费项成本占比、速率超支比例、实际排队延迟和计量质量；运营者查看累计金额并通过可信 host 决定何时结束比赛。账本当前为单进程内存状态。[预算网关](../packages/budget-gateway/README.md)
 

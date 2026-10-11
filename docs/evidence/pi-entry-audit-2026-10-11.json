@@ -1,0 +1,40 @@
+{
+  "date": "2026-10-11",
+  "method": "Real installed Pi 1.1.0 bootstrap with controlled local model/SSE and bridge fixtures; no paid model or live game actions.",
+  "initialCapture": {
+    "requestCountPerLayout": 2,
+    "layouts": [
+      "independent participant workspace",
+      "repository cwd"
+    ],
+    "firstRequestCharacters": 22239,
+    "secondRequestCharacters": 44784,
+    "tools": 11,
+    "skillRead": "Explicit read tool; skill metadata present on first request."
+  },
+  "repairs": [
+    "Avoid duplicate arena AGENTS when Pi already discovers the same file, including physical cwd and symlink layouts.",
+    "Use direct bash parameters for first movement; codemode text/image forwarding is shown for composed tool calls.",
+    "Separate read-only query cleanup from movement-controller cleanup.",
+    "Use ARENA_TOOLKIT_ROOT paths and distinguish compact observation from full detail options.",
+    "Explain only present budget fields."
+  ],
+  "verification": {
+    "entryTests": 11,
+    "piFocusedTests": 42,
+    "documentationLinks": 57,
+    "documentationCodeBlocks": 8,
+    "toolkitPaths": 10,
+    "finalFullSuite": {
+      "tests": 559,
+      "passed": 557,
+      "failed": 0,
+      "skipped": 2
+    }
+  },
+  "limits": [
+    "Model responses and game observations in Pi capture were controlled fixtures.",
+    "Fresh-reader review demonstrates comprehension of entry text, not game competence.",
+    "New 2v2 uses the actual bridge/SDK and formal perception runtime with a file relay; it is not the full Pi/container deployment."
+  ]
+}

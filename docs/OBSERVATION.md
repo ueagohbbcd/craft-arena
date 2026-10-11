@@ -136,7 +136,7 @@ observe({ views: ["3d"] })
 - 边界格式为包含端点的 `{min:{x,y,z},max:{x,y,z}}`。表面图带玩家位置标记与世界／像素坐标换算；多层空间可结合 3D 读取。
 - 3D 默认请求 Prismarine 方块形状和材质。材质渲染失败时返回明确标记的结构示意回退；`fallback:"error"` 保留状态并报告该视图不可用。`textured:false` 为所有视图主动选择示意图。
 
-工具结果同时包含 JSON 文本和实际原生图像块；`structuredContent.content` 也携带这些内容供 codemode 转交。在 codemode 中逐块调用 `image(block)`／`text(block.text)`，完整示例见 [看图](../examples/SKILL.md#choose-a-view-for-the-decision)。单纯打印图像路径只表达文件位置。
+直接调用工具即可收到 JSON 文本和实际原生图像块，无需额外转交；示例见 [看图](../examples/SKILL.md#choose-a-view-for-the-decision)。单纯打印图像路径只表达文件位置。
 
 普通脚本入口 `node /opt/arena/examples/observe.mjs overview local` 将状态写到标准输出，并把所选图像与元数据保存到 `out/observation`；省略视图只输出状态，`--out=目录` 改变保存位置。Pi 中直接调用 `observe` 可立即得到原生图像内容。
 

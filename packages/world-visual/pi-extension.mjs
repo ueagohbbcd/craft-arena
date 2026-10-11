@@ -22,9 +22,27 @@ const point = Type.Object({
   z: Type.Integer(),
 });
 const parameters = Type.Object({
-  snapshotPath: Type.Optional(Type.String()),
-  bounds: Type.Optional(Type.Object({ min: point, max: point })),
-  explored: Type.Optional(Type.Boolean()),
+  snapshotPath: Type.Optional(
+    Type.String({
+      description:
+        "Path to a saved JSON world snapshot; takes precedence over live bounds.",
+    }),
+  ),
+  bounds: Type.Optional(
+    Type.Object(
+      { min: point, max: point },
+      {
+        description:
+          "Inclusive world-coordinate crop; required unless snapshotPath is supplied.",
+      },
+    ),
+  ),
+  explored: Type.Optional(
+    Type.Boolean({
+      description:
+        "For live acquisition, include retained explored cells instead of only current mirror blocks.",
+    }),
+  ),
   width: Type.Optional(Type.Integer({ minimum: 1 })),
   height: Type.Optional(Type.Integer({ minimum: 1 })),
   textured: Type.Optional(Type.Boolean()),
@@ -136,7 +154,7 @@ export default function visualExtension(pi) {
         name === "world_opening"
           ? "Render a single snapshot as lobby large top-down panel with two oblique views or course top-down strip and two oblique views. Panel bounds and cameras accompany the PNG."
           : name === "world_minimap"
-            ? "Render highest observed surfaces from local state as bare PNG with separate coverage, coordinates and age metadata."
+            ? "Render highest observed surfaces as a native PNG image with JSON coverage, coordinates and age metadata. Missing cells remain unknown."
             : "Render selected local blocks as an oblique structural PNG, or set textured=true for genuine Prismarine models/textures using Chromium. Missing cells never establish air.",
       parameters,
       outputSchema: Type.Object({

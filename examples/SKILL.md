@@ -7,9 +7,11 @@ description: Play the Minecraft arena with ready-made situational awareness, on-
 
 You control one Minecraft character through a Mineflayer-style SDK. The host's opening briefing gives your team, map, objectives and time limit. Use the tools and ordinary JavaScript programs below to pursue that objective.
 
+`ARENA_TOOLKIT_ROOT` is the installation directory containing this skill, SDK and examples. Save your own programs in the current working directory. Relative documentation links resolve from this skill's directory.
+
 ## Available state and reports
 
-The runtime's live mirror contains your character state, inventory, equipment, open window, entities and loaded terrain. Default delivery includes an opening `perception.baseline`, then changed sections in later top-level tool results through the Inbox, together with managed-program status (`taskId`). Each field in `changes` replaces that section, including empty arrays and null. Reports carry observation times and stay in ordinary history. `observe({})` returns a complete current snapshot.
+The runtime's live mirror contains your character state, inventory, equipment, open window, entities and loaded terrain. Default delivery includes an opening `perception.baseline`, then changed sections in later top-level tool results through the Inbox, together with managed-program status (`taskId`). Each field in `changes` replaces that section, including empty arrays and null. Reports carry observation times and stay in ordinary history. `observe({})` refreshes the current snapshot with compact details; use the matching `full*` options below to expand them.
 
 The bridge also records the full chunk columns this character receives, retaining unloaded columns for later scripts. Read exact blocks and sign text on demand with [`createBlockMemoryClient()`](../docs/BLOCK-MEMORY.md), or prefetch columns for local synchronous queries.
 
@@ -27,29 +29,29 @@ Programs can reuse `sampleObservation(bot)` and `entityRadar(bot, options)`. Loa
 | Route overview and nearby detail | `observe({views:["overview","local"]})` |
 | Walls, bridges, tunnels or overlapping levels | `observe({views:["3d"]})` |
 | More observed item, entity or local-block detail | `observe({fullItems:true, fullEntities:true, fullLocal:true})`, selecting only the detail you need |
+| Recent block sample coordinates and coverage | `observe({fullRecentBlocks:true})` |
 | Omitted program details or current reports | `observe({fullRuntime:true})`; also works while game observation is unavailable |
 | Candidate trunk/branch blocks before chopping a tree | `queryTreeCandidate({blockAt, seed})`; see the short query below |
-| Entity overlap at a placement position | `node /opt/arena/examples/inspect-placement-entities.mjs X Y Z`; [observed bounding-box query](inspect-placement-entities.mjs) |
+| Entity overlap at a placement position | `node "$ARENA_TOOLKIT_ROOT/examples/inspect-placement-entities.mjs" X Y Z`; [observed bounding-box query](inspect-placement-entities.mjs) |
 | Received terrain from an earlier script or unloaded column | [Shared read-only block memory](../docs/BLOCK-MEMORY.md): async exact queries or explicit prefetch plus local MF queries |
-| Another exact raw field or block query | Query the SDK from a short Node program |
+| Another exact raw field or block query | [Short read-only Node program](#query-the-sdk-from-a-short-program) |
 | Several actions, plugin movement or conditional control | Write and run an ordinary JavaScript program |
 | The same program is still running | `task_wait({taskId, wait_seconds:30})` |
 | Replace an existing action controller | `task_cancel`, then `task_wait` for termination; [wait/cancel behavior](../packages/pi-extension/README.md#behavior) |
 
-Call Pi tools directly or through codemode's `tools.observe(...)`, `tools.bash(...)`, etc. Run Node commands through `bash`; import SDK/query functions in your programs. The view example below shows how to forward image blocks in codemode.
+Call Pi tools directly with their declared parameters. Use `read`, `write` and `edit` for files, and run ordinary Node programs through `bash`. Tool results return text and native images directly.
 
 A fresh agent completed a chest-inspection, exact-item transfer and navigation task using Pathfinder, generated maps and container queries in a [real-game blind trial](../docs/evidence/perception-blind-trial-2026-10-11.json). Start with the matching entries for those jobs.
 
 ## First movement
 
-Choose a destination from the briefing and observed terrain, then run the existing navigation example:
+Choose a destination from the briefing and observed terrain, then call the `bash` tool with these arguments, replacing X Y Z with your chosen coordinates:
 
-```js
-// Replace X Y Z with your chosen destination coordinates.
-await tools.bash({
-  command: "node /opt/arena/examples/plugin-goal.mjs X Y Z",
-  wait_seconds: 30,
-});
+```json
+{
+  "command": "node \"$ARENA_TOOLKIT_ROOT/examples/plugin-goal.mjs\" X Y Z",
+  "wait_seconds": 30
+}
 ```
 
 The example uses Pathfinder with native Movements defaults, including digging. Add `--no-dig` when the route should preserve blocks. It verifies arrival and reports failures with terrain coverage. Its built-in stall report asks for judgment after 30 seconds without a one-block displacement or 120 seconds without completion.
@@ -63,17 +65,13 @@ and interrupted cleanup.
 
 ## Choose a view for the decision
 
-Opening images arrive as user messages according to the map configuration. Use `observe` for another view:
+Opening images arrive as user messages according to the map configuration. For another view, call the `observe` tool with these arguments:
 
-It returns current state and requested native images together:
-
-```js
-const result = await tools.observe({ views: ["overview", "local"] });
-for (const block of result.content) {
-  if (block.type === "image") image(block);
-  else if (block.type === "text") text(block.text);
-}
+```json
+{ "views": ["overview", "local"] }
 ```
+
+The tool returns current state and requested native images together, ready to inspect.
 
 - `overview` uses the host-provided public course bounds when available, otherwise the full loaded-column extent. Pass `overviewBounds` for another explicit area. Unknown parts of the selected area remain labeled.
 - `local` shows a shallow crop around your current feet for nearby obstacles and interactions. Its crop is independent of the overview. Both maps use real Minecraft top-face textures on CPU, with simplified geometry and any special-block fallbacks identified in metadata.
@@ -82,7 +80,7 @@ for (const block of result.content) {
 
 For a precise crop, pass inclusive `overviewBounds`, `localBounds` or `structureBounds`, each shaped as `{min:{x,y,z},max:{x,y,z}}`. The lower-level `world_minimap` and `world_render3d` tools remain available with explicit `bounds` or `snapshotPath`. Their default 3D output is schematic; `textured:true` selects Prismarine rendering. See [visual tools](../packages/world-visual/README.md).
 
-After `NoPath` or a stall, compare the current position, movement settings and known terrain. Use an overview to select a nearer waypoint or entrance; use local/3D views for the obstacle. `node /opt/arena/examples/summarize-terrain.mjs` supplies a more detailed local block-count and geometric-connectivity query when needed. Geometric connectivity describes sampled space; walking also depends on body clearance, support and hazards.
+After `NoPath` or a stall, compare the current position, movement settings and known terrain. Use an overview to select a nearer waypoint or entrance; use local/3D views for the obstacle. `node "$ARENA_TOOLKIT_ROOT/examples/summarize-terrain.mjs"` supplies a more detailed local block-count and geometric-connectivity query when needed. Geometric connectivity describes sampled space; walking also depends on body clearance, support and hazards.
 
 ## Use observation to change one concrete decision
 
@@ -92,12 +90,38 @@ question to body clearance. A small `blockAt` slice around the route showed glas
 at Y=66, a low ceiling above that target. The next route used the corridor at
 X=276, feet Y=64, rather than the crop cells. That observation changed the route.
 
+## Query the SDK from a short program
+
+Each `connectBot` connection has its own observation mirror; actions from all programs affect the same character. For a read-only query, save this as `query.mjs` and run `node query.mjs` through `bash`. Closing this connection leaves the character's current controls in place.
+
+```js
+const { connectBot } = await import(
+  `${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/index.mjs`
+);
+const bot = await connectBot({
+  url: process.env.ARENA_BRIDGE_URL,
+  token: process.env.ARENA_BRIDGE_TOKEN,
+});
+bot.on("error", error => console.error(error));
+try {
+  console.log({
+    position: bot.entity.position,
+    health: bot.health,
+    inventory: bot.inventory.items(),
+  });
+} finally {
+  bot.closeBridge();
+}
+```
+
 ## Query a candidate tree
 
 With a connected `bot`, pass a selected log to the ready-made spatial query:
 
 ```js
-import { queryTreeCandidate } from "/opt/arena/packages/observation/queries.mjs";
+const { queryTreeCandidate } = await import(
+  `${process.env.ARENA_TOOLKIT_ROOT}/packages/observation/queries.mjs`
+);
 
 const candidate = queryTreeCandidate({
   blockAt: position => bot.blockAt(position),
@@ -116,11 +140,16 @@ comes from `mineflayer-world-memory/queries.mjs`.
 
 ## Write a bot-control program
 
-Each `connectBot` connection has its own observation mirror; actions from all programs affect the same character. Use the facade's action methods and the installed Pathfinder/PvP adapters. Paths below use `/opt/arena`; `$ARENA_TOOLKIT_ROOT` identifies your installation. This skeleton closes a short program; the navigation/build examples also handle cancellation signals.
+Use the facade's action methods and the installed Pathfinder/PvP adapters. This movement controller owns and releases movement controls. Save it as `move.mjs` and run `node move.mjs X Y Z` with your chosen destination; finish or cancel any previous movement controller first. The [navigation example](plugin-goal.mjs) also handles cancellation signals and verifies arrival.
 
 ```js
-import { connectBot } from "/opt/arena/packages/bot-sdk/index.mjs";
-import { loadSelectedPlugins } from "/opt/arena/packages/bot-sdk/plugins.mjs";
+const { connectBot } = await import(
+  `${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/index.mjs`
+);
+const { loadSelectedPlugins } = await import(
+  `${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/plugins.mjs`
+);
+const [x, y, z] = process.argv.slice(2).map(Number);
 
 const bot = await connectBot({
   url: process.env.ARENA_BRIDGE_URL,
@@ -131,16 +160,11 @@ bot.pathfinder.setMovements(new Movements(bot));
 bot.on("error", error => console.error(error));
 
 try {
-  // Use the selected goal or other action here.
-  console.log({
-    position: bot.entity.position,
-    health: bot.health,
-    inventory: bot.inventory.items(),
-  });
+  await bot.pathfinder.goto(new goals.GoalNear(x, y, z, 1));
+  console.log({ position: bot.entity.position });
 } finally {
   try {
     bot.pathfinder.setGoal(null);
-    await bot.pvp.stop();
     await bot.flush();
     bot.clearControlStates();
     await bot.flush();
@@ -177,7 +201,7 @@ program reports why a meal happened, its observed result and whether navigation
 resumed. The concrete job is an ordinary Pathfinder trip with meals:
 
 ```sh
-node /opt/arena/examples/navigate-with-autoeat.mjs X Y Z [--no-dig]
+node "$ARENA_TOOLKIT_ROOT/examples/navigate-with-autoeat.mjs" X Y Z [--no-dig]
 ```
 
 Each meal sends one normal `post` after the resume decision. Selected fields from
@@ -205,7 +229,7 @@ example. Its controller selects fresh self/entity evidence from
 still receives the broader default observation suite. Run the example with:
 
 ```sh
-node /opt/arena/examples/navigate-with-defense.mjs X Y Z
+node "$ARENA_TOOLKIT_ROOT/examples/navigate-with-defense.mjs" X Y Z
 ```
 
 Read its reporting comments alongside the code:
@@ -249,7 +273,7 @@ change your own strategy.
 Use [observe-pvp.mjs](observe-pvp.mjs) with chosen, currently observed entity IDs:
 
 ```sh
-node /opt/arena/examples/observe-pvp.mjs 42 57
+node "$ARENA_TOOLKIT_ROOT/examples/observe-pvp.mjs" 42 57
 ```
 
 This example chooses the nearest supplied ID, reports its candidates/reason and
@@ -277,7 +301,9 @@ Window objects belong to the program that read them; a second tool call acquires
 Default perception and managed-program status are already connected. Add a short program report when the model needs facts specific to your goal, such as which build step completed or why your controller wants a new decision:
 
 ```js
-import { InboxClient } from "/opt/arena/packages/inbox/index.mjs";
+const { InboxClient } = await import(
+  `${process.env.ARENA_TOOLKIT_ROOT}/packages/inbox/index.mjs`
+);
 const inbox = new InboxClient();
 await inbox.post({ type: "build.step-completed", step: 3 });
 ```

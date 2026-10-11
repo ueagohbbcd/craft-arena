@@ -375,16 +375,18 @@ test(
       /examples\/SKILL\.md/,
     );
     const names = requests[0].body.tools.map((tool) => tool.function.name);
-    for (const name of [
+    assert.deepEqual(names.toSorted(), [
       "bash",
-      "task_wait",
+      "edit",
+      "observe",
+      "read",
       "task_cancel",
+      "task_wait",
       "world_minimap",
-      "world_render3d",
       "world_opening",
-      "codemode",
-    ])
-      assert.ok(names.includes(name), `${name} is active`);
+      "world_render3d",
+      "write",
+    ]);
   },
 );
 

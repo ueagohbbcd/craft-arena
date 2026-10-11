@@ -520,7 +520,7 @@ export default function participantInbox(pi) {
   pi.registerTool({
     name: "bash",
     label: "bash",
-    description: `Execute a bash command once. Output persists independently of this wait. timeout is an optional process kill deadline in seconds. wait_seconds defaults to ${waitSeconds} seconds and overrides this call's wait budget, including longer waits. Budget expiry returns running and taskId without killing the command. Urgent participant messages release every managed wait and leave commands running. Use task_wait on a running taskId, or task_cancel to stop it.`,
+    description: `Run command once in the workspace. Returns JSON taskId, status and retained stdout/stderr; completed adds exitCode/signal. wait_seconds defaults to ${waitSeconds} seconds; 0 returns immediately. Wait expiry or urgent input returns running without stopping the process. timeout is a separate kill deadline in seconds. Resume with task_wait; stop with task_cancel.`,
     parameters: {
       ...object({ command: string, timeout: seconds, wait_seconds: seconds }),
       required: ["command"],
@@ -549,7 +549,7 @@ export default function participantInbox(pi) {
   pi.registerTool({
     name: "task_wait",
     label: "Wait for process",
-    description: `Wait for an existing task without restarting it. Completed output is delivered once, either here or by a task.completed inbox event. wait_seconds defaults to ${waitSeconds} seconds and overrides this call's wait budget, including longer waits. Budget expiry returns running and the same taskId; expiry or urgent release preserves the process.`,
+    description: `Wait on an existing taskId without restarting it. wait_seconds defaults to ${waitSeconds} seconds; 0 polls. Wait expiry or urgent release returns running with retained stdout/stderr and leaves the process alive. Final output is delivered once here or by a task.completed inbox event; later waits return a delivered receipt with exitCode/signal.`,
     parameters: {
       ...object({ taskId: string, wait_seconds: seconds }),
       required: ["taskId"],
@@ -573,7 +573,7 @@ export default function participantInbox(pi) {
     name: "task_cancel",
     label: "Cancel process",
     description:
-      "Explicitly stop a task process group with TERM, escalating to KILL after 500 ms. Completion arrives through the inbox or task_wait.",
+      "Request termination of taskId with TERM, escalating to KILL after 500 ms. Returns cancelling while termination is pending, or completed if already exited. Use task_wait or the task.completed inbox event to confirm termination before replacing a controller.",
     parameters: { ...object({ taskId: string }), required: ["taskId"] },
     outputSchema: { type: "object", additionalProperties: true },
     async execute(_callId, params, _signal, _onUpdate, ctx) {

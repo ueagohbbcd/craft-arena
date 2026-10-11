@@ -1,4 +1,4 @@
-/** Pi observe: ordinary persisted tool result, with native images preserved for codemode. */
+/** Pi observe: persisted JSON and native-image tool result. */
 import { Type } from "typebox";
 import { connectBot } from "../bot-sdk/index.mjs";
 import { observe, OBSERVATION_VIEWS } from "./observe.mjs";

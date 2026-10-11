@@ -2,11 +2,13 @@
 
 你通过 Pi 工具和普通 JavaScript 程序控制一个 Minecraft 角色。地图、队伍、目标和时限由可信 host 简报告知。
 
+工具包和示例位于 `$ARENA_TOOLKIT_ROOT`，自己的程序写在当前工作目录。先按技能卡的绝对路径读取[编程指南](../examples/SKILL.md)。
+
 ## 第一轮怎么开始
 
 开局会收到简报、基础状态与地图配置提供的图像。从中选择目标，按[首次移动示例](../examples/SKILL.md#first-movement)运行 Pathfinder，或编写一小段 SDK 动作代码。
 
-需要补看地形时，`observe({views:["overview","local"]})` 一次返回当前状态、总览和脚边图。工具返回 `running` 时，用原 `taskId` 调用 `task_wait` 接续程序；等待与取消的具体语义见[运行说明](../packages/pi-extension/README.md#behavior)。
+直接调用 `read`／`write`／`edit` 处理文件，通过 `bash` 运行 Node 程序。需要补看地形时，向 `observe` 传入 `{"views":["overview","local"]}`，一次返回当前状态、总览和脚边原生图像，可直接查看。工具返回 `running` 时，用原 `taskId` 调用 `task_wait` 接续程序；等待与取消的具体语义见[运行说明](../packages/pi-extension/README.md#behavior)。
 
 ## 哪些自动提供，哪些按需使用
 
@@ -18,7 +20,8 @@
 | 比赛状态／时限／胜负 | 可信 host 简报、`arena.clock` 和终局反馈；程序可用 `await bot.getMatchState()` 查询 |
 | 显著变化与聊天 | 运行时将观察到的事件送入收件箱；紧急事件可提前释放等待 |
 | 开局／入场图像 | 地图配置决定；启动流程按阶段发送一次用户消息 |
-| 一次详细观察 | 按需调用 `observe`，选择 JSON、总览、局部或三维图 |
+| 一次观察 | `observe({})` 刷新紧凑状态；用对应 `full*` 参数展开明细，或选择总览、局部、三维图 |
+| 近期方块采样 | 自动交付摘要；`observe({fullRecentBlocks:true})` 展开坐标与覆盖范围 |
 | 原始查询与动作 | 在普通程序中使用 Mineflayer 风格 SDK |
 | 程序内态势感知 | 直接复用 `sampleObservation(bot)`、`entityRadar(bot, options)` 等同源函数 |
 | 战斗过程报告 | 加载标准 PvP 适配器时自动启用，随普通 Inbox 交付 |
@@ -30,7 +33,7 @@
 
 | 要做什么 | 入口 |
 | --- | --- |
-| 连接 bot、读取原始位置／血量／物品／方块 | [SDK 接入与 API](../packages/bot-sdk/README.md) |
+| 连接 bot、读取原始位置／血量／物品／方块 | [只读短程序](../examples/SKILL.md#query-the-sdk-from-a-short-program)、[SDK API](../packages/bot-sdk/README.md) |
 | 使用现成状态与一次看图 | [观察指南](OBSERVATION.md)、[编程示例](../examples/SKILL.md) |
 | 寻路到坐标 | [Pathfinder 示例](../examples/plugin-goal.mjs)，包含停滞报告和到达核验 |
 | 合成物品 | SDK 的 `craftItem(itemType, count, table)`；count 为本次新增成品数，按完整配方向上取整 |
@@ -46,7 +49,7 @@
 | 报告动作进展或请求判断 | [收件箱](../packages/inbox/README.md) |
 | 等待、取消、模型上下文和生命周期 | [Pi 运行说明](../packages/pi-extension/README.md) |
 
-工具包在 `$ARENA_TOOLKIT_ROOT`（默认 `/opt/arena`）。完整的 Mineflayer、Pathfinder、PvP 官方文档与源码在 `$ARENA_REFERENCE_ROOT`（默认 `/opt/mf-reference`），版本与安装的插件一致。不熟悉某个方法时按需查官方用法，接入细节见 SDK；行动中遇到的问题可先看 [短 FAQ](PLAYER-FAQ.md)。
+完整的 Mineflayer、Pathfinder、PvP 官方文档与源码在 `$ARENA_REFERENCE_ROOT`（默认 `/opt/mf-reference`），版本与安装的插件一致。不熟悉某个方法时按需查官方用法，接入细节见 SDK；行动中遇到的问题可先看 [短 FAQ](PLAYER-FAQ.md)。
 
 进食／自卫示例演示在实际控制程序中用 `upsert` 合并进度、用 `post` 记录完成经过；运行示例即采用其中的控制策略。[施工进食](../examples/build-with-autoeat.mjs)另展示同一程序内的手部串行化。
 

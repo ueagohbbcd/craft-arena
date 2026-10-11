@@ -1134,15 +1134,18 @@ test(
     assert.equal(received[0].auth, "Bearer fake-upstream-credential");
     assert.equal(received[0].body.max_completion_tokens, 2048);
     const names = received[0].body.tools.map((x) => x.function.name);
-    for (const name of [
+    assert.deepEqual(names.toSorted(), [
       "bash",
-      "task_wait",
+      "edit",
+      "observe",
+      "read",
       "task_cancel",
+      "task_wait",
       "world_minimap",
+      "world_opening",
       "world_render3d",
-      "codemode",
-    ])
-      assert.ok(names.includes(name), `${name} autoloaded`);
+      "write",
+    ]);
     assert.ok(
       received[0].body.tools.find((x) => x.function.name === "bash").function
         .parameters.properties.wait_seconds,
@@ -1539,8 +1542,18 @@ test(
     assert.match(first, /minecraft-arena-programming/);
     assert.match(first, /SKILL.md/);
     const tools = requests[0].tools.map((x) => x.function.name);
-    for (const name of ["bash", "task_wait", "codemode", "world_minimap"])
-      assert.ok(tools.includes(name));
+    assert.deepEqual(tools.toSorted(), [
+      "bash",
+      "edit",
+      "observe",
+      "read",
+      "task_cancel",
+      "task_wait",
+      "world_minimap",
+      "world_opening",
+      "world_render3d",
+      "write",
+    ]);
     const second = JSON.stringify(requests[1].messages);
     assert.match(second, /authenticated host match snapshot/);
     assert.match(second, /resident-fixture/);

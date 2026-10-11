@@ -197,3 +197,10 @@ npm run demo:visual
 含面积统计与告示牌检查的当前扫描再次运行同一离线 benchmark：500 次半径 6 空气球，每次 925 次本地读取，P50 2.42 ms、P95 3.69 ms、最大 7.80 ms。当前合成 10／20／30 类型紧凑投影分别 396／530／661 字符及字节，字符除以 4 至除以 3 的粗估为 99–132／133–177／166–221 token。合成输入未提供空间范围，故 bbox=null、面积=0；这是结构大小示例，不是实际比赛测量或有字告示牌的长度估计。新增整体范围字段会增加真实输出长度；目标模型 tokenizer 尚未用于精确计数。[当前精简证据](evidence/recent-block-interval-benchmark-2026-10-11.json)。
 
 队列仅支持同进程 `onDelivered` 交付回调；HTTP 端目前只有接受回执，没有跨进程消费通知。生产者负责唯一集合累计，Inbox 负责待交付延迟和原有自然边界，不建立持久 ACK 或第二份报告定时框架。
+
+
+## Pi player-entry chain audit (2026-10-11)
+
+Real Pi bootstrap captures covered the opening and the next request after reading the skill, in both an independent player workspace and the repository directory. A fresh reader reviewed the concatenated inputs. Repairs remove duplicate AGENTS discovery, use direct bash for first movement, separate read-only and controller cleanup, make toolkit paths portable, and limit budget explanations to present fields.
+
+The integrated suite at `aca0fb4` passes **559 tests: 557 passed, 2 skipped, 0 failed**. Entry-layout tests cover 11 cases; focused Pi tests pass 42/42. Documentation checks cover 57 links, 8 code blocks and 10 toolkit paths. These are fixture and usability checks, separate from real-match outcomes. See [structured evidence](evidence/pi-entry-audit-2026-10-11.json).
