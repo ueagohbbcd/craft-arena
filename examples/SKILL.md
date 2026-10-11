@@ -22,6 +22,7 @@ Ordinary tool results, explicit query outputs and delivered inbox events stay in
 | More observed item, entity or local-block detail | `observe({fullItems:true, fullEntities:true, fullLocal:true})`, selecting only the detail you need |
 | Omitted program details or current reports | `observe({fullRuntime:true})`; also works while game observation is unavailable |
 | Candidate trunk/branch blocks before chopping a tree | `queryTreeCandidate({blockAt, seed})`; see the short query below |
+| Placement failed; inspect observed entities intersecting the target block | `node /opt/arena/examples/inspect-placement-entities.mjs X Y Z`; [example and reusable bbox query](inspect-placement-entities.mjs), geometric evidence only, not proof of the rejection cause |
 | Another exact raw field or block query | Query the SDK from a short Node program |
 | Several actions, plugin movement or conditional control | Write and run an ordinary JavaScript program |
 | The same program is still running | `task_wait({taskId, wait_seconds:30})` |
