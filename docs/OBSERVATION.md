@@ -1,6 +1,6 @@
 # 默认态势感知与观察工具
 
-> 2026-10-11 交付策略更新：临时请求尾部状态栏默认关闭，保留实验选项，功能尚未完成。稳定历史前缀理论上仍可享受大部分前缀缓存供应商的缓存收益，实际端点与断点效果待验证；临时观察从后续上下文消失可能使模型困惑。默认采用普通 ReAct 工具结果与收件箱历史。正在实施的清单见 [态势感知 TODO](PERCEPTION-TODO.md)。本文其余尾部机制说明描述可选实验路径。
+默认采用普通 ReAct 工具结果与收件箱历史：开局提供基础状态，随后交付变化部分。按需 `observe` 返回完整快照与所选图像。临时请求尾部保留为默认关闭的实验选项，见[历史与状态](#历史与本次请求状态)。
 
 ## 系统是什么
 
@@ -8,11 +8,13 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 默认态势感知由运行时自动接入，供模型直接使用。模型主要编写移动、施工、采集、交互和战斗的控制逻辑。运行时维护只读观察、交付事件、管理工具等待和进程；选路、目标优先级、战术与恢复策略由参赛 AI 决定。
 
+控制程序可复用同源观察函数。标准 PvP 适配器加载时另启战斗过程报告；导航、进食与自卫示例在运行后执行各自策略。函数、自动报告和示例入口见[进阶复用](#进阶复用与扩展)与[编程技能](../examples/SKILL.md)。
+
 ### 主要能力一览
 
 | 能力 | 默认行为／使用入口 |
 | --- | --- |
-| 当前状态变化 | 开局基础状态，后续普通工具返回合并变化部分，省略未变部分；`observe` 返回完整状态 |
+| 当前状态变化 | 开局基础状态，后续顶层工具返回与新一轮入口合并变化部分，省略未变部分；`observe` 返回完整状态 |
 | 沿途方块摘要 | 低频采样近距透明连通空间，区间按类型／坐标去重；默认普通 Inbox 报告保留历史，临时尾部可选 |
 | 自身与物品 | 位置、生命、食物、装备、背包数量、手持物和当前打开窗口 |
 | 玩家与附近环境 | 中心可见实体雷达、较大范围非潜行玩家、掉落物群、脚边地形和告示牌 |
@@ -20,7 +22,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 | 图像 | 按需 `observe` 一次返回 JSON 和总览／局部／三维图 |
 | 开局视觉 | 独立启动流程按地图配置发送开局／入场图像用户消息 |
 | 动作与程序 | 普通 JavaScript 与 SDK／插件；用 `taskId` 等待或取消同一受管程序 |
-| 比赛状态／时限／胜负 | 来自可信 host 简报、`arena.clock` 和终局反馈 |
+| 比赛状态／时限／胜负 | 来自可信 host 简报、`arena.clock` 和终局反馈；程序可用 `await bot.getMatchState()` 查询 |
 | 树干／树枝候选 | 按需 `queryTreeCandidate({blockAt, seed})` 返回相连原木、叶子证据和未知／截断边界；控制程序选择采集方块 |
 | 精确查询 | 原始 SDK 字段和方法保留，按需要读取详细物品、实体与方块 |
 
@@ -30,7 +32,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 1. 启动入口加载 Pi 扩展、工具与编程指南。Pi 会话启动时，运行时建立自己的只读桥连接并安装默认观察监听器；该连接是会话资源。
 2. 常驻实战启动等待可信 host 的 `running` 状态，再发送一次开局任务。公开简报进入用户消息；地图配置启用的开局图像随独立启动流程交付。
-3. 开局消息附基础观察；后续顶层工具返回将当前状态的变化部分与其他收件箱内容合并，进入普通会话历史。`context_with_system` 追加临时尾部仅在显式启用 `ARENA_PERCEPTION_TAIL=1` 时运行。连接尚在准备或不可用时，状态给出实际连接状态、新鲜度与错误。模型取样最多短等 500 ms，初始区块加载继续在后台完成；连接默认在连续 30 秒无网络进展后才超时。
+3. 开局消息附基础观察；后续顶层工具返回将当前状态的变化部分与其他收件箱内容合并，进入普通会话历史。新一轮 agent 启动时也取样并交付变化。连接尚在准备或不可用时，`connection` 给出实际状态，错误另行标示。模型取样最多短等 500 ms，初始区块加载继续在后台完成；连接默认在连续 30 秒无网络进展后才超时。
 4. 模型选择下一步。可以直接运行一个短 SDK 查询／动作，调用 `observe` 看图，或者通过 `bash` 运行普通 Node 控制程序。
 5. `bash`／`task_wait` 默认等待最多 30 秒，命令结束或紧急事件会更早返回；部署可通过 `ARENA_TOOL_WAIT_SECONDS` 配置默认时长，两工具均可用单次 `wait_seconds` 覆盖。长程序到时仍返回 `running` 和原 `taskId`，可继续等待。工具结果进入会话历史。下一次模型请求包含工具结果和本次合并交付的状态变化。模型据此核验实际变化并继续。
 6. 程序运行时，默认事件监听持续工作。紧急事件可提前释放 `bash`／`task_wait` 的等待，程序继续存活；模型用原 `taskId` 继续等待或明确取消。正常事件随下一自然工具／回合边界交付。
@@ -39,24 +41,28 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 ## 现成状态如何使用
 
-开局提供基础快照，后续 `perception.changed` 中的每个字段替换该部分的旧记录；空数组和 null 也会交付。按需 `observe` 返回可独立阅读的完整快照。较大集合有明确摘要范围与省略计数，长告示牌、物品自定义名和窗口标题以带截断标记的预览呈现，按需用详情选项展开。
+开局 `perception.baseline` 提供基础快照，后续 `perception.changed` 的 `changes` 中每个字段替换该部分的旧记录；空数组和 null 也会交付。比较基线在实际交付时推进，队列拒绝或丢弃后会在后续边界重新提供尚未交付的变化。按需 `observe` 返回可独立阅读的完整快照。长文本以带截断标记的预览呈现，按需用详情选项展开。
+
+下表是默认普通历史中的状态部分。方块区间与附近牌有自己的 Inbox 交付节奏。
 
 | 状态部分 | 内容与范围 |
 | --- | --- |
-| `freshness` | 源采样时间、年龄、`epoch`、`sequence`、连接状态和过期标记 |
+| `connection` | 当前来源状态（包括过期／断开）、维度与 `epoch`；报告外层 `observedAt` 是本次观察时间 |
 | `self` | 位置、朝向、速度、生命、食物、氧气、效果、维度、控制标志、介质、支撑和碰撞的已有字段 |
 | `inventory` | 主背包与快捷栏；按物品类型和精确 NBT／组件变体分组的数量、堆数、槽位、总数量与空槽 |
 | `equipment`、`heldItem`、`cursor` | 装备槽、副手、手持物与鼠标物品；已有耐久和附魔字段 |
 | `window` | 当前打开窗口的类型、标题、槽位边界、容器物品数量与鼠标物品 |
-| `players` | 镜像中全部已观察的其他玩家，独立于普通实体数量和距离限制；自身在 `self` |
-| `entities` | 非玩家实体总数、分类数量及默认 12 个条目；近距已观察风险优先，再按距离排序，附省略数量 |
-| `local` | 脚边默认 5×5×5 范围的已知／未知、空气／实体方块统计，最多 16 个相关方块与 16 块告示牌及省略数量 |
-| `recentBlocks` | 沿途近距透明连通粗摘要，可绕拐角；各维度的整体区间、实际已知格 bbox、唯一不透明边界面面积与类型数量。默认经 Inbox；显式 tail 模式放入请求尾部 |
+| `radar` | 按距离与中心可见性筛选的实体、较大范围玩家和掉落物群；玩家保留可信队伍关系与已有状态，范围见[雷达说明](#实体雷达与普通历史交付) |
+| `local` | 脚边默认 5×5×5 范围的已知／未知、空气／实体方块统计，最多 16 个相关方块及省略数量 |
+| 方块区间报告 | `observation.recent_blocks` 经普通 Inbox 交付：各维度整体区间、实际已知格 bbox、唯一不透明边界面面积与类型数量 |
+| 附近牌变化 | `observation.nearby_signs` 经普通 Inbox 独立交付：本次近距连通样本遇到的牌及正反面已知／未知文字 |
 | `tasks` | 默认最多 16 条程序详情，优先运行中程序；额外运行中程序全部保留 `taskId`／状态，附 `detailOmitted` |
 | `programState` | 默认最多 8 条当前程序报告、总计 8 KiB、每条 2 KiB，保留来源、关联任务和有效期；超大正文以 `dataOmitted` 标明 |
 | `runtimeProjection` | 报告总数、已显示／省略条数、正文省略数及完整查询入口 |
 
 需要全部仍保留的程序状态与当前报告时，调用 `observe({fullRuntime:true})` 读取未经显示预算裁剪的数据；游戏观察尚未就绪时也可读取，游戏字段同时标示不可用。这些显示预算只影响默认呈现，底层存储继续遵循自身的保留期和有效期。
+
+完整 `observe` 还返回源时间／年龄等 `freshness`、镜像的 `players`／`entities` 摘要、`local.signs` 及当前 `recentBlocks`／`nearbySigns`。这些查询字段的范围见[一次观察](#一次观察与图像)，与默认雷达分别使用。
 
 ### 沿途方块区间
 
@@ -68,7 +74,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 报告延迟与采样频率独立。默认 `delivery=inbox`，生产者从第一份样本开始以 `kind:"state"`、固定 key `observation.recent_blocks` 更新原有 Inbox 的同一待交付条目；每次提供本区间完整累计结果。Inbox 的 `minDeliveryDelayMs=30000` 从首个待交付条目创建时计时，后续覆盖不延后到期。到期只使条目可交付，等待原有工具／回合自然边界；未到期条目不使 `pending` 为真，也不唤醒模型。真正 `drain` 后通过同进程 `onDelivered` 释放该条目水位以内的样本，期间新增样本仍保留。入队被拒绝、过期或被挤出都不会自行清空生产者累计器；下次采样再提供完整累计。普通交付后的历史保留，不覆盖历史，也不把多个已封口报告简单相加。
 
-可选 `tail` 默认最小间隔 0，沿用请求时展示；显式设置最小间隔后，未到间隔直接省略该段。重复上下文或失败／中止／length 响应不清空；成功 `stop`／`toolUse` 只释放该请求已包含的样本。`both` 使用与 `inbox` 相同的队列延迟，并将最近一条已实际 drain 的报告放入尾部直到成功响应。现有生命、物资、战斗和程序报告保持原样，没有新增“重要类型”白名单。
+开启实验尾部 `ARENA_PERCEPTION_TAIL=1` 后，可选 `tail` 默认最小间隔 0，沿用请求时展示；显式设置最小间隔后，未到间隔直接省略该段。重复上下文或失败／中止／length 响应保留样本；成功 `stop`／`toolUse` 只释放该请求已包含的样本。`both` 使用与 `inbox` 相同的队列延迟，并将最近一条已实际 drain 的报告放入尾部直到成功响应。现有生命、物资、战斗和程序报告保持原样。
 
 可用 `ARENA_PERCEPTION_RECENT_BLOCKS=0` 关闭；`ARENA_PERCEPTION_RECENT_BLOCK_RADIUS=6`、`ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS=1000`、`ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS=4096` 调整范围、频率和单次预算。`ARENA_PERCEPTION_RECENT_BLOCK_DELIVERY=inbox|tail|both` 选择报告通道，`ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS` 设置 Inbox 的首次 pending 创建到可交付延迟；仅在 `tail` 模式表示尾部最小展示间隔。`ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS=3` 仅调整完整查询的代表位置数。采样中断／源过期不被记作完整空白观察，间隔内没有采到的瞬间不能追补。
 
@@ -76,13 +82,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 这些是观察事实：`null`／`known:false` 表示缺少对应数据。实体覆盖范围来自 bot 的观察镜像；玩家队伍关系使用可信 host 的公开参与者身份映射，缺少对应映射时为 `unknown`。当前窗口反映已打开窗口的槽位，容器位置需要明确的窗口关联。告示牌文字来自实际已加载数据，并保留来源时间。方块的 `unknown` 和已知 `air` 分别统计。
 
-连接丢失后仍有价值的最后状态带过期／断开标记。默认源快照超过 5 秒标为过期。`sequence`、`epoch` 与时间供模型判断来源变化，控制标志描述已观察的动作意图，实际进展由位置、物品和世界结果确认。
-
-实体条目的 `state` 按当前版本的 metadata 字段名解码：TNT 最近同步的引信 tick、苦力怕的膨胀方向/充能/点燃、物品使用及主副手，还有守卫者/凋灵明确同步的目标 ID。数据来自当前跟踪实体，包括正常客户端收到的墙后实体；缺失字段为 `null`。`fuseTicksReceived` 保留最近收到的原值，使用物品的 `activityCandidate` 是由装备推得的候选动作。完整原始字段用 `fullEntities:true` 读取。
-
-普通实体默认展示预算为 `entityLimit:12`，在 `entityAttentionRadius:16` 格内优先展示已有风险线索。条目的 `attention` 给出显示优先级和理由：已点燃 TNT、正在膨胀／点燃的苦力怕、已观察到运动或运动未知的投射物、以及明确同步锁定自身的特殊实体为 2；registry 的 hostile 实体类型（含苦力怕）为 1，理由为 `potentially_hostile_type`。这是类型层的潜在风险，registry 中的末影人／猪灵等也可能处于中立状态，不能据此判定此刻敌意；其余按距离展示。同级按距离、实体 ID 稳定排序，玩家始终独立全量保留。静止投射物不因类型抢占优先槽；缺失 metadata、位置和速度保持未知，状态变化会在下次采样重新排序。
-
-这些优先级只决定有限槽位的呈现，不能证明普通 mob 正在追击、投射物将命中、爆炸将波及自身或实体处于视线内，也不补算 TNT 倒计时。`selection` 标明排序方式与近距阈值；`total`、`byName`、`shown`、`omitted` 保留整个已观察集合的计数，显式 `entityRadius` 筛选另有 `outsideRadius`。`fullEntities:true` 不受显示数量限制并保留原始 metadata，仍尊重显式距离筛选。高级调用可调整 `entityAttentionRadius`，不会改变底层镜像或角色控制。
+连接丢失后保留最后状态，并在 `connection.status` 标出过期／断开。默认源快照超过 5 秒标为过期。完整查询的 `freshness` 提供 `sequence`、`epoch` 与源时间。控制标志描述已观察的动作意图，实际进展由位置、物品和世界结果确认。
 
 ### 常见决策
 
@@ -144,6 +144,16 @@ observe({ views: ["3d"] })
 
 `world_minimap`、`world_render3d`、`world_opening` 继续支持明确边界或已保存快照的专门渲染。开局图像仍由 `bootstrap`／`opening-views` 按阶段发送用户消息；按需 `observe` 使用当前取样及所选视图，两条路径各自工作。
 
+### 完整观察中的实体与告示牌详情
+
+`observe` 和 `sampleObservation` 的 `players` 保留镜像中全部已观察玩家；`entities` 提供非玩家总数、分类计数和默认最多 12 个条目。这是显式查询的镜像摘要；默认普通历史使用上文的 `radar`。`local.signs` 可包含已加载列中的牌及来源时间，默认最多 16 块；`fullLocal:true` 展开，近距自动牌报告另见上文。
+
+实体 `state` 按版本的 metadata 字段名解码：TNT 最近收到的引信 tick、苦力怕膨胀／充能／点燃、使用物品及主副手、守卫者／凋灵同步的目标 ID。雷达中保留的实体也携带该状态；完整镜像查询可包括墙后已跟踪实体。缺失字段为 `null`，`fuseTicksReceived` 保留收到的原值，`activityCandidate` 是由装备推得的候选动作。`fullEntities:true` 展开原始 metadata。
+
+显式 `entities` 摘要在 `entityAttentionRadius:16` 格内优先展示已有风险线索，再按距离、实体 ID 排序。`attention` 的优先级 2 包括已点燃 TNT、膨胀／点燃的苦力怕、运动或运动未知的投射物及明确同步锁定自身的特殊实体；registry-hostile 类型为 1，理由为 `potentially_hostile_type`。这里的数值用于呈现排序，末影人／猪灵等仍可能中立，具体攻击决策由控制程序选择。静止投射物按普通距离排序。
+
+`selection` 标明排序与阈值；`total`、`byName`、`shown`、`omitted` 给出镜像计数，显式 `entityRadius` 筛选另有 `outsideRadius`。`fullEntities:true` 展开所有数量条目，仍尊重显式距离筛选。实际追击、命中和爆炸影响需结合后续观察；这些字段保留当前已有证据。
+
 ## 历史与本次请求状态
 
 | 数据 | 保存与交付 |
@@ -151,12 +161,14 @@ observe({ views: ["3d"] })
 | 普通工具结果与显式查询输出，包括 `observe` | 普通持久会话历史，遵循 Pi 的正常上下文压缩 |
 | `inbox.post`、`inbox.requestJudgment` | 按事件交付，交付后保留在历史 |
 | `inbox.upsert` | 同来源、同 key 的待交付消息合并；交付后的历史条目保留 |
-| 自动最新状态 | `context_with_system` 在每次请求的消息副本末尾追加 `mc-current-observation`；生命周期仅为该请求 |
-| `inbox.publishCurrent` | 独立的最新值存储，供请求末尾的 `programState` 读取；同 key 替换、到期移除 |
+| 默认观察状态 | 开局 baseline，随后顶层工具结果与新一轮入口交付 changed；各部分替换旧值，交付后保留历史 |
+| `inbox.publishCurrent` | 独立的最新值存储，同来源／key 替换、到期移除；运行时在观察边界读取为 `programState`，交付的观察保留历史 |
 
-例如：一次查询得到位置 A，该工具输出成为历史事实。后来 bot 到达 B，下一次请求末尾状态显示 B；原查询输出仍在原位置。程序报告“步骤 3 完成”同样保留事件历史，当前状态则负责表达此刻仍有什么。
+例如：一次查询得到位置 A，该输出成为历史事实。后来 bot 到达 B，后续工具结果中的 changed 用新的 `self` 替换旧状态，原查询仍在原位置。`publishCurrent` 值过期或清除后，后续 `programState` 更新体现移除；已经交付的旧记录仍属于当时的历史。若某个短动作的经过值得单独保留，用 `post` 报告。
 
-这种布局保持已有消息顺序，把频繁变化的基础状态放到请求末尾。各 provider 的缓存行为独立；可选缓存边界实验、支持范围与计量限制见 [模型适配器](../packages/codex-adapter/README.md)。缓存是否命中以 provider 实际回报为准。
+### 可选实验：临时请求尾部
+
+`ARENA_PERCEPTION_TAIL=1` 将默认状态变化交付切换为 `context_with_system` 请求尾部：每次请求的消息副本末尾追加 `mc-current-observation`，下次请求重建。普通工具结果、显式查询和 Inbox 事件仍进入历史。该功能尚未完成使用效果验收；需要验证模型如何理解随后消失的临时观察。稳定历史前缀理论上仍可利用前缀缓存，实际端点与断点效果以 provider 回报为准。[模型适配器](../packages/codex-adapter/README.md)记录缓存实验，[态势感知 TODO](PERCEPTION-TODO.md)记录后续工作。
 
 ## 进阶复用与扩展
 
@@ -165,9 +177,11 @@ observe({ views: ["3d"] })
 | 接口 | 用途 |
 | --- | --- |
 | `sampleObservation(bot, options)`，`packages/observation/index.mjs` | 同步生成分离的 JSON 状态；`fullItems`／`fullEntities`／`fullLocal` 扩展相应细节 |
+| `entityRadar(bot, options)`，`packages/observation/entity-radar.mjs` | 单独复用范围／中心可见性筛选与掉落物分群；`sampleObservation` 另补可信队伍关系和已解码状态 |
 | `watchObservation(bot, {post, ...options})`，同文件 | 安装只读语义事件监听；返回 `sample(overrides)`、`close()` 和 `lastError` |
 | `await observe(bot, {views, ...options})`，`packages/observation/observe.mjs` | 返回 `{state, views:[{name,png,metadata}], metadata}`；视图不可用时保留错误元数据 |
 | 原始 SDK | `bot.inventory.slots`／`items()`、`bot.entities`、`bot.blockAt`、`knownBlockAt`、`knownBlocksIn` 和原生事件 |
+| `createBlockMemoryClient()`，`packages/bot-sdk/index.mjs` | 跨脚本读取角色收到的完整区块记忆；异步精确查询或显式预取后同步查询，见[共享方块记忆](BLOCK-MEMORY.md) |
 
 运行时把可信 host 的公开身份、目标物品和地图范围传入这些函数。高级调用也可显式提供 `teams`、`objectiveItems` 或 `inventoryWatchItems`，供特定用途复用。脚本可用 [实体雷达示例](../examples/entity-radar.mjs) 学习自定义筛选；该示例是可选程序，默认局势已由运行时负责。
 
@@ -197,7 +211,7 @@ Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报
 
 - [观察核心](../packages/observation/index.mjs)：状态投影、数量、范围和事件。
 - [一次观察](../packages/observation/observe.mjs)与 [Pi 工具](../packages/observation/pi-extension.mjs)：JSON、冻结取样、原生图像与回退。
-- [会话观察运行时](../packages/pi-extension/perception-runtime.mjs)与 [Pi 扩展](../packages/pi-extension/index.mjs)：连接、自动生命周期、请求末尾状态和任务关联。
+- [会话观察运行时](../packages/pi-extension/perception-runtime.mjs)与 [Pi 扩展](../packages/pi-extension/index.mjs)：连接、自动生命周期、普通历史交付、可选尾部和任务关联。
 - [验证记录](VALIDATION.md)：当前离线、真实 Pi、渲染与实服证据；各项能力的实现范围与实战验证分别记录。
 
 需要复现真实游戏链路时，使用 [显式启用的验收脚本](../scripts/validate-observation-live.mjs) 的 `--help`。它要求已有、已停机且已接受 EULA 的隔离测试服，验证官方 1.21.1 JAR，为本次检查创建新世界，并在退出后恢复服务器配置。
@@ -220,4 +234,4 @@ Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报
 
 普通历史交付省略未变状态段，忽略采样年龄与任务运行时长的自然增长。自身位置／速度展示到一位小数、朝向两位小数；按需查询保留原精度。雷达的新空列表会清除上次名单。每条报告的 `observedAt` 表示观察时刻，旧坐标始终是历史记录。
 
-临时尾部状态栏由 `ARENA_PERCEPTION_TAIL=1` 显式开启，默认关闭、尚未完成使用效果验收。缓存与模型理解风险见本文开头及 TODO。
+临时尾部选项与验证范围见[历史与状态](#历史与本次请求状态)。

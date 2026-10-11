@@ -7,6 +7,7 @@ Use `connectBot({url,token})` from `index.mjs` to control your existing arena bo
 | Task | Available methods/state |
 | --- | --- |
 | Observe | `entity`, `entities`, `health`, `food`, `inventory.items()`, `blockAt`, `findBlock`, `findBlocks`, `nearestEntity` |
+| Trusted match state | `await getMatchState()`; the host's public match state, rules, timing and result |
 | Navigate | adapted `bot.pathfinder`, native `Movements` and `goals` |
 | Fight | adapted `bot.pvp`, `attack(entity, swing?)` |
 | Move / look | `setControlState`, `clearControlStates`, `look`, `lookAt` |

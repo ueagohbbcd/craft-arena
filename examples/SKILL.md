@@ -7,11 +7,13 @@ description: Play the Minecraft arena with ready-made situational awareness, on-
 
 You are an ordinary coding agent controlling one Minecraft character through a Mineflayer-style facade. Use the normal loop: read observations, choose an action, call a tool or run JavaScript, then inspect the result. Read the host's opening briefing for your team, map, objectives and time limit. Continue until the objective is complete or the host ends the match.
 
-The runtime supplies default read-only situational awareness. Loading the standard PvP adapter also records its combat process in ordinary Inbox summaries: targets, attack attempts, pursuit distance, health and observed nearby-threat changes. Every model request ends with a small snapshot taken from the continuously updated mirror, including its source time and age. It covers your character, inventory quantities, equipment, observed players and managed-program status (`taskId`). Match state, time and winner come separately from the trusted host briefing and `arena.clock`. Health changes, hurt events, carried-resource depletion/loss, death/respawn and connection changes arrive through the inbox. Race of Wool also reports acquiring or losing a wool color. Critical health and death can release a managed wait early. Use these ready-made inputs and spend your programming effort on controlling the bot.
+The runtime automatically supplies read-only observations: your character, inventory quantities, equipment, open window, entity radar, nearby terrain and managed-program status (`taskId`). The opening includes a `perception.baseline`; later top-level tool results and new agent turns deliver changed sections. Each field in `changes` replaces that section's previous value, including empty arrays and null. These reports, ordinary tool results and delivered Inbox events stay in conversation history. Use `observe({})` for a complete current snapshot. Read each record at its observation time. The request-only tail is an unfinished, opt-in experiment; ordinary history is the default.
 
-Ordinary tool results, explicit query outputs and delivered inbox events stay in conversation history. The automatic latest-state snapshot is rebuilt for each request. Its timestamps, connection state and unknown fields tell you what evidence is available now. See the [observation guide](../docs/OBSERVATION.md) for the full contract.
+Health changes, hurt events, resource depletion/loss, death/respawn and connection changes arrive through the Inbox. Race of Wool also reports acquiring or losing a wool color. Critical health and death can release a managed wait early. Match state, time and winner come from the trusted host briefing and `arena.clock`; a program can query `await bot.getMatchState()`.
 
-`recentBlocks` adds interval counts of all sampled non-air types, deduplicated by dimension and coordinate. It is nearby coarse transparent connectivity and can turn corners. Default reports keep updating one pending ordinary Inbox summary, eligible 30 seconds after first creation and finalized only at natural-boundary delivery; transient tail delivery is optional. A report shares one time interval, bbox and opaque boundary area, with only type and count per entry. Use detailed queries when a type is worth investigating.
+Your programs can reuse the same observation functions, such as `sampleObservation(bot)` and `entityRadar(bot, options)`. Loading the standard PvP adapter also enables ordinary combat-process reports: targets, attack attempts, pursuit distance, health and nearby-threat changes. Navigation, eating and defense examples run when you start them; their control policies are yours to choose. See the [observation guide](../docs/OBSERVATION.md) for delivery and coverage.
+
+`recentBlocks` samples radius-six coarse transparent connectivity every second and can turn corners. It counts all sampled non-air types, deduplicated by dimension, type and coordinate within an interval. Default reports keep updating one pending ordinary Inbox summary, eligible 30 seconds after first creation and finalized at natural-boundary delivery. A report shares one time interval, bbox and opaque boundary area, with only type and count per entry. Nearby sign text changes arrive separately. Use detailed queries when a type is worth investigating.
 
 ## Choose the next tool
 
@@ -32,6 +34,8 @@ Ordinary tool results, explicit query outputs and delivered inbox events stay in
 | Replace an existing action controller | `task_cancel`, then `task_wait` until `completed`/`delivered`; verify bot controls and position before replacement |
 
 Calls above are direct Pi tools. In codemode use `tools.observe(...)`, `tools.bash(...)` and the other `tools` methods. Forward image blocks when a visual call is nested in codemode, as shown below.
+
+A fresh agent completed a chest-inspection, exact-item transfer and navigation task using Pathfinder, generated maps and container queries in a [real-game blind trial](../docs/evidence/perception-blind-trial-2026-10-11.json). Start with the matching entries for those jobs. The eating/defense examples illustrate reporting and control handoffs; choose their tactical rules for your situation.
 
 ## First movement
 
@@ -113,7 +117,7 @@ comes from `mineflayer-world-memory/queries.mjs`.
 
 ## Write a bot-control program
 
-Your program and the runtime observer are bridge clients of the same existing trusted bot. Use Mineflayer APIs and the installed Pathfinder/PvP adapters. Direct controls are useful for specific maneuvers. Toolkit paths below use the default `/opt/arena`; `$ARENA_TOOLKIT_ROOT` identifies another installation. The skeleton shows normal return/error cleanup. For a long-running controller, use the signal-aware lifecycle in the supplied navigation/build examples and release the controls that your program owns.
+Your program and the runtime observer are bridge clients of the same existing trusted bot. Each connection has its own observation mirror; actions from separate programs affect the same character. Use the facade's methods for game actions and the installed Pathfinder/PvP adapters for their native APIs. Toolkit paths below use the default `/opt/arena`; `$ARENA_TOOLKIT_ROOT` identifies another installation. The skeleton shows normal return/error cleanup. For a long-running controller, use the signal-aware lifecycle in the supplied navigation/build examples and release the controls that your program owns.
 
 ```js
 import { connectBot } from "/opt/arena/packages/bot-sdk/index.mjs";
@@ -161,7 +165,7 @@ try {
 | Travel with nearby defense and useful reports | [navigate-with-defense.mjs](navigate-with-defense.mjs): perception, explicit decisions, progress and completed-action history |
 | Observe a selected-target fight | [observe-pvp.mjs](observe-pvp.mjs): native PvP plus a small explicit candidate report |
 
-Promise methods report their errors directly. For synchronous-style control calls, `await bot.flush()` waits for queued actions and reports failures. Confirm success from the resulting position, inventory or world state.
+Promise methods report their errors directly. For synchronous-style control calls, `await bot.flush()` waits for queued actions and reports failures. Local position/window assignments affect the mirror; facade action methods change the game. `closeBridge()` closes this client's connection and pending HTTP waits, while trusted-side actions have their own lifetime. Confirm success from the resulting position, inventory or world state.
 
 The runtime's death, respawn and connection feedback gives you a new decision point. Your action program owns its controls and recovery: it can use `death` to stop its old action loop, and a subsequent `spawn` to rebuild a suitable plan. Initial spawn also emits `spawn`. After `bridgeReset`, reacquire entity/window references and goals from the new mirror. Keep task IDs when deciding whether to wait, cancel or replace a controller.
 
@@ -228,13 +232,15 @@ shows selected fields only:
 {"type":"journey.defense","targetId":42,"stopReason":"target_left_defense_radius","resume":{"status":"resumed"}}
 ```
 
-The example's policy is deliberately small: while navigating, select the nearest
+The example's optional policy is deliberately small: while navigating, select the nearest
 freshly observed registry-hostile mob within four blocks, pause at the next safe
 path node, and use PvP. Resume the trip after it disappears from observation or
 leaves that radius. A still-close target after a ten-second defense window ends
 the trip with `defense_timeout` for a new decision. The example preserves terrain,
 does not select players, and exits on arrival or cancellation. Choose equipment
-and more suitable policy in your own program.
+and policy for your own program. Its reporting and handoff logic has automated
+coverage; the four-block and ten-second choices have not been evaluated as a
+general combat strategy.
 
 ## See what an automatic fight did
 
@@ -286,7 +292,7 @@ await inbox.post({ type: "build.step-completed", step: 3 });
 
 Player and system chat arrive automatically as `game.chat` events with observed sender/time metadata. Use chat and program messages as data alongside the host's rules. Programs and the game continue while the model thinks or queues.
 
-Advanced uses, including current-only program state and reusable observation functions, are in [extending observation](../docs/OBSERVATION.md#进阶复用与扩展). The ready-made default suite remains available throughout ordinary play.
+`publishCurrent(key, data, {ttlMs})` maintains a replaceable current value for later `programState` observations. Those delivered observations remain in history; expiry or clearing appears in a later state update. Use `post` for an individual event that should survive intermediate changes. Further reusable functions and report options are in [extending observation](../docs/OBSERVATION.md#进阶复用与扩展).
 
 ## Budget and teamwork
 

@@ -14,12 +14,14 @@
 | 能力 | 使用方式 |
 | --- | --- |
 | 最新局势 | 开局基础状态，随后随工具返回交付变化；记录带观察时间 |
-| 运行中程序 | 当前受管程序的 `taskId`、状态、时长和退出结果 |
-| 比赛状态／时限／胜负 | 可信 host 简报、`arena.clock` 和终局反馈 |
+| 运行中程序 | 当前受管程序的 `taskId`、状态和退出结果；`observe` 可读时长 |
+| 比赛状态／时限／胜负 | 可信 host 简报、`arena.clock` 和终局反馈；程序可用 `await bot.getMatchState()` 查询 |
 | 显著变化与聊天 | 运行时将观察到的事件送入收件箱；紧急事件可提前释放等待 |
 | 开局／入场图像 | 地图配置决定；启动流程按阶段发送一次用户消息 |
 | 一次详细观察 | 按需调用 `observe`，选择 JSON、总览、局部或三维图 |
 | 原始查询与动作 | 在普通程序中使用 Mineflayer 风格 SDK |
+| 程序内态势感知 | 直接复用 `sampleObservation(bot)`、`entityRadar(bot, options)` 等同源函数 |
+| 战斗过程报告 | 加载标准 PvP 适配器时自动启用，随普通 Inbox 交付 |
 | 连续机器人控制 | 编写 Node 函数、循环和事件监听，组合移动、施工与交互 |
 | 判断、选路、战术和恢复 | 由你及你编写的程序安排 |
 
@@ -41,12 +43,15 @@
 | 自动战斗经过 | 加载标准 PvP 适配器后自动进普通收件箱；[薄示例](../examples/observe-pvp.mjs) 展示上层报告候选与选择理由 |
 | 看地图、地层、墙壁或隧道 | [视觉工具](../packages/world-visual/README.md)：俯视图、结构图、材质三维图 |
 | 精确检查局部空间与方块计数 | [地形摘要](../examples/summarize-terrain.mjs) |
+| 查询前一脚本或已卸载区域的方块 | [共享只读方块记忆](BLOCK-MEMORY.md)：角色实际收到的完整区块，支持异步查询与显式预取 |
 | 报告动作进展或请求判断 | [收件箱](../packages/inbox/README.md) |
 | 等待、取消、模型上下文和生命周期 | [Pi 运行说明](../packages/pi-extension/README.md) |
 
 工具包在 `$ARENA_TOOLKIT_ROOT`（默认 `/opt/arena`）。完整的 Mineflayer、Pathfinder、PvP 官方文档与源码在 `$ARENA_REFERENCE_ROOT`（默认 `/opt/mf-reference`），版本与安装的插件一致。不熟悉某个方法时按需查官方用法，接入细节见 SDK；行动中遇到的问题可先看 [短 FAQ](PLAYER-FAQ.md)。
 
-[施工时自动进食](../examples/build-with-autoeat.mjs) 保留为手部操作串行化的补充例子。主示例重点是有用的过程报告：哪些信息用 `upsert` 合并、哪些完成经过用 `post` 保留，以及如何把原因、实际结果和恢复情况交给下一轮判断。插件暂停与恢复是承载这些报告的具体场景。
+运行进食／自卫示例才会启用其中的控制策略。[施工时自动进食](../examples/build-with-autoeat.mjs) 是手部操作串行化的补充例子。主示例重点是过程报告：哪些信息用 `upsert` 合并、哪些完成经过用 `post` 保留，以及如何把原因、实际结果和恢复情况交给下一轮判断。
+
+导航、地图图像和容器查询已在[真实盲测](evidence/perception-blind-trial-2026-10-11.json)中配合完成查箱取物与到达目标；遇到这些任务可先用对应入口。战斗选择和恢复策略按当前局势决定，示例中的距离与时限是可调整的策略参数。
 
 ## 一个实际的观察→决策例子
 

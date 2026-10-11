@@ -2,6 +2,17 @@
 
 从任务、现成能力和当前观察开始行动。需要某个方法时查对应官方 API；这里保留实际控制流程中容易漏掉的细节。
 
+### 刚装备了方块或镐，为什么后来拿着剑或西瓜？
+
+后台进食和守卫程序会改同一角色的主手。2026-10-11 合作试验中，Light 搭柱到
+Y=46 时被自动进食换成西瓜，放置报 `Server refused to place melon_slice`；
+Medium 曾拿着守卫换上的剑放墙；Heavy 进食后继续徒手挖石，速度很慢且没得到圆石。
+Light 暂停守卫后完成搭柱，Medium 加入施工锁，Heavy 在每个采掘段重新装备镐。
+
+让使用主手的实际程序协调交接，在恢复施工或采掘时装备该段需要的物品。
+[导航进食](../examples/navigate-with-autoeat.mjs) 展示暂停与恢复，
+[施工进食](../examples/build-with-autoeat.mjs) 展示同一程序内的手部串行化。
+
 ### 我已经给 Pathfinder 关了挖掘，为什么 PvP 仍会挖？
 
 PvP 有独立的 `bot.pvp.movements`，`attack(entity)` 会将它交给 Pathfinder。
