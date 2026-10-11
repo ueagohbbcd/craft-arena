@@ -205,6 +205,7 @@ export class BotFacade extends EventEmitter {
       b.position = this._vector(data.position);
       b.light = data.light;
       b.skyLight = data.skyLight;
+      if (data.entity !== undefined) b.entity = data.entity;
     } else b = { ...data, position: this._vector(data.position) };
     return b;
   }
@@ -251,6 +252,13 @@ export class BotFacade extends EventEmitter {
           this._rememberBlock(local[1], Date.now());
           this._updateColumn(local[1]);
         }
+      } else if (name === "blockEntityData") {
+        local = args.map((b) => this._block(b));
+        if (local[0]) {
+          this.blocks.set(key(local[0].position), local[0]);
+          this._rememberBlock(local[0], Date.now());
+          this._updateColumn(local[0]);
+        }
       } else if (name === "chunkColumnLoad" || name === "chunkColumnUnload") {
         local = args.map((v) => this._vector(v));
         const x = Math.floor(args[0].x / 16),
@@ -290,6 +298,8 @@ export class BotFacade extends EventEmitter {
     for (const k of [
       "sampledAt",
       "username",
+      "connectionStatus",
+      "disconnectReason",
       "game",
       "health",
       "food",
@@ -441,6 +451,10 @@ export class BotFacade extends EventEmitter {
     if (!column || sampledAt < column.sampledAt) return;
     const local = this._vector({ x: p.x & 15, y: p.y, z: p.z & 15 });
     column.chunk.setBlockStateId(local, block.stateId);
+    if (block.entity !== undefined) {
+      if (block.entity === null) column.chunk.removeBlockEntity?.(local);
+      else column.chunk.setBlockEntity?.(local, block.entity);
+    }
     if (block.light !== undefined)
       column.chunk.setBlockLight(local, block.light);
     if (block.skyLight !== undefined)

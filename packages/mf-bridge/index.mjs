@@ -80,6 +80,7 @@ function entity(e) {
   const out = {};
   for (const k of [
     "id",
+    "uuid",
     "type",
     "name",
     "username",
@@ -118,6 +119,7 @@ export function serializeBlock(b) {
       boundingBox: b.boundingBox,
       hardness: b.hardness,
       diggable: b.diggable,
+      entity: b.entity ?? null,
     }
   );
 }
@@ -128,10 +130,15 @@ export function createAuthority(
     maxReach = Infinity,
     allowChat = true,
     authorizeAction,
+    getConnectionState = () => ({
+      status: bot.entity ? "connected" : "connecting",
+      reason: null,
+    }),
   } = {},
 ) {
   num(snapshotRadius, 0, Infinity, true);
   const windowRefs = new WeakMap();
+  const windowTargets = new WeakMap();
   let windowRevision = 0;
   const serializeWindow = (window) => {
     if (!window) return null;
@@ -155,6 +162,9 @@ export function createAuthority(
       ...out,
       slots: window.slots.map(item),
       selectedItem: item(window.selectedItem) ?? null,
+      ...(windowTargets.has(window)
+        ? { observationTarget: windowTargets.get(window) }
+        : {}),
     };
   };
   const currentWindow = (ref, includeInventory = false) => {
@@ -326,10 +336,18 @@ export function createAuthority(
       return bot.craft(r, count, t);
     },
     openContainer: async (a) => {
+      const container =
+        a.entityId === undefined ? block(a.position) : target(a.entityId);
       const window = await bot.openContainer(
-        a.entityId === undefined ? block(a.position) : target(a.entityId),
+        container,
         a.direction == null ? undefined : vector(pos(a.direction, false)),
         a.cursorPos == null ? undefined : vector(pos(a.cursorPos, false)),
+      );
+      windowTargets.set(
+        window,
+        a.entityId === undefined
+          ? { kind: "block", position: vec(container.position) }
+          : { kind: "entity", entityId: container.id },
       );
       return serializeWindow(window);
     },
@@ -409,6 +427,8 @@ export function createAuthority(
         replaceBlocks: includeBlocks,
         version: bot.version ?? "1.21.1",
         username: bot.username,
+        connectionStatus: getConnectionState().status,
+        disconnectReason: getConnectionState().reason,
         entity: entity(bot.entity),
         entities: Object.values(bot.entities ?? {}).map(entity),
         inventory: serializeWindow(bot.inventory),
@@ -420,7 +440,12 @@ export function createAuthority(
         quickBarSlot: bot.quickBarSlot ?? 0,
         jumpTicks: bot.jumpTicks ?? 0,
         jumpQueued: bot.jumpQueued ?? false,
-        controlState: bot.controlState ?? {},
+        controlState: Object.fromEntries(
+          controls.map((control) => [
+            control,
+            bot.controlState?.[control] ?? false,
+          ]),
+        ),
         blocks,
         columns: bot.world?.getColumns?.().map(({ chunkX, chunkZ }) => ({
           x: Number(chunkX),
@@ -444,11 +469,16 @@ export function createBridgeServer({
 } = {}) {
   if (!bot || typeof token !== "string" || token.length < 16)
     throw new Error("Bot and token (16+ characters) required");
+  let nativeConnection = {
+    status: bot.entity ? "connected" : "connecting",
+    reason: null,
+  };
   const authority = createAuthority(bot, {
     snapshotRadius,
     allowChat,
     maxReach,
     authorizeAction,
+    getConnectionState: () => nativeConnection,
   });
   const errorText = (value, fallback) =>
     (typeof value === "string" ? value : fallback)
@@ -549,6 +579,8 @@ export function createBridgeServer({
     "entityMoved",
     "entitySpawn",
     "entityGone",
+    "entityHurt",
+    "entityEquipmentChange",
     "health",
     "heldItemChanged",
     "windowOpen",
@@ -558,12 +590,18 @@ export function createBridgeServer({
     "chunkColumnLoad",
     "chunkColumnUnload",
     "blockUpdate",
+    "blockEntityData",
     "spawn",
     "death",
     "end",
+    "kicked",
   ]) {
     const fn = (...args) => {
       if (name === "physicsTick") return;
+      if (name === "end" || name === "kicked")
+        nativeConnection = { status: "disconnected", reason: args[0] ?? null };
+      else if (name === "spawn")
+        nativeConnection = { status: "connected", reason: null };
       // Mineflayer's death handler removes all digging listeners. Restore only
       // our transport callbacks after respawn, never a participant's listeners.
       if (name === "spawn")
@@ -584,15 +622,21 @@ export function createBridgeServer({
           "windowClose",
           "spawn",
           "death",
+          "end",
+          "kicked",
         ].includes(name)
       )
         publish("snapshot", authority.snapshot(false));
       let data = [];
-      if (name.startsWith("entity")) data = [entity(args[0])];
+      if (name === "entityHurt") data = args.slice(0, 2).map(entity);
+      else if (name.startsWith("entity")) data = [entity(args[0])];
       else if (name === "blockUpdate")
         data = args.slice(0, 2).map(serializeBlock);
       else if (name === "diggingCompleted" || name === "diggingAborted")
         data = [serializeBlock(args[0])];
+      else if (name === "blockEntityData") data = [serializeBlock(args[0])];
+      else if (name === "end") data = [args[0] ?? null];
+      else if (name === "kicked") data = [args[0] ?? null, args[1] ?? null];
       else if (name === "chunkColumnLoad" || name === "chunkColumnUnload")
         data = [vec(args[0])];
       else if (name === "windowOpen" || name === "windowClose")

@@ -269,6 +269,15 @@ export async function createLiveMatch(
                 participantId: p.id,
                 teamId: p.team,
                 teams: config.teams.map((t) => ({ id: t.id })),
+                participants: config.participants.map((participant) => ({
+                  id: participant.id,
+                  username: /^[A-Za-z0-9_]{1,16}$/.test(
+                    participant.username ?? "",
+                  )
+                    ? participant.username
+                    : null,
+                  teamId: participant.team,
+                })),
                 game: config.game,
                 map: { id: config.map.id, version: config.map.version },
                 rules: config.rules,
