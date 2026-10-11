@@ -89,6 +89,7 @@ export async function observeForModel(bot, options = {}, dependencies) {
   if (options.runtimeProjection)
     result.state.runtimeProjection = options.runtimeProjection;
   if (options.recentBlocks) result.state.recentBlocks = options.recentBlocks;
+  if (options.nearbySigns) result.state.nearbySigns = options.nearbySigns;
   const views = result.views.map(({ name, metadata }, index) => ({
     name,
     ...metadata,

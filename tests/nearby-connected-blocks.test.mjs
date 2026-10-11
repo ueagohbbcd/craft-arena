@@ -215,3 +215,26 @@ test("turning a corner exposes multiple distinct faces of one opaque block", () 
   );
   assert.equal(scan.opaqueFaces.length, 14);
 });
+
+test("nearby signs expose observed front/back text, keep missing sides unknown and ignore known blanks", () => {
+  const sign = native("oak_sign");
+  sign.setSignText("Supply room", "Return route");
+  const read = (p) =>
+    key(p) === key(origin)
+      ? native("air")
+      : key(p) === "1,64,0"
+        ? sign
+        : native("stone");
+  const scan = () =>
+    sampleNearbyConnectedBlocks({ origin, radius: 3, blockAt: read });
+  assert.equal(scan().signs.length, 1);
+  assert.deepEqual(scan().signs[0].front, { known: true, text: "Supply room" });
+  assert.deepEqual(scan().signs[0].back, { known: true, text: "Return route" });
+  delete sign.entity.value.back_text;
+  assert.deepEqual(scan().signs[0].back, { known: false, text: null });
+  assert.deepEqual(scan().signs[0].front, { known: true, text: "Supply room" });
+  sign.entity = undefined;
+  assert.deepEqual(scan().signs[0].front, { known: false, text: null });
+  sign.setSignText("", "");
+  assert.deepEqual(scan().signs, []);
+});

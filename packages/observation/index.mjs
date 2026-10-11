@@ -543,29 +543,52 @@ function blockSummary(block, position) {
         : plain(block?.properties),
   };
 }
-function signSummary(block, position, observedAt, source, full = false) {
+export function signSummary(
+  block,
+  position,
+  observedAt,
+  source,
+  full = false,
+  { separateFaces = false } = {},
+) {
   if (!isSign(block)) return null;
   // Prismarine getSignText returns empty strings when entity data is absent.
   // Require actual entity/text data before claiming even an empty sign.
   let text = null;
-  if (block.entity && typeof block.getSignText === "function")
+  if (block.entity && typeof block.getSignText === "function") {
     text = safe(() => block.getSignText());
-  else if (
+    // Native getSignText returns "" for a missing side. Preserve unknown sides,
+    // rather than treating an entity containing only its id as an empty sign.
+    if (Array.isArray(text) && text.length === 2) {
+      const data = block.entity.value ?? block.entity;
+      text = ["front_text", "back_text"].map((side, index) =>
+        Array.isArray(data?.[side]?.value?.messages?.value?.value)
+          ? text[index]
+          : null,
+      );
+      if (text.every((side) => side === null)) text = null;
+    }
+  } else if (
     Object.getOwnPropertyDescriptor(block, "signText")?.value !== undefined
   )
     text =
       typeof block.signText === "string"
         ? [block.signText]
         : plain(block.signText);
+  const shown =
+    !full && Array.isArray(text)
+      ? text.map((line) =>
+          typeof line === "string" ? line.slice(0, 240) : preview(line),
+        )
+      : plain(text);
+  const side = (index) => ({
+    known: typeof shown?.[index] === "string",
+    text: typeof shown?.[index] === "string" ? shown[index] : null,
+  });
   return {
     position: vector(position),
     name: block.name,
-    text:
-      !full && Array.isArray(text)
-        ? text.map((line) =>
-            typeof line === "string" ? line.slice(0, 240) : preview(line),
-          )
-        : plain(text),
+    ...(separateFaces ? { front: side(0), back: side(1) } : { text: shown }),
     ...(Array.isArray(text) &&
     text.some((line) => typeof line === "string" && line.length > 240) &&
     !full

@@ -72,6 +72,8 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 可用 `ARENA_PERCEPTION_RECENT_BLOCKS=0` 关闭；`ARENA_PERCEPTION_RECENT_BLOCK_RADIUS=6`、`ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS=1000`、`ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS=4096` 调整范围、频率和单次预算。`ARENA_PERCEPTION_RECENT_BLOCK_DELIVERY=inbox|tail|both` 选择报告通道，`ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS` 设置 Inbox 的首次 pending 创建到可交付延迟；仅在 `tail` 模式表示尾部最小展示间隔。`ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS=3` 仅调整完整查询的代表位置数。采样中断／源过期不被记作完整空白观察，间隔内没有采到的瞬间不能追补。
 
+近距采样还复用现有告示牌文字读取，单独提供 `nearbySigns`，区分 `front`／`back` 的 `known` 与 `text`。只处理这次连通扫描实际遇到的牌，双方都确定为空白时省略；缺少 block entity 或某一侧消息字段时保留未知，不编成空牌。每面沿用 240 字符预览上限及 `textTruncated` 标记。默认仅在附近牌集合／文字变化时投递普通 `observation.nearby_signs` 事件；时间戳变化本身不重复发送。集合变空只说明本次近距样本没遇到文字牌，不证明原牌被破坏。显式 `tail`／`both` 时当前牌文字可持续放入最新状态，与区间方块报告的间隔独立；`observe` 也可读取当前附近牌。
+
 这些是观察事实：`null`／`known:false` 表示缺少对应数据。实体覆盖范围来自 bot 的观察镜像；玩家队伍关系使用可信 host 的公开参与者身份映射，缺少对应映射时为 `unknown`。当前窗口反映已打开窗口的槽位，容器位置需要明确的窗口关联。告示牌文字来自实际已加载数据，并保留来源时间。方块的 `unknown` 和已知 `air` 分别统计。
 
 连接丢失后仍有价值的最后状态带过期／断开标记。默认源快照超过 5 秒标为过期。`sequence`、`epoch` 与时间供模型判断来源变化，控制标志描述已观察的动作意图，实际进展由位置、物品和世界结果确认。
@@ -108,6 +110,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 | `lost` | 桥观察流丢失，普通报告，游戏状态变为未知／过期 |
 | `reset`／`restored` | 镜像重建或恢复，普通报告 |
 | `disconnected` | bot 的实际 `end`／`kicked` 事件，紧急报告 |
+| `nearby_signs` | 近距连通采样中的告示牌文字／集合变化，普通事件，前后面与未知文本分别表示 |
 | `stale` | 取样发现源数据首次跨过过期阈值，普通报告 |
 
 生命下降的升级是可解释的显示启发式：默认最近 2 秒累计损失至少 4 点生命，或至少 3 次下降且累计至少 3 点，才将 `health_loss` 升级为紧急。`urgency` 中包含触发理由、窗口、实测损失／次数和阈值；没有来源时仍是 `unknown`，不把小额生命变化推断为战斗。单次小伤、超出短窗的零散损失、只有 `entityHurt` 而没有可测生命下降的事件保持普通。

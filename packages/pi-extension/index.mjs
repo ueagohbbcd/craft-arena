@@ -506,6 +506,7 @@ export default function participantInbox(pi) {
           projection: perceptionProjection,
         }),
         recentBlocks: r.perception.recentBlocks(params),
+        nearbySigns: r.perception.nearbySigns(),
       };
     },
   });

@@ -27,8 +27,10 @@ function fixture(options = {}) {
       transparent: false,
       shapes: [[0, 0, 0, 1, 1, 1]],
     }),
+    signs: [],
   };
   const reports = [];
+  const signReports = [];
   let accepted = true;
   const inbox = new Inbox({
     sessionId: "recent-block-reports",
@@ -55,6 +57,20 @@ function fixture(options = {}) {
           )
         : { accepted: false, reason: "fixture queue rejected" };
     },
+    postSigns(data) {
+      signReports.push(data);
+      return accepted
+        ? inbox.post(
+            {
+              sessionId: inbox.sessionId,
+              kind: "event",
+              priority: "normal",
+              data: { type: "observation.nearby_signs", ...data },
+            },
+            { source: "runtime" },
+          )
+        : { accepted: false };
+    },
     schedule(fn, ms) {
       timer = fn;
       delay = ms;
@@ -78,6 +94,7 @@ function fixture(options = {}) {
           max: { x: origin.x + 1, y: 66, z: 1 },
         },
         opaqueFaces: [{ position: { ...origin }, normal: [-1, 0, 0] }],
+        signs: bot.signs,
         seedStatus: "transparent",
         truncated: false,
       };
@@ -87,6 +104,7 @@ function fixture(options = {}) {
     runtime,
     bot,
     reports,
+    signReports,
     inbox,
     acceptReports(value) {
       accepted = value;
@@ -399,5 +417,87 @@ test("draining an older accepted watermark leaves later rejected samples for the
   f.tick();
   assert.equal(f.inbox.drain().messages[0].data.samples, 1);
   assert.equal(f.runtime.snapshot().samples, 0);
+  f.runtime.close();
+});
+
+test("nearby signs post ordinary changes independently of interval reports and stay current in explicit tail mode", () => {
+  const f = fixture({ delivery: "inbox", minReportMs: 30000 });
+  const sign = {
+    position: { x: 1, y: 65, z: 0 },
+    name: "oak_sign",
+    front: { known: true, text: "Supplies" },
+    back: { known: false, text: null },
+  };
+  f.bot.signs = [sign];
+  f.tick();
+  assert.equal(f.signReports.length, 1);
+  assert.equal(f.reports.length, 1);
+  assert.equal(
+    f.inbox.drain().messages[0].data.type,
+    "observation.nearby_signs",
+  );
+  assert.equal(f.inbox.pending, false, "the interval report is still delayed");
+  assert.equal(f.runtime.currentSigns({ forRequest: true }), undefined);
+  assert.equal(f.runtime.currentSigns().signs[0].front.text, "Supplies");
+  f.advance();
+  f.tick();
+  assert.equal(
+    f.signReports.length,
+    1,
+    "fresh timestamps alone do not repeat sign text",
+  );
+  f.bot.signs = [{ ...sign, front: { known: true, text: "Exit" } }];
+  f.advance();
+  f.tick();
+  assert.equal(f.signReports.length, 2);
+  f.bot.signs = [];
+  f.advance();
+  f.tick();
+  assert.equal(f.signReports.length, 3);
+  assert.deepEqual(
+    f.signReports[2].signs,
+    [],
+    "current sampled set changed; no claim the world sign was destroyed",
+  );
+  f.runtime.close();
+  const tail = fixture({ delivery: "tail", minReportMs: 30000 });
+  tail.bot.signs = [sign];
+  tail.tick();
+  assert.equal(tail.runtime.prepareRequest(), undefined);
+  assert.equal(
+    tail.runtime.currentSigns({ forRequest: true }).signs[0].front.text,
+    "Supplies",
+  );
+  tail.runtime.finishRequest({ role: "assistant", stopReason: "stop" });
+  assert.equal(tail.runtime.currentSigns({ forRequest: true }).signs.length, 1);
+  tail.runtime.close();
+});
+
+test("sign change comparison ignores enumeration order and retries rejected enqueues", () => {
+  const f = fixture({ delivery: "inbox" });
+  const one = {
+    position: { x: 1, y: 65, z: 0 },
+    name: "oak_sign",
+    front: { known: true, text: "One" },
+    back: { known: true, text: "" },
+  };
+  const two = {
+    ...one,
+    position: { x: 2, y: 65, z: 0 },
+    front: { known: true, text: "Two" },
+  };
+  f.acceptReports(false);
+  f.bot.signs = [one, two];
+  f.tick();
+  assert.equal(f.inbox.pending, false);
+  f.acceptReports(true);
+  f.advance();
+  f.tick();
+  const attempts = f.signReports.length;
+  assert.equal(f.inbox.drain().messages.length, 1);
+  f.bot.signs = [two, one];
+  f.advance();
+  f.tick();
+  assert.equal(f.signReports.length, attempts);
   f.runtime.close();
 });

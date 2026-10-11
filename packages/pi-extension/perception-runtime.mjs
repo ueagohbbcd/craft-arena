@@ -286,6 +286,16 @@ export function startPerceptionRuntime({
         },
         { source: "runtime", onDelivered },
       ),
+    postSigns: (data) =>
+      inbox.post(
+        {
+          sessionId: inbox.sessionId,
+          kind: "event",
+          priority: "normal",
+          data: { type: "observation.nearby_signs", ...data },
+        },
+        { source: "runtime" },
+      ),
   });
   function warn(error) {
     failure = error?.message ?? String(error);
@@ -459,6 +469,7 @@ export function startPerceptionRuntime({
         ? recent.snapshot()
         : projectRecentBlocks(recent.snapshot(), now()),
     finishRequest: (message) => recent.finishRequest(message),
+    nearbySigns: () => recent.currentSigns(),
     async sample({ forRequest = false } = {}) {
       await ready();
       let defaults = {};
@@ -489,6 +500,7 @@ export function startPerceptionRuntime({
         ...(failure ? { observationError: failure } : {}),
         programState: options.programState,
         runtimeProjection: options.runtimeProjection,
+        nearbySigns: recent.currentSigns({ forRequest }),
         ...(recentBlocks.enabled === false
           ? {}
           : {

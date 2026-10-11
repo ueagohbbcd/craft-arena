@@ -91,6 +91,7 @@ export function startRecentBlockRuntime({
   schedule = setTimeout,
   cancel = clearTimeout,
   postReport,
+  postSigns,
 }) {
   const settings = { ...recentBlockOptions({}), ...options };
   if (options.minReportMs === undefined)
@@ -125,6 +126,8 @@ export function startRecentBlockRuntime({
   let lastSample = null;
   let samplingStatus = settings.enabled ? "waiting" : "disabled";
   let samplingError = null;
+  let nearbySigns = null,
+    acceptedSignSignature = null;
   function sampleNow() {
     if (closed || !settings.enabled) return;
     const bot = getBot();
@@ -188,6 +191,28 @@ export function startRecentBlockRuntime({
       };
       samplingStatus = "sampled";
       samplingError = null;
+      nearbySigns = {
+        observedAt,
+        sourceSampledAt: bot.sampledAt,
+        dimension,
+        unknownCells: result.counts.unknown,
+        signs: (result.signs ?? [])
+          .map(({ position, name, front, back, textTruncated }) => ({
+            position,
+            name,
+            front,
+            back,
+            ...(textTruncated ? { textTruncated: true } : {}),
+          }))
+          .sort(
+            (a, b) =>
+              a.position.x - b.position.x ||
+              a.position.y - b.position.y ||
+              a.position.z - b.position.z ||
+              a.name.localeCompare(b.name),
+          ),
+      };
+      publishSignsIfChanged();
       publishPending();
       return true;
     } catch (error) {
@@ -197,6 +222,7 @@ export function startRecentBlockRuntime({
   }
   function poll() {
     const sampled = sampleNow();
+    if (!closed) publishSignsIfChanged();
     if (!closed && !sampled) publishPending();
     if (!closed) {
       timer = schedule(poll, settings.intervalMs);
@@ -255,9 +281,42 @@ export function startRecentBlockRuntime({
       samplingError = error?.message ?? String(error);
     }
   }
+  function publishSignsIfChanged() {
+    if (!nearbySigns || typeof postSigns !== "function" || closed) return;
+    const signature = JSON.stringify([
+      nearbySigns.dimension,
+      nearbySigns.signs,
+    ]);
+    if (signature === acceptedSignSignature) return;
+    if (acceptedSignSignature === null && !nearbySigns.signs.length) {
+      acceptedSignSignature = signature;
+      return;
+    }
+    try {
+      const result = postSigns(structuredClone(nearbySigns));
+      if (result?.accepted === true) acceptedSignSignature = signature;
+    } catch {
+      /* Retry the observed change at a later sample; no extra framework. */
+    }
+  }
   return {
     sampleNow,
     snapshot,
+    currentSigns({ forRequest = false } = {}) {
+      if (!nearbySigns || (forRequest && settings.delivery === "inbox"))
+        return undefined;
+      // Known empty signs need no expansion; missing text remains explicitly unknown.
+      const signs = nearbySigns.signs.filter((sign) =>
+        [sign.front, sign.back].some(
+          (side) => !side.known || side.text.trim().length,
+        ),
+      );
+      return {
+        ...structuredClone(nearbySigns),
+        status: samplingStatus,
+        signs: structuredClone(signs),
+      };
+    },
     prepareRequest() {
       if (settings.delivery !== "tail") {
         const value = settings.delivery === "both" ? latestPublished : null;

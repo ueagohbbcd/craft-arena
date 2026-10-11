@@ -1,3 +1,5 @@
+import { signSummary } from "./index.mjs";
+
 /** Coarse observation connectivity, deliberately not optical or walkable space. */
 export function coarseBlockTransparency(block) {
   if (!block) return null;
@@ -87,6 +89,7 @@ export function sampleNearbyConnectedBlocks({
   const queue = [{ ...origin }];
   const seen = new Set([key(origin)]);
   const blocks = [];
+  const signs = [];
   const known = new Map();
   let knownBounds = null;
   const counts = {
@@ -115,6 +118,16 @@ export function sampleNearbyConnectedBlocks({
       continue;
     }
     const name = block.name.replace(/^minecraft:/, "");
+    const sign = signSummary(block, position, null, "nearby-connected", false, {
+      separateFaces: true,
+    });
+    if (
+      sign &&
+      [sign.front, sign.back].some(
+        (side) => !side.known || side.text.trim().length,
+      )
+    )
+      signs.push(sign);
     if (airNames.has(name)) counts.air++;
     else {
       counts.nonAir++;
@@ -190,6 +203,7 @@ export function sampleNearbyConnectedBlocks({
     seedStatus,
     counts,
     blocks,
+    signs,
     knownBounds,
     opaqueFaces,
     truncated: index < queue.length,
