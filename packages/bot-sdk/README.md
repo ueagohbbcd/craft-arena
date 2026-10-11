@@ -49,8 +49,6 @@ Horizontal edge positioning waits for landing and releases inherited horizontal 
 - The facade provides `craftItem`, not native `recipesFor`/`craft(recipe)`. Specialized furnace, villager and enchanting helpers are not implemented.
 - Packet access (`_client`), trusted-side plugin installation and reconnect are owned by the host. For an API absent from the table, check [index.mjs](index.mjs) before using it.
 
-## Validation coverage
-
 ## Craft quantities
 
 `await bot.craftItem(itemType, count = 1, table = null)` crafts at least `count`
@@ -65,6 +63,8 @@ the current ingredients/table, it rejects before crafting. Native failures after
 execution starts may still leave partial results; inspect inventory before retrying.
 Existing calls for one-output recipes keep their quantities. Code that previously
 treated `count` as recipe runs must instead pass its intended result quantity.
+
+## Validation coverage
 
 The installed Pathfinder 2.4.5 and PvP 1.3.2 run against the facade. Tests exercise native chunk-based planning across a 40-block route, custom goals/movement callbacks, semantic attacks, event/state reconstruction and action errors. These tests establish those contracts; full navigation through changing terrain, digging/placing during navigation, fall recovery and combat still need isolated live-server evaluation. This is a testing limitation, separate from the API availability above.
 

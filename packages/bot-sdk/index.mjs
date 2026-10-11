@@ -714,6 +714,7 @@ export class BotFacade extends EventEmitter {
   setQuickBarSlot(slot) {
     this._fire("setQuickBarSlot", { slot });
   }
+  /** Craft at least count new items, rounded up to complete recipe batches. */
   craftItem(itemType, count = 1, table = null) {
     return this.action("craft", {
       itemType,
@@ -724,7 +725,6 @@ export class BotFacade extends EventEmitter {
   tossStack(item) {
     return this.action("tossStack", {
       slot: item.slot,
-  /** Craft at least count new items, rounded up to complete recipe batches. */
       windowRef: (this.currentWindow ?? this.inventory).windowRef,
     });
   }
