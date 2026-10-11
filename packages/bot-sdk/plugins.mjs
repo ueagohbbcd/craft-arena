@@ -36,10 +36,31 @@ export function loadSelectedPlugins(bot, { pvp = true } = {}) {
       "      toBreak: [...node.toBreak], toPlace: [...node.toPlace]\n" +
       "    }))\n",
   );
+  // Upstream can start horizontal edge positioning while a preceding dig is
+  // still falling. Wait before fullStop or backing up; sneak cannot stop air drift.
+  const placementHeader =
+    "    if (placing || nextPoint.toPlace.length > 0) {\n";
+  if (
+    !patched.includes(placementHeader) ||
+    patched.indexOf(placementHeader) !== patched.lastIndexOf(placementHeader)
+  )
+    throw new Error("Pathfinder placement landing guard patch mismatch");
+  const guarded = patched.replace(
+    placementHeader,
+    placementHeader +
+      "      const nextPlacement = placing ? placingBlock : nextPoint.toPlace[0]\n" +
+      "      if (bot.pathfinder.LOSWhenPlacingBlocks && nextPlacement &&\n" +
+      "        nextPlacement.dy === 0 && !nextPlacement.useOne && !bot.entity.onGround) {\n" +
+      "        for (const control of ['forward', 'back', 'left', 'right']) {\n" +
+      "          if (bot.getControlState(control)) bot.setControlState(control, false)\n" +
+      "        }\n" +
+      "        return\n" +
+      "      }\n",
+  );
   const m = new Module(filename);
   m.filename = filename;
   m.paths = Module._nodeModulePaths(dirname(filename));
-  m._compile(patched, filename);
+  m._compile(guarded, filename);
   bot.loadPlugin(m.exports.pathfinder);
   if (pvp) {
     bot.loadPlugin(require("mineflayer-pvp").plugin);

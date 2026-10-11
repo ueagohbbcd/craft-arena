@@ -40,6 +40,8 @@ Load the adapters once with `loadSelectedPlugins(bot)`. Keep native Movements de
 
 Pathfinder's native `fullStop` writes local position/velocity. The adapter replaces it with a remote control stop (`stopAndCenter`, a legacy name); server inertia remains. PvP's legacy `physicTick` subscription is connected to observed `physicsTick`. Plugin goals, movement callbacks and planning run in the participant process. Adapter details are in [plugins.mjs](plugins.mjs).
 
+Horizontal edge positioning waits for landing and releases inherited horizontal input before entering the placement step. The check precedes `fullStop`: upstream can recenter an airborne bot off its support, while a control-only stop can leave it drifting during edge positioning. Jump-up placement and door use retain their existing behavior. A synthetic ledge regression compares upstream, the former adapter and the current adapter with real prismarine-physics; it reproduces the execution failure mechanism, not a recorded live-match trajectory.
+
 ## API differences
 
 - Inventory queries follow native Window storage ranges; `items()` excludes armor and crafting slots. Container transfer and item components are described below.
