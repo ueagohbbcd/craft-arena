@@ -22,10 +22,9 @@ if ($destination.StartsWith($world.TrimEnd('\','/') + [IO.Path]::DirectorySepara
 $match = (Resolve-Path -LiteralPath $MatchConfig).Path
 # The host validates the match schema. Here we only require readable JSON before copying it.
 $matchConfig = Get-Content -LiteralPath $match -Raw | ConvertFrom-Json
+# Download schema and integrity are checked once by prepare-minecraft-server.mjs.
 $download = Get-Content -LiteralPath $ServerDownload -Raw | ConvertFrom-Json
-if ($download.sha1 -notmatch '^[a-fA-F0-9]{40}$' -or $download.size -le 0) { throw 'ServerDownload requires the expected server JAR sha1 and size.' }
 if ($ServerJar) { $ServerJar = (Resolve-Path -LiteralPath $ServerJar).Path }
-elseif ($download.url -notmatch '^https://') { throw 'ServerDownload requires an HTTPS download URL.' }
 if ($matchConfig.live.minecraft.version -ne $download.minecraftVersion) { throw 'Match Minecraft version must match ServerDownload.minecraftVersion.' }
 $node = (Get-Command node -ErrorAction Stop).Source
 if ((& $node -p 'Number(process.versions.node.split(".")[0]) >= 24') -ne 'true') { throw 'Node.js 24 or newer is required.' }
