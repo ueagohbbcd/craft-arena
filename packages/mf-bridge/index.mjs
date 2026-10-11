@@ -503,6 +503,7 @@ export function createBridgeServer({
   let sequence = 0;
   const clients = new Set();
   const chatClients = new Set();
+  const writers = new WeakMap();
   const listeners = [];
   let tokens = maxActionsPerSecond,
     last = Date.now(),
@@ -514,13 +515,64 @@ export function createBridgeServer({
     data,
   });
   function write(res, event) {
-    if (res.writableLength > 4 * 1024 * 1024) {
-      res.destroy();
-      clients.delete(res);
-      chatClients.delete(res);
-      return;
+    if (res.destroyed || res.writableEnded) return;
+    let send = writers.get(res);
+    if (!send) {
+      const queue = [];
+      let queuedBytes = 0,
+        largestFrame = 0,
+        blocked = false;
+      const cleanup = () => {
+        queue.length = 0;
+        queuedBytes = largestFrame = 0;
+        res.off("drain", flush);
+        writers.delete(res);
+        clients.delete(res);
+        chatClients.delete(res);
+      };
+      const flush = () => {
+        blocked = false;
+        let sent = 0;
+        while (sent < queue.length && !blocked) {
+          const frame = queue[sent++];
+          queuedBytes -= frame.length;
+          blocked = !res.write(frame);
+        }
+        queue.splice(0, sent);
+        largestFrame = queue.reduce(
+          (max, frame) => Math.max(max, frame.length),
+          0,
+        );
+      };
+      send = (frame) => {
+        const largest = Math.max(largestFrame, frame.length);
+        // A full reset/sample can itself exceed 4 MiB. Bound accumulated
+        // backlog, not one legal frame: Node buffers up to its high-water
+        // mark plus one frame; our queue adds one largest frame plus 4 MiB.
+        if (queuedBytes + frame.length - largest > 4 * 1024 * 1024) {
+          cleanup();
+          // The server's clientError reports this code; the remote SDK sees
+          // a broken stream and uses its existing reconnect/reset behavior.
+          res.destroy(
+            Object.assign(
+              new Error("Bridge client exceeded SSE backlog budget"),
+              {
+                code: "ERR_BRIDGE_BACKPRESSURE",
+              },
+            ),
+          );
+          return;
+        }
+        queue.push(frame);
+        queuedBytes += frame.length;
+        largestFrame = largest;
+        if (!blocked) flush();
+      };
+      writers.set(res, send);
+      res.on("drain", flush);
+      res.once("close", cleanup);
     }
-    res.write(`data: ${wireStringify(event)}\n\n`);
+    send(Buffer.from(`data: ${wireStringify(event)}\n\n`));
   }
   function publish(type, data) {
     const e = envelope(type, data);
