@@ -56,7 +56,7 @@ node examples/render-fixture.mjs
 
 - **了解范围：** [主要特性](docs/FEATURES.md)、[项目规格](docs/SPEC.txt)。规格记录目标与待决策项，验证记录说明当前证据。
 - **参赛编程：** [玩家入门](docs/PLAYER.md)、[观察架构](docs/OBSERVATION.md)、[短说明](AGENTS.md)、[编程指南与示例](examples/SKILL.md)、[Pi 启动配置](packages/pi-extension/README.md)。入口为 `packages/pi-extension/bootstrap.mjs`。
-- **部署比赛：** [运营指南](infra/README.md)。Windows 本机使用 `scripts/initialize-windows-arena.ps1` 和 `scripts/windows-arena.ps1`，输入准备好的世界目录与比赛配置，统一保存为 `map-original/world` 供重置使用。Direct Fire 配置作为示例保留；Codex OAuth、DeepSeek 和自动系统代理按部署需要选择。通用部署使用 `infra/compose.live.yaml` 与 `infra/match.live.template.json`；`compose.yaml` 用于单独服务调试。
+- **部署比赛：** [运营指南](infra/README.md)。Windows 本机使用 `scripts/initialize-windows-arena.ps1` 和 `scripts/windows-arena.ps1`，输入准备好的世界目录与比赛配置，统一保存为 `map-original/world` 供重置使用。Direct Fire 配置作为示例保留；Codex OAuth、DeepSeek 和自动系统代理按部署需要选择。通用部署使用 `infra/compose.live.yaml` 与 `infra/match.live.template.json`；`compose.yaml` 用于单独服务调试。默认 live 部署使用固定版本的 Fabric + ServerReplay：开局录制、结束校验并按 runId 保存到可信 results；可用 `live.replay.enabled:false` 关闭。回放查看、升级和存储管理见运营指南。
 - **开发验证：** 修改后运行 `npm test`；涉及 Pi 或插件适配时检查相应集成用例。部署前固定地图、依赖与镜像版本，保存配置和结果。
 
 ### 模块入口
