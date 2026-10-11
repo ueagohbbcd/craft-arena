@@ -143,6 +143,11 @@ test("separate facade control queues do not hold up one another", async () => {
   await first.flush();
 });
 
+// Local bridge measurement: ~2ms median RPC RTT normally drained five writes
+// within a 50ms tick. A separate simulated 20ms RTT check at this same rate
+// left 51 of 100 writes pending after 1s, taking another 1023ms to drain.
+// FIFO correctness does not promise bounded latency or cleanup within the
+// TaskManager's default 500ms SIGTERM grace under network/backlog pressure.
 test("local HTTP control bursts preserve every write and report queue pressure", async (t) => {
   const native = Object.assign(new EventEmitter(), {
     entity: {},
