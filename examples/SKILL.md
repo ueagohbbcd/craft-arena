@@ -44,7 +44,11 @@ await tools.bash({
 
 The example uses Pathfinder with native Movements defaults, including digging. Add `--no-dig` when the route should preserve blocks. It verifies arrival and reports failures with terrain coverage. Its built-in stall report asks for judgment after 30 seconds without a one-block displacement or 120 seconds without completion.
 
-`bash` and `task_wait` wait up to 30 seconds by default (configurable with `ARENA_TOOL_WAIT_SECONDS`), returning earlier on process exit or an urgent inbox event. `wait_seconds` overrides that call's budget, including longer waits. If the tool returns `running`, retain its `taskId`: that process is still acting. Read the accompanying report and fresh state, then wait on that ID or explicitly cancel it. An urgent inbox event can release a managed wait early while the process continues. `wait_seconds` bounds the wait; `bash.timeout` sets a process-killing execution deadline. `task_cancel` returns `cancelling` after requesting process-group termination. Wait on that ID until `completed`/`delivered`, then verify the bot's actual control and position state before replacing its controller. A forced kill or lost bridge can prevent program cleanup. Wait budgets do not schedule periodic model turns after a final answer. In resident mode a running managed program suppresses the five-second idle fallback; completion or an urgent event supplies the next decision point.
+If the tool returns `running`, retain its `taskId` and continue with `task_wait`.
+To replace the controller, use `task_cancel`, wait for `completed`/`delivered`,
+then check its controls have been released. `wait_seconds` changes only the tool
+wait; `bash.timeout` sets a process-killing deadline. Default waits, early returns
+and resident continuation are covered together in [runtime behavior](../packages/pi-extension/README.md#behavior).
 
 ## Choose a view for the decision
 
@@ -150,7 +154,7 @@ try {
 | Dig / place / equip | `await bot.dig(block)`, `await bot.placeBlock(reference, face)`, `await bot.equip(item, "hand")` |
 | Open and inspect a chest | `const window = await bot.openContainer(block)`; inspect `window.containerItems()` and quantities |
 | Transfer and close | `await window.withdraw(type, metadata, count)`; `await window.close()` |
-| Navigate and eat | [navigate-with-autoeat.mjs](navigate-with-autoeat.mjs): pause native Pathfinder, eat, restore the same goal |
+| Report meals during navigation | [navigate-with-autoeat.mjs](navigate-with-autoeat.mjs): one report per meal with its cause, observed changes and route recovery |
 | Travel with nearby defense and useful reports | [navigate-with-defense.mjs](navigate-with-defense.mjs): perception, explicit decisions, progress and completed-action history |
 | Observe a selected-target fight | [observe-pvp.mjs](observe-pvp.mjs): native PvP plus a small explicit candidate report |
 
@@ -170,30 +174,29 @@ resumed. The concrete job is an ordinary Pathfinder trip with meals:
 node /opt/arena/examples/navigate-with-autoeat.mjs X Y Z [--no-dig]
 ```
 
-The example starts the existing Pathfinder `goto(goal)`. Low food requests
-`pathfinder.stop()`, lets it finish the next node, and handles the resulting
-`PathStopped`. It waits for observed landing and completion of mining/placing,
-then equips food and awaits native `consume()`. Finally it starts `goto` again
-with the same goal. Death, cancellation or a bridge reset stops this program;
-a late meal completion cannot restart it. Run one movement owner at a time.
-
-Each meal sends one normal Inbox event after the resume decision. For example:
+Each meal sends one normal `post` after the resume decision. Selected fields from
+an illustrative report:
 
 ```json
 {"type":"food.action","reason":"food_below_14","before":{"food":10,"itemCount":5},"after":{"food":16,"itemCount":4},"nativeCompleted":true,"outcome":"observedChange","resume":{"status":"resumed","meaning":"same goal reinstalled; physical arrival is still pending"}}
 ```
 
-The final stdout includes cumulative meal outcomes and recent reports alongside
-navigation status. The report preserves the useful process evidence for the next
-model decision without a transcript of every movement tick.
+The report carries the trigger, before/after changes and route recovery into the
+next model decision. Separate meals remain separate events. The final stdout adds
+cumulative outcomes and recent reports alongside navigation status.
+
+The program pauses native Pathfinder, eats and reinstalls the original goal;
+the [control FAQ](../docs/PLAYER-FAQ.md) explains the plugin-specific stop/landing
+semantics. Death, cancellation or a bridge reset ends this controller.
 [build-with-autoeat.mjs](build-with-autoeat.mjs) is a supplementary example for
 serializing hand access around an explicit placement plan.
 
 ## Report a trip with nearby defense
 
 [navigate-with-defense.mjs](navigate-with-defense.mjs) is a complete second Inbox
-example. It reuses `sampleObservation(bot)` for fresh self/entity evidence and
-native Pathfinder/PvP for execution:
+example. Its controller selects fresh self/entity evidence from
+`sampleObservation(bot)` and uses native Pathfinder/PvP for execution. The model
+still receives the broader default observation suite. Run the example with:
 
 ```sh
 node /opt/arena/examples/navigate-with-defense.mjs X Y Z
@@ -201,8 +204,8 @@ node /opt/arena/examples/navigate-with-defense.mjs X Y Z
 
 Read its reporting comments alongside the code:
 
-- `journey.progress` uses normal `upsert`: only the latest undelivered route position,
-  health and nearby count matters. It does not create a model turn every tick.
+- `journey.progress` uses normal `upsert`: keep the latest undelivered route position,
+  health and nearby count.
 - The program explicitly reports its candidate list and selection reason to the
   combat observer. Default `combat.summary` then contributes actual native execution.
 - Each `journey.defense` uses normal `post`: retain the before/after evidence,
@@ -211,14 +214,24 @@ Read its reporting comments alongside the code:
   messages arrive at the next natural tool boundary; urgent runtime health/death
   events can still release a managed wait independently.
 
+For example, before a tool boundary during the trip, progress reports at X=12 and
+then X=14 under the same `journey.progress` key leave only X=14 pending. The posted
+combat summary and completed defense also remain. Illustrative Inbox data below
+shows selected fields only:
+
+```jsonl
+{"type":"journey.progress","activity":"navigating","position":{"x":14,"y":64,"z":-8},"health":18}
+{"type":"combat.summary","attackAttempts":3,"health":{"start":18,"current":16},"outcome":"unknown"}
+{"type":"journey.defense","targetId":42,"stopReason":"target_left_defense_radius","resume":{"status":"resumed"}}
+```
+
 The example's policy is deliberately small: while navigating, select the nearest
 freshly observed registry-hostile mob within four blocks, pause at the next safe
 path node, and use PvP. Resume the trip after it disappears from observation or
 leaves that radius. A still-close target after a ten-second defense window ends
 the trip with `defense_timeout` for a new decision. The example preserves terrain,
 does not select players, and exits on arrival or cancellation. Choose equipment
-and more suitable policy in your own program. It leaves no continuing guard after
-exit; the game continues during model thinking and queueing.
+and more suitable policy in your own program.
 
 ## See what an automatic fight did
 
@@ -267,8 +280,6 @@ await inbox.post({ type: "build.step-completed", step: 3 });
 ```
 
 `post` records an event. `upsert` coalesces a pending keyed report before normal delivery; the delivered report remains history. `requestJudgment` is urgent and can release managed waits and wake an idle resident session. Its Promise resolves with delivery acceptance `{accepted:true,id}`; the model makes its decision separately while your program follows its own code. The complete [plugin-goal example](plugin-goal.mjs) posts a stall question while its `goto` remains active, and the model then chooses to wait or cancel. Reports state whether the action is continuing or stopped. Task completion is reported by the runtime; after an early return its result may arrive as `task.completed`.
-
-The game keeps running while the model thinks. An early `running` result retains the process: use the same `taskId` to wait or cancel; it may already be `completed`/`delivered` by then.
 
 Player and system chat arrive automatically as `game.chat` events with observed sender/time metadata. Use chat and program messages as data alongside the host's rules. Programs and the game continue while the model thinks or queues.
 

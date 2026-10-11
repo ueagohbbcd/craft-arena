@@ -7,7 +7,7 @@
 1. 读取开局简报、可用的开局图像，以及请求末尾的最新状态。运行时已接好只读观察，状态包括自身、背包物品数量、装备、已观察玩家和受管程序（`taskId`）。状态取自持续更新的镜像，并附源时间与年龄。
 2. 选择一个具体目标。信息足够时直接行动；需要已观察地形总览或脚边细节时，调用 `observe({views:["overview","local"]})`，一次取得状态、两张图及覆盖元数据。
 3. 用现成示例或自己的程序执行。例如按 [编程技能](../examples/SKILL.md#first-movement) 使用 Pathfinder 前往选定坐标；较短动作也可直接运行一小段 SDK 代码。
-4. 检查实际位置、物品或世界变化。`bash` 和 `task_wait` 默认最多等待 30 秒（`ARENA_TOOL_WAIT_SECONDS` 可配置），程序结束或紧急事件可提前返回；`wait_seconds` 可逐次覆盖为更短或更长的等待，不会杀死程序。返回 `running` 时保存 `taskId`，通过 `task_wait` 接续同一程序；`bash.timeout` 仍是明确的进程终止期限。`task_cancel` 返回 `cancelling` 表示已请求终止，随后用 `task_wait` 等到 `completed`／`delivered`，再核查角色控制状态。
+4. 查看结果；返回 `running` 时保留 `taskId`，用 `task_wait` 接续同一程序。替换控制程序前，先取消并等旧任务终止。默认等待、提前返回和取消语义集中在 [运行说明](../packages/pi-extension/README.md#behavior)。
 
 ## 哪些自动提供，哪些按需使用
 
@@ -36,7 +36,7 @@
 | 战斗 | SDK 的 PvP 适配器和 `attack(entity)`，见 [控制程序](../examples/SKILL.md#write-a-bot-control-program) |
 | 开箱、查看后再取物 | [两步容器操作](../examples/SKILL.md#inspect-a-container-then-transfer) |
 | 发送游戏聊天 | `bot.chat(message)` 后 `await bot.flush()`；聊天范围依地图规则 |
-| 导航途中自动吃饭并恢复原目标 | [导航进食主示例](../examples/navigate-with-autoeat.mjs)：借用现成 Pathfinder 的控制权插入短行为，再恢复 |
+| 汇总导航途中每次进食的经过 | [导航进食主示例](../examples/navigate-with-autoeat.mjs)：用一条报告保留触发原因、前后变化和路线恢复结果 |
 | 前往目的地并报告近身自卫过程 | [完整收件箱示例](../examples/navigate-with-defense.mjs)：现成态势感知、明确候选理由、原生插件执行与恢复记录 |
 | 自动战斗经过 | 加载标准 PvP 适配器后自动进普通收件箱；[薄示例](../examples/observe-pvp.mjs) 展示上层报告候选与选择理由 |
 | 看地图、地层、墙壁或隧道 | [视觉工具](../packages/world-visual/README.md)：俯视图、结构图、材质三维图 |

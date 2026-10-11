@@ -1,4 +1,4 @@
-/** Run ordinary Pathfinder, pause at its next node for a meal, then reuse the goal. */
+/** Inbox example: report each meal's cause, observed changes and route recovery. */
 import { once } from "node:events";
 import { pathToFileURL } from "node:url";
 import { connectBot } from "../packages/bot-sdk/index.mjs";
