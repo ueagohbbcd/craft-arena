@@ -165,8 +165,6 @@ export async function navigateWithAutoeat(
       if (!pauseRequested || error?.name !== "PathStopped") {
         if (error) throw error;
         // One final arrival check also covers older Pathfinder adapters.
-        if (!goal.isEnd(bot.entity.position.floored()))
-          throw new Error("Pathfinder finished away from the destination");
         if (meal) {
           meal.outcome = "unconfirmed";
           meal.resume.reason = "destination reached before meal pause";

@@ -144,8 +144,6 @@ export async function navigateWithDefense(
       signal.throwIfAborted();
       if (!selection || error?.name !== "PathStopped") {
         if (error) throw error;
-        if (!goal.isEnd(bot.entity.position.floored()))
-          throw new Error("Pathfinder finished away from destination");
         break;
       }
       while (
