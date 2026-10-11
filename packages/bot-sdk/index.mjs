@@ -471,6 +471,12 @@ export class BotFacade extends EventEmitter {
       `${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`,
     );
     if (!column || sampledAt < column.sampledAt) return;
+    // Native blockAt can report air outside a loaded dimension during a fall.
+    // Keep the same bounds as blockAt(): those coordinates are not writable
+    // chunk sections, and upstream light setters do not guard their arrays.
+    const minY = column.chunk.minY ?? this.game?.minY ?? 0;
+    const height = column.chunk.worldHeight ?? this.game?.height ?? 256;
+    if (p.y < minY || p.y >= minY + height) return;
     const local = this._vector({ x: p.x & 15, y: p.y, z: p.z & 15 });
     column.chunk.setBlockStateId(local, block.stateId);
     if (block.entity !== undefined) {
