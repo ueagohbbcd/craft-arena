@@ -37,6 +37,7 @@
 | 开箱、查看后再取物 | [两步容器操作](../examples/SKILL.md#inspect-a-container-then-transfer) |
 | 发送游戏聊天 | `bot.chat(message)` 后 `await bot.flush()`；聊天范围依地图规则 |
 | 导航途中自动吃饭并恢复原目标 | [导航进食主示例](../examples/navigate-with-autoeat.mjs)：借用现成 Pathfinder 的控制权插入短行为，再恢复 |
+| 前往目的地并报告近身自卫过程 | [完整收件箱示例](../examples/navigate-with-defense.mjs)：现成态势感知、明确候选理由、原生插件执行与恢复记录 |
 | 自动战斗经过 | 加载标准 PvP 适配器后自动进普通收件箱；[薄示例](../examples/observe-pvp.mjs) 展示上层报告候选与选择理由 |
 | 看地图、地层、墙壁或隧道 | [视觉工具](../packages/world-visual/README.md)：俯视图、结构图、材质三维图 |
 | 精确检查局部空间与方块计数 | [地形摘要](../examples/summarize-terrain.mjs) |
@@ -45,7 +46,16 @@
 
 工具包在 `$ARENA_TOOLKIT_ROOT`（默认 `/opt/arena`）。完整的 Mineflayer、Pathfinder、PvP 官方文档与源码在 `$ARENA_REFERENCE_ROOT`（默认 `/opt/mf-reference`），版本与安装的插件一致。不熟悉某个方法时按需查官方用法，接入细节见 SDK；行动中遇到的问题可先看 [短 FAQ](PLAYER-FAQ.md)。
 
-[施工时自动进食](../examples/build-with-autoeat.mjs) 保留为手部操作串行化的补充例子。主示例优先展示更容易遗漏的插件衔接：安全暂停通用寻路、插入短行为、恢复原目标，并把原因和实际结果交回收件箱。
+[施工时自动进食](../examples/build-with-autoeat.mjs) 保留为手部操作串行化的补充例子。主示例重点是有用的过程报告：哪些信息用 `upsert` 合并、哪些完成经过用 `post` 保留，以及如何把原因、实际结果和恢复情况交给下一轮判断。插件暂停与恢复是承载这些报告的具体场景。
+
+## 一个实际的观察→决策例子
+
+温室路线曾在脚部 Y=65 的目标上返回 `NoPath`。默认状态已经给出位置与血量，
+玩家只补查路径附近几格 `blockAt`，发现 Y=66 的低玻璃顶影响身体空间；随后改走
+X=276、脚部 Y=64 的走廊，而非作物格。这次补充观察直接改变了路线选择。
+
+当前状态够用就行动；缺的是具体障碍时补窄查询，层次关系难读时再用局部／三维图。
+不必把这些入口变成每次必走的检查单。
 
 ## 模型预算与等待
 

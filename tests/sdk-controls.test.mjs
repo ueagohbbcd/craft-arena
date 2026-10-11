@@ -106,8 +106,15 @@ function nativeBot() {
   require("mineflayer/lib/plugins/physics.js")(bot, { physicsEnabled: true });
   return bot;
 }
-async function fixture(t) {
+async function fixture(t, { items = false } = {}) {
   const native = nativeBot();
+  if (items) {
+    require("mineflayer/lib/plugins/inventory.js")(native, {
+      hideErrors: true,
+    });
+    require("mineflayer/lib/plugins/simple_inventory.js")(native);
+    native.quickBarSlot = 0;
+  }
   const service = await startBridge({ bot: native, token, snapshotRadius: 0 });
   let bot;
   t.after(async () => {
@@ -284,63 +291,80 @@ test(
   },
 );
 
-test(
-  "SIGTERM cancellation of the navigation CLI releases the persistent native bot over HTTP/SSE",
-  { timeout: 15000 },
-  async (t) => {
-    const { native, service } = await fixture(t);
-    const inbox = new Inbox();
-    const ipc = await createInboxServer({ inbox, token });
-    const tasks = new TaskManager({
-      inbox,
-      env: {
-        ARENA_BRIDGE_URL: service.url,
-        ARENA_BRIDGE_TOKEN: token,
-        MC_INBOX_URL: `http://127.0.0.1:${ipc.address.port}`,
-        MC_INBOX_TOKEN: token,
-        MC_INBOX_SESSION: inbox.sessionId,
-      },
-    });
-    t.after(async () => {
-      await tasks.close();
-      await ipc.close();
-    });
-    native.emit("login");
-    native._client.emit("position", {
-      x: 0.5,
-      y: 1,
-      z: 4.5,
-      yaw: 180,
-      pitch: 0,
-      flags: {},
-      teleportId: 1,
-    });
-    const filename = fileURLToPath(
-      new URL("../examples/plugin-goal.mjs", import.meta.url),
-    );
-    const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
-    const id = tasks.start(
-      `exec ${quote(process.execPath)} ${quote(filename)} 25 1 4 --no-dig`,
-    );
-    const deadline = Date.now() + 10000;
-    while (!native.controlState.forward) {
-      assert.equal(
-        tasks.get(id).status,
-        "running",
-        tasks.snapshot(tasks.get(id)).stderr,
+for (const [example, eating] of [
+  ["plugin-goal.mjs", false],
+  ["navigate-with-autoeat.mjs", false],
+  ["navigate-with-defense.mjs", false],
+  ["navigate-with-autoeat.mjs", true],
+])
+  test(
+    `SIGTERM cancellation of ${example}${eating ? " during native consume" : ""} releases the persistent native bot over HTTP/SSE`,
+    { timeout: 15000 },
+    async (t) => {
+      const { native, service } = await fixture(t, { items: true });
+      if (eating) {
+        native.food = 10;
+        const Item = require("prismarine-item")(registry);
+        native.inventory.updateSlot(
+          36,
+          new Item(registry.itemsByName.bread.id, 3),
+        );
+      }
+      const inbox = new Inbox();
+      const ipc = await createInboxServer({ inbox, token });
+      const tasks = new TaskManager({
+        inbox,
+        env: {
+          ARENA_BRIDGE_URL: service.url,
+          ARENA_BRIDGE_TOKEN: token,
+          MC_INBOX_URL: `http://127.0.0.1:${ipc.address.port}`,
+          MC_INBOX_TOKEN: token,
+          MC_INBOX_SESSION: inbox.sessionId,
+        },
+      });
+      t.after(async () => {
+        await tasks.close();
+        await ipc.close();
+      });
+      native.emit("login");
+      native._client.emit("position", {
+        x: 0.5,
+        y: 1,
+        z: 4.5,
+        yaw: 180,
+        pitch: 0,
+        flags: {},
+        teleportId: 1,
+      });
+      const filename = fileURLToPath(
+        new URL(`../examples/${example}`, import.meta.url),
       );
-      assert.ok(Date.now() < deadline, "native bot must begin walking");
-      await sleep(10);
-    }
-    assert.equal(tasks.cancel(id).status, "cancelling");
-    const result = await tasks.wait(id, { timeoutMs: 3000 });
-    assert.equal(result.status, "completed", result.stderr);
-    assert.equal(result.signal, null, "SIGKILL must not interrupt cleanup");
-    assert.equal(result.exitCode, 143, result.stderr);
-    assert.equal(result.stderr, "");
-    assert.ok(controls.every((control) => !native.controlState[control]));
-    await sleep(150); // The surviving bot keeps ticking after the CLI exits.
-    assert.ok(controls.every((control) => !native.controlState[control]));
-    assert.ok(native.entity.position.x < 25, "cancelled before arrival");
-  },
-);
+      const quote = (value) => `'${value.replaceAll("'", "'\\''")}'`;
+      const id = tasks.start(
+        `exec ${quote(process.execPath)} ${quote(filename)} 25 1 4 ${example === "navigate-with-defense.mjs" ? "" : "--no-dig"}`,
+      );
+      const deadline = Date.now() + 10000;
+      while (eating ? !native.usingHeldItem : !native.controlState.forward) {
+        assert.equal(
+          tasks.get(id).status,
+          "running",
+          tasks.snapshot(tasks.get(id)).stderr,
+        );
+        assert.ok(
+          Date.now() < deadline,
+          "native bot must begin its requested action",
+        );
+        await sleep(10);
+      }
+      assert.equal(tasks.cancel(id).status, "cancelling");
+      const result = await tasks.wait(id, { timeoutMs: 3000 });
+      assert.equal(result.status, "completed", result.stderr);
+      assert.equal(result.signal, null, "SIGKILL must not interrupt cleanup");
+      assert.equal(result.exitCode, 143, result.stderr);
+      assert.equal(result.stderr, "");
+      assert.ok(controls.every((control) => !native.controlState[control]));
+      await sleep(150); // The surviving bot keeps ticking after the CLI exits.
+      assert.ok(controls.every((control) => !native.controlState[control]));
+      assert.ok(native.entity.position.x < 25, "cancelled before arrival");
+    },
+  );

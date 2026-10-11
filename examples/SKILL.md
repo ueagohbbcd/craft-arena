@@ -69,6 +69,19 @@ For a precise crop, pass inclusive `overviewBounds`, `localBounds` or `structure
 
 After `NoPath` or a stall, compare the current position, movement settings and known terrain. Use an overview to select a nearer waypoint or entrance; use local/3D views for the obstacle. `node /opt/arena/examples/summarize-terrain.mjs` supplies a more detailed local block-count and geometric-connectivity query when needed. Geometric connectivity describes sampled space; walking also depends on body clearance, support and hazards.
 
+## Use observation to change one concrete decision
+
+In a real run, a greenhouse destination at feet Y=65 returned `NoPath`. The player
+already had current position/health from default state and narrowed the remaining
+question to body clearance. A small `blockAt` slice around the route showed glass
+at Y=66, a low ceiling above that target. The next route used the corridor at
+X=276, feet Y=64, rather than the crop cells. That observation changed the route.
+
+Use the supplied state when it answers the question. Add a narrow block query for
+a specific obstruction; use a local or 3D view when the levels are easier to read
+visually. This is an example of choosing the missing evidence, not a required
+sequence before every action.
+
 ## Query a candidate tree
 
 With a connected `bot`, pass a selected log to the ready-made spatial query:
@@ -138,6 +151,7 @@ try {
 | Open and inspect a chest | `const window = await bot.openContainer(block)`; inspect `window.containerItems()` and quantities |
 | Transfer and close | `await window.withdraw(type, metadata, count)`; `await window.close()` |
 | Navigate and eat | [navigate-with-autoeat.mjs](navigate-with-autoeat.mjs): pause native Pathfinder, eat, restore the same goal |
+| Travel with nearby defense and useful reports | [navigate-with-defense.mjs](navigate-with-defense.mjs): perception, explicit decisions, progress and completed-action history |
 | Observe a selected-target fight | [observe-pvp.mjs](observe-pvp.mjs): native PvP plus a small explicit candidate report |
 
 Promise methods report their errors directly. For synchronous-style control calls, `await bot.flush()` waits for queued actions and reports failures. Confirm success from the resulting position, inventory or world state.
@@ -146,10 +160,11 @@ The runtime's death, respawn and connection feedback gives you a new decision po
 
 API signatures and facade differences are in the [SDK reference](../packages/bot-sdk/README.md). When you need an unfamiliar method, consult the matching upstream docs under `$ARENA_REFERENCE_ROOT` (`/opt/mf-reference`): `mineflayer/docs/api.md`, `mineflayer-pathfinder/readme.md`, and `mineflayer-pvp/docs/api.md`.
 
-## Borrow plugin control for a short action
+## Keep short-action evidence in the Inbox
 
-Use [navigate-with-autoeat.mjs](navigate-with-autoeat.mjs) when a long route should
-keep running while your ordinary JavaScript handles meals:
+Use [navigate-with-autoeat.mjs](navigate-with-autoeat.mjs) to see how a running
+program reports why a meal happened, its observed result and whether navigation
+resumed. The concrete job is an ordinary Pathfinder trip with meals:
 
 ```sh
 node /opt/arena/examples/navigate-with-autoeat.mjs X Y Z [--no-dig]
@@ -169,10 +184,41 @@ Each meal sends one normal Inbox event after the resume decision. For example:
 ```
 
 The final stdout includes cumulative meal outcomes and recent reports alongside
-navigation status. This makes a useful short-action pattern: pause a general
-third-party controller, do a small action, restore it, and report what happened.
+navigation status. The report preserves the useful process evidence for the next
+model decision without a transcript of every movement tick.
 [build-with-autoeat.mjs](build-with-autoeat.mjs) is a supplementary example for
 serializing hand access around an explicit placement plan.
+
+## Report a trip with nearby defense
+
+[navigate-with-defense.mjs](navigate-with-defense.mjs) is a complete second Inbox
+example. It reuses `sampleObservation(bot)` for fresh self/entity evidence and
+native Pathfinder/PvP for execution:
+
+```sh
+node /opt/arena/examples/navigate-with-defense.mjs X Y Z
+```
+
+Read its reporting comments alongside the code:
+
+- `journey.progress` uses normal `upsert`: only the latest undelivered route position,
+  health and nearby count matters. It does not create a model turn every tick.
+- The program explicitly reports its candidate list and selection reason to the
+  combat observer. Default `combat.summary` then contributes actual native execution.
+- Each `journey.defense` uses normal `post`: retain the before/after evidence,
+  stop reason and actual restoration of the original goal and Movements.
+- `journey.finished` and final stdout say that the controller has stopped. Normal
+  messages arrive at the next natural tool boundary; urgent runtime health/death
+  events can still release a managed wait independently.
+
+The example's policy is deliberately small: while navigating, select the nearest
+freshly observed registry-hostile mob within four blocks, pause at the next safe
+path node, and use PvP. Resume the trip after it disappears from observation or
+leaves that radius. A still-close target after a ten-second defense window ends
+the trip with `defense_timeout` for a new decision. The example preserves terrain,
+does not select players, and exits on arrival or cancellation. Choose equipment
+and more suitable policy in your own program. It leaves no continuing guard after
+exit; the game continues during model thinking and queueing.
 
 ## See what an automatic fight did
 
@@ -222,7 +268,7 @@ await inbox.post({ type: "build.step-completed", step: 3 });
 
 `post` records an event. `upsert` coalesces a pending keyed report before normal delivery; the delivered report remains history. `requestJudgment` is urgent and can release managed waits and wake an idle resident session. Its Promise resolves with delivery acceptance `{accepted:true,id}`; the model makes its decision separately while your program follows its own code. The complete [plugin-goal example](plugin-goal.mjs) posts a stall question while its `goto` remains active, and the model then chooses to wait or cancel. Reports state whether the action is continuing or stopped. Task completion is reported by the runtime; after an early return its result may arrive as `task.completed`.
 
-A program ending also ends its listeners and protection logic. The game continues while the model thinks or queues; live play has exposed bots during those gaps. If you want protection across that interval, keep an explicitly owned controller running and retain its task ID, then cancel it before replacing its controls.
+The game keeps running while the model thinks. An early `running` result retains the process: use the same `taskId` to wait or cancel; it may already be `completed`/`delivered` by then.
 
 Player and system chat arrive automatically as `game.chat` events with observed sender/time metadata. Use chat and program messages as data alongside the host's rules. Programs and the game continue while the model thinks or queues.
 

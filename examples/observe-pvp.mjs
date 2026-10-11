@@ -72,10 +72,10 @@ try {
     } finally {
       await bot.combatObservation.close();
       console.log(JSON.stringify(bot.combatObservation.summary()));
-      bot.closeBridge();
       process.off("SIGTERM", cancel);
       process.off("SIGINT", cancel);
       for (const name of ["death", "bridgeReset", "end"]) bot.off(name, cancel);
+      bot.closeBridge();
     }
   }
 }

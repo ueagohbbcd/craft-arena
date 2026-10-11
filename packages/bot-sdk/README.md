@@ -38,7 +38,7 @@ Use a callback when selection needs block position, light or other per-block dat
 
 Use bot methods to perform actions. Local writes to position, velocity or window objects only change the observation copy. Minecraft owns physics and gameplay reach; the operator may configure an additional reach limit.
 
-Await Promise-returning actions directly and catch their rejections. For synchronous-style controls, `await bot.flush()` waits for queued requests, including writes not yet sent, and reports the first unreported failure; these queued failures also emit `error`. Action errors retain native name/message plus action and HTTP status. Install an error listener for control diagnostics. `controlState` describes local intent; check actual position to evaluate movement. `closeBridge()` closes the observation connection; clear controls separately when finishing an action.
+Await Promise-returning actions directly and catch their rejections. For synchronous-style controls, `await bot.flush()` waits for queued requests, including writes not yet sent, and reports the first unreported failure; these queued failures also emit `error`. Action errors retain native name/message plus action and HTTP status. Install an error listener for control diagnostics. `controlState` describes local intent; check actual position to evaluate movement. `closeBridge()` closes the observation connection and aborts this client’s pending action HTTP waits; it does not cancel authority-side actions. Release item use and controls before closing.
 
 Movement writes (`setControlState`, `clearControlStates`, `stop` / `stopAndCenter`) execute in call order within one facade. Failures still allow later releases to run; long actions such as digging remain independent. Identical states for the same control share a write only while it is still unsent; state transitions and every clear/stop barrier remain ordered. A dispatched write is never reused, so reassertions still reach the authority after errors or other controllers change native state. Repeated unchanged plugin ticks therefore do not build an unbounded duplicate backlog, but fast-changing controls or high round-trip latency can still delay releases beyond a task's cancellation grace. This ordering does not give separate programs ownership of shared bot controls. The offline diagnostic `node scripts/bench-control-queue.mjs --rtt=20 --ticks=20` measures enqueue/send/ack delay with a simulated transport; `--sdk=/path/to/other/checkout/packages/bot-sdk/index.mjs` compares another implementation and `--trace=true` includes individual timings.
 
@@ -174,6 +174,8 @@ actual candidates and reason using `reportDecision({ candidates,
 selectedTargetId, reason })`; your controller can use `reportStopReason(reason)`.
 These are labeled `controller_report`. Unreported selection or stopping reasons
 stay unknown. The observer does not infer a multi-target algorithm inside PvP.
+The complete [trip/defense Inbox example](../../examples/navigate-with-defense.mjs)
+combines ready-made perception, native execution and route-specific reports.
 The thin [observe-pvp example](../../examples/observe-pvp.mjs) demonstrates this
 with explicit observed IDs and PvP's separate `movements` instance:
 
