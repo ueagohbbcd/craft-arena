@@ -15,10 +15,27 @@ export function loadSelectedPlugins(bot, { pvp = true } = {}) {
     !source.slice(start, end).includes("bot.entity.velocity.x = 0")
   )
     throw new Error("Pathfinder fullStop patch mismatch");
-  const patched =
+  const pathHeader = "  function postProcessPath (path) {\n";
+  if (
+    !source.includes(pathHeader) ||
+    source.indexOf(pathHeader) !== source.lastIndexOf(pathHeader)
+  )
+    throw new Error("Pathfinder path-copy patch mismatch");
+  // Native post-processing centers Move coordinates in place. A partial A*
+  // result can still share its best node with the open heap; changing that
+  // node makes a reachable integer goal fail on the next search slice.
+  // Keep optimized execution nodes (and their shiftable work lists) separate.
+  const patched = (
     source.slice(0, start) +
     "  function fullStop () { bot.stopAndCenter() }" +
-    source.slice(end);
+    source.slice(end)
+  ).replace(
+    pathHeader,
+    pathHeader +
+      "    path = path.map(node => Object.assign(Object.create(Object.getPrototypeOf(node)), node, {\n" +
+      "      toBreak: [...node.toBreak], toPlace: [...node.toPlace]\n" +
+      "    }))\n",
+  );
   const m = new Module(filename);
   m.filename = filename;
   m.paths = Module._nodeModulePaths(dirname(filename));
