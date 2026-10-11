@@ -36,7 +36,7 @@ async function fixture(t, options = {}) {
       queue.post({ sessionId: queue.sessionId, kind: "state", key, data }),
   };
   loadSelectedPlugins(bot, {
-    inbox,
+    ...(options.autoInbox ? {} : { inbox }),
     combatObservation: { now: () => now, ...options },
   });
   t.after(async () => {
@@ -238,4 +238,41 @@ test("failed inbox delivery is retained locally without changing PvP or retrying
   assert.equal(observer.summary().recent.length, 1);
   assert.equal(sends, 1);
   await observer.close();
+});
+
+test("default adapter delivers task-associated normal summaries through managed Inbox environment", async (t) => {
+  const { createInboxServer } = await import("../packages/inbox/index.mjs");
+  const queue = new Inbox({ sessionId: "default-combat" });
+  const service = await createInboxServer({
+    inbox: queue,
+    port: 0,
+    token: "test-default-inbox-token",
+  });
+  t.after(() => service.close());
+  const env = {
+    MC_INBOX_SOCKET: undefined,
+    MC_INBOX_URL: `http://127.0.0.1:${service.address.port}`,
+    MC_INBOX_SESSION: queue.sessionId,
+    MC_INBOX_TOKEN: "test-default-inbox-token",
+    MC_INBOX_TASK_ID: "owned-task",
+  };
+  const before = Object.fromEntries(
+    Object.keys(env).map((key) => [key, process.env[key]]),
+  );
+  for (const [key, value] of Object.entries(env))
+    if (value === undefined) delete process.env[key];
+    else process.env[key] = value;
+  t.after(() => {
+    for (const [key, value] of Object.entries(before))
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+  });
+  const f = await fixture(t, { autoInbox: true });
+  await f.bot.pvp.attack(f.entity(2));
+  await f.stop();
+  const messages = queue.drain().messages;
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].taskId, "owned-task");
+  assert.equal(messages[0].priority, "normal");
+  assert.equal(messages[0].data.type, "combat.summary");
 });
