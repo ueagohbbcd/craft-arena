@@ -16,7 +16,10 @@ arbitrary filesystem or network operations.
 
 Policy defaults: chat enabled, no action-rate/concurrency/subscriber-count cap.
 Transport budgets remain 16 KiB request bodies, 8 MiB per chunk transfer, and
-4 MiB queued SSE output before disconnecting a slow reader. Optional trusted
+4 MiB of accumulated SSE backlog beyond the largest queued frame before
+disconnecting a slow reader. Complete large reset frames drain in order; Node
+buffers its normal high-water mark plus one frame, while the application queue
+holds at most its largest frame plus that 4 MiB allowance. Optional trusted
 `maxActionsPerSecond` and `maxConcurrentActions` can enforce operator policy. Minecraft
 enforces gameplay reach by default; operators may explicitly set `maxReach` to
 add a bridge policy checked against authoritative position. The dispatcher
