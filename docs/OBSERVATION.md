@@ -18,6 +18,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 | 开局视觉 | 独立启动流程按地图配置发送开局／入场图像用户消息 |
 | 动作与程序 | 普通 JavaScript 与 SDK／插件；用 `taskId` 等待或取消同一受管程序 |
 | 比赛状态／时限／胜负 | 来自可信 host 简报、`arena.clock` 和终局反馈 |
+| 树干／树枝候选 | 按需 `queryTreeCandidate({blockAt, seed})` 返回相连原木、叶子证据和未知／截断边界；控制程序选择采集方块 |
 | 精确查询 | 原始 SDK 字段和方法保留，按需要读取详细物品、实体与方块 |
 
 玩家操作见 [玩家指南](PLAYER.md) 和 [编程技能](../examples/SKILL.md)。下面说明开发者需要理解的数据流、范围和实现接口。
@@ -63,6 +64,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 - 开局：读简报和现成状态，结合开局图像选择第一个目标。
 - 探路：`observe({views:["overview","local"]})` 取得路线总览与脚边层；看到多层结构时追加 `3d`。
+- 采木：从观察到的原木选一个 `seed`，调用[树候选查询](../examples/SKILL.md#query-a-candidate-tree)取得坐标和证据，再编写采集控制。
 - 开箱：普通程序调用 `openContainer`；查看现成 `window` 内容或工具打印的 `containerItems()`，再决定取哪些数量。
 - 受伤／死亡：读取事件、当前生命和位置，并检查仍在运行的任务；选择继续等待、取消旧控制或恢复。
 - 连接变化：根据新鲜度与连接事件判断可用证据；恢复后重新取得实体、窗口和目标引用。

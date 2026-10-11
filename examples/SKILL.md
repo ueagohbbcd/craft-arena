@@ -21,6 +21,7 @@ Ordinary tool results, explicit query outputs and delivered inbox events stay in
 | Walls, bridges, tunnels or overlapping levels | `observe({views:["3d"]})` |
 | More observed item, entity or local-block detail | `observe({fullItems:true, fullEntities:true, fullLocal:true})`, selecting only the detail you need |
 | Omitted program details or current reports | `observe({fullRuntime:true})`; also works while game observation is unavailable |
+| Candidate trunk/branch blocks before chopping a tree | `queryTreeCandidate({blockAt, seed})`; see the short query below |
 | Another exact raw field or block query | Query the SDK from a short Node program |
 | Several actions, plugin movement or conditional control | Write and run an ordinary JavaScript program |
 | The same program is still running | `task_wait({taskId, wait_seconds:30})` |
@@ -66,6 +67,28 @@ for (const block of result.content) {
 For a precise crop, pass inclusive `overviewBounds`, `localBounds` or `structureBounds`, each shaped as `{min:{x,y,z},max:{x,y,z}}`. The lower-level `world_minimap` and `world_render3d` tools remain available with explicit `bounds` or `snapshotPath`. Their default 3D output is schematic; `textured:true` selects Prismarine rendering. See [visual tools](../packages/world-visual/README.md).
 
 After `NoPath` or a stall, compare the current position, movement settings and known terrain. Use an overview to select a nearer waypoint or entrance; use local/3D views for the obstacle. `node /opt/arena/examples/summarize-terrain.mjs` supplies a more detailed local block-count and geometric-connectivity query when needed. Geometric connectivity describes sampled space; walking also depends on body clearance, support and hazards.
+
+## Query a candidate tree
+
+With a connected `bot`, pass a selected log to the ready-made spatial query:
+
+```js
+import { queryTreeCandidate } from "/opt/arena/packages/observation/queries.mjs";
+
+const candidate = queryTreeCandidate({
+  blockAt: position => bot.blockAt(position),
+  seed: { x: 12, y: 64, z: -8 },
+});
+console.log(candidate.logs, candidate.leafEvidence, candidate.uncertainty);
+```
+
+This is an on-demand query. It returns connected `*_log` coordinates, nearby
+leaf evidence, unknown boundaries and any budget truncation; your control code
+chooses which blocks to gather. Default 26-neighbor connectivity follows diagonal
+branches; `connectivity: 6` uses touching faces. Adjacent trees and built wood can
+join the same candidate, so inspect its evidence before acting. Adjust `maxLogs`,
+`maxReads`, `maxDistance` and `leafRadius` for the job. The reusable implementation
+comes from `mineflayer-world-memory/queries.mjs`.
 
 ## Write a bot-control program
 
