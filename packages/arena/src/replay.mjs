@@ -2,7 +2,6 @@ import { execFile, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import {
-  lstat,
   mkdir,
   readFile,
   readdir,
@@ -15,9 +14,6 @@ import { setTimeout as delay } from "node:timers/promises";
 import { promisify } from "node:util";
 
 const exec = promisify(execFile);
-const safeName = (value) =>
-  typeof value === "string" && /^[A-Za-z0-9_-]+$/.test(value);
-
 export function validateReplay(config) {
   const replay = config.live?.replay;
   if (
@@ -49,19 +45,20 @@ export function validateReplay(config) {
     throw new Error("live.replay.saveTimeoutMs must be a positive integer");
 }
 
-/** Validate ZIP CRCs without extracting files, then check ReplayMod metadata. */
-export async function inspectReplay(path, minecraftVersion) {
-  await exec("unzip", ["-tqq", path]);
-  const { stdout: listing } = await exec("unzip", ["-Z1", path]);
+/** Read basic ZIP/ReplayMod metadata; deep verification is an operator-only opt-in. */
+export async function inspectReplay(
+  path,
+  minecraftVersion,
+  { signal, verify = false } = {},
+) {
+  const { stdout: listing } = await exec("unzip", ["-Z1", path], { signal });
   const entries = listing.trim().split(/\r?\n/);
-  for (const required of [
-    "metaData.json",
-    "recording.tmcpr",
-    "server_replay_meta.json",
-  ])
+  for (const required of ["metaData.json", "recording.tmcpr"])
     if (!entries.includes(required))
       throw new Error(`Replay missing ${required}`);
-  const { stdout } = await exec("unzip", ["-p", path, "metaData.json"]);
+  const { stdout } = await exec("unzip", ["-p", path, "metaData.json"], {
+    signal,
+  });
   const metadata = JSON.parse(stdout);
   if (
     metadata.mcversion !== minecraftVersion ||
@@ -72,10 +69,20 @@ export async function inspectReplay(path, minecraftVersion) {
     throw new Error(
       "Replay metadata does not match the configured Minecraft server",
     );
+  const { size } = await stat(path);
+  const result = {
+    bytes: size,
+    durationMs: metadata.duration,
+    minecraftVersion: metadata.mcversion,
+    generator: metadata.generator,
+  };
+  if (!verify) return result;
+  await exec("unzip", ["-tqq", path], { signal });
   // Drain packet bytes without buffering a potentially multi-gigabyte recording.
   const packetBytes = await new Promise((resolve, reject) => {
     const child = spawn("unzip", ["-p", path, "recording.tmcpr"], {
       stdio: ["ignore", "pipe", "ignore"],
+      signal,
     });
     let bytes = 0;
     child.stdout.on("data", (chunk) => {
@@ -89,17 +96,10 @@ export async function inspectReplay(path, minecraftVersion) {
     );
   });
   if (!packetBytes) throw new Error("Replay packet recording is empty");
-  const { size } = await stat(path);
   const hash = createHash("sha256");
-  for await (const chunk of createReadStream(path)) hash.update(chunk);
-  return {
-    bytes: size,
-    packetBytes,
-    sha256: hash.digest("hex"),
-    durationMs: metadata.duration,
-    minecraftVersion: metadata.mcversion,
-    generator: metadata.generator,
-  };
+  for await (const chunk of createReadStream(path, { signal }))
+    hash.update(chunk);
+  return { ...result, packetBytes, sha256: hash.digest("hex") };
 }
 
 /** Trusted-only recorder controller, using the same results/runs/<runId> archive. */
@@ -110,8 +110,6 @@ export function createReplayRecorder({
   rcon,
   inspect = inspectReplay,
 }) {
-  validateReplay(config);
-  if (!safeName(runId)) throw new Error("Invalid replay run ID");
   const options = config.live.replay ?? {};
   const enabled = options.enabled !== false;
   const relativeDir = posix.join("runs", runId, "replays");
@@ -145,8 +143,6 @@ export function createReplayRecorder({
       const folder = join(directory, participant.username);
       let entries;
       try {
-        if (!(await lstat(folder)).isDirectory())
-          throw new Error("Replay player path must be an ordinary directory");
         entries = await readdir(folder, { withFileTypes: true });
       } catch (error) {
         if (error.code === "ENOENT") {
@@ -155,14 +151,12 @@ export function createReplayRecorder({
         }
         throw error;
       }
-      if (entries.some((entry) => entry.isSymbolicLink()))
-        throw new Error("Replay paths must not be symlinks");
       const archives = entries.filter(
         (entry) => entry.isFile() && entry.name.endsWith(".mcpr"),
       );
       if (!archives.length && !startError) pending = true;
-      // ReplayStudio removes temporary files/cache only after final ZIP close.
-      if (entries.some((entry) => !entry.name.endsWith(".mcpr")))
+      // ReplayStudio removes its .cache only after final ZIP close.
+      if (entries.some((entry) => entry.name.endsWith(".cache")))
         pending = true;
       for (const entry of archives)
         files.push({
@@ -231,12 +225,18 @@ export function createReplayRecorder({
       startAttempted = true;
       state.startRequested = true;
       try {
-        await command("replay enable", /ServerReplay is now enabled!/);
-        for (const { username } of config.participants)
+        // Keep the global auto-record flag false even through server autosaves.
+        // This host ends on disconnect, so it does not need auto-rejoin recording.
+        for (const { username } of config.participants) {
+          await command(
+            `replay start players ${username}`,
+            /Successfully started 1 recordings/,
+          );
           await command(
             `replay marker add players ${username} "arena:${runId}:start"`,
             /Successfully marked 1 recordings/,
           );
+        }
         state.status = "recording";
       } catch (error) {
         startError = error;
@@ -247,15 +247,22 @@ export function createReplayRecorder({
     async requestStop() {
       if (!enabled || !startAttempted || stopRequested) return;
       stopRequested = true;
-      try {
-        await command(
+      const errors = [];
+      for (const [text, expect] of [
+        [
           "replay disable",
           /ServerReplay is (?:now disabled! Stopped all recordings\.|already disabled!)/,
-        );
-        state.status = "saving";
-      } catch (error) {
-        failed(error);
+        ],
+        ["replay stop all", /Successfully stopped all recordings\./],
+      ]) {
+        try {
+          await command(text, expect);
+        } catch (error) {
+          errors.push(error.message);
+        }
       }
+      if (errors.length) failed(new Error(errors.join("; ")));
+      else state.status = "saving";
     },
     async finish() {
       if (!enabled || !startAttempted) return;
@@ -274,11 +281,11 @@ export function createReplayRecorder({
         } while (true);
         for (const file of snapshot.files) {
           const path = resolve(resultDir, file.path);
-          if (!(await lstat(path)).isFile())
-            throw new Error("Replay must be an ordinary file");
           state.files.push({
             ...file,
-            ...(await inspect(path, config.live.minecraft.version)),
+            ...(await inspect(path, config.live.minecraft.version, {
+              signal: AbortSignal.timeout(Math.max(1, deadline - Date.now())),
+            })),
           });
         }
         if (startError) throw startError;

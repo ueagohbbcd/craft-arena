@@ -16,7 +16,7 @@ services:
     security_opt: *id002
     init: true
     pids_limit: ${ARENA_PIDS_LIMIT:-256}
-    mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
+    mem_limit: ${MC_MEMORY_LIMIT:-3g}
     cpus: ${ARENA_CPU_LIMIT:-2.0}
     restart: 'no'
     image: ${MC_SERVER_IMAGE:-craft-arena-minecraft:local}

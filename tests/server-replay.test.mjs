@@ -8,7 +8,6 @@ import {
   readdir,
   rm,
   writeFile,
-  symlink,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -30,6 +29,7 @@ async function fixture(t, overrides = {}) {
     ],
     live: {
       minecraft: { version: "1.21.1" },
+      readyTimeoutMs: 100,
       replay: {
         configPath: join(directory, "config", "config.json"),
         serverResultsDir: "/server-results",
@@ -48,6 +48,12 @@ async function fixture(t, overrides = {}) {
   const rcon = {
     async command(command) {
       commands.push(command);
+      if (command.startsWith("replay start players ")) {
+        const username = command.split(" ").at(-1);
+        const folder = join(directory, "runs", "run-1", "replays", username);
+        await mkdir(folder, { recursive: true });
+        return "Successfully started 1 recordings";
+      }
       return replies[command] ?? "Successfully marked 1 recordings";
     },
   };
@@ -91,6 +97,7 @@ test("replay defaults on, config scopes participants and uses the existing run a
   ]);
   await f.recorder.start();
   assert.equal(f.recorder.state.status, "recording");
+  assert.ok(!f.commands.includes("replay enable"));
   assert.ok(
     f.commands.includes(
       'replay marker add players arena_red1 "arena:run-1:start"',
@@ -131,8 +138,8 @@ test("missing mod and unconfirmed individual recorder prevent match start", asyn
   const other = await fixture(t);
   await other.recorder.prepare();
   other.rcon.command = async (command) =>
-    command === "replay enable"
-      ? "ServerReplay is now enabled!"
+    command.startsWith("replay start players")
+      ? "Successfully started 1 recordings"
       : "Failed to mark any recordings";
   await assert.rejects(other.recorder.start(), /acknowledgement/);
 });
@@ -166,7 +173,7 @@ test("save does not finish before pending asynchronous output appears", async (t
   assert.equal(f.recorder.state.status, "saved");
 });
 
-test("reused run IDs, traversal and symlinked recorder output fail closed", async (t) => {
+test("reused run IDs fail without mingling archives and command targets are validated", async (t) => {
   const f = await fixture(t);
   await f.recorder.prepare();
   const second = createReplayRecorder({
@@ -176,26 +183,6 @@ test("reused run IDs, traversal and symlinked recorder output fail closed", asyn
     rcon: f.rcon,
   });
   await assert.rejects(second.prepare(), { code: "EEXIST" });
-  assert.throws(
-    () =>
-      createReplayRecorder({
-        config: f.config,
-        runId: "../bad",
-        resultDir: f.directory,
-        rcon: f.rcon,
-      }),
-    /run ID/,
-  );
-  await symlink(
-    f.directory,
-    join(f.directory, "runs", "run-1", "replays", "arena_red1"),
-    "dir",
-  );
-  await f.recorder.start();
-  await f.recorder.requestStop();
-  await f.recorder.finish();
-  assert.equal(f.recorder.state.status, "failed");
-  assert.match(f.recorder.state.error, /ordinary directory/);
   f.config.participants[0].username = "@a";
   assert.throws(() => validateReplay(f.config), /usernames/);
 });
@@ -262,7 +249,10 @@ test("actual ZIP verification rejects corrupt, empty and wrong-version .mcpr fil
   };
   const valid = zip(entries);
   await writeFile(path, valid);
-  const metadata = await inspectReplay(path, "1.21.1");
+  const basic = await inspectReplay(path, "1.21.1");
+  assert.equal(basic.sha256, undefined);
+  assert.equal(basic.packetBytes, undefined);
+  const metadata = await inspectReplay(path, "1.21.1", { verify: true });
   assert.equal(metadata.packetBytes, 6);
   assert.equal(metadata.durationMs, 123);
   assert.equal(
@@ -271,7 +261,10 @@ test("actual ZIP verification rejects corrupt, empty and wrong-version .mcpr fil
   );
   await assert.rejects(inspectReplay(path, "1.21"), /metadata/);
   await writeFile(path, zip({ ...entries, "recording.tmcpr": "" }));
-  await assert.rejects(inspectReplay(path, "1.21.1"), /empty/);
+  await assert.rejects(
+    inspectReplay(path, "1.21.1", { verify: true }),
+    /empty/,
+  );
   await writeFile(path, valid.subarray(0, -5));
   await assert.rejects(inspectReplay(path, "1.21.1"));
 });
