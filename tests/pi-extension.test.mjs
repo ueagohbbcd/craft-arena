@@ -104,6 +104,33 @@ test("Pi hooks coalesce at one top-level return and preserve existing result con
   assert.equal(h.sent.length, 0);
 });
 
+test("observe fullRuntime retrieves retained raw program state even while the game observer is unavailable", async (t) => {
+  const h = await harness(t, {
+    env: {
+      ARENA_BRIDGE_URL: "",
+      ARENA_BRIDGE_TOKEN: "",
+      MC_BRIDGE_URL: "",
+      MC_BRIDGE_TOKEN: "",
+    },
+  });
+  const value = { phase: "reported phase", payload: "x".repeat(24000) };
+  await h.client.publishCurrent("large-program-state", value);
+  const context = await h.handlers.get("context_with_system")(
+    { messages: [] },
+    h.ctx,
+  );
+  const compact = JSON.parse(context.messages[0].content.split("\n")[1]);
+  assert.equal(compact.programState[0].data, undefined);
+  assert.equal(compact.runtimeProjection.programState.dataOmitted, 1);
+  assert(Buffer.byteLength(JSON.stringify(compact.programState)) < 8192);
+  const full = await h.run("observe", { fullRuntime: true }, "full-current");
+  assert.deepEqual(full.details.state.programState[0].data, value);
+  assert.equal(full.details.state.runtimeProjection.mode, "full");
+  assert.equal(full.details.state.freshness.status, "unavailable");
+  assert.equal(full.details.state.tasks.length, 1);
+  assert.equal(h.sent.length, 0);
+});
+
 test("Pi passive turn boundary persists inbox without requesting continuation", async (t) => {
   const h = await harness(t);
   await h.client.post({ passive: true });

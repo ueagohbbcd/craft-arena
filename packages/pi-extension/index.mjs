@@ -52,6 +52,7 @@ export default function participantInbox(pi) {
   const bridgeUrl = process.env.ARENA_BRIDGE_URL || process.env.MC_BRIDGE_URL;
   const bridgeToken =
     process.env.ARENA_BRIDGE_TOKEN || process.env.MC_BRIDGE_TOKEN;
+  const perceptionProjection = PerceptionRuntime.runtimeProjectionOptions();
   async function readMatch(fresh = false) {
     if (!bridgeUrl || !bridgeToken) return undefined;
     if (matchRead) return matchRead;
@@ -221,6 +222,7 @@ export default function participantInbox(pi) {
         token: bridgeToken,
         inbox,
         tasks,
+        projection: perceptionProjection,
         sampleOptions: async () =>
           PerceptionRuntime.observationOptionsFromMatch(await readMatch()),
       });
@@ -447,15 +449,18 @@ export default function participantInbox(pi) {
     };
   });
   ObservationTools.registerObserveTool(pi, {
-    getBot: async (ctx) => (await ensure(ctx)).perception.getBot(),
-    sampleOptions: async (ctx) => {
+    getBot: async (ctx, params) =>
+      (await ensure(ctx)).perception.getBot({
+        allowUnavailable: params?.fullRuntime === true,
+      }),
+    sampleOptions: async (ctx, params) => {
       const r = await ensure(ctx);
       return {
         ...PerceptionRuntime.observationOptionsFromMatch(await readMatch()),
-        tasks: PerceptionRuntime.currentTasks(r.tasks),
-        programState: (r.inbox.currentSnapshot?.() ?? []).filter(
-          (entry) => entry.source === "program",
-        ),
+        ...PerceptionRuntime.runtimeState(r.tasks, r.inbox, {
+          fullRuntime: params?.fullRuntime === true,
+          projection: perceptionProjection,
+        }),
       };
     },
   });

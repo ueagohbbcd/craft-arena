@@ -20,6 +20,8 @@ import inboxExtension from "../packages/pi-extension/index.mjs";
 import {
   currentTasks,
   observationOptionsFromMatch,
+  runtimeProjectionOptions,
+  runtimeState,
   startPerceptionRuntime,
   withCurrentObservation,
 } from "../packages/pi-extension/perception-runtime.mjs";
@@ -108,6 +110,87 @@ test("trusted match projection identifies teams and wool interests without guess
     /private-not-copied|wool-a|secret-goal/,
   );
   assert.deepEqual(observationOptionsFromMatch(), {});
+});
+
+test("default runtime projection bounds program bytes and historical tasks, preserves all running IDs, and offers exact full reads", () => {
+  let time = 1000;
+  const inbox = new Inbox({ sessionId: "large-current", now: () => time });
+  const tasks = { tasks: new Map() };
+  for (let i = 0; i < 128; i++)
+    tasks.tasks.set(String(i), {
+      id: `task-${i}`,
+      status: i < 24 ? "running" : "completed",
+      startedAt: i,
+      ...(i < 24 ? {} : { completedAt: 500 + i, exitCode: 0 }),
+    });
+  for (let i = 0; i < 10; i++) {
+    time++;
+    assert.equal(
+      inbox.setCurrent(`program-${i}`, {
+        phase: `phase-${i}`,
+        payload: "x".repeat(20000),
+      }).accepted,
+      true,
+    );
+  }
+  const before = inbox.currentSnapshot();
+  const projected = runtimeState(tasks, inbox, { now: time });
+  assert.equal(projected.tasks.length, 24);
+  assert.equal(projected.runtimeProjection.tasks.detailed, 16);
+  assert.equal(projected.runtimeProjection.tasks.compactRunning, 8);
+  assert.equal(projected.runtimeProjection.tasks.omitted, 104);
+  assert.deepEqual(
+    projected.tasks.map((task) => task.taskId).sort(),
+    Array.from({ length: 24 }, (_, i) => `task-${i}`).sort(),
+  );
+  assert.equal(projected.programState.length, 8);
+  assert(
+    projected.programState.every(
+      (entry) => entry.data === undefined && entry.dataOmitted.bytes > 20000,
+    ),
+  );
+  assert.equal(projected.runtimeProjection.programState.omitted, 2);
+  assert.equal(projected.runtimeProjection.programState.dataOmitted, 8);
+  assert(Buffer.byteLength(JSON.stringify(projected.programState)) <= 8192);
+  assert.deepEqual(projected.runtimeProjection.fullQuery, {
+    tool: "observe",
+    arguments: { fullRuntime: true },
+  });
+  const full = runtimeState(tasks, inbox, { now: time, fullRuntime: true });
+  assert.equal(full.tasks.length, 128);
+  assert.deepEqual(full.programState, before);
+  assert.deepEqual(
+    inbox.currentSnapshot(),
+    before,
+    "projection cannot mutate or drop retained current records",
+  );
+  assert.equal(
+    currentTasks(tasks).length,
+    128,
+    "raw task API has no presentation cap",
+  );
+  const custom = runtimeState(tasks, inbox, {
+    now: time,
+    projection: {
+      taskLimit: 2,
+      programStateLimit: 1,
+      programStateBytes: 256,
+      programStateEntryBytes: 256,
+    },
+  });
+  assert.equal(custom.tasks.length, 24);
+  assert.equal(custom.runtimeProjection.tasks.detailed, 2);
+  assert.equal(custom.programState.length, 1);
+  assert(Buffer.byteLength(JSON.stringify(custom.programState)) <= 256);
+  assert.equal(
+    runtimeProjectionOptions({ ARENA_PERCEPTION_TASK_LIMIT: "3" }).taskLimit,
+    3,
+  );
+  assert.equal(
+    runtimeProjectionOptions({ ARENA_PERCEPTION_PROGRAM_BYTES: "bad" })
+      .programStateBytes,
+    8192,
+  );
 });
 
 test("perception is not an action task; urgent events release waits without stopping the process", async (t) => {
@@ -253,6 +336,53 @@ test("hung initial connection never holds a model call or session shutdown indef
   );
   assert.equal(inbox.pending, false);
 });
+
+test(
+  "slow initial chunk hydration survives short model waits and renews the background connection progress timeout",
+  { timeout: 6000 },
+  async () => {
+    const inbox = new Inbox({ sessionId: "slow-hydration" });
+    const bot = fakeBot();
+    let connections = 0,
+      requests = 0;
+    const warnings = [];
+    const observer = runtime(inbox, {
+      connectTimeoutMs: 450,
+      sampleTimeoutMs: 10,
+      report: (message) => warnings.push(message),
+      fetchImpl: async () => {
+        requests++;
+        await delay(300);
+        return Response.json({ chunk: requests });
+      },
+      connect: async ({ fetchImpl, url }) => {
+        connections++;
+        for (let i = 0; i < 6; i++)
+          await (await fetchImpl(`${url}/v1/chunk?x=${i}&z=0`)).json();
+        return bot;
+      },
+    });
+    const started = Date.now();
+    try {
+      assert.equal((await observer.sample()).freshness.status, "connecting");
+      await delay(1550);
+      assert.equal(
+        (await observer.sample()).freshness.status,
+        "connecting",
+        "the old total 1.5s deadline must not restart active hydration",
+      );
+      await until(() => requests === 6);
+      await delay(320);
+      assert.equal(await observer.getBot(), bot);
+      assert.equal((await observer.sample()).self.health, 20);
+      assert.equal(connections, 1);
+      assert(Date.now() - started >= 1800);
+      assert.deepEqual(warnings, []);
+    } finally {
+      await observer.close();
+    }
+  },
+);
 
 test("SDK retry stops after close even when a test transport ignores abort and sends no initial snapshot", async () => {
   const inbox = new Inbox({ sessionId: "empty-stream" });

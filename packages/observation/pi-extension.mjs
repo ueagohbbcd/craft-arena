@@ -11,6 +11,12 @@ const point = Type.Object({
 });
 const bounds = Type.Object({ min: point, max: point });
 export const observeParameters = Type.Object({
+  fullRuntime: Type.Optional(
+    Type.Boolean({
+      description:
+        "Return every retained task status and unabridged current program record. Default uses compact display budgets and reports omissions; does not change underlying runtime data.",
+    }),
+  ),
   views: Type.Optional(
     Type.Array(
       Type.Union(OBSERVATION_VIEWS.map((name) => Type.Literal(name))),
@@ -67,6 +73,8 @@ export const observeParameters = Type.Object({
 
 export async function observeForModel(bot, options = {}, dependencies) {
   const result = await observe(bot, options, dependencies);
+  if (options.runtimeProjection)
+    result.state.runtimeProjection = options.runtimeProjection;
   const views = result.views.map(({ name, metadata }, index) => ({
     name,
     ...metadata,
@@ -116,10 +124,10 @@ export function registerObserveTool(
       content: Type.Array(Type.Any()),
     }),
     async execute(_id, params = {}, signal, _onUpdate, ctx) {
-      const bot = await getBot(ctx);
+      const bot = await getBot(ctx, params);
       const defaults =
         typeof sampleOptions === "function"
-          ? await sampleOptions(ctx)
+          ? await sampleOptions(ctx, params)
           : sampleOptions;
       if (signal?.aborted)
         throw signal.reason ?? new Error("Observation cancelled");
