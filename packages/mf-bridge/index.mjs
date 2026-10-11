@@ -574,7 +574,15 @@ export function createBridgeServer({
     }
     send(Buffer.from(`data: ${wireStringify(event)}\n\n`));
   }
+  let pendingSlotSnapshot = false;
   function publish(type, data) {
+    // Slot bursts are one synchronous window transaction. Sample them once,
+    // but flush before a discrete event so callbacks see its preceding state.
+    // An explicit snapshot already includes those same pending slot changes.
+    if (pendingSlotSnapshot) {
+      pendingSlotSnapshot = false;
+      if (type !== "snapshot") publish("snapshot", authority.snapshot(false));
+    }
     const e = envelope(type, data);
     for (const res of clients) write(res, e);
     if (
@@ -584,7 +592,13 @@ export function createBridgeServer({
     )
       for (const res of chatClients) write(res, e);
   }
-  const onSlotUpdate = () => publish("snapshot", authority.snapshot(false));
+  const onSlotUpdate = () => {
+    if (pendingSlotSnapshot) return;
+    pendingSlotSnapshot = true;
+    queueMicrotask(() => {
+      if (pendingSlotSnapshot) publish("snapshot", authority.snapshot(false));
+    });
+  };
   let watchedWindow;
   const watchWindow = (window) => {
     watchedWindow?.off?.("updateSlot", onSlotUpdate);
@@ -841,6 +855,7 @@ export function createBridgeServer({
       };
     },
     async close() {
+      pendingSlotSnapshot = false;
       clearInterval(timer);
       bot.inventory?.off?.("updateSlot", onSlotUpdate);
       watchWindow(null);
