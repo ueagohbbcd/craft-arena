@@ -1,0 +1,38 @@
+{
+  "date": "2026-10-11",
+  "commit": "905f44469bbad33d1071a364373db91c813ad7b4",
+  "defaultTools": [
+    "read",
+    "bash",
+    "edit",
+    "write",
+    "observe",
+    "task_wait",
+    "task_cancel",
+    "world_minimap",
+    "world_render3d",
+    "world_opening"
+  ],
+  "method": "Installed Pi bootstrap with controlled model/SSE and bridge fixtures; direct stdout and native PNG delivery.",
+  "verification": {
+    "entryTests": 14,
+    "focusedTests": 85,
+    "fullSuite": {
+      "tests": 562,
+      "passed": 560,
+      "failed": 0,
+      "skipped": 2
+    }
+  },
+  "explicitToolSelection": [
+    "--tools +codemode",
+    "-t read,bash"
+  ],
+  "liveTrial": {
+    "match": "direct-fire-duel-20261011-r2",
+    "startedAt": "2026-10-11T14:42:17.594Z",
+    "statusAtRecord": "running",
+    "integration": "Actual bridge, SDK, Inbox and perception; native subagents using file relay."
+  },
+  "scope": "Automated fixtures verify interface delivery. Live gameplay and full Pi/container deployment have separate acceptance results."
+}
