@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, stat } from "node:fs/promises";
+import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import http from "node:http";
@@ -141,39 +142,51 @@ test("normal completion captures stdout/stderr and claims result once", async (t
   );
 });
 
-test("urgent releases all current and same-batch subsequent waits while children live", async (t) => {
-  const inbox = new Inbox();
-  const tasks = new TaskManager({ inbox });
-  t.after(() => tasks.close());
-  const command = `${process.execPath} -e 'console.log("started");setTimeout(()=>console.log("finished"),300)'`;
-  const a = tasks.start(command);
-  const b = tasks.start(command);
-  const waits = [
-    tasks.wait(a, { timeoutMs: 5000 }),
-    tasks.wait(b, { timeoutMs: 5000 }),
-  ];
-  await sleep(60);
-  post(
-    inbox,
-    { reason: "judge now" },
-    { kind: "judgment", priority: "urgent" },
-  );
-  const results = await Promise.all(waits);
-  for (const result of results) {
-    assert.equal(result.status, "running");
-    assert.match(result.reason, /urgent/);
-  }
-  assert.equal((await tasks.wait(a, { timeoutMs: 5000 })).status, "running");
-  for (const id of [a, b])
-    assert.doesNotThrow(() => process.kill(tasks.get(id).child.pid, 0));
-  assert.equal(inbox.drain().messages.length, 1);
-  tasks.resumeWaits();
-  await sleep(400);
-  const completed = inbox.drain().messages;
-  assert.equal(completed.length, 2);
-  assert.ok(completed.every((m) => m.data.stdout.includes("finished")));
-  assert.equal((await tasks.wait(a)).status, "delivered");
-});
+test(
+  "urgent releases all current and same-batch subsequent waits while children live",
+  { timeout: 10000 },
+  async (t) => {
+    const inbox = new Inbox();
+    const tasks = new TaskManager({ inbox });
+    t.after(() => tasks.close());
+    const dir = await mkdtemp(join(tmpdir(), "arena-urgent-gate-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const gate = join(dir, "finish");
+    const command = `${process.execPath} -e 'const fs=require("node:fs");console.log("started");const timer=setInterval(()=>{if(fs.existsSync(process.env.TEST_GATE)){clearInterval(timer);console.log("finished")}},10)'`;
+    const a = tasks.start(command, { env: { TEST_GATE: gate } });
+    const b = tasks.start(command, { env: { TEST_GATE: gate } });
+    const started = [a, b].map((id) =>
+      once(tasks.get(id).child.stdout, "data"),
+    );
+    const closed = [a, b].map((id) => once(tasks.get(id).child, "close"));
+    const waits = [
+      tasks.wait(a, { timeoutMs: 5000 }),
+      tasks.wait(b, { timeoutMs: 5000 }),
+    ];
+    await Promise.all(started);
+    post(
+      inbox,
+      { reason: "judge now" },
+      { kind: "judgment", priority: "urgent" },
+    );
+    const results = await Promise.all(waits);
+    for (const result of results) {
+      assert.equal(result.status, "running");
+      assert.match(result.reason, /urgent/);
+    }
+    assert.equal((await tasks.wait(a, { timeoutMs: 5000 })).status, "running");
+    for (const id of [a, b])
+      assert.doesNotThrow(() => process.kill(tasks.get(id).child.pid, 0));
+    assert.equal(inbox.drain().messages.length, 1);
+    tasks.resumeWaits();
+    await writeFile(gate, "finish");
+    await Promise.all(closed);
+    const completed = inbox.drain().messages;
+    assert.equal(completed.length, 2);
+    assert.ok(completed.every((m) => m.data.stdout.includes("finished")));
+    assert.equal((await tasks.wait(a)).status, "delivered");
+  },
+);
 
 test("late completion survives queue overflow, can be claimed by one of simultaneous waits", async (t) => {
   const inbox = new Inbox({ maxItems: 1 });
