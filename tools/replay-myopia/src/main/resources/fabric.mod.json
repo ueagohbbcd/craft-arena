@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "id": "replay_myopia",
+  "version": "${version}",
+  "name": "Craft Arena Replay Myopia",
+  "description": "Optional replay-only near-range illustration. Not the model's actual observations.",
+  "environment": "client",
+  "entrypoints": { "client": ["dev.craftarena.replaymyopia.MyopiaClient"] },
+  "mixins": ["replay-myopia.mixins.json"],
+  "depends": {
+    "fabricloader": ">=0.16.14",
+    "minecraft": "1.21.1",
+    "java": ">=21",
+    "fabric-api": "*",
+    "replaymod": "1.21-2.6.27"
+  }
+}
