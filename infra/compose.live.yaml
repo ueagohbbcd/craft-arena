@@ -1,9 +1,7 @@
-x-restricted:
+x-restricted: &restricted
   user: 1000:1000
-  cap_drop: &id001
-  - ALL
-  security_opt: &id002
-  - no-new-privileges:true
+  cap_drop: [ALL]
+  security_opt: ['no-new-privileges:true']
   init: true
   pids_limit: ${ARENA_PIDS_LIMIT:-256}
   mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
@@ -11,14 +9,8 @@ x-restricted:
   restart: 'no'
 services:
   minecraft:
-    user: 1000:1000
-    cap_drop: *id001
-    security_opt: *id002
-    init: true
-    pids_limit: ${ARENA_PIDS_LIMIT:-256}
+    <<: *restricted
     mem_limit: ${MC_MEMORY_LIMIT:-3g}
-    cpus: ${ARENA_CPU_LIMIT:-2.0}
-    restart: 'no'
     image: ${MC_SERVER_IMAGE:-craft-arena-minecraft:local}
     build:
       context: ${MC_SERVER_BUILD_CONTEXT:-../runtime/server}
@@ -30,14 +22,7 @@ services:
     - match-results:/results
     - replay-config:/data/config/ServerReplay
   budget-gateway:
-    user: 1000:1000
-    cap_drop: *id001
-    security_opt: *id002
-    init: true
-    pids_limit: ${ARENA_PIDS_LIMIT:-256}
-    mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
-    cpus: ${ARENA_CPU_LIMIT:-2.0}
-    restart: 'no'
+    <<: *restricted
     build:
       context: ..
       dockerfile: infra/Dockerfile.trusted
@@ -60,14 +45,7 @@ services:
     - blue1
     - model-egress
   participant-red1:
-    user: 1000:1000
-    cap_drop: *id001
-    security_opt: *id002
-    init: true
-    pids_limit: ${ARENA_PIDS_LIMIT:-256}
-    mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
-    cpus: ${ARENA_CPU_LIMIT:-2.0}
-    restart: 'no'
+    <<: *restricted
     build:
       context: ..
       dockerfile: infra/Dockerfile.participant
@@ -90,14 +68,7 @@ services:
     stdin_open: true
     tty: true
   participant-blue1:
-    user: 1000:1000
-    cap_drop: *id001
-    security_opt: *id002
-    init: true
-    pids_limit: ${ARENA_PIDS_LIMIT:-256}
-    mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
-    cpus: ${ARENA_CPU_LIMIT:-2.0}
-    restart: 'no'
+    <<: *restricted
     build:
       context: ..
       dockerfile: infra/Dockerfile.participant
@@ -121,14 +92,7 @@ services:
     tty: true
   arena-host:
     stop_grace_period: ${ARENA_HOST_STOP_GRACE_PERIOD:-180s}
-    user: 1000:1000
-    cap_drop: *id001
-    security_opt: *id002
-    init: true
-    pids_limit: ${ARENA_PIDS_LIMIT:-256}
-    mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
-    cpus: ${ARENA_CPU_LIMIT:-2.0}
-    restart: 'no'
+    <<: *restricted
     build:
       context: ..
       dockerfile: infra/Dockerfile.trusted
@@ -166,5 +130,4 @@ volumes:
   blue-git: {}
   match-results: {}
   match-control: {}
-
   replay-config: {}

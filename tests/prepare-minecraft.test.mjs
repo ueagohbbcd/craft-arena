@@ -75,3 +75,26 @@ test("preparation checks downloaded bytes and refuses to overwrite build context
   );
   assert.ok(!(await readdir(f.directory)).includes("bad"));
 });
+
+// The Windows initializer delegates download validation to this same helper.
+test("server preparation accepts each supported pinned digest", async (t) => {
+  const f = await fixture(t);
+  const bytes = Buffer.from("local server fixture");
+  const serverJar = join(f.directory, "server.jar");
+  await writeFile(serverJar, bytes);
+  for (const algorithm of ["sha1", "sha256", "sha512"]) {
+    const manifestPath = join(f.directory, `${algorithm}.json`);
+    await writeFile(
+      manifestPath,
+      JSON.stringify({
+        minecraftVersion: "test",
+        url: "https://example.invalid/server.jar",
+        size: bytes.length,
+        [algorithm]: createHash(algorithm).update(bytes).digest("hex"),
+      }),
+    );
+    const destination = join(f.directory, algorithm);
+    await prepareMinecraftServer({ destination, manifestPath, serverJar });
+    assert.deepEqual(await readFile(join(destination, "server.jar")), bytes);
+  }
+});
