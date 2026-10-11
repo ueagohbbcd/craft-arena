@@ -424,3 +424,91 @@ test("memory reads use native heights and caller page sizes without invented coo
     "air",
   );
 });
+
+test("two-sided sign NBT and native lighting survive updates, unload, HTTP, gzip restore and read-only prefetch", async (t) => {
+  const directory = await mkdtemp(join(tmpdir(), "bridge-sign-memory-"));
+  t.after(() => rm(directory, { recursive: true, force: true }));
+  const { bot, columns, add } = fixture();
+  const chunk = add(-1),
+    position = { x: -1, y: 64, z: 3 },
+    local = { x: 15, y: 64, z: 3 };
+  const Block = require("prismarine-block")(registry);
+  const sign = Block.fromStateId(
+    registry.blocksByName.oak_sign.defaultState,
+    0,
+  );
+  sign.setSignText(
+    ["Supplies", "第二行"],
+    ["Return route", 'Read "both" sides'],
+  );
+  chunk.setBlockStateId(local, sign.stateId);
+  chunk.setBlockEntity(local, structuredClone(sign.entity));
+  chunk.setBlockLight(local, 11);
+  chunk.setSkyLight(local, 7);
+  const initial = Chunk.fromJson(chunk.toJson()).getBlock(local);
+  assert.deepEqual(initial.entity, sign.entity);
+  assert.deepEqual(initial.getSignText(), [
+    "Supplies\n第二行",
+    'Return route\nRead "both" sides',
+  ]);
+  assert.equal(initial.light, 11);
+  assert.equal(initial.skyLight, 7);
+  let service = await startBridge({
+    bot,
+    token,
+    blockMemory: { ...scope, directory },
+  });
+  t.after(() => service.close());
+  let reader = createBlockMemoryClient({ url: service.url, token });
+  assert.deepEqual(
+    (await reader.block({ ...position, dimension: "overworld" })).block.entity,
+    sign.entity,
+  );
+  // Sign text arrives as blockEntityData without changing the block state ID.
+  sign.setSignText(["Updated supplies", "前面"], ["Updated return", "背面"]);
+  chunk.setBlockEntity(local, structuredClone(sign.entity));
+  chunk.setBlockLight(local, 9);
+  chunk.setSkyLight(local, 3);
+  bot.emit("blockEntityData", bot.blockAt(position));
+  columns.delete("-1,0");
+  bot.emit("chunkColumnUnload", { x: -16, z: 0 });
+  const check = async () => {
+    const result = await reader.block({ ...position, dimension: "overworld" });
+    assert.equal(result.status, "historical");
+    assert.deepEqual(result.block.entity, sign.entity);
+    assert.equal(result.block.light, 9);
+    assert.equal(result.block.skyLight, 3);
+    const remote = await reader.chunk({ dimension: "overworld", x: -1, z: 0 });
+    assert.deepEqual(
+      Chunk.fromJson(remote.data).getBlock(local).getSignText(),
+      ["Updated supplies\n前面", "Updated return\n背面"],
+    );
+    const view = await reader.prefetch({
+      dimension: "overworld",
+      columns: [{ x: -1, z: 0 }],
+    });
+    const block = view.blockAt(position);
+    assert.deepEqual(block.entity, sign.entity);
+    assert.deepEqual(block.getSignText(), [
+      "Updated supplies\n前面",
+      "Updated return\n背面",
+    ]);
+    assert.equal(block.light, 9);
+    assert.equal(block.skyLight, 3);
+    block.setSignText("caller-local mutation", "caller-local back");
+    assert.deepEqual(
+      view.blockAt(position).entity,
+      sign.entity,
+      "returned native block entities cannot mutate the prefetched column",
+    );
+  };
+  await check();
+  await service.close();
+  service = await startBridge({
+    bot: fixture().bot,
+    token,
+    blockMemory: { ...scope, directory },
+  });
+  reader = createBlockMemoryClient({ url: service.url, token });
+  await check();
+});
