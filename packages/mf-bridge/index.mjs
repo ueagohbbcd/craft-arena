@@ -1,3 +1,4 @@
+import { createBlockMemory } from "./block-memory.mjs";
 import http from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 const wireStringify = (value) =>
@@ -486,6 +487,7 @@ export function createBridgeServer({
   maxConcurrentActions = Infinity,
   authorizeAction,
   getMatchState,
+  blockMemory = {},
 } = {}) {
   if (!bot || typeof token !== "string" || token.length < 16)
     throw new Error("Bot and token (16+ characters) required");
@@ -519,6 +521,7 @@ export function createBridgeServer({
         : {}),
     ...(action ? { action } : {}),
   });
+  const terrainMemory = createBlockMemory(bot, blockMemory, serializeBlock);
   const epoch = randomUUID();
   let sequence = 0;
   const clients = new Set();
@@ -758,6 +761,29 @@ export function createBridgeServer({
       res.writeHead(401);
       return res.end();
     }
+    if (req.method === "GET" && req.url.startsWith("/v1/memory/")) {
+      try {
+        const result = await terrainMemory.query(
+          new URL(req.url, "http://bridge"),
+        );
+        res.writeHead(200, {
+          "content-type": "application/json",
+          "cache-control": "no-store",
+        });
+        res.end(wireStringify({ ok: true, result }));
+      } catch (error) {
+        res.writeHead(error.status ?? 400, {
+          "content-type": "application/json",
+        });
+        res.end(
+          JSON.stringify({
+            ok: false,
+            error: errorText(error.message, "Memory query failed"),
+          }),
+        );
+      }
+      return;
+    }
     if (req.method === "GET" && req.url === "/v1/match") {
       if (typeof getMatchState !== "function") {
         res.writeHead(404);
@@ -888,6 +914,7 @@ export function createBridgeServer({
       for (const c of chatClients) c.end();
       server.closeAllConnections();
       await new Promise((r) => server.close(r));
+      await terrainMemory.close();
     },
   };
 }

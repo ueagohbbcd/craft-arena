@@ -945,3 +945,5 @@ export async function connectBot(options) {
   })();
   return ready;
 }
+
+export { createBlockMemoryClient, BlockMemoryClient } from "./block-memory.mjs";

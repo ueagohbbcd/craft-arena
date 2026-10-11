@@ -267,6 +267,11 @@ export async function createLiveMatch(
             bridge: {
               ...p.bridge,
               token,
+              blockMemory: {
+                worldId: `${config.map.id}@${config.map.version}`,
+                runId: host.runId,
+                participantId: p.id,
+              },
               host: p.bridge.host ?? "0.0.0.0",
               authorizeAction: () => host.state === "running",
               getMatchState: () => ({
