@@ -291,7 +291,80 @@ function teamFor(entity, teams) {
     lookup(teams, entity.username);
   return typeof value === "string" || typeof value === "number" ? value : null;
 }
-function entitySummary(entity, origin, teams, ownTeam, full) {
+// Mineflayer parseMetadata stores received values at numeric keys. Resolve
+// names through this version's registry; never substitute protocol offsets.
+function entityState(entity, registry, full) {
+  const keys = registry?.entitiesByName?.[entity.name]?.metadataKeys;
+  const read = (name) => {
+    const index = Array.isArray(keys) ? keys.indexOf(name) : -1;
+    return index >= 0 && Object.hasOwn(entity.metadata ?? {}, index)
+      ? entity.metadata[index]
+      : null;
+  };
+  const integer = (value) => (Number.isSafeInteger(value) ? value : null);
+  const flag = (value) =>
+    typeof value === "boolean"
+      ? value
+      : value === 0 || value === 1
+        ? value === 1
+        : null;
+  const state = { source: "last-received-metadata" };
+  if (entity.name === "tnt")
+    state.tnt = { fuseTicksReceived: integer(read("fuse")) };
+  if (entity.name === "creeper")
+    state.creeper = {
+      swellDirection: integer(read("swell_dir")),
+      powered: flag(read("is_powered")),
+      ignited: flag(read("is_ignited")),
+    };
+  if (
+    keys?.includes("living_entity_flags") ||
+    entity.type === "player" ||
+    entity.name === "player"
+  ) {
+    const flags = integer(read("living_entity_flags"));
+    const usingItem = flags === null ? null : !!(flags & 0x01);
+    const activeHand = usingItem ? (flags & 0x02 ? "offhand" : "main") : null;
+    const observedItem = activeHand
+      ? entity.equipment?.[activeHand === "offhand" ? 1 : 0]
+      : null;
+    let activityCandidate = null;
+    if (observedItem?.name) {
+      activityCandidate =
+        {
+          shield: "blocking",
+          bow: "drawing_bow",
+          crossbow: "charging_crossbow",
+          trident: "charging_trident",
+          potion: "drinking",
+          milk_bucket: "drinking",
+          honey_bottle: "drinking",
+          spyglass: "using_spyglass",
+          goat_horn: "playing_horn",
+        }[observedItem.name] ??
+        (registry?.foodsByName?.[observedItem.name] ? "eating" : "using_item");
+    }
+    state.itemUse = {
+      usingItem,
+      activeHand,
+      activeItem: describeItem(observedItem, full),
+      activityCandidate,
+    };
+  }
+  // These are explicit synchronized targets for these entity types only.
+  // In particular, ordinary hostile-mob metadata does not reveal an AI target.
+  if (["guardian", "elder_guardian"].includes(entity.name))
+    state.targetEntityIds = { attack_target: integer(read("attack_target")) };
+  if (entity.name === "wither")
+    state.targetEntityIds = Object.fromEntries(
+      ["target_a", "target_b", "target_c"].map((name) => [
+        name,
+        integer(read(name)),
+      ]),
+    );
+  return Object.keys(state).length > 1 ? state : null;
+}
+function entitySummary(entity, origin, teams, ownTeam, full, registry) {
   const position = vector(entity.position);
   const relative =
     position && origin
@@ -310,6 +383,7 @@ function entitySummary(entity, origin, teams, ownTeam, full) {
     relative,
     distance: relative ? Math.hypot(relative.x, relative.y, relative.z) : null,
     velocity: vector(entity.velocity),
+    state: entityState(entity, registry, full),
     team,
     relation:
       team !== null && ownTeam !== null
@@ -361,6 +435,7 @@ function entitiesSummary(bot, options, origin) {
         options.teams,
         ownTeam,
         options.fullEntities,
+        bot?.registry,
       ),
     );
   }

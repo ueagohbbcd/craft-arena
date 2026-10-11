@@ -708,3 +708,179 @@ test("persistent native disconnect stays disconnected after a new observer and b
   assert.equal(watcher.sample().freshness.status, "fresh");
   watcher.close();
 });
+
+const metadataFor = (name, values, sourceRegistry = registry) =>
+  Object.fromEntries(
+    Object.entries(values).map(([key, value]) => {
+      const index =
+        sourceRegistry.entitiesByName[name].metadataKeys.indexOf(key);
+      assert.notEqual(index, -1, `real registry metadata key ${name}.${key}`);
+      return [index, value];
+    }),
+  );
+
+test("TNT fuse is the latest received metadata value, never an invented countdown", () => {
+  const bot = fixture();
+  bot.entities[2] = entity(2, "tnt", 2, {
+    metadata: metadataFor("tnt", { fuse: 80 }),
+  });
+  const first = sampleObservation(bot, { now: 1000 }).entities.entries[0];
+  assert.deepEqual(first.state.tnt, { fuseTicksReceived: 80 });
+  assert.equal(first.state.source, "last-received-metadata");
+  assert.equal(
+    sampleObservation(bot, { now: 11000 }).entities.entries[0].state.tnt
+      .fuseTicksReceived,
+    80,
+  );
+  const index = registry.entitiesByName.tnt.metadataKeys.indexOf("fuse");
+  bot.entities[2].metadata[index] = 12;
+  assert.equal(
+    sampleObservation(bot).entities.entries[0].state.tnt.fuseTicksReceived,
+    12,
+  );
+  const full = sampleObservation(bot, { fullEntities: true }).entities
+    .entries[0];
+  assert.equal(full.metadata[index], 12);
+  delete bot.entities[2].metadata[index];
+  assert.equal(
+    sampleObservation(bot).entities.entries[0].state.tnt.fuseTicksReceived,
+    null,
+  );
+});
+
+test("metadata semantic decoding follows registry names rather than fixed numeric offsets", () => {
+  const bot = fixture();
+  bot.registry = {
+    entitiesByName: { tnt: { metadataKeys: ["fuse", "unrelated"] } },
+  };
+  bot.entities[2] = entity(2, "tnt", 2, { metadata: [27, 999] });
+  assert.equal(
+    sampleObservation(bot).entities.entries[0].state.tnt.fuseTicksReceived,
+    27,
+  );
+  bot.registry = require("prismarine-registry")("1.16.5");
+  // This installed older version lacks metadataKeys; do not guess an offset.
+  bot.entities[2].metadata = { 8: 80 };
+  bot.entities[3] = entity(3, "player", 3, {
+    username: "old",
+    metadata: { 8: 3 },
+    equipment: [null, item("shield")],
+  });
+  const unknown = sampleObservation(bot);
+  assert.equal(unknown.entities.entries[0].state.tnt.fuseTicksReceived, null);
+  assert.equal(unknown.players[0].state.itemUse.usingItem, null);
+  assert.equal(unknown.players[0].state.itemUse.activeHand, null);
+  assert.equal(unknown.players[0].state.itemUse.activityCandidate, null);
+});
+
+test("creeper state preserves received swell, powered and ignited values and distinguishes missing", () => {
+  const bot = fixture();
+  bot.entities[2] = entity(2, "creeper", 4, {
+    metadata: metadataFor("creeper", {
+      swell_dir: 1,
+      is_powered: true,
+      is_ignited: false,
+    }),
+  });
+  const known = sampleObservation(bot).entities.entries[0].state;
+  assert.deepEqual(known.creeper, {
+    swellDirection: 1,
+    powered: true,
+    ignited: false,
+  });
+  assert.equal(known.itemUse.usingItem, null);
+  bot.entities[2].metadata = metadataFor("creeper", {
+    swell_dir: -1,
+    is_powered: 0,
+  });
+  assert.deepEqual(sampleObservation(bot).entities.entries[0].state.creeper, {
+    swellDirection: -1,
+    powered: false,
+    ignited: null,
+  });
+});
+
+test("living use flags decode active hand and equipment-based activity candidates without invented targets", () => {
+  const bot = fixture();
+  const player = entity(2, "player", 75, {
+    username: "far-user",
+    metadata: metadataFor("player", { living_entity_flags: 3 }),
+    equipment: [item("bread", 3), item("shield")],
+  });
+  bot.entities[2] = player;
+  let use = sampleObservation(bot).players[0].state.itemUse;
+  assert.equal(use.usingItem, true);
+  assert.equal(use.activeHand, "offhand");
+  assert.equal(use.activeItem.name, "shield");
+  assert.equal(use.activityCandidate, "blocking");
+  player.metadata = metadataFor("player", { living_entity_flags: 1 });
+  use = sampleObservation(bot).players[0].state.itemUse;
+  assert.equal(use.activeHand, "main");
+  assert.equal(use.activityCandidate, "eating");
+  player.equipment[0] = item("bow");
+  assert.equal(
+    sampleObservation(bot).players[0].state.itemUse.activityCandidate,
+    "drawing_bow",
+  );
+  player.metadata = metadataFor("player", { living_entity_flags: 2 });
+  use = sampleObservation(bot).players[0].state.itemUse;
+  assert.equal(use.usingItem, false);
+  assert.equal(use.activeHand, null);
+  assert.equal(use.activityCandidate, null);
+  player.metadata = metadataFor("player", { living_entity_flags: 3 });
+  player.equipment = [];
+  use = sampleObservation(bot).players[0].state.itemUse;
+  assert.equal(use.usingItem, true);
+  assert.equal(use.activeItem, null);
+  assert.equal(use.activityCandidate, null);
+  assert.equal(
+    sampleObservation(bot).players[0].state.targetEntityIds,
+    undefined,
+  );
+});
+
+test("only specifically synchronized special targets are exposed, preserving zero and unknown", () => {
+  const bot = fixture();
+  bot.entities[2] = entity(2, "guardian", 2, {
+    metadata: metadataFor("guardian", { attack_target: 0 }),
+  });
+  bot.entities[3] = entity(3, "wither", 3, {
+    metadata: metadataFor("wither", { target_a: 7, target_c: 0 }),
+  });
+  bot.entities[4] = entity(4, "zombie", 4, {
+    metadata: metadataFor("zombie", { living_entity_flags: 0 }),
+    target: bot.entity,
+  });
+  const summary = sampleObservation(bot).entities.entries;
+  assert.deepEqual(summary[0].state.targetEntityIds, { attack_target: 0 });
+  assert.deepEqual(summary[1].state.targetEntityIds, {
+    target_a: 7,
+    target_b: null,
+    target_c: 0,
+  });
+  assert.equal(summary[2].state.targetEntityIds, undefined);
+});
+
+test("semantic entity metadata and observed active equipment survive native authority to SDK projection", async () => {
+  const native = fixture();
+  native.entities[2] = entity(2, "player", 3, {
+    username: "using-shield",
+    metadata: metadataFor("player", { living_entity_flags: 3 }),
+    equipment: [item("iron_sword"), item("shield")],
+  });
+  native.entities[3] = entity(3, "tnt", 2, {
+    metadata: metadataFor("tnt", { fuse: 40 }),
+  });
+  const authority = createAuthority(native, { snapshotRadius: 0 });
+  const bot = new BotFacade({ url: "http://unused", token: "test" });
+  await bot.accept({
+    type: "reset",
+    epoch: "semantic",
+    sequence: 0,
+    data: authority.snapshot(false),
+  });
+  const snapshot = sampleObservation(bot);
+  assert.equal(snapshot.players[0].state.itemUse.activeItem.name, "shield");
+  assert.equal(snapshot.players[0].state.itemUse.activityCandidate, "blocking");
+  assert.equal(snapshot.entities.entries[0].state.tnt.fuseTicksReceived, 40);
+});
