@@ -4,6 +4,8 @@ import { join } from "node:path";
 import { Inbox, TaskManager, createInboxServer } from "../inbox/index.mjs";
 import { budgetFromHeaders, budgetFromSnapshot } from "./budget-feedback.mjs";
 import { startChatInbox } from "./chat-inbox.mjs";
+import * as PerceptionRuntime from "./perception-runtime.mjs";
+import * as ObservationTools from "../observation/pi-extension.mjs";
 
 const text = (value) => ({ type: "text", text: JSON.stringify(value) });
 const object = (properties) => ({
@@ -162,6 +164,7 @@ export default function participantInbox(pi) {
     const old = runtime;
     old.closed = true;
     runtime = undefined;
+    await old.perception?.close();
     await old.chat?.close();
     await old.tasks.close();
     await old.server.close();
@@ -176,6 +179,7 @@ export default function participantInbox(pi) {
         const old = runtime;
         runtime = undefined;
         old.closed = true;
+        await old.perception?.close();
         await old.chat?.close();
         await old.tasks.close();
         await old.server.close();
@@ -212,6 +216,14 @@ export default function participantInbox(pi) {
       };
       const tasks = new TaskManager({ inbox, cwd: ctx.cwd, env });
       runtime = { sessionId, inbox, tasks, server, env };
+      runtime.perception = PerceptionRuntime.startPerceptionRuntime({
+        url: bridgeUrl,
+        token: bridgeToken,
+        inbox,
+        tasks,
+        sampleOptions: async () =>
+          PerceptionRuntime.observationOptionsFromMatch(await readMatch()),
+      });
       if (bridgeUrl && bridgeToken)
         runtime.chat = startChatInbox({
           url: bridgeUrl,
@@ -311,6 +323,18 @@ export default function participantInbox(pi) {
     await ensure(ctx);
   });
   pi.on("session_shutdown", stop);
+  pi.on("context_with_system", async (event, ctx) => {
+    const r = await ensure(ctx);
+    const snapshot = await r.perception.sample();
+    // This hook operates on Pi's cloned request context, not durable session history.
+    // Never rewrite, filter or persist any existing message, including opening images.
+    return {
+      messages: PerceptionRuntime.withCurrentObservation(
+        event.messages,
+        snapshot,
+      ),
+    };
+  });
   pi.on("turn_start", async (_event, ctx) => {
     const r = await ensure(ctx);
     r.tasks.resumeWaits();
@@ -421,6 +445,19 @@ export default function participantInbox(pi) {
         content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash waits for completion or urgent input by default. Bash timeout is an explicit kill deadline; wait_seconds is an optional early-return wait budget. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. While a program is running, the model waits for its completion or an urgent judgment request; it does not poll with new model turns. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.`,
       },
     };
+  });
+  ObservationTools.registerObserveTool(pi, {
+    getBot: async (ctx) => (await ensure(ctx)).perception.getBot(),
+    sampleOptions: async (ctx) => {
+      const r = await ensure(ctx);
+      return {
+        ...PerceptionRuntime.observationOptionsFromMatch(await readMatch()),
+        tasks: PerceptionRuntime.currentTasks(r.tasks),
+        programState: (r.inbox.currentSnapshot?.() ?? []).filter(
+          (entry) => entry.source === "program",
+        ),
+      };
+    },
   });
   pi.registerTool({
     name: "bash",
