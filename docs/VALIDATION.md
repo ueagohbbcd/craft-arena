@@ -186,3 +186,14 @@ npm run demo:visual
 - 同脚本的合成 10／20／30 类型默认模型投影分别 351／485／616 字符及 UTF-8 字节，按字符除以 4 至除以 3 粗估为 88–117／122–162／154–206 token。没有目标模型 tokenizer，不能称为精确 token 数；没有逐项坐标和时间。
 - [真实旧观察统计脚本](../scripts/estimate-recent-block-context.py)：`python scripts/estimate-recent-block-context.py EXPORT_DIR --output report.json`。先核对导出清单的文件哈希，再统计已提供坐标；不会读取服务器／世界或追补缺失格。[精简证据](evidence/recent-block-context-2026-10-11.json)
 - 实际导出含 699 个 5×5×5 工具边界、8961 个原生位置点和 60 批完整查询数组。151 个边界有明细省略；另有 543 个边界即使 `omitted=0`，非空气格数量仍大于明细数量，说明旧类型筛选让其成为严重偏低的代理。边界类型数中位 1、最多 4；严格限定的连续移动片段合并后最多 5；主动查询数组最多 6。它们不是新半径 6 连通雷达的实服测量或上界。查询时间只有任务区间，不与轨迹强行同步；原始比赛数据未提交。
+
+
+### 区间面积、延迟 Inbox 与告示牌补充验证
+
+本轮最终 `PI_OFFLINE=1 npm run validate` 完整结束：518 项，516 通过、0 失败、2 项既有环境条件跳过（Unix socket／Chromium），耗时 33.7 秒。前述早期 HTTP 502 和执行器中止记录保持，不能把窄重跑或中止当作全量通过。此轮使用内存世界及真实 Pi／loopback HTTP 夹具，没有调用付费模型或连接活动 Minecraft 比赛。
+
+最新定向组合 `node --test tests/nearby-connected-blocks.test.mjs tests/recent-blocks.test.mjs tests/recent-block-runtime.test.mjs tests/perception-runtime.test.mjs tests/observation.test.mjs tests/inbox-delay.test.mjs` 为 82/82 通过。覆盖区间唯一方块面面积、bbox 不冒充边界、默认 Inbox／显式 tail／both 三种交付、首个 pending 创建延迟不被覆盖推迟、HTTP `InboxClient.upsert` 参数透传、drain 前完整累计与水位退休、拒绝入队和较晚样本保留、回调异常隔离，以及真实告示牌前后面／未知文字和普通变化事件。
+
+含面积统计与告示牌检查的当前扫描再次运行同一离线 benchmark：500 次半径 6 空气球，每次 925 次本地读取，P50 2.42 ms、P95 3.69 ms、最大 7.80 ms。当前合成 10／20／30 类型紧凑投影分别 396／530／661 字符及字节，字符除以 4 至除以 3 的粗估为 99–132／133–177／166–221 token。合成输入未提供空间范围，故 bbox=null、面积=0；这是结构大小示例，不是实际比赛测量或有字告示牌的长度估计。新增整体范围字段会增加真实输出长度；目标模型 tokenizer 尚未用于精确计数。[当前精简证据](evidence/recent-block-interval-benchmark-2026-10-11.json)。
+
+队列仅支持同进程 `onDelivered` 交付回调；HTTP 端目前只有接受回执，没有跨进程消费通知。生产者负责唯一集合累计，Inbox 负责待交付延迟和原有自然边界，不建立持久 ACK 或第二份报告定时框架。
