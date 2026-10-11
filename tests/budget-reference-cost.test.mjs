@@ -45,6 +45,20 @@ const cash = (extra = {}, limit = "1") =>
     autoWake: false,
     ...extra,
   });
+test("cache writes retain usage but are explicitly estimated without a configured write rate", async () => {
+  const l = cash({ now: () => 0 });
+  const q = l.quote("a", "gpt-4.1", { input: 1000, output: 10 });
+  const reservation = await l.acquire("a", q);
+  reservation.settle({
+    prompt_tokens: 1000,
+    completion_tokens: 10,
+    total_tokens: 1010,
+    prompt_tokens_details: { cached_tokens: 500, cache_write_tokens: 300 },
+  });
+  assert.equal(l.feedback("a").participant.quality, "estimated");
+  assert.equal(l.feedback("a").participant.calls.estimated, 1);
+  l.close();
+});
 test("a 250k context uses its context estimate and a large quote settles with cache discounts", async () => {
   const l = cash({ now: () => 0 }, "0.50");
   const q = l.quote("a", "gpt-4.1", {

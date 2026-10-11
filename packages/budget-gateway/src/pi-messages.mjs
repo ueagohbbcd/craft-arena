@@ -67,7 +67,10 @@ export function piUsage(value) {
     prompt_tokens: u.input + u.cacheRead + u.cacheWrite,
     completion_tokens: u.output,
     total_tokens: u.totalTokens,
-    prompt_tokens_details: { cached_tokens: u.cacheRead },
+    prompt_tokens_details: {
+      cached_tokens: u.cacheRead,
+      ...(u.cacheWrite > 0 ? { cache_write_tokens: u.cacheWrite } : {}),
+    },
     ...(Number.isSafeInteger(u.reasoning) && u.reasoning >= 0
       ? { completion_tokens_details: { reasoning_tokens: u.reasoning } }
       : {}),

@@ -158,7 +158,13 @@ export class ReferenceCostLedger {
               usage.total_tokens === prompt + output)) &&
           (cached === undefined || (count(cached) && cached <= prompt))
         ) {
-          quality = cached === undefined ? "estimated" : "exact";
+          // Some providers report cache writes separately. Until a configured
+          // write rate is available, those tokens use the ordinary input estimate.
+          quality =
+            cached === undefined ||
+            (usage.prompt_tokens_details?.cache_write_tokens ?? 0) > 0
+              ? "estimated"
+              : "exact";
           tokens = {
             uncachedInput: prompt - (cached ?? 0),
             cachedInput: cached ?? 0,
@@ -287,7 +293,10 @@ export function tokenUsageOnly(usage) {
   for (const key of ["prompt_tokens", "completion_tokens", "total_tokens"])
     if (count(usage[key])) out[key] = usage[key];
   for (const [key, allowed] of [
-    ["prompt_tokens_details", ["cached_tokens", "audio_tokens"]],
+    [
+      "prompt_tokens_details",
+      ["cached_tokens", "cache_write_tokens", "audio_tokens"],
+    ],
     [
       "completion_tokens_details",
       [
