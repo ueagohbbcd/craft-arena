@@ -60,10 +60,34 @@ export class Inbox extends EventEmitter {
         "Current facts use normal priority; requestJudgment delivers an urgent event",
       );
     if (data === undefined) throw new Error("Message data is required");
+    const delay = input.minDeliveryDelayMs ?? 0;
+    if (
+      !Number.isSafeInteger(delay) ||
+      delay < 0 ||
+      (delay > 0 && (kind !== "state" || priority !== "normal"))
+    )
+      throw new Error(
+        "minDeliveryDelayMs requires a nonnegative integer and delayed normal state",
+      );
     const ttl = input.ttlMs ?? this.ttlMs;
     if (!Number.isFinite(ttl) || ttl <= 0)
       throw new Error("Invalid message TTL");
     this.prune();
+    const createdAt = this.now();
+    const previous =
+      kind === "state"
+        ? this.items.find(
+            (item) =>
+              item.message.kind === "state" &&
+              item.message.source === source &&
+              item.message.key === key,
+          )
+        : undefined;
+    // Updating a pending state never moves its first eligibility time later.
+    const eligibleAt =
+      priority === "urgent"
+        ? createdAt
+        : (previous?.eligibleAt ?? createdAt + delay);
     const message = {
       id: randomUUID(),
       sessionId: this.sessionId,
@@ -72,8 +96,12 @@ export class Inbox extends EventEmitter {
       ...(key ? { key } : {}),
       data,
       priority,
-      createdAt: this.now(),
-      expiresAt: this.now() + ttl,
+      createdAt,
+      expiresAt: createdAt + ttl,
+      ...(kind === "state" &&
+      (delay > 0 || (previous?.eligibleAt ?? 0) > createdAt)
+        ? { eligibleAt }
+        : {}),
       ...(typeof input.taskId === "string" && input.taskId
         ? { taskId: input.taskId }
         : {}),
@@ -122,6 +150,7 @@ export class Inbox extends EventEmitter {
       message: JSON.parse(encoded),
       bytes,
       expiresAt: message.expiresAt,
+      eligibleAt,
       onDelivered,
     });
     this.bytes += bytes;
@@ -161,23 +190,45 @@ export class Inbox extends EventEmitter {
   /** Claim and acknowledge only at the final model-visible boundary. */
   drain() {
     this.prune();
-    const items = this.items;
+    const now = this.now();
+    const items = this.items.filter((item) => (item.eligibleAt ?? 0) <= now);
     const dropped = this.dropped;
-    this.items = [];
-    this.bytes = 0;
+    this.items = this.items.filter((item) => (item.eligibleAt ?? 0) > now);
+    this.bytes = this.items.reduce((sum, item) => sum + item.bytes, 0);
     this.dropped = { overflow: 0, expired: 0 };
-    for (const item of items) item.onDelivered?.();
+    const deliveryErrors = [];
+    for (const item of items) {
+      try {
+        item.onDelivered?.();
+      } catch (error) {
+        const detail = {
+          id: item.id,
+          message: error?.message ?? String(error),
+        };
+        deliveryErrors.push(detail);
+        try {
+          this.emit("deliveryError", detail);
+        } catch (listenerError) {
+          deliveryErrors.push({
+            id: item.id,
+            stage: "error-listener",
+            message: listenerError?.message ?? String(listenerError),
+          });
+        }
+      }
+    }
     return {
       sessionId: this.sessionId,
       messages: items.map((x) => x.message),
       dropped,
       totalDropped: { ...this.totalDropped },
+      ...(deliveryErrors.length ? { deliveryErrors } : {}),
     };
   }
   get pending() {
     this.prune();
     return (
-      this.items.length > 0 ||
+      this.items.some((item) => (item.eligibleAt ?? 0) <= this.now()) ||
       this.dropped.overflow > 0 ||
       this.dropped.expired > 0
     );
