@@ -550,8 +550,13 @@ export class BotFacade extends EventEmitter {
       yield this.knownBlockAt(block.position);
     for (const entry of this.knownBlocks.values()) {
       const p = entry.block.position;
-      if (!this.columns.has(`${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`))
-        yield entry;
+      if (
+        !this.columns.has(`${Math.floor(p.x / 16)},${Math.floor(p.z / 16)}`) &&
+        ["x", "y", "z"].every(
+          (axis) => p[axis] >= bounds.min[axis] && p[axis] <= bounds.max[axis],
+        )
+      )
+        yield this.knownBlockAt(p);
     }
   }
   blockAt(position) {
