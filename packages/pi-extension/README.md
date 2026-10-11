@@ -19,9 +19,9 @@ Tools return both text JSON and `structuredContent`, with an output schema, so d
 
 ## Default observation and request context
 
-The extension owns a passive bridge client for each Pi session. It and participant control programs connect to the same existing trusted Minecraft bot. HTTP/SSE updates the local mirror continuously; before each model request, `context_with_system` appends a small projection of that mirror with source time, age, connection state, inventory quantities, equipment, observed players, local surroundings and actual managed-program IDs/status. A request reads the latest available mirror evidence. First connection readiness has a bounded wait, and unavailable/stale state is represented explicitly.
+The extension owns a passive bridge client for each Pi session. It and participant control programs connect to the same existing trusted Minecraft bot. HTTP/SSE updates the local mirror continuously; before each model request, `context_with_system` appends a small projection of that mirror with source time, age, connection state, inventory quantities, equipment, observed players, local surroundings and actual managed-program IDs/status. A request reads the latest available mirror evidence. Model sampling waits at most 500 ms for initial readiness, while chunk hydration continues in the background. The initial connection times out after 30 seconds without network progress; active progress renews that deadline. Unavailable/stale state is represented explicitly.
 
-The `mc-current-observation` tail is appended to Pi's request message copy. Ordinary tool results, explicit queries and delivered inbox events stay in normal session history. Program `publishCurrent` values are separately read into `programState` and keep source/task/expiry metadata; ordinary `post` and `upsert` retain their queued-history semantics. Host `arena.clock` supplies match state, time and winner separately from program status.
+The `mc-current-observation` tail is appended to Pi's request message copy. Ordinary tool results, explicit queries and delivered inbox events stay in normal session history. Program `publishCurrent` values are separately read into `programState` and keep source/task/expiry metadata; ordinary `post` and `upsert` retain their queued-history semantics. Host `arena.clock` supplies match state, time and winner separately from program status. Default display includes 16 detailed task records plus every additional running task's ID/status; current program reports use at most 8 records, 8 KiB total and 2 KiB per record. `runtimeProjection` exposes omissions, and oversized report bodies carry `dataOmitted`. `observe({fullRuntime:true})` reads every retained task status and unabridged current report, including before game observation is ready.
 
 `observe({views:["overview","local"]})` returns state JSON and native image blocks from the same acquired mirror sequence. `views:[]` returns state only; optional `fullItems`, `fullEntities` and `fullLocal` expand details. Overview uses public host bounds when supplied or the loaded-column extent, with unknown cells labeled. Surface views use real Minecraft top-face textures on CPU, with geometry simplifications recorded; requested 3D uses Prismarine/Chromium and labels any schematic fallback. Opening images remain separate bootstrap user messages. See [the observation contract](../../docs/OBSERVATION.md).
 
@@ -87,6 +87,15 @@ Configuration:
 - `ARENA_EXTRA_EXTENSIONS`: comma-separated Pi extension paths (relative paths resolve from the participant working directory).
 - `MC_INBOX_SOCKET`: explicit Unix socket path; otherwise private temporary session-specific path.
 - `MC_INBOX_TRANSPORT=http`, `MC_INBOX_PORT` (default ephemeral), and `MC_INBOX_TOKEN`: authenticated loopback fallback. Programs spawned by bash receive the selected endpoint and actual Pi session ID automatically.
+
+Advanced observation display budgets, all nonnegative integers:
+
+- `ARENA_PERCEPTION_TASK_LIMIT` (16): detailed task records; additional running tasks retain their IDs and status.
+- `ARENA_PERCEPTION_PROGRAM_LIMIT` (8): current-report count.
+- `ARENA_PERCEPTION_PROGRAM_BYTES` (8192): total serialized current-report display bytes.
+- `ARENA_PERCEPTION_PROGRAM_ENTRY_BYTES` (2048): per-report display bytes; oversized data is explicitly omitted.
+
+These are presentation settings. Underlying task retention, current-value TTLs and `observe({fullRuntime:true})` remain unchanged; invalid values use defaults.
 
 Inbox delivery follows tool and turn boundaries; urgent messages can request continuation as described above. Programs can remain alive during model thinking and after urgent release.
 

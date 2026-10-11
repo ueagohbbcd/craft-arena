@@ -20,6 +20,7 @@ Ordinary tool results, explicit query outputs and delivered inbox events stay in
 | Route overview and nearby detail | `observe({views:["overview","local"]})` |
 | Walls, bridges, tunnels or overlapping levels | `observe({views:["3d"]})` |
 | More observed item, entity or local-block detail | `observe({fullItems:true, fullEntities:true, fullLocal:true})`, selecting only the detail you need |
+| Omitted program details or current reports | `observe({fullRuntime:true})`; also works while game observation is unavailable |
 | Another exact raw field or block query | Query the SDK from a short Node program |
 | Several actions, plugin movement or conditional control | Write and run an ordinary JavaScript program |
 | The same program is still running | `task_wait({taskId, wait_seconds:30})` |
@@ -93,6 +94,7 @@ try {
   try {
     bot.pathfinder.setGoal(null);
     await bot.pvp.stop();
+    await bot.flush();
     bot.clearControlStates();
     await bot.flush();
   } finally {
