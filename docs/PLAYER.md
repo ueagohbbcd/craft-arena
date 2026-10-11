@@ -1,72 +1,35 @@
 # 玩家指南
 
-你通过 Pi 工具和普通 JavaScript 程序控制一个 Minecraft 角色。地图、队伍、目标和时限由可信 host 简报告知。
+先读[编程技能与示例](../examples/SKILL.md)：包含首个动作、直接工具参数和可运行的 SDK 程序。工具包位于 `$ARENA_TOOLKIT_ROOT`，自己的程序写在当前工作目录。
 
-工具包和示例位于 `$ARENA_TOOLKIT_ROOT`，自己的程序写在当前工作目录。先按技能卡的绝对路径读取[编程指南](../examples/SKILL.md)。
+## 开始与补查
 
-## 第一轮怎么开始
+目标、地图、队伍和时限见可信 host 简报。开局自动提供状态与地图配置的图像，后续变化随工具返回交付；需要当前细节或新图像时用 `observe`。采样范围、历史和完整明细选项见[观察架构](OBSERVATION.md)。
 
-开局会收到简报、基础状态与地图配置提供的图像。从中选择目标，按[首次移动示例](../examples/SKILL.md#first-movement)运行 Pathfinder，或编写一小段 SDK 动作代码。
-
-直接调用 `read`／`write`／`edit` 处理文件，通过 `bash` 运行 Node 程序。需要补看地形时，向 `observe` 传入 `{"views":["overview","local"]}`，一次返回当前状态、总览和脚边原生图像，可直接查看。工具返回 `running` 时，用原 `taskId` 调用 `task_wait` 接续程序；等待与取消的具体语义见[运行说明](../packages/pi-extension/README.md#behavior)。
-
-## 哪些自动提供，哪些按需使用
-
-| 能力 | 使用方式 |
-| --- | --- |
-| 最新局势 | 开局基础状态，随后随工具返回交付变化；记录带观察时间 |
-| 已接收区块的共享记忆 | 桥服务默认记录完整区块并保留卸载历史；按需用[共享方块记忆 API](BLOCK-MEMORY.md)查询精确方块、牌文字或预取区域 |
-| 运行中程序 | 当前受管程序的 `taskId`、状态和退出结果；`observe` 可读时长 |
-| 比赛状态／时限／胜负 | 可信 host 简报、`arena.clock` 和终局反馈；程序可用 `await bot.getMatchState()` 查询 |
-| 显著变化与聊天 | 运行时将观察到的事件送入收件箱；紧急事件可提前释放等待 |
-| 开局／入场图像 | 地图配置决定；启动流程按阶段发送一次用户消息 |
-| 一次观察 | `observe({})` 刷新紧凑状态；用对应 `full*` 参数展开明细，或选择总览、局部、三维图 |
-| 近期方块采样 | 自动交付摘要；`observe({fullRecentBlocks:true})` 展开坐标与覆盖范围 |
-| 原始查询与动作 | 在普通程序中使用 Mineflayer 风格 SDK |
-| 程序内态势感知 | 直接复用 `sampleObservation(bot)`、`entityRadar(bot, options)` 等同源函数 |
-| 战斗过程报告 | 加载标准 PvP 适配器时自动启用，随普通 Inbox 交付 |
-| 连续机器人控制 | 编写 Node 函数、循环和事件监听，组合移动、施工与交互 |
-
-普通工具结果、观察变化和收件箱事件保留在会话历史；变化字段替换同部分的旧状态。完整机制与覆盖范围见[观察架构](OBSERVATION.md)。
+从[首次移动](../examples/SKILL.md#first-movement)开始，或运行下表的查询／动作示例。`running` 表示原程序仍在运行，用原 `taskId` 调用 `task_wait`；取消与更换控制程序见[等待语义](../packages/pi-extension/README.md#behavior)。
 
 ## 按任务找入口
 
 | 要做什么 | 入口 |
 | --- | --- |
-| 连接 bot、读取原始位置／血量／物品／方块 | [只读短程序](../examples/SKILL.md#query-the-sdk-from-a-short-program)、[SDK API](../packages/bot-sdk/README.md) |
-| 使用现成状态与一次看图 | [观察指南](OBSERVATION.md)、[编程示例](../examples/SKILL.md) |
-| 寻路到坐标 | [Pathfinder 示例](../examples/plugin-goal.mjs)，包含停滞报告和到达核验 |
-| 合成物品 | SDK 的 `craftItem(itemType, count, table)`；count 为本次新增成品数，按完整配方向上取整 |
-| 战斗 | SDK 的 PvP 适配器和 `attack(entity)`，见 [控制程序](../examples/SKILL.md#write-a-bot-control-program) |
-| 开箱、查看后再取物 | [两步容器操作](../examples/SKILL.md#inspect-a-container-then-transfer) |
-| 发送游戏聊天 | `bot.chat(message)` 后 `await bot.flush()`；聊天范围依地图规则 |
-| 汇总导航途中每次进食的经过 | [导航进食主示例](../examples/navigate-with-autoeat.mjs)：用一条报告保留触发原因、前后变化和路线恢复结果 |
-| 前往目的地并报告近身自卫过程 | [完整收件箱示例](../examples/navigate-with-defense.mjs)：现成态势感知、明确候选理由、原生插件执行与恢复记录 |
-| 自动战斗经过 | 加载标准 PvP 适配器后自动进普通收件箱；[薄示例](../examples/observe-pvp.mjs) 展示上层报告候选与选择理由 |
-| 看地图、地层、墙壁或隧道 | [视觉工具](../packages/world-visual/README.md)：俯视图、结构图、材质三维图 |
-| 精确检查局部空间与方块计数 | [地形摘要](../examples/summarize-terrain.mjs) |
-| 查询前一脚本或已卸载区域的方块 | [共享只读方块记忆](BLOCK-MEMORY.md)：角色实际收到的完整区块，支持异步查询与显式预取 |
-| 报告动作进展或请求判断 | [收件箱](../packages/inbox/README.md) |
-| 等待、取消、模型上下文和生命周期 | [Pi 运行说明](../packages/pi-extension/README.md) |
+| 读取位置、物品或精确方块 | [只读短程序](../examples/SKILL.md#query-the-sdk-from-a-short-program) |
+| 看总览、局部障碍或多层结构 | [observe 图像参数](../examples/SKILL.md#choose-a-view-for-the-decision)；保存快照的专门渲染见[视觉工具](../packages/world-visual/README.md) |
+| 寻路到坐标 | [Pathfinder 示例](../examples/plugin-goal.mjs)，含停滞报告和到达核验 |
+| 查树干候选、放置位置的实体重叠 | [树查询](../examples/SKILL.md#query-a-candidate-tree)、[实体几何查询](../examples/inspect-placement-entities.mjs) |
+| 查询前一脚本或已卸载区域的方块／牌 | [共享方块记忆](BLOCK-MEMORY.md)：查询角色实际收到的完整区块 |
+| 精确检查局部地形与连通性 | [地形摘要](../examples/summarize-terrain.mjs) |
+| 合成、采掘、放置、装备、聊天 | [动作 API 速查](../examples/SKILL.md#write-a-bot-control-program)与[SDK 接口](../packages/bot-sdk/README.md) |
+| 开箱，决定后再取物 | [两步容器操作](../examples/SKILL.md#inspect-a-container-then-transfer) |
+| 导航中进食并报告经过 | [导航进食](../examples/navigate-with-autoeat.mjs)：暂停、进食、恢复及每次动作报告 |
+| 导航中自卫并保留决策证据 | [导航自卫](../examples/navigate-with-defense.mjs)：候选选择、战斗摘要、路线恢复与进度合并 |
+| 选择目标执行 PvP | [战斗示例](../examples/observe-pvp.mjs)；标准适配器自动提供战斗过程报告 |
+| 在同一程序中协调施工与进食 | [施工进食](../examples/build-with-autoeat.mjs)：主手串行化 |
+| 报告进展或请求模型判断 | [Inbox 用法](../examples/SKILL.md#report-action-specific-progress)与[完整协议](../packages/inbox/README.md) |
 
-完整的 Mineflayer、Pathfinder、PvP 官方文档与源码在 `$ARENA_REFERENCE_ROOT`（默认 `/opt/mf-reference`），版本与安装的插件一致。不熟悉某个方法时按需查官方用法，接入细节见 SDK；行动中遇到的问题可先看 [短 FAQ](PLAYER-FAQ.md)。
+动作接口和上游 Mineflayer 的差异见 [SDK](../packages/bot-sdk/README.md)；换手、Pathfinder 停止与 PvP 的独立 Movements 见[控制 FAQ](PLAYER-FAQ.md)。匹配安装版本的上游文档和源码在 `$ARENA_REFERENCE_ROOT`（默认 `/opt/mf-reference`）。
 
-进食／自卫示例演示在实际控制程序中用 `upsert` 合并进度、用 `post` 记录完成经过；运行示例即采用其中的控制策略。[施工进食](../examples/build-with-autoeat.mjs)另展示同一程序内的手部串行化。
+## 预算、比赛状态与队内代码
 
-导航、地图图像和容器查询已在[真实盲测](evidence/perception-blind-trial-2026-10-11.json)中配合完成查箱取物与到达目标；遇到这些任务可先用对应入口。战斗选择和恢复策略按当前局势决定，示例中的距离与时限是可调整的策略参数。
+`arena.clock` 提供比赛状态与时限，程序也可用 `await bot.getMatchState()` 查询。模型排队期间游戏和程序继续运行；程序完成或紧急事件可唤起常驻会话的下一次判断。[预算反馈与等待](PLAYER-REFERENCE.md#模型预算与等待)。
 
-## 一个实际的观察→决策例子
-
-温室路线曾在脚部 Y=65 的目标上返回 `NoPath`。默认状态已经给出位置与血量，
-玩家只补查路径附近几格 `blockAt`，发现 Y=66 的低玻璃顶影响身体空间；随后改走
-X=276、脚部 Y=64 的走廊，而非作物格。这次补充观察直接改变了路线选择。
-
-## 模型预算与等待
-
-常驻模式中，程序完成或紧急事件可带来下一次模型判断。运行中程序会持续执行，空闲续跑等待它完成；默认观察器持续接收状态。
-
-模型请求经过本参赛者的网关，按参考成本速率排队。关注反馈中的实际排队时间、速率压力和比赛剩余时间；排队期间游戏及程序仍在运行。[字段与排队规则](PLAYER-REFERENCE.md#模型预算与等待)。
-
-## 队内 Git
-
-`TEAM_GIT_DIR` 指向本队共享 Git 目录；在自己的 clone 和分支中工作，通过提交、push、fetch 共享代码。[操作步骤](PLAYER-REFERENCE.md#队内-git)。
+`TEAM_GIT_DIR` 是队内共享 Git 目录。[在自己的 clone 和分支中共享代码](PLAYER-REFERENCE.md#队内-git)。

@@ -49,9 +49,8 @@ export async function navigateWithDefense(
       result.lastReportError = error.message;
     }).finally(() => pending.delete(p));
   };
-  // Reuse ready-made perception, including freshness and already-selected fields.
-  // The registry classification + radius is this example's policy; the observer's
-  // attention/display ordering does not decide whom PvP should attack.
+  // This example uses fresh observation to select the nearest registry-hostile
+  // mob within radius. The distance and classification are its targeting policy.
   const perception = () =>
     observe(bot, {
       localRadius: 0,
@@ -222,8 +221,7 @@ export async function navigateWithDefense(
           nearbyPotentialThreats: candidatesFrom(after).length,
         },
       });
-      // This example has a bounded defense, rather than an indefinite guard tail.
-      // A still-close target after that window needs another decision from the caller.
+      // Return defense_timeout to the caller if the target outlasts this defense.
       if (stopReason === "defense_window_elapsed") {
         result.status = "defense_timeout";
         resumeReport.resume.reason =

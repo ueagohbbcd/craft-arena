@@ -1,6 +1,6 @@
 /**
- * After a placement failure, inspect one target block without another action:
- *   node /opt/arena/examples/inspect-placement-entities.mjs X Y Z
+ * Inspect observed entity overlap at a placement target:
+ *   node "$ARENA_TOOLKIT_ROOT/examples/inspect-placement-entities.mjs" X Y Z
  * X Y Z are the intended new block, not the reference block clicked by placeBlock.
  * The default entity summary can omit a nearby bat or other low-priority entity.
  * This query filters the full observed mirror before limiting its output.
@@ -11,10 +11,8 @@
  * Bounds use continuous coordinates, not inclusive block-coordinate crops.
  * Self is included when present in the mirror. Touching faces do not overlap.
  *
- * Check mirror age and the actual target block along with the placement error.
- * These dimensions may not match pose-specific/server collision rules. Overlap
- * alone does not establish why a server rejected placement; an empty result
- * also cannot establish clearance. No movement, attack or retry is performed.
+ * Check mirror age and the actual target block alongside these candidates.
+ * Pose-specific and server collision rules may differ from the observed boxes.
  */
 import { pathToFileURL } from "node:url";
 import { connectBot } from "../packages/bot-sdk/index.mjs";

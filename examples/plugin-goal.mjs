@@ -1,4 +1,4 @@
-/** Optional participant-written ordinary Goal; movement is only triggered by this explicit CLI. */
+/** Pathfinder trip with arrival checks and an Inbox judgment request on stalls. */
 import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
@@ -20,8 +20,8 @@ const stallMs = 30_000,
 let watchdog;
 let latestPath = null;
 let stopping = false;
-// This program owns movement while it runs. Do not overlap another movement
-// controller: Mineflayer control states are shared, not per-client leases.
+// All connections share movement controls. Finish the previous movement
+// controller before starting this one.
 const stop = (signal) => {
   if (stopping) return;
   stopping = true;

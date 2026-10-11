@@ -27,7 +27,7 @@ export const observeParameters = Type.Object({
   fullRuntime: Type.Optional(
     Type.Boolean({
       description:
-        "Return every retained task status and unabridged current program record. Default uses compact display budgets and reports omissions; does not change underlying runtime data.",
+        "Return every retained task status and full current program record. Default output is compact and reports omissions.",
     }),
   ),
   views: Type.Optional(
@@ -130,7 +130,7 @@ export function registerObserveTool(
     name: "observe",
     label: "Observe current state and views",
     description:
-      "Get current player state, health, equipment, inventory, open window, observed entities, local terrain and program status as JSON. Images are opt-in via views: overview, local, 3d. All selected image snapshots share the state source sequence. Surface maps show known/unknown coverage and player coordinates; requested 3D uses real block textures when available and labels any fallback. Does not repeat opening images or restrict ordinary bot SDK queries.",
+      "Return current player state, inventory/equipment, open window, observed entities, local terrain and program status as JSON. Add views for native overview/local/3d images from the same sample; full* options expand compact details.",
     parameters: observeParameters,
     outputSchema: Type.Object({
       state: Type.Any(),

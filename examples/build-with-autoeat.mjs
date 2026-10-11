@@ -1,9 +1,8 @@
-/** Optional participant strategy, not a built-in controller. Explicit placement plan required.
+/** Build an explicit placement plan while coordinating background meals.
  * Usage: node examples/build-with-autoeat.mjs plan.json
  * Plan: {"material":"cobblestone","steps":[{"against":{"x":0,"y":64,"z":0},"face":{"x":0,"y":1,"z":0}}]}
- * The plan must already be reachable. This example does not invent movement or build objectives.
- * Health events trigger independent auto-eating; a shared hand Promise serializes
- * equip/place/use-item. Independent movement/observation remain untouched.
+ * Plan positions must be reachable from the current location. Health events
+ * trigger meals; a shared hand Promise serializes equip/place/use-item.
  */
 import { readFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
@@ -80,18 +79,15 @@ export async function buildWithAutoeat(
   async function reportFood(report) {
     food[report.outcome]++;
     pendingResume++;
-    // A small task-local result summary survives inbox TTL/overflow. It is not
-    // a second message queue: no replay, acknowledgements, or permanent history.
+    // Keep the latest 16 meal reports for final stdout, including after Inbox expiry.
     food.recent.push(report);
     if (food.recent.length > 16) {
       food.recent.shift();
       food.omitted++;
     }
     try {
-      // One normal event per short action, never an upsert under one food key.
-      // At this point the hand is still ours: resume is explicitly pending.
-      // The final result updates it only when building really takes the hand.
-      // Normal events join the next natural tool boundary; they do not wake it.
+      // post preserves each meal for the next tool boundary. Resume is still
+      // pending; the final result updates it when building takes the hand again.
       await inbox.post(report);
     } catch (error) {
       food.reportErrors++;

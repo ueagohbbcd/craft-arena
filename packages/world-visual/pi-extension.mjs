@@ -152,10 +152,10 @@ export default function visualExtension(pi) {
             : "World 3D view",
       description:
         name === "world_opening"
-          ? "Render a single snapshot as lobby large top-down panel with two oblique views or course top-down strip and two oblique views. Panel bounds and cameras accompany the PNG."
+          ? "Render a native PNG composite with one top-down and two oblique panels. layout selects lobby (default) or course. JSON metadata gives panel bounds and cameras."
           : name === "world_minimap"
             ? "Render highest observed surfaces as a native PNG image with JSON coverage, coordinates and age metadata. Missing cells remain unknown."
-            : "Render selected local blocks as an oblique structural PNG, or set textured=true for genuine Prismarine models/textures using Chromium. Missing cells never establish air.",
+            : "Render selected blocks as a native oblique PNG with JSON coordinates and coverage. Default geometry is schematic; textured=true uses Prismarine models/textures through Chromium. Missing cells remain unknown.",
       parameters,
       outputSchema: Type.Object({
         content: Type.Array(Type.Any()),
