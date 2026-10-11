@@ -1,5 +1,7 @@
 /** Passive, on-demand perception. No actions, goals, controllers or task policy. */
 import { createHash } from "node:crypto";
+import { entityRadar } from "./entity-radar.mjs";
+export { entityRadar } from "./entity-radar.mjs";
 
 const axes = ["x", "y", "z"];
 const air = new Set(["air", "cave_air", "void_air"]);
@@ -734,6 +736,12 @@ export function sampleObservation(bot, options = {}) {
         z: Math.floor(position.z),
       }
     : null;
+  const radar = entityRadar(bot, options.radar);
+  for (const entry of radar.entities) {
+    const source = bot?.entities?.[entry.id];
+    if (source)
+      entry.state = entityState(source, bot.registry, options.fullEntities);
+  }
   return {
     type: "observation",
     observedAt,
@@ -789,6 +797,7 @@ export function sampleObservation(bot, options = {}) {
     cursor: describeItem(cursorItem(bot), options.fullItems),
     window: windowSummary(bot, options),
     ...entitiesSummary(bot, options, position),
+    radar,
     local: localSummary(bot, options, position),
     tasks: plain(options.tasks ?? []),
     programState: plain(options.programState ?? []),

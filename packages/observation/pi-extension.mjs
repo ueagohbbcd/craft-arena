@@ -11,6 +11,13 @@ const point = Type.Object({
 });
 const bounds = Type.Object({ min: point, max: point });
 export const observeParameters = Type.Object({
+  radar: Type.Optional(
+    Type.Object({
+      radius: Type.Optional(Type.Number({ minimum: 0 })),
+      playerRadius: Type.Optional(Type.Number({ minimum: 0 })),
+      dropGroupRadius: Type.Optional(Type.Number({ minimum: 0 })),
+    }),
+  ),
   fullRuntime: Type.Optional(
     Type.Boolean({
       description:
