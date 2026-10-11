@@ -143,12 +143,9 @@ test("separate facade control queues do not hold up one another", async () => {
   await first.flush();
 });
 
-// Local bridge measurement: ~2ms median RPC RTT normally drained five writes
-// within a 50ms tick. A separate simulated 20ms RTT check at this same rate
-// left 51 of 100 writes pending after 1s, taking another 1023ms to drain.
-// FIFO correctness does not promise bounded latency or cleanup within the
-// TaskManager's default 500ms SIGTERM grace under network/backlog pressure.
-test("local HTTP control bursts preserve every write and report queue pressure", async (t) => {
+// HTTP coverage complements deterministic gates below. Under load duplicate
+// assertions may share a queued write, but every state transition must survive.
+test("local HTTP control bursts preserve pulses and report queue pressure", async (t) => {
   const native = Object.assign(new EventEmitter(), {
     entity: {},
     writes: [],
@@ -183,21 +180,18 @@ test("local HTTP control bursts preserve every write and report queue pressure",
     betweenTicks.push(bot._pending.size);
   }
   await bot.flush();
-  assert.equal(
-    native.writes.length,
-    100,
-    "no deduplication or pulse coalescing",
-  );
-  assert.deepEqual(
-    native.writes,
-    Array.from({ length: 20 }, () => [
-      { control: "forward", state: true },
-      { control: "jump", state: false },
-      { control: "sprint", state: true },
-      { control: "jump", state: true },
-      { control: "jump", state: false },
-    ]).flat(),
-  );
+  assert.ok(native.writes.length <= 100);
+  const transitions = (control) =>
+    native.writes
+      .filter((write) => write.control === control)
+      .map((write) => write.state)
+      .filter((state, index, all) => index === 0 || state !== all[index - 1]);
+  assert.deepEqual(transitions("forward"), [true]);
+  assert.deepEqual(transitions("sprint"), [true]);
+  assert.deepEqual(transitions("jump"), [
+    false,
+    ...Array.from({ length: 20 }, () => [true, false]).flat(),
+  ]);
   assert.equal(bot._pending.size, 0);
   rtts.sort((a, b) => a - b);
   t.diagnostic(
@@ -211,4 +205,118 @@ test("local HTTP control bursts preserve every write and report queue pressure",
       pendingAfterFlush: bot._pending.size,
     }),
   );
+});
+
+test("unchanged tick input shares only unsent writes, keeping a bounded duplicate backlog", async () => {
+  const held = gate();
+  const bot = new BotFacade({ url: "http://test.invalid", token });
+  const sent = [];
+  bot.action = async (action, args) => {
+    sent.push({ action, ...args });
+    if (sent.length === 1) await held.promise;
+  };
+  bot.setControlState("forward", true);
+  await tick(); // First forward assertion is already in flight.
+  for (let tick = 0; tick < 100; tick++) {
+    bot.setControlState("forward", true);
+    bot.setControlState("jump", false);
+    bot.setControlState("sprint", true);
+    bot.setControlState("left", false);
+    bot.setControlState("right", false);
+  }
+  assert.equal(bot._pending.size, 6, "one in-flight plus five unsent states");
+  bot.clearControlStates();
+  assert.equal(
+    bot._pending.size,
+    7,
+    "release follows the bounded duplicate queue",
+  );
+  let flushed = false;
+  const flushing = bot.flush().then(() => (flushed = true));
+  await tick();
+  assert.equal(flushed, false);
+  held.resolve();
+  await flushing;
+  assert.equal(sent.length, 7);
+  assert.deepEqual(sent.at(-1), { action: "clearControlStates" });
+  assert.equal(bot._pending.size, 0);
+  assert.equal(bot._queuedControls.size, 0);
+});
+
+test("same-state writes never merge across a transition, clear or stop", async () => {
+  const bot = new BotFacade({ url: "http://test.invalid", token });
+  const sent = [];
+  bot.action = async (action, args) => sent.push({ action, ...args });
+  for (const state of [true, true, false, false, true, true])
+    bot.setControlState("jump", state);
+  bot.clearControlStates();
+  bot.setControlState("jump", true);
+  bot.setControlState("jump", true);
+  bot.stopAndCenter();
+  bot.setControlState("jump", true);
+  bot.setControlState("jump", true);
+  await bot.flush();
+  assert.deepEqual(sent, [
+    { action: "setControlState", control: "jump", state: true },
+    { action: "setControlState", control: "jump", state: false },
+    { action: "setControlState", control: "jump", state: true },
+    { action: "clearControlStates" },
+    { action: "setControlState", control: "jump", state: true },
+    { action: "stop" },
+    { action: "setControlState", control: "jump", state: true },
+  ]);
+  assert.equal(bot._queuedControls.size, 0);
+});
+
+test("dispatched assertions can be retried while in flight and after acknowledgement", async () => {
+  const held = gate();
+  const bot = new BotFacade({ url: "http://test.invalid", token });
+  const sent = [];
+  let nativeForward = false;
+  bot.action = async (_action, args) => {
+    sent.push(args.state);
+    if (sent.length === 1) await held.promise;
+    nativeForward = args.state;
+  };
+  bot.setControlState("forward", true);
+  await tick();
+  bot.setControlState("forward", true);
+  bot.setControlState("forward", true);
+  assert.equal(
+    bot._pending.size,
+    2,
+    "in-flight write is not used for deduplication",
+  );
+  held.resolve();
+  await bot.flush();
+  assert.deepEqual(sent, [true, true]);
+  nativeForward = false; // A different controller can change the native bot.
+  assert.equal(
+    bot.controlState.forward,
+    true,
+    "even a stale optimistic mirror must not suppress reassertion",
+  );
+  bot.setControlState("forward", true);
+  await bot.flush();
+  assert.equal(nativeForward, true);
+  assert.deepEqual(sent, [true, true, true]);
+});
+
+test("coalesced failures are reported once, and a same-state retry is sent", async () => {
+  const bot = new BotFacade({ url: "http://test.invalid", token });
+  const errors = [];
+  let attempts = 0;
+  bot.on("error", (error) => errors.push(error));
+  bot.action = async () => {
+    if (++attempts === 1) throw new Error("first write rejected");
+  };
+  bot.setControlState("forward", true);
+  bot.setControlState("forward", true);
+  await assert.rejects(bot.flush(), /first write rejected/);
+  assert.equal(attempts, 1);
+  assert.equal(errors.length, 1);
+  bot.setControlState("forward", true);
+  await bot.flush();
+  assert.equal(attempts, 2);
+  assert.equal(bot._queuedControls.size, 0);
 });

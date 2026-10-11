@@ -93,6 +93,7 @@ export class BotFacade extends EventEmitter {
     this.closed = false;
     this._pending = new Set();
     this._controlTail = Promise.resolve();
+    this._queuedControls = new Map();
     this._windows = new Map();
     this._closedWindowRefs = new Set();
     this._pendingOpens = 0;
@@ -155,9 +156,28 @@ export class BotFacade extends EventEmitter {
       action === "setControlState" ||
       action === "clearControlStates" ||
       action === "stop";
+    // Repeated plugin ticks can enqueue identical states faster than the
+    // transport drains them. Reuse only an equivalent *unsent* write. Remove
+    // it before dispatch, so a later assertion still reaches the authority
+    // after errors, native state changes or another client's control writes.
+    let queued;
+    if (action === "setControlState") {
+      const previous = this._queuedControls.get(args.control);
+      if (previous?.state === args.state) return previous.promise;
+      queued = { state: args.state };
+      this._queuedControls.set(args.control, queued);
+    } else if (ordered) {
+      // Clear/stop are ordering barriers; never merge assertions across them.
+      this._queuedControls.clear();
+    }
     const p = ordered
-      ? this._controlTail.then(() => this.action(action, args))
+      ? this._controlTail.then(() => {
+          if (queued && this._queuedControls.get(args.control) === queued)
+            this._queuedControls.delete(args.control);
+          return this.action(action, args);
+        })
       : this.action(action, args);
+    if (queued) queued.promise = p;
     if (ordered) this._controlTail = p.catch(() => {});
     // Include queued, not-yet-sent writes so flush observes the entire queue.
     this._pending.add(p);
