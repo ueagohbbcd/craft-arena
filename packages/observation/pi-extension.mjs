@@ -1,15 +1,8 @@
-/** Pi observe: persisted JSON and native-image tool result. */
+/** Pi access to current observation state. */
 import { Type } from "typebox";
 import { connectBot } from "../bot-sdk/index.mjs";
-import { observe, OBSERVATION_VIEWS } from "./observe.mjs";
-import { VIEW_DIRECTIONS } from "../world-visual/index.mjs";
+import { observe } from "./observe.mjs";
 
-const point = Type.Object({
-  x: Type.Integer(),
-  y: Type.Integer(),
-  z: Type.Integer(),
-});
-const bounds = Type.Object({ min: point, max: point });
 export const observeParameters = Type.Object({
   radar: Type.Optional(
     Type.Object({
@@ -30,15 +23,6 @@ export const observeParameters = Type.Object({
         "Return every retained task status and full current program record. Default output is compact and reports omissions.",
     }),
   ),
-  views: Type.Optional(
-    Type.Array(
-      Type.Union(OBSERVATION_VIEWS.map((name) => Type.Literal(name))),
-      {
-        description:
-          "Optional images: overview is the full public map or loaded extent; local is a near-feet Y slice; 3d is a local structure view. Default [] returns state only.",
-      },
-    ),
-  ),
   fullEntities: Type.Optional(
     Type.Boolean({
       description:
@@ -55,33 +39,6 @@ export const observeParameters = Type.Object({
       description: "Include complete NBT/components for observed items.",
     }),
   ),
-  overviewBounds: Type.Optional(bounds),
-  localBounds: Type.Optional(bounds),
-  structureBounds: Type.Optional(bounds),
-  viewRadius: Type.Optional(
-    Type.Integer({
-      minimum: 0,
-      description:
-        "Local and 3D horizontal radius, default 12. Does not crop overview.",
-    }),
-  ),
-  width: Type.Optional(Type.Integer({ minimum: 1 })),
-  height: Type.Optional(Type.Integer({ minimum: 1 })),
-  textured: Type.Optional(
-    Type.Boolean({
-      description:
-        "Maps use real Minecraft top-face texture tiles on CPU by default; requested 3D uses genuine Prismarine shapes/textures. False explicitly selects schematic maps/cubes.",
-    }),
-  ),
-  fallback: Type.Optional(
-    Type.Union([Type.Literal("schematic"), Type.Literal("error")], {
-      description:
-        "If textured capture fails, default schematic returns a clearly labeled fallback; error reports the unavailable view while preserving state.",
-    }),
-  ),
-  viewDirection: Type.Optional(
-    Type.Union(VIEW_DIRECTIONS.map((name) => Type.Literal(name))),
-  ),
 });
 
 export async function observeForModel(bot, options = {}, dependencies) {
@@ -90,14 +47,7 @@ export async function observeForModel(bot, options = {}, dependencies) {
     result.state.runtimeProjection = options.runtimeProjection;
   if (options.recentBlocks) result.state.recentBlocks = options.recentBlocks;
   if (options.nearbySigns) result.state.nearbySigns = options.nearbySigns;
-  const views = result.views.map(({ name, metadata }, index) => ({
-    name,
-    ...metadata,
-    contentIndex: result.views[index].png
-      ? 1 + result.views.slice(0, index).filter((v) => v.png).length
-      : null,
-  }));
-  const payload = { state: result.state, views, metadata: result.metadata };
+  const payload = { state: result.state, metadata: result.metadata };
   const content = [
     {
       type: "text",
@@ -105,13 +55,6 @@ export async function observeForModel(bot, options = {}, dependencies) {
         typeof value === "bigint" ? value.toString() : value,
       ),
     },
-    ...result.views
-      .filter((v) => v.png)
-      .map(({ png }) => ({
-        type: "image",
-        data: png.toString("base64"),
-        mimeType: "image/png",
-      })),
   ];
   return {
     content,
@@ -128,13 +71,12 @@ export function registerObserveTool(
     throw new TypeError("registerObserveTool requires getBot(ctx)");
   pi.registerTool({
     name: "observe",
-    label: "Observe current state and views",
+    label: "Observe current state",
     description:
-      "Return current player state, inventory/equipment, open window, observed entities, local terrain and program status as JSON. Add views for native overview/local/3d images from the same sample; full* options expand compact details.",
+      "Return current player state, inventory/equipment, open window, observed entities, local terrain and program status as JSON. Use full* options to expand compact details.",
     parameters: observeParameters,
     outputSchema: Type.Object({
       state: Type.Any(),
-      views: Type.Array(Type.Any()),
       metadata: Type.Any(),
       content: Type.Array(Type.Any()),
     }),

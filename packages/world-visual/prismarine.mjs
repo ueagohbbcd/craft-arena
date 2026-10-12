@@ -1,4 +1,4 @@
-/** Optional actual Prismarine renderer over a local snapshot, never a Minecraft connection. */
+/** Prismarine viewer over a local snapshot: opening composites and on-demand screenshots. Never opens a Minecraft connection. */
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -8,9 +8,9 @@ import {
   normalizeSnapshot,
   validateImageDimensions,
   viewDirectionSigns,
-  renderOpeningComposite,
   encodePNG,
-} from "./index.mjs";
+} from "mineflayer-world-memory/live.mjs";
+import { renderOpeningComposite } from "./index.mjs";
 const require = createRequire(import.meta.url);
 /** Fit all selection corners to the viewer's 75-degree perspective without changing scale ratios. */
 export function fittedCamera(
@@ -416,7 +416,7 @@ export async function capturePrismarineSnapshot(
   }
 }
 
-/** Actual model/texture oblique panels, with the same top-down coverage strip for courses. */
+/** Lobby/course panels whose oblique views are actual Prismarine models and textures. */
 export async function captureOpeningComposite(snapshot, options = {}) {
   const start = performance.now();
   const composite = renderOpeningComposite(snapshot, options);

@@ -2,7 +2,7 @@
  * Interval aggregation only. The caller supplies already-selected block samples;
  * this module does not decide reach, line of sight, air/fluid or interaction rules.
  * Reads never consume evidence. A caller may retire only a previously displayed
- * sample prefix, after a successful model response, retaining samples since it.
+ * sample prefix after Inbox delivery, retaining samples since it.
  */
 export function createRecentBlockAccumulator({ positionLimit = 3 } = {}) {
   if (!Number.isSafeInteger(positionLimit) || positionLimit < 0)

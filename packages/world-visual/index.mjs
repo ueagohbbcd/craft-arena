@@ -6,7 +6,6 @@ import {
   validateImageDimensions,
   encodePNG,
 } from "mineflayer-world-memory/live.mjs";
-export * from "mineflayer-world-memory/live.mjs";
 
 // Only the collage background belongs here; generic voxel rasterization is upstream.
 function raster(width, height, bg) {
@@ -33,8 +32,6 @@ export function renderOpeningComposite(
     throw new TypeError("gap must be a nonnegative integer");
   const start = performance.now(),
     norm = normalizeSnapshot(snapshot);
-  const left = Math.floor((width - gap) / 2),
-    right = width - gap - left;
   let specs;
   if (layout === "lobby") {
     const mapWidth = Math.floor((width - gap) * 0.68),
