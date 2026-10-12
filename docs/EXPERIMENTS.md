@@ -72,3 +72,7 @@ content: "Current observation for this model request only. Latest state plus rec
 6. 验收标准要写清：同一份区间样本只交付一次；失败的请求不消耗样本；尾部带来的决策改善与 token 成本各是多少。
 
 历史实现与测试可在 `0424c54` 中按 `ARENA_PERCEPTION_TAIL`、`withCurrentObservation`、`prepareRequest`、`pendingThrough` 搜索取得。
+
+## 记录约定
+
+新增条目请写清四件事：**动机**（它想改善哪个具体现象）、**机制**（开关、接线点、不变量）、**放弃理由**（已证伪、成本不合算，还是只是没验收）、**复活步骤**（要动哪些文件、要补哪些测试、验收标准是什么）。没有验收标准的方案不进入默认套件。
