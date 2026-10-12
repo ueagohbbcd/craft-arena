@@ -48,6 +48,6 @@
 
 实现入口：[普通观察交付](../packages/pi-extension/perception-delivery.mjs)、[边界与等待](../packages/pi-extension/index.mjs)、[近距累计](../packages/observation/recent-block-runtime.mjs)、[共享方块记忆](BLOCK-MEMORY.md)。
 
-## 历史实验记录：临时请求尾部
+## 已退役的实验
 
-早期实验通过 `context_with_system` 向单次请求追加 `mc-current-observation`，并尝试 `recentBlocks` 的 `tail`／`both` 通道。这些代码（含 `ARENA_PERCEPTION_TAIL` 开关）已随清理删除；会话历史里不再出现 `mc-current-observation`。这是历史实验，当前采用上面的四类方式。
+“每次请求附加最新观察”的请求尾部方案已退役，代码删除，当前采用上面的四类方式。完整的机制、不变量、放弃理由和复活步骤见[实验记录](EXPERIMENTS.md#请求尾部观察)。
