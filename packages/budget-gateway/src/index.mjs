@@ -80,6 +80,7 @@ export function createBudgetGateway({
       queueStartedAt,
       queueDelayMs = 0,
       actual,
+      requestRejected = false,
       upstreamStarted = false;
     const requestId = randomUUID();
     const abort = new AbortController();
@@ -146,7 +147,7 @@ export function createBudgetGateway({
       let bytes = 0;
       for await (const chunk of req) {
         bytes += chunk.length;
-        if (bytes > (limits.maxBodyBytes ?? 8 * 1024 * 1024))
+        if (limits.maxBodyBytes !== undefined && bytes > limits.maxBodyBytes)
           throw Object.assign(new Error("Body too large"), { status: 413 });
         chunks.push(chunk);
       }
@@ -275,6 +276,12 @@ export function createBudgetGateway({
           actual = usageTokens(value);
           actualUsage = value.usage;
         } catch {}
+        requestRejected =
+          !response.ok &&
+          actual === undefined &&
+          actualUsage == null &&
+          (!nativePi ||
+            response.headers.get("x-arena-request-rejected") === "1");
         res.setHeader(
           "content-type",
           response.headers.get("content-type") ?? "application/json",
@@ -316,6 +323,12 @@ export function createBudgetGateway({
               actual = usage.total_tokens;
               actualUsage = usage;
             }
+            if (
+              value.type === "error" &&
+              value.requestRejected === true &&
+              !usage
+            )
+              requestRejected = true;
           } else {
             actual = usageTokens(value) ?? actual;
             if (value.usage !== undefined && value.usage !== null)
@@ -327,21 +340,34 @@ export function createBudgetGateway({
         };
         for await (const chunk of response.body) {
           pending += decoder.decode(chunk, { stream: true });
-          if (pending.length > 2_000_000)
-            throw new Error("Upstream SSE line too large");
           let newline,
             out = "";
           while ((newline = pending.indexOf("\n")) >= 0) {
             const line = pending.slice(0, newline).replace(/\r$/, "");
             pending = pending.slice(newline + 1);
+            if (
+              limits.maxSseLineBytes !== undefined &&
+              Buffer.byteLength(line) > limits.maxSseLineBytes
+            )
+              throw new Error("Upstream SSE line too large");
             out += processLine(line);
           }
+          if (
+            limits.maxSseLineBytes !== undefined &&
+            Buffer.byteLength(pending) > limits.maxSseLineBytes
+          )
+            throw new Error("Upstream SSE line too large");
           const data = cashLedger || nativePi ? out : chunk;
           if (data.length && !res.write(data))
             await once(res, "drain", { signal: abort.signal });
         }
         pending += decoder.decode();
         if (pending) {
+          if (
+            limits.maxSseLineBytes !== undefined &&
+            Buffer.byteLength(pending) > limits.maxSseLineBytes
+          )
+            throw new Error("Upstream SSE line too large");
           const out = processLine(pending);
           if ((cashLedger || nativePi) && out) res.write(out);
         }
@@ -373,16 +399,21 @@ export function createBudgetGateway({
         );
       } else if (!res.destroyed) res.destroy();
     } finally {
-      reservation?.settle(upstreamStarted ? actual : 0);
-      cashReservation?.settle(actualUsage, { dispatched: upstreamStarted });
+      reservation?.settle(upstreamStarted && !requestRejected ? actual : 0);
+      cashReservation?.settle(actualUsage, {
+        dispatched: upstreamStarted && !requestRejected,
+      });
       if (upstreamStarted) {
         onMetric({
           participant: participantId,
           model: requestModel,
           queueDelayMs,
           reservedTokens: reservation.reservedTokens,
-          chargedTokens: actual ?? reservation.reservedTokens,
+          chargedTokens: requestRejected
+            ? 0
+            : (actual ?? reservation.reservedTokens),
           usageReported: actual !== undefined,
+          requestRejected,
           ...(cashLedger
             ? { referenceCost: cashLedger.operatorSnapshot(participantId) }
             : {}),

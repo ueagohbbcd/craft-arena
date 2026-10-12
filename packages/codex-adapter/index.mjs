@@ -2,6 +2,7 @@ import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { once } from "node:events";
 import { createCacheBoundaryPolicy } from "./cache-boundary.mjs";
+import { providerFailure } from "./provider-error.mjs";
 import {
   publicPiEvent,
   PiRequestValidationError,
@@ -43,7 +44,7 @@ export function codexContext(context, model) {
   return result;
 }
 
-export function nativeEvent(event) {
+export function nativeEvent(event, failure) {
   const { type, contentIndex } = event;
   if (type === "start") return { type };
   if (["text_start", "thinking_start"].includes(type))
@@ -73,7 +74,9 @@ export function nativeEvent(event) {
       reason: event.reason,
       usage: publicPiEvent({ usage: message.usage }).usage,
       errorMessage:
-        type === "error" ? "Trusted provider request failed" : undefined,
+        type === "error"
+          ? (failure ?? providerFailure(message)).message
+          : undefined,
       responseId: message.responseId,
       providerThinkingLevel: message.providerThinkingLevel,
     };
@@ -111,9 +114,10 @@ export function createCodexAdapter({
   models,
   provider = "openai-codex",
   token,
-  maxBodyBytes = 8 * 1024 * 1024,
+  maxBodyBytes,
   promptCacheStrategy,
   onCacheBoundary,
+  onDiagnostic = () => {},
 }) {
   if (!["openai-codex", "deepseek"].includes(provider))
     throw new Error("Unsupported trusted provider");
@@ -124,6 +128,9 @@ export function createCodexAdapter({
   });
   return http.createServer(async (req, res) => {
     const abort = new AbortController();
+    let providerStatus;
+    let usageReported = false;
+    let accountingUsage;
     req.on("aborted", () => abort.abort());
     res.on("close", () => {
       if (!res.writableEnded) abort.abort();
@@ -139,7 +146,7 @@ export function createCodexAdapter({
       let bytes = 0;
       for await (const chunk of req) {
         bytes += chunk.length;
-        if (bytes > maxBodyBytes)
+        if (maxBodyBytes !== undefined && bytes > maxBodyBytes)
           throw new PiRequestValidationError("Body too large", 413);
         chunks.push(chunk);
       }
@@ -154,8 +161,6 @@ export function createCodexAdapter({
       const model = models.getModel(provider, body.model);
       if (!model) throw new PiRequestValidationError("Unknown provider model");
       const options = body.options ?? {};
-      let usageReported = false;
-      let accountingUsage;
       const events = models.stream(model, codexContext(body.context, model), {
         // Construct generation options explicitly: request data never overrides trusted
         // credentials, provider endpoints, headers, callbacks, or cancellation.
@@ -168,6 +173,9 @@ export function createCodexAdapter({
         toolChoice: options.toolChoice,
         transport: "sse",
         maxRetries: 0,
+        onResponse({ status }) {
+          providerStatus = status;
+        },
         onPayload(payload) {
           const adapted = cachePolicy.adapt(payload, model);
           onCacheBoundary?.(adapted.diagnostic);
@@ -221,13 +229,37 @@ export function createCodexAdapter({
       const endedBlocks = new Map();
       for await (const event of events) {
         if (["done", "error"].includes(event.type)) {
+          const failure =
+            event.type === "error"
+              ? providerFailure(event.error, {
+                  status: providerStatus,
+                  aborted: abort.signal.aborted,
+                })
+              : undefined;
+          if (failure)
+            onDiagnostic({
+              kind: "provider-error",
+              provider,
+              model: model.id,
+              ...failure,
+            });
           for (const update of finalSignatureEvents(
             event.message ?? event.error,
           )) {
             if (endedBlocks.get(update.contentIndex) !== JSON.stringify(update))
               await send(update);
           }
-          await send({ ...nativeEvent(event), usageReported, accountingUsage });
+          await send({
+            ...nativeEvent(event, failure),
+            usageReported,
+            accountingUsage,
+            // Only a definite HTTP rejection before any reported usage is refunded.
+            ...(event.type === "error" &&
+            providerStatus >= 400 &&
+            !usageReported
+              ? { requestRejected: true }
+              : {}),
+          });
           res.end();
           return;
         }
@@ -238,16 +270,32 @@ export function createCodexAdapter({
       }
       throw new Error("Provider stream ended without terminal event");
     } catch (error) {
+      const validation = error instanceof PiRequestValidationError;
+      const failure = validation
+        ? undefined
+        : providerFailure(error, {
+            status: providerStatus,
+            aborted: abort.signal.aborted,
+          });
+      if (failure)
+        onDiagnostic({
+          kind: "adapter-error",
+          provider,
+          phase: res.headersSent ? "stream" : "request",
+          ...failure,
+        });
       if (!res.headersSent) {
-        const validation = error instanceof PiRequestValidationError;
-        res.statusCode = validation ? error.status : 502;
+        res.statusCode = validation ? error.status : (failure.status ?? 502);
+        if (
+          validation ||
+          (failure.status !== undefined && providerStatus !== 200)
+        )
+          res.setHeader("x-arena-request-rejected", "1");
         res.setHeader("content-type", "application/json");
         res.end(
           JSON.stringify({
             error: {
-              message: validation
-                ? error.message
-                : "Trusted provider adapter failed",
+              message: validation ? error.message : failure.message,
             },
           }),
         );

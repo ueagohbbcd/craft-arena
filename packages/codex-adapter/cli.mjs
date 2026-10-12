@@ -10,6 +10,7 @@ const server = createCodexAdapter({
   ...config,
   models: createTrustedModels(config),
   token: process.env[config.tokenEnv],
+  onDiagnostic: (diagnostic) => console.error(JSON.stringify(diagnostic)),
 });
 server.listen(config.port ?? 8082, config.host ?? "127.0.0.1", () =>
   console.log(

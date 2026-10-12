@@ -37,7 +37,6 @@
   },
   "limits": {
     "estimator": "conservative",
-    "maxBodyBytes": 8388608,
     "imageTokenAllowance": 4096
   },
   "examplePurpose": "Reference configuration only: operator must explicitly choose model and cash rate limits; no model or spend has been selected for the user.",

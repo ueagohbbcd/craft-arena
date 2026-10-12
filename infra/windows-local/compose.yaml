@@ -30,6 +30,7 @@ services:
     command: [node, packages/arena/src/live-cli.mjs, /config/match.live.json, /results/match-result.json]
     environment:
       MC_RCON_PASSWORD: ${MC_RCON_PASSWORD}
+      ARENA_RUNTIME_FAULT_FILE: /control/runtime-fault.json
       RED1_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
       BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
     networks: [backend, red1, blue1]

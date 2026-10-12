@@ -1,9 +1,10 @@
 #!/usr/bin/env node
-import { dirname, resolve } from "node:path";
+import { dirname, resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { readFile, access } from "node:fs/promises";
 import { createLiveMatch } from "./live.mjs";
 import { writeRunState } from "./run-files.mjs";
+import { readRuntimeFault } from "./runtime-supervisor.mjs";
 const [path, resultPath = "match-result.json"] = process.argv.slice(2);
 if (!path) {
   console.error(
@@ -25,6 +26,7 @@ if (!path) {
       runId: run.runId,
       resultDir: dirname(resolve(resultPath)),
     });
+    match.host.onEnding = (host) => writeRunState(host, resultPath);
     await writeRunState(match.host, resultPath);
     for (const signal of ["SIGINT", "SIGTERM"])
       process.once(signal, () => {
@@ -57,17 +59,30 @@ if (!path) {
       }),
     );
     const startFile = match.host.config.live.startSignalFile;
+    const faultFile =
+      process.env.ARENA_RUNTIME_FAULT_FILE ||
+      match.host.config.live.runtimeFaultSignalFile ||
+      (startFile && join(dirname(startFile), "runtime-fault.json"));
+    const checkRuntime = async () => {
+      const fault = await readRuntimeFault(faultFile, match.host.runId);
+      if (fault) await match.host.failRuntime(fault);
+    };
     if (startFile) {
       console.log(
         JSON.stringify({ state: "waiting-for-operator-start", startFile }),
       );
       while (match.host.state === "prepared") {
+        await checkRuntime();
+        if (match.host.state !== "prepared") break;
         try {
           await access(startFile);
           break;
         } catch {}
         await new Promise((r) => setTimeout(r, 100));
       }
+    }
+    if (!shutdownRequested && match.host.state === "prepared") {
+      await checkRuntime();
     }
     if (!shutdownRequested && match.host.state === "prepared") {
       await match.start();
@@ -80,8 +95,10 @@ if (!path) {
         }),
       );
     }
-    while (match.host.state !== "ended")
+    while (match.host.state !== "ended") {
+      await checkRuntime();
       await new Promise((r) => setTimeout(r, 100));
+    }
     const result = await writeRunState(match.host, resultPath);
     console.log(
       JSON.stringify({
@@ -94,7 +111,12 @@ if (!path) {
         replay: result.replay,
       }),
     );
-    if (!result.stopConfirmed || result.replay?.status === "failed")
+    if (
+      result.reason === "runtime-fault" ||
+      result.stateReportError ||
+      !result.stopConfirmed ||
+      result.replay?.status === "failed"
+    )
       process.exitCode = 1;
     if (!shutdownRequested) {
       console.log(

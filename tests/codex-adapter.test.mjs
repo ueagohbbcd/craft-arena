@@ -702,11 +702,14 @@ test("native upstream/auth error text is not exposed to participants", () => {
     stopReason: "error",
   };
   const event = nativeEvent({ type: "error", reason: "error", error });
-  assert.equal(event.errorMessage, "Trusted provider request failed");
+  assert.equal(
+    event.errorMessage,
+    "Trusted provider failure [category=provider_failure]",
+  );
   assert.doesNotMatch(JSON.stringify(event), /fake-secret-fixture/);
 });
 
-test("adapter only exposes local validation failures, never SDK exceptions with status", async (t) => {
+test("adapter preserves actionable SDK status while keeping raw authentication text private", async (t) => {
   let calls = 0;
   const models = {
     getModel: () => model,
@@ -733,9 +736,11 @@ test("adapter only exposes local validation failures, never SDK exceptions with 
       body: JSON.stringify(body),
     });
   const failed = await send({ model: model.id, context: context() });
-  assert.equal(failed.status, 502);
+  assert.equal(failed.status, 401);
   assert.deepEqual(await failed.json(), {
-    error: { message: "Trusted provider adapter failed" },
+    error: {
+      message: "Trusted provider failure [category=authentication; status=401]",
+    },
   });
   const invalid = await send({
     model: model.id,

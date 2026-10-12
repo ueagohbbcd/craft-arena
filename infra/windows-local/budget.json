@@ -25,7 +25,6 @@
   },
   "limits": {
     "estimator": "approximate",
-    "maxBodyBytes": 8388608,
     "imageTokenAllowance": 4096
   },
   "requireRunningMatch": true,

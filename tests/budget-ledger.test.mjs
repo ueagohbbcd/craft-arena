@@ -87,7 +87,7 @@ test("shipped budgets admit their own TPM allowance without a separate reservati
   const l = new BudgetLedger({ ...config, autoWake: false });
   for (const id of Object.keys(config.participants)) {
     const r = await l.acquire(id, config.participants[id].tpm);
-    assert.equal(r.reservedTokens, 131072);
+    assert.equal(r.reservedTokens, config.participants[id].tpm);
     r.settle(0);
   }
   l.close();

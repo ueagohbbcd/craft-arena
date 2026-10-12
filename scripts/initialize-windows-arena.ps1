@@ -49,7 +49,8 @@ try {
     foreach ($dir in @('minecraft-data','map-original','auth','results','control','replay-config')) { New-Item -ItemType Directory -Path (Join-Path $stage $dir) | Out-Null }
     $template = Join-Path $repo 'infra/windows-local'
     foreach ($file in @('compose.yaml','budget.json','budget.deepseek.json','codex.json','deepseek.json','model.codex.json','model.deepseek.json')) { Copy-Item -LiteralPath (Join-Path $template $file) -Destination $stage }
-    Copy-Item -LiteralPath $match -Destination (Join-Path $stage 'match.live.json')
+    $matchDocument.live | Add-Member -NotePropertyName runtimeFaultSignalFile -NotePropertyValue '/control/runtime-fault.json' -Force
+    $matchDocument | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $stage 'match.live.json') -Encoding utf8
     $prepareArgs = @((Join-Path $repo 'scripts/prepare-minecraft-server.mjs'), (Join-Path $stage 'server'), '--manifest', $ServerDownload)
     if ($ServerJar) { $prepareArgs += @('--server-jar', $ServerJar) }
     & $node @prepareArgs

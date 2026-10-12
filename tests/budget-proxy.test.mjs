@@ -164,7 +164,7 @@ test("inline and remote images pass through without local media-schema validatio
   assert.ok(Number(response.headers.get("x-arena-reserved-tokens")) > 4000);
   assert.equal(ledger.snapshot("a")[0].usedTokens, 42);
 });
-test("upstream errors without usage charge reservation on every attempt", async (t) => {
+test("explicit upstream rejection without usage releases reservations for retry", async (t) => {
   const upstream = http.createServer((req, res) => {
     req.resume();
     res.writeHead(503, { "content-type": "application/json" });
@@ -199,7 +199,6 @@ test("upstream errors without usage charge reservation on every attempt", async 
     upstream.closeAllConnections();
     upstream.close();
   });
-  let reserved = 0;
   for (let i = 0; i < 2; i++) {
     const res = await fetch(`${base}/participants/a/v1/chat/completions`, {
       method: "POST",
@@ -210,11 +209,11 @@ test("upstream errors without usage charge reservation on every attempt", async 
       }),
     });
     assert.equal(res.status, 503);
-    reserved += Number(res.headers.get("x-arena-reserved-tokens"));
     await res.text();
   }
-  assert.equal(ledger.snapshot("a")[0].usedTokens, reserved);
-  assert.equal(ledger.snapshot("a")[1].usedTokens, reserved);
+  assert.equal(ledger.snapshot("a")[0].usedTokens, 0);
+  assert.equal(ledger.snapshot("a")[1].usedTokens, 0);
+  assert.equal(ledger.snapshot("a")[0].active, 0);
 });
 test("match admission guard rejects ended requests and refunds queued reservation before dispatch", async (t) => {
   let upstreamCalls = 0,

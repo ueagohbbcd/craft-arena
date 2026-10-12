@@ -24,9 +24,7 @@ const projectRoot = resolve(dirname(extensionPath), "../..");
 const positiveInteger = (value, fallback) => {
   const n = Number(value ?? fallback);
   if (!Number.isSafeInteger(n) || n < 1)
-    throw new Error(
-      "Runtime delays and retry counts must be positive integers",
-    );
+    throw new Error("Runtime delays must be positive integers");
   return n;
 };
 
@@ -233,6 +231,7 @@ export async function launchPi({
   let openingPrepared = false;
   let pendingCourseView;
   let startupTimedOut = false;
+  let runtimeFailed = false;
   let recovery;
   let detachRpc;
   const openingViews = createOpeningViews({
@@ -279,8 +278,9 @@ export async function launchPi({
     if (bridgeUrl && token) {
       recovery = createResidentRecovery({
         send(command) {
-          if (!stopping && !child.stdin.destroyed)
-            child.stdin.write(`${JSON.stringify(command)}\n`);
+          if (stopping || child.stdin.destroyed)
+            throw new Error("Resident RPC input unavailable");
+          child.stdin.write(`${JSON.stringify(command)}\n`);
         },
         async getMatchState() {
           const host = await readMatch();
@@ -290,8 +290,12 @@ export async function launchPi({
         report(message) {
           process.stderr.write(`${message}\n`);
         },
+        onFatal() {
+          runtimeFailed = true;
+          shutdown();
+        },
         retryDelayMs: positiveInteger(env.ARENA_RETRY_DELAY_MS, 2000),
-        maxRetries: positiveInteger(env.ARENA_RECOVERY_MAX_RETRIES, 3),
+        maxRetryDelayMs: positiveInteger(env.ARENA_RETRY_MAX_DELAY_MS, 60000),
       });
       detachRpc = observeRpcOutput(child.stdout, (event) =>
         recovery.receive(event),
@@ -411,7 +415,9 @@ export async function launchPi({
       child.once("error", reject);
       child.once("exit", (code, signal) =>
         resolveExit(
-          startupTimedOut ? 1 : (code ?? (signal === "SIGINT" ? 130 : 143)),
+          startupTimedOut || runtimeFailed
+            ? 1
+            : (code ?? (signal === "SIGINT" ? 130 : 143)),
         ),
       );
     });

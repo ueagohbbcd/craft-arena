@@ -46,7 +46,15 @@ export function observeRpcOutput(
 }
 
 export function permanentResidentError(message = "") {
-  return /\b(?:400|401|403|404)\b|unauthori[sz]ed|invalid (?:api.?key|model|request|output|context)|unsupported|not configured|no (?:api key|model)|missing .*key|authentication|insufficient_quota|budget.*exhaust|exceeds (?:maximum budget|configured|the whole window)|request exceeds maximum|context[_ ]length[_ ]exceeded|context overflow|maximum context|prompt.*too long/i.test(
+  if (
+    /^Trusted provider failure \[category=(?:authentication|context_length|invalid_request)(?:; status=\d{3})?\]/.test(
+      message,
+    )
+  )
+    return true;
+  // Status numbers and words such as "unsupported" in arbitrary provider text
+  // are not a diagnosis. In particular, a host end can reject a request with 403.
+  return /invalid api[ _-]?key|incorrect api[ _-]?key|api[ _-]?key (?:is )?(?:missing|not configured)|no api key|missing api key|insufficient_quota|(?:token|cash|model) budget exhausted|request exceeds maximum budget|native pi upstream is not configured|model is not allowed|no model (?:selected|configured)|context[_ ]length[_ ]exceeded|context overflow|prompt (?:is )?too long/i.test(
     message,
   );
 }
@@ -59,12 +67,13 @@ export function createResidentRecovery({
   send,
   getMatchState,
   report = () => {},
+  onFatal = () => {},
   now = Date.now,
   schedule = setTimeout,
   cancel = clearTimeout,
   checkDelayMs = 2000,
   retryDelayMs = 2000,
-  maxRetries = 3,
+  maxRetryDelayMs = 60000,
   stateTimeoutMs = 3000,
 }) {
   let closed = false,
@@ -91,13 +100,8 @@ export function createResidentRecovery({
         void recover();
       }, delay);
   };
-  const block = (reason) => {
-    plan = undefined;
-    clear();
-    report(
-      `Arena resident recovery blocked: ${reason}. Background tasks remain running; operator action or a new successful turn is required.`,
-    );
-  };
+  const backoff = (attempt) =>
+    Math.min(maxRetryDelayMs, retryDelayMs * 2 ** Math.min(attempt - 1, 30));
   const prepare = (message) => {
     const reason = message?.stopReason ?? "stop";
     if (reason !== "error" && reason !== "length") {
@@ -109,16 +113,16 @@ export function createResidentRecovery({
     }
     if (reason === "error") {
       if (permanentResidentError(message.errorMessage)) {
-        block("permanent model configuration/authentication failure");
+        // Verify the trusted host is still running before failing the runtime.
+        plan = { reason: "fatal", delay: checkDelayMs };
+        arm(plan.delay);
         return;
       }
-      if (++errors > maxRetries) {
-        block(`model request failed after ${maxRetries} recovery attempts`);
-        return;
-      }
+      errors = Math.min(errors + 1, 31);
+      emptyLengths = 0;
       plan = {
         reason,
-        delay: Math.min(60000, retryDelayMs * 2 ** (errors - 1)),
+        delay: backoff(errors),
       };
     } else {
       errors = 0;
@@ -131,15 +135,11 @@ export function createResidentRecovery({
               typeof block.text === "string" &&
               block.text.trim()),
         );
-      if (reason === "length" && !progress) {
-        if (++emptyLengths > maxRetries) {
-          block(
-            `empty output-limit responses persisted after ${maxRetries} recovery attempts`,
-          );
-          return;
-        }
-      } else emptyLengths = 0;
-      plan = { reason, delay: checkDelayMs };
+      emptyLengths = progress ? 0 : Math.min(emptyLengths + 1, 31);
+      plan = {
+        reason,
+        delay: progress ? checkDelayMs : backoff(emptyLengths),
+      };
     }
     arm(plan.delay);
   };
@@ -182,15 +182,29 @@ export function createResidentRecovery({
         return;
       }
       plan = undefined;
+      if (pending.reason === "fatal") {
+        const failure = { type: "model-configuration", at: now() };
+        report(
+          "Arena resident fatal: model configuration/authentication/context cannot recover. Closing the runtime with failure status.",
+        );
+        await onFatal(failure);
+        return;
+      }
       active = true; // Hold the slot until prompt preflight or actual agent activity settles.
       report(
         `Arena resident recovery: continuing ${pending.reason} at ${now()}.`,
       );
-      send({
-        id: `arena-recovery-prompt-${++sequence}`,
-        type: "prompt",
-        message: continueMessage(pending.reason),
-      });
+      try {
+        send({
+          id: `arena-recovery-prompt-${++sequence}`,
+          type: "prompt",
+          message: continueMessage(pending.reason),
+        });
+      } catch (error) {
+        active = false;
+        plan = pending;
+        throw error;
+      }
     } catch {
       if (!closed && version === generation && plan === pending)
         arm(checkDelayMs);

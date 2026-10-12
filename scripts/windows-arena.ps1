@@ -22,9 +22,48 @@ function Invoke-Compose {
   if ($LASTEXITCODE -ne 0) { throw "Docker operation failed: $($CommandArgs[0])" }
 }
 function Find-Node {
-  $path = (Get-Command node -ErrorAction Stop).Source
-  if ((& $path -p 'Number(process.versions.node.split(".")[0]) >= 24') -ne 'true') { throw 'Node.js 24 or newer is required.' }
-  return $path
+  foreach ($candidate in (Get-Command node -All -CommandType Application -ErrorAction Stop)) {
+    $path = $candidate.Source
+    if ((& $path -p 'Number(process.versions.node.split(".")[0]) >= 24') -eq 'true') { return $path }
+  }
+  throw 'Node.js 24 or newer is required on PATH.'
+}
+function Get-ParticipantServices {
+  $services = & $docker @compose config --services
+  if ($LASTEXITCODE -ne 0) { throw 'Cannot discover Compose participant services.' }
+  $participants = @($services | Where-Object { $_ -like 'participant-*' })
+  if (-not $participants.Count) { throw 'No participant services in Compose configuration.' }
+  return $participants
+}
+function Start-RuntimeSupervisor {
+  $record = Join-Path $deployment 'runtime-supervisor-process.json'
+  $statusPath = Join-Path $deployment 'runtime-supervisor.json'
+  $runState = Get-Content -LiteralPath "$deployment/results/match-result.json" -Raw | ConvertFrom-Json
+  if (Test-Path -LiteralPath $record) {
+    $saved = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
+    $existing = Get-Process -Id $saved.pid -ErrorAction SilentlyContinue
+    if ($existing -and $existing.StartTime.ToUniversalTime().Ticks -eq $saved.startedAt) {
+      $status = if (Test-Path -LiteralPath $statusPath) { Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json } else { $null }
+      if ($status -and $status.runId -eq $runState.runId -and $status.state -eq 'watching') { return }
+      Stop-Process -InputObject $existing
+    }
+  }
+  $node = Find-Node
+  $cli = Join-Path $repo 'scripts/supervise-participants.mjs'
+  if (Test-Path -LiteralPath $statusPath) { Remove-Item -LiteralPath $statusPath }
+  $arguments = @('"'+$cli+'"','"'+$deployment+'"','"'+$docker+'"')
+  $process = Start-Process -FilePath $node -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput "$deployment/runtime-supervisor.log" -RedirectStandardError "$deployment/runtime-supervisor.err.log"
+  @{pid=$process.Id;startedAt=$process.StartTime.ToUniversalTime().Ticks} | ConvertTo-Json | Set-Content -LiteralPath $record -Encoding utf8
+  for ($i=0; $i -lt 60; $i++) {
+    if ($process.HasExited) { throw 'Runtime supervisor exited; inspect runtime-supervisor.err.log and runtime-supervisor.json.' }
+    if (Test-Path -LiteralPath $statusPath) {
+      $status = Get-Content -LiteralPath $statusPath -Raw | ConvertFrom-Json
+      if ($status.state -eq 'watching' -and $status.runId -eq $runState.runId) { return }
+      if ($status.state -eq 'fault') { throw 'A participant runtime stopped before start; inspect runtime-supervisor.json.' }
+    }
+    Start-Sleep -Milliseconds 250
+  }
+  throw 'Runtime supervisor readiness timed out; inspect runtime-supervisor.err.log.'
 }
 function Start-ProxyRelay {
   $secretFile = Join-Path $deployment 'proxy-secret'
@@ -70,7 +109,9 @@ function Read-MatchState {
 }
 function Stop-Arena {
   Invoke-Compose @('stop','arena-host')
-  Invoke-Compose @('stop','-t','20','participant-red1','participant-blue1','budget-gateway','budget-blue','codex-adapter','deepseek-adapter')
+  $services = & $docker @compose config --services
+  if ($LASTEXITCODE -ne 0) { throw 'Cannot discover Compose services.' }
+  Invoke-Compose (@('stop','-t','20') + @($services | Where-Object { $_ -notin @('arena-host','minecraft') }))
   $resultPath = Join-Path $deployment 'results/match-result.json'
   if (Test-Path -LiteralPath $resultPath) {
     $result = Get-Content -LiteralPath $resultPath -Raw | ConvertFrom-Json
@@ -109,14 +150,16 @@ switch ($Action) {
       Start-Sleep -Seconds 1
     }
     if ($state -ne 'prepared') { throw 'Arena preparation failed; inspect host logs.' }
-    foreach ($participant in @('participant-red1','participant-blue1')) {
+    foreach ($participant in (Get-ParticipantServices)) {
       Invoke-Compose @('run','--rm','--no-deps',$participant,'sh','-c','test -d /team-git/project.git || git init --bare /team-git/project.git')
     }
-    Invoke-Compose @('up','-d','codex-adapter','deepseek-adapter','budget-gateway','budget-blue','participant-red1','participant-blue1')
-    Write-Output 'Arena prepared. Both participants wait for the start command.'
+    Invoke-Compose @('up','-d')
+    Start-RuntimeSupervisor
+    Write-Output 'Arena prepared. Participant runtimes are supervised and wait for the start command.'
   }
   'start' {
     if ((Read-MatchState) -ne 'prepared') { throw 'Run up and wait for prepared state before start.' }
+    Start-RuntimeSupervisor
     Invoke-Compose @('exec','-T','arena-host','touch','/control/start')
   }
   'stop' { Stop-Arena }
@@ -129,7 +172,7 @@ switch ($Action) {
     $result = Assert-ArenaPath (Join-Path $deployment 'results/match-result.json') -Root $deployment
     $start = Assert-ArenaPath (Join-Path $deployment 'control/start') -Root $deployment
     Stop-Arena
-    foreach ($participant in @('participant-red1','participant-blue1')) {
+    foreach ($participant in (Get-ParticipantServices)) {
       Invoke-Compose @('run','--rm','--no-deps',$participant,'node','/opt/arena/scripts/archive-participant-state.mjs',$archiveId)
     }
     New-Item -ItemType Directory -Path $archive | Out-Null
@@ -138,7 +181,9 @@ switch ($Action) {
     if (Test-Path -LiteralPath $result) { Move-Item -LiteralPath $result -Destination (Join-Path $archive 'match-result.json') }
     if (Test-Path -LiteralPath $start) { Move-Item -LiteralPath $start -Destination (Join-Path $archive 'start') }
     # Remove containers, not volumes: fresh host/ledgers, retained code and run archives.
-    Invoke-Compose @('rm','-f','arena-host','budget-gateway','budget-blue','participant-red1','participant-blue1')
+    $services = & $docker @compose config --services
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot discover Compose services.' }
+    Invoke-Compose (@('rm','-f','arena-host') + @($services | Where-Object { $_ -like 'participant-*' -or $_ -like 'budget-*' }))
     Write-Output "World reset; previous world/result/start marker are in $archive. Participant sessions and match-artifacts moved to .arena-history/$archiveId in each work volume. Code and team Git are retained. Run up next."
   }
 }

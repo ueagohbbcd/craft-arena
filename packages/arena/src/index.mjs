@@ -56,6 +56,7 @@ export class MatchHost {
     now = Date.now,
     eventToken,
     runId = randomUUID(),
+    onEnding = () => {},
   }) {
     const errors = validateMatchConfig(config);
     if (errors.length) throw new Error(errors.join("; "));
@@ -72,6 +73,7 @@ export class MatchHost {
     this.connector = connector;
     this.now = now;
     this.eventToken = eventToken;
+    this.onEnding = onEnding;
     this.state = "created";
     this.runId = runId;
     this.seen = new Set();
@@ -234,6 +236,7 @@ export class MatchHost {
       ![
         "abandoned",
         "map-fault",
+        "runtime-fault",
         "timeout",
         "objectives-complete",
         "simultaneous-objectives",
@@ -250,6 +253,13 @@ export class MatchHost {
       throw new Error("Objective completion not established");
     return this.#finish(reason, winner);
   }
+  async failRuntime(fault) {
+    if (!["prepared", "running"].includes(this.state)) return;
+    if (fault.runId !== this.runId)
+      throw new Error("Runtime fault belongs to another run");
+    this.runtimeError = structuredClone(fault);
+    return this.end("runtime-fault");
+  }
   async #finish(reason, winner) {
     const pendingPhase = this.transition ? this.phaseDone : null;
     this.state = "ending";
@@ -258,6 +268,12 @@ export class MatchHost {
     this.winner = winner;
     // Fail closed even when connector shutdown fails. Operator must ensure actual bots are stopped.
     this.ending = (async () => {
+      // Publish "ending" before game shutdown makes participant runtimes exit.
+      try {
+        await this.onEnding(this);
+      } catch (error) {
+        this.stateReportError = error.message;
+      }
       try {
         if (pendingPhase) await pendingPhase;
         await this.connector.stop(this.runId);
@@ -292,6 +308,8 @@ export class MatchHost {
       stopConfirmed: this.stopConfirmed,
       stopError: this.stopError,
       observerError: this.observerError,
+      runtimeError: this.runtimeError,
+      stateReportError: this.stateReportError,
       ...(this.replay ? { replay: this.replay } : {}),
     });
   }

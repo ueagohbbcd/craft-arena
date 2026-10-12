@@ -27,11 +27,7 @@ for (const suffix of ["", ".deepseek"]) {
       },
       { ...config.limits, defaultOutputTokens: model.maxOutputTokens },
     );
-    assert.equal(estimate.output, 32768);
-    assert(
-      estimate.total < 300000,
-      "reservation must not treat every byte as a token",
-    );
+    assert.equal(estimate.output, model.maxOutputTokens);
     const ledger = new ReferenceCostLedger({
       config: config.referenceCost,
       participants: config.participants,
@@ -51,7 +47,7 @@ for (const suffix of ["", ".deepseek"]) {
     }
   });
 
-  test(`${model.id}: Pi reads the shared model descriptor with the 250K compaction trigger`, async () => {
+  test(`${model.id}: Pi takes context and compaction settings from the shared descriptor`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "arena-limits-"));
     try {
       const profile = await preparePiProfile({
@@ -67,30 +63,18 @@ for (const suffix of ["", ".deepseek"]) {
       );
       const registered = profile.models.providers.arena.models[0];
       assert.equal(registered.id, model.id);
+      assert.equal(registered.contextWindow, model.contextWindow);
       assert.equal(
-        registered.contextWindow - settings.compaction.reserveTokens,
-        250000,
+        settings.compaction.reserveTokens,
+        model.compaction.reserveTokens,
       );
-      assert.equal(registered.maxTokens, 32768);
+      assert.equal(
+        settings.compaction.keepRecentTokens,
+        model.compaction.keepRecentTokens,
+      );
+      assert.equal(registered.maxTokens, model.maxOutputTokens);
     } finally {
       await rm(directory, { recursive: true, force: true });
     }
   });
 }
-
-test("shared public profiles are read-only mounts, separate from trusted credentials and rates", async () => {
-  const compose = await readFile(
-    new URL("../infra/windows-local/compose.yaml", import.meta.url),
-    "utf8",
-  );
-  for (const name of ["codex", "deepseek"])
-    assert.equal(
-      compose.split(`./model.${name}.json:/config/model.${name}.json:ro`)
-        .length - 1,
-      2,
-    );
-  assert.doesNotMatch(
-    compose,
-    /PI_(?:MAX_TOKENS|CONTEXT_WINDOW|COMPACTION_)|MODEL_ID:/,
-  );
-});

@@ -33,7 +33,6 @@
   },
   "limits": {
     "estimator": "conservative",
-    "maxBodyBytes": 8388608,
     "imageTokenAllowance": 4096
   },
   "modelConfig": "model.example.json",

@@ -103,6 +103,7 @@ services:
     - /results/match-result.json
     environment:
       MC_RCON_PASSWORD: ${MC_RCON_PASSWORD:?Provide operator RCON credential}
+      ARENA_RUNTIME_FAULT_FILE: /control/runtime-fault.json
       RED1_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
       BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
     networks:
