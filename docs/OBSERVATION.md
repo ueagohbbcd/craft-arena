@@ -1,5 +1,7 @@
 # 默认态势感知与观察工具
 
+本模块是**预装工具箱的一项能力**：其采样与事件判断逻辑和模型自写的观察程序同类，区别是目前由 Pi 会话默认启动并连接 Inbox。世界视觉和共享区块记忆是并列的预装库，分别用于按需图像与已接收原生区块历史；Skill 提供调用与改写说明。参赛代码能复用本模块的观察函数、运行自己的监听器，但当前尚没有直接热替换会话内默认观察实例的入口。[工具箱与框架边界](../README.md#框架预装工具箱与-skill) · [后续待办](PERCEPTION-TODO.md)。
+
 默认采用普通 ReAct 工具结果与收件箱历史：开局提供基础状态与地图配置的图像，随后交付变化部分。按需 `observe` 返回完整快照。后台采集、主动返回、普通 Inbox 与 early 的设计取舍见[上下文交付设计](CONTEXT-DELIVERY.md)。
 
 ## 系统是什么
@@ -68,13 +70,13 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 `recentBlocks` 在已有只读观察连接上默认每 1000 ms 采样一次，不随每个 physics tick 扫描。以观察到的眼睛所在整数格为起点，在整数格坐标欧氏半径 6 内做六邻接扩展；缺少 `eyeHeight` 时使用已有 `height`，完整结果注明近似来源。`transparent:true` 或没有整格碰撞盒的格允许扩展，全格不透明块只计作边界。玻璃、树叶、水、梯子、半砖等共用该粗规则，闭门和其他部分形状也可能透过；这不是可行走性或精确视线判断。未知格停止扩展。每次最多读取 4096 格，超预算显式标记，默认半径完整空气球为 925 格。
 
-所有实际采到的非空气类型都进入计数，没有“宝物”白名单。同维度、同类型、同坐标在本区间只计一次；跨报告重新计数。若同坐标变成另一类型，则两种实际见过的类型分别记录。空气和未知覆盖另计。模型报告只给各类型数量及一份整体时间段、3D bbox、边界面积和采样／缺口信息，不逐项展示位置或时间。`observe({fullRecentBlocks:true})` 可读取仍保留样本的每类型采样帧数、少量位置、时间与覆盖；显式观察结果遵循普通工具历史，读取本身不清空区间。
+所有实际采到的非空气类型都进入计数，没有“宝物”白名单。同维度、同类型、同坐标在本区间只计一次；跨报告重新计数。若同坐标变成另一类型，则两种实际见过的类型分别记录。空气和未知覆盖另计。模型紧凑报告给各类型数量、每种类型少量代表坐标（`dimensions[].positions`），以及整体时间段、3D bbox、边界面积和采样／缺口信息；不逐格列出全部位置或逐项时间。`observe({fullRecentBlocks:true})` 可读取仍保留样本的每类型采样帧数、少量位置、时间与覆盖；显式观察结果遵循普通工具历史，读取本身不清空区间。
 
 面积单位为整格面面积（block²）：每条“已触达透明格—六邻接已知不透明整格”邻接计不透明块朝向透明格的一个面，区间按维度、方块坐标和面方向去重。透明格之间的内部面、未知边缘和采样球的范围边缘不计。绕到同一块另一侧可增加另一个面；同面反复采样不增加。bbox 只是实际触达已知格的外包范围，内部可含孔洞，绝不拿 bbox 的壳面积代替边界面集合。该数不是部分方块精细网格面积。
 
 报告延迟与采样频率独立。默认 `delivery=inbox`，生产者从第一份样本开始以 `kind:"state"`、固定 key `observation.recent_blocks` 更新原有 Inbox 的同一待交付条目；每次提供本区间完整累计结果。Inbox 的 `minDeliveryDelayMs=30000` 从首个待交付条目创建时计时，后续覆盖不延后到期。到期只使条目可交付，等待原有工具／回合自然边界；未到期条目不使 `pending` 为真，也不唤醒模型。真正 `drain` 后通过同进程 `onDelivered` 释放该条目水位以内的样本，期间新增样本仍保留。入队被拒绝、过期或被挤出都不会自行清空生产者累计器；下次采样再提供完整累计。普通交付后的历史保留，不覆盖历史，也不把多个已封口报告简单相加。
 
-可用 `ARENA_PERCEPTION_RECENT_BLOCKS=0` 关闭；`ARENA_PERCEPTION_RECENT_BLOCK_RADIUS=6`、`ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS=1000`、`ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS=4096` 调整范围、频率和单次预算。`ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS` 设置 Inbox 的首次 pending 创建到可交付延迟。`ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS=3` 仅调整完整查询的代表位置数。采样中断／源过期不被记作完整空白观察，间隔内没有采到的瞬间不能追补。
+可用 `ARENA_PERCEPTION_RECENT_BLOCKS=0` 关闭；`ARENA_PERCEPTION_RECENT_BLOCK_RADIUS=6`、`ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS=1000`、`ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS=4096` 调整范围、频率和单次预算。`ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS` 设置 Inbox 的首次 pending 创建到可交付延迟。`ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS=3` 调整每类型保存的代表位置数，影响紧凑报告中的 `positions`，也影响完整查询可见的代表位置。采样中断／源过期不被记作完整空白观察，间隔内没有采到的瞬间不能追补。
 
 近距采样还复用现有告示牌文字读取，单独提供 `nearbySigns`，区分 `front`／`back` 的 `known` 与 `text`。只处理这次连通扫描实际遇到的牌，双方都确定为空白时省略；缺少 block entity 或某一侧消息字段时保留未知，不编成空牌。每面沿用 240 字符预览上限及 `textTruncated` 标记。附近牌集合／文字改变后，以可替换待交付状态投递普通 `observation.nearby_signs` 报告。同一未交付集合的往返观察合并，先前文字报告与走开后的空集合分别保留到实际交付；过期或挤出后仍可补交。时间戳变化本身不新增报告，空集合表示本次样本未遇到文字牌。该交付独立于区间方块报告的延迟；`observe` 也可读取当前附近牌。
 
