@@ -4,12 +4,10 @@ import {
   recentBlockOptions,
   projectRecentBlocks,
   startRecentBlockRuntime,
-} from "../packages/pi-extension/recent-block-runtime.mjs";
-import { observeForModel } from "../packages/observation/pi-extension.mjs";
+} from "../packages/observation/recent-block-runtime.mjs";
 import { Inbox } from "../packages/inbox/index.mjs";
 
 function fixture(options = {}) {
-  options = { delivery: "tail", ...options };
   let time = 1000,
     status = "connected",
     timer,
@@ -28,6 +26,8 @@ function fixture(options = {}) {
       shapes: [[0, 0, 0, 1, 1, 1]],
     }),
     signs: [],
+    seedStatus: "transparent",
+    readErrors: 0,
   };
   const reports = [];
   const signReports = [];
@@ -85,7 +85,12 @@ function fixture(options = {}) {
       scans++;
       return {
         blocks: [{ name: blockAt(origin).name, position: { ...origin } }],
-        counts: { sampledCells: 7, unknown: 1, air: 5 },
+        counts: {
+          sampledCells: 7,
+          unknown: 1,
+          air: 5,
+          readErrors: bot.readErrors,
+        },
         bounds: {
           min: { x: origin.x - 1, y: 64, z: -1 },
           max: { x: origin.x + 1, y: 66, z: 1 },
@@ -96,7 +101,7 @@ function fixture(options = {}) {
         },
         opaqueFaces: [{ position: { ...origin }, normal: [-1, 0, 0] }],
         signs: bot.signs,
-        seedStatus: "transparent",
+        seedStatus: bot.seedStatus,
         truncated: false,
       };
     },
@@ -167,52 +172,6 @@ test("low-frequency polling only scans fresh changed sources and uses no event l
   assert.equal(f.cancellations, 1);
 });
 
-test("failed, aborted and length replies plus repeated context hooks preserve pending samples", () => {
-  const f = fixture();
-  f.tick();
-  for (const stopReason of ["error", "aborted", "length"]) {
-    const before = f.runtime.prepareRequest();
-    assert.deepEqual(f.runtime.prepareRequest(), before);
-    f.runtime.finishRequest({ role: "assistant", stopReason });
-    assert.equal(f.runtime.snapshot().samples, 1);
-  }
-  f.runtime.prepareRequest();
-  f.runtime.finishRequest({ role: "toolResult", stopReason: "stop" });
-  assert.equal(f.runtime.snapshot().samples, 1);
-  f.runtime.finishRequest({ role: "assistant", stopReason: "stop" });
-  assert.equal(f.runtime.snapshot().samples, 0);
-  f.runtime.close();
-});
-
-test("successful request retires only included samples and observe reads do not advance its watermark", async () => {
-  const f = fixture();
-  f.tick();
-  const first = f.runtime.prepareRequest();
-  f.advance();
-  f.bot.entity.position.x = 8;
-  f.bot.blockAt = () => ({ name: "furnace" });
-  f.tick();
-  const before = f.runtime.snapshot();
-  const observed = await observeForModel(null, { recentBlocks: before });
-  assert.deepEqual(observed.details.state.recentBlocks, before);
-  assert.equal(first.samples, 1);
-  assert.equal(before.samples, 2);
-  assert.deepEqual(before.sampledRanges, [
-    {
-      dimension: "overworld",
-      bounds: { min: { x: -1, y: 64, z: -1 }, max: { x: 9, y: 66, z: 1 } },
-    },
-  ]);
-  f.runtime.finishRequest({ role: "assistant", stopReason: "toolUse" });
-  assert.equal(f.runtime.snapshot().samples, 1);
-  assert.deepEqual(
-    f.runtime.snapshot().entries.map((x) => x.name),
-    ["furnace"],
-  );
-  assert.equal(f.runtime.snapshot().entries[0].latestPositions[0].x, 8);
-  f.runtime.close();
-});
-
 test("disabling prevents polling and exposes no request section; numeric settings are configurable", () => {
   const off = startRecentBlockRuntime({
     getBot() {
@@ -234,7 +193,6 @@ test("disabling prevents polling and exposes no request section; numeric setting
       ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS: "1500",
       ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS: "8000",
       ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS: "2",
-      ARENA_PERCEPTION_RECENT_BLOCK_DELIVERY: "tail",
     }),
     {
       enabled: false,
@@ -242,8 +200,7 @@ test("disabling prevents polling and exposes no request section; numeric setting
       intervalMs: 1500,
       maxReads: 8000,
       positionLimit: 2,
-      delivery: "tail",
-      minReportMs: 0,
+      minReportMs: 30000,
     },
   );
   assert.equal(
@@ -251,11 +208,10 @@ test("disabling prevents polling and exposes no request section; numeric setting
       .intervalMs,
     1000,
   );
-  assert.equal(recentBlockOptions({}).delivery, "inbox");
   assert.equal(recentBlockOptions({}).minReportMs, 30000);
 });
 
-test("compact model projection has every type count but no per-type coordinates, times or sample-frame detail", () => {
+test("compact reports retain type counts and representative coordinates", () => {
   const f = fixture();
   f.tick();
   f.advance();
@@ -272,6 +228,7 @@ test("compact model projection has every type count but no per-type coordinates,
       ],
       opaqueBoundaryArea: 1,
       counts: { diamond_ore: 1, oak_log: 1 },
+      positions: { diamond_ore: [[0, 65, 0]], oak_log: [[0, 65, 0]] },
     },
   ]);
   assert.equal(compact.ageMs, 300);
@@ -285,35 +242,8 @@ test("compact model projection has every type count but no per-type coordinates,
   f.runtime.close();
 });
 
-test("tail minimum report interval is independent from sampling and resets coordinate dedup after each report", () => {
-  const f = fixture({ minReportMs: 3000 });
-  f.tick();
-  assert.equal(f.runtime.prepareRequest(), undefined);
-  f.advance(1000);
-  f.tick();
-  assert.equal(f.runtime.snapshot().samples, 2);
-  f.advance(2000);
-  f.tick();
-  const report = f.runtime.prepareRequest();
-  assert.equal(report.samples, 3);
-  assert.equal(report.entries[0].distinctPositions, 1);
-  f.runtime.finishRequest({ role: "assistant", stopReason: "stop" });
-  f.advance(1000);
-  f.tick();
-  assert.equal(f.runtime.prepareRequest(), undefined);
-  f.advance(2000);
-  f.tick();
-  assert.equal(
-    f.runtime.prepareRequest().entries[0].distinctPositions,
-    1,
-    "same coordinates count anew in next interval",
-  );
-  assert.equal(f.reports.length, 0);
-  f.runtime.close();
-});
-
 test("inbox keeps one complete interval pending until an eligible boundary drains it", () => {
-  const f = fixture({ delivery: "inbox" });
+  const f = fixture({});
   f.tick();
   assert.equal(f.inbox.items.length, 1);
   assert.equal(f.inbox.pending, false);
@@ -339,7 +269,6 @@ test("inbox keeps one complete interval pending until an eligible boundary drain
     "another interval worth of wall time still updates the same pending report",
   );
   assert.equal(f.inbox.items[0].message.kind, "state");
-  assert.equal(f.runtime.prepareRequest(), undefined);
   const report = f.inbox.drain().messages[0];
   assert.equal(report.data.samples, 4);
   assert.equal(report.data.dimensions[0].counts.oak_log, 3);
@@ -358,33 +287,8 @@ test("inbox keeps one complete interval pending until an eligible boundary drain
   f.runtime.close();
 });
 
-test("both mode shows the latest actually delivered report without clearing a newer one", () => {
-  const f = fixture({ delivery: "both", minReportMs: 1000 });
-  f.tick();
-  f.advance();
-  f.tick();
-  assert.equal(f.runtime.prepareRequest(), undefined);
-  assert.equal(f.inbox.drain().messages.length, 1);
-  const first = f.runtime.prepareRequest();
-  f.runtime.finishRequest({ role: "assistant", stopReason: "error" });
-  assert.deepEqual(f.runtime.prepareRequest(), first);
-  f.advance();
-  f.tick();
-  f.advance(1000, false);
-  f.tick();
-  assert.equal(f.inbox.drain().messages.length, 1);
-  f.runtime.finishRequest({ role: "assistant", stopReason: "stop" });
-  assert.notEqual(
-    f.runtime.prepareRequest().throughSample,
-    first.throughSample,
-  );
-  f.runtime.finishRequest({ role: "assistant", stopReason: "stop" });
-  assert.equal(f.runtime.prepareRequest(), undefined);
-  f.runtime.close();
-});
-
 test("failed history enqueue never retires samples and delayed acceptance still waits for drain", () => {
-  const f = fixture({ delivery: "inbox", minReportMs: 1000 });
+  const f = fixture({ minReportMs: 1000 });
   f.acceptReports(false);
   f.tick();
   f.advance();
@@ -404,7 +308,7 @@ test("failed history enqueue never retires samples and delayed acceptance still 
 });
 
 test("draining an older accepted watermark leaves later rejected samples for the next batch", () => {
-  const f = fixture({ delivery: "inbox", minReportMs: 1000 });
+  const f = fixture({ minReportMs: 1000 });
   f.tick();
   f.acceptReports(false);
   f.advance();
@@ -421,8 +325,8 @@ test("draining an older accepted watermark leaves later rejected samples for the
   f.runtime.close();
 });
 
-test("nearby signs post ordinary changes independently of interval reports and stay current in explicit tail mode", () => {
-  const f = fixture({ delivery: "inbox", minReportMs: 30000 });
+test("nearby signs post ordinary changes independently of interval reports", () => {
+  const f = fixture({ minReportMs: 30000 });
   const sign = {
     position: { x: 1, y: 65, z: 0 },
     name: "oak_sign",
@@ -438,7 +342,6 @@ test("nearby signs post ordinary changes independently of interval reports and s
     "observation.nearby_signs",
   );
   assert.equal(f.inbox.pending, false, "the interval report is still delayed");
-  assert.equal(f.runtime.currentSigns({ forRequest: true }), undefined);
   assert.equal(f.runtime.currentSigns().signs[0].front.text, "Supplies");
   f.advance();
   f.tick();
@@ -467,21 +370,10 @@ test("nearby signs post ordinary changes independently of interval reports and s
     "current sampled set changed; no claim the world sign was destroyed",
   );
   f.runtime.close();
-  const tail = fixture({ delivery: "tail", minReportMs: 30000 });
-  tail.bot.signs = [sign];
-  tail.tick();
-  assert.equal(tail.runtime.prepareRequest(), undefined);
-  assert.equal(
-    tail.runtime.currentSigns({ forRequest: true }).signs[0].front.text,
-    "Supplies",
-  );
-  tail.runtime.finishRequest({ role: "assistant", stopReason: "stop" });
-  assert.equal(tail.runtime.currentSigns({ forRequest: true }).signs.length, 1);
-  tail.runtime.close();
 });
 
 test("sign change comparison ignores enumeration order and retries rejected enqueues", () => {
-  const f = fixture({ delivery: "inbox" });
+  const f = fixture({});
   const one = {
     position: { x: 1, y: 65, z: 0 },
     name: "oak_sign",
@@ -521,7 +413,7 @@ const signMessages = (batch) =>
   );
 
 test("expired nearby signs are retried until actual delivery, then unchanged samples stay quiet", () => {
-  const f = fixture({ delivery: "inbox" });
+  const f = fixture({});
   f.bot.signs = [signWithText("Objective wool through left tunnel")];
   f.tick();
   f.advance(301000);
@@ -551,7 +443,7 @@ test("expired nearby signs are retried until actual delivery, then unchanged sam
 });
 
 test("overflow cannot erase an undelivered sign when a newer sample walks away", () => {
-  const f = fixture({ delivery: "inbox" });
+  const f = fixture({});
   f.bot.signs = [signWithText("Take the lower passage")];
   f.tick();
   for (let n = 0; n < 256; n++)
@@ -573,7 +465,7 @@ test("overflow cannot erase an undelivered sign when a newer sample walks away",
 });
 
 test("pending sign revisits coalesce, edited text survives, and old acknowledgments retain newer samples", () => {
-  const f = fixture({ delivery: "inbox" });
+  const f = fixture({});
   f.bot.signs = [signWithText("One")];
   f.tick();
   const old = f.inbox.items.find(
@@ -610,5 +502,20 @@ test("pending sign revisits coalesce, edited text survives, and old acknowledgme
     1,
     "a revisit after delivery remains reportable",
   );
+  f.runtime.close();
+});
+
+test("blocked seeds and read errors remain visible in ordinary reports", () => {
+  const f = fixture();
+  f.bot.seedStatus = "opaque";
+  f.tick();
+  assert.equal(f.reports.at(-1).status, "seed_blocked");
+  assert.equal(f.reports.at(-1).seedStatus, "opaque");
+  f.advance();
+  f.bot.seedStatus = "transparent";
+  f.bot.readErrors = 3;
+  f.tick();
+  assert.equal(f.reports.at(-1).status, "partial");
+  assert.equal(f.reports.at(-1).readErrors, 3);
   f.runtime.close();
 });

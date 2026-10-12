@@ -144,11 +144,7 @@ export async function preparePiProfile({
     agentDir,
     modelId: model.id,
     models,
-    extensions: [
-      extensionPath,
-      join(projectRoot, "packages/world-visual/pi-extension.mjs"),
-      ...extras,
-    ],
+    extensions: [extensionPath, ...extras],
   };
 }
 

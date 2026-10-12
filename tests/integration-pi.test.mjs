@@ -20,12 +20,7 @@ import {
 } from "../packages/budget-gateway/src/index.mjs";
 import { ReferenceCostLedger } from "../packages/budget-gateway/src/reference-cost.mjs";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
-import { connectBot, Vector } from "../packages/bot-sdk/index.mjs";
-import {
-  snapshotFromBot,
-  renderMinimap,
-} from "../packages/world-visual/index.mjs";
-import worldVisualExtension from "../packages/world-visual/pi-extension.mjs";
+import { Vector } from "../packages/bot-sdk/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
 import inboxExtension from "../packages/pi-extension/index.mjs";
 process.env.PI_OFFLINE = "1";
@@ -49,7 +44,6 @@ async function harness(
   reply,
   {
     extensions = [],
-    tail = false,
     tools = ["bash", "task_wait", "task_cancel"],
     settings = {},
     gateway = false,
@@ -57,12 +51,6 @@ async function harness(
     usage = { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
   } = {},
 ) {
-  const oldTail = process.env.ARENA_PERCEPTION_TAIL;
-  process.env.ARENA_PERCEPTION_TAIL = tail ? "1" : "0";
-  t.after(() => {
-    if (oldTail === undefined) delete process.env.ARENA_PERCEPTION_TAIL;
-    else process.env.ARENA_PERCEPTION_TAIL = oldTail;
-  });
   const dir = await mkdtemp(join(tmpdir(), "mc-pi-integration-"));
   const requests = [],
     errors = [],
@@ -314,103 +302,90 @@ test(
     const saved = process.env.ARENA_TOOL_WAIT_SECONDS;
     if (realDefault) delete process.env.ARENA_TOOL_WAIT_SECONDS;
     else process.env.ARENA_TOOL_WAIT_SECONDS = String(seconds);
-    let h, taskId, pid, previousObservation, firstStartedAt;
+    let h, taskId, pid, firstStartedAt;
     const waits = [];
     try {
-      h = await harness(
-        t,
-        async (body, n, dir) => {
-          if (n === 1)
-            return [
-              {
-                id: "budget-command",
-                name: "bash",
-                args: {
-                  command: nodeCommand(
-                    `import{appendFile,writeFile,access}from'node:fs/promises';await appendFile(${JSON.stringify(join(dir, "starts"))},'start\\n');await writeFile(${JSON.stringify(join(dir, "worker.json"))},JSON.stringify({pid:process.pid,taskId:process.env.MC_INBOX_TASK_ID}));while(await access(${JSON.stringify(join(dir, "release"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,10));await new Promise(r=>setTimeout(r,250));console.log('one-command-finished');`,
-                  ),
-                },
+      h = await harness(t, async (body, n, dir) => {
+        if (n === 1)
+          return [
+            {
+              id: "budget-command",
+              name: "bash",
+              args: {
+                command: nodeCommand(
+                  `import{appendFile,writeFile,access}from'node:fs/promises';await appendFile(${JSON.stringify(join(dir, "starts"))},'start\\n');await writeFile(${JSON.stringify(join(dir, "worker.json"))},JSON.stringify({pid:process.pid,taskId:process.env.MC_INBOX_TASK_ID}));while(await access(${JSON.stringify(join(dir, "release"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,10));await new Promise(r=>setTimeout(r,250));console.log('one-command-finished');`,
+                ),
               },
-            ];
-          const result = JSON.parse(
-            body.messages
-              .filter((message) => message.role === "tool")
-              .at(-1)
-              .content.split("\n")[0],
+            },
+          ];
+        const result = JSON.parse(
+          body.messages
+            .filter((message) => message.role === "tool")
+            .at(-1)
+            .content.split("\n")[0],
+        );
+        // Apply durable replaced sections; unchanged tasks need not be repeated.
+        let tasks = [];
+        for (const message of body.messages) {
+          if (typeof message.content !== "string") continue;
+          const marker = message.content.indexOf("Participant inbox");
+          if (marker < 0) continue;
+          const batch = JSON.parse(
+            message.content.slice(message.content.indexOf("\n", marker) + 1),
           );
-          const tailContent = body.messages.at(-1).content;
-          const tail =
-            typeof tailContent === "string"
-              ? tailContent
-              : tailContent.map((block) => block.text ?? "").join("\n");
-          assert.match(
-            tail,
-            /^Current observation for this model request only\./,
-          );
-          const observation = JSON.parse(tail.slice(tail.indexOf("\n") + 1));
-          if (n === 2 || n === 3) {
-            assert.equal(result.status, "running");
-            assert.equal(result.reason, "wait timeout");
-            assert.equal(result.timedOut, undefined);
-            assert.equal(result.taskId, taskId ?? result.taskId);
-            taskId = result.taskId;
-            const task = observation.tasks.find(
-              (task) => task.taskId === taskId,
-            );
-            assert.equal(task.status, "running");
-            assert.equal(task.startedAt, firstStartedAt ?? task.startedAt);
-            firstStartedAt = task.startedAt;
-            if (previousObservation)
-              assert.ok(
-                observation.observedAt > previousObservation.observedAt,
-              );
-            previousObservation = observation;
-            // Allow startup to finish even on a heavily loaded CI machine.
-            for (let i = 0; i < 200; i++) {
-              const worker = await readFile(join(dir, "worker.json"), "utf8")
-                .then(JSON.parse)
-                .catch(() => null);
-              if (worker) {
-                assert.equal(worker.taskId, taskId);
-                assert.equal(worker.pid, pid ?? worker.pid);
-                pid = worker.pid;
-                break;
-              }
-              await sleep(10);
-            }
-            assert.ok(pid);
-            assert.doesNotThrow(() => process.kill(pid, 0));
-            assert.equal(
-              await readFile(join(dir, "starts"), "utf8"),
-              "start\n",
-            );
-            if (n === 2) {
-              waits.push(Date.now() - firstStartedAt);
-              return [
-                { id: "budget-wait", name: "task_wait", args: { taskId } },
-              ];
-            }
-            waits.push(Date.now() - firstStartedAt - waits[0]);
-            await writeFile(join(dir, "release"), "go");
-            return [
-              {
-                id: "finish-same-task",
-                name: "task_wait",
-                args: { taskId, wait_seconds: 5 },
-              },
-            ];
-          }
-          assert.equal(n, 4);
-          assert.equal(result.taskId, taskId);
-          assert.equal(result.status, "completed");
-          assert.equal(result.stdout.trim(), "one-command-finished");
-          assert.equal(result.exitCode, 0);
-          assert.equal(result.signal, null);
+          for (const { data } of batch.messages)
+            if (data.type?.startsWith("perception.") && data.changes?.tasks)
+              tasks = data.changes.tasks;
+        }
+        if (n === 2 || n === 3) {
+          assert.equal(result.status, "running");
+          assert.equal(result.reason, "wait timeout");
           assert.equal(result.timedOut, undefined);
-          return "Both budget returns and the same command's completion observed.";
-        },
-        { tail: true },
-      );
+          assert.equal(result.taskId, taskId ?? result.taskId);
+          taskId = result.taskId;
+          const task = tasks.find((task) => task.taskId === taskId);
+          assert.equal(task.status, "running");
+          assert.equal(task.startedAt, firstStartedAt ?? task.startedAt);
+          firstStartedAt = task.startedAt;
+          // Allow startup to finish even on a heavily loaded CI machine.
+          for (let i = 0; i < 200; i++) {
+            const worker = await readFile(join(dir, "worker.json"), "utf8")
+              .then(JSON.parse)
+              .catch(() => null);
+            if (worker) {
+              assert.equal(worker.taskId, taskId);
+              assert.equal(worker.pid, pid ?? worker.pid);
+              pid = worker.pid;
+              break;
+            }
+            await sleep(10);
+          }
+          assert.ok(pid);
+          assert.doesNotThrow(() => process.kill(pid, 0));
+          assert.equal(await readFile(join(dir, "starts"), "utf8"), "start\n");
+          if (n === 2) {
+            waits.push(Date.now() - firstStartedAt);
+            return [{ id: "budget-wait", name: "task_wait", args: { taskId } }];
+          }
+          waits.push(Date.now() - firstStartedAt - waits[0]);
+          await writeFile(join(dir, "release"), "go");
+          return [
+            {
+              id: "finish-same-task",
+              name: "task_wait",
+              args: { taskId, wait_seconds: 5 },
+            },
+          ];
+        }
+        assert.equal(n, 4);
+        assert.equal(result.taskId, taskId);
+        assert.equal(result.status, "completed");
+        assert.equal(result.stdout.trim(), "one-command-finished");
+        assert.equal(result.exitCode, 0);
+        assert.equal(result.signal, null);
+        assert.equal(result.timedOut, undefined);
+        return "Both budget returns and the same command's completion observed.";
+      });
     } finally {
       if (saved === undefined) delete process.env.ARENA_TOOL_WAIT_SECONDS;
       else process.env.ARENA_TOOL_WAIT_SECONDS = saved;
@@ -661,182 +636,61 @@ test(
   },
 );
 
-test(
-  "semantic bridge mirror renders a PNG tool result which real Pi carries through participant/team budget gateway",
-  { timeout: 20000 },
-  async (t) => {
-    const backend = new EventEmitter();
-    const actions = [];
-    Object.assign(backend, {
-      version: "1.21.1",
-      username: "fixture",
-      entity: {
-        id: 1,
-        position: new Vector(0, 1, 0),
-        velocity: new Vector(),
-        yaw: 0,
-        pitch: 0,
-        height: 1.8,
-      },
-      entities: {},
-      inventory: {
-        slots: Array(46).fill(null),
-        inventoryStart: 9,
-        inventoryEnd: 45,
-      },
-      controlState: {},
-      game: {},
-      health: 20,
-      food: 20,
-    });
-    backend.entities[1] = backend.entity;
-    backend.blockAt = (p) =>
-      p.x === 1 && p.z === 1
-        ? null
-        : {
-            position: new Vector(p.x, p.y, p.z),
-            name: p.y === 0 ? "stone" : "air",
-            stateId: p.y === 0 ? 1 : 0,
-            type: p.y === 0 ? 1 : 0,
-            shapes: p.y === 0 ? [[0, 0, 0, 1, 1, 1]] : [],
-            boundingBox: p.y === 0 ? "block" : "empty",
-            diggable: true,
-          };
-    backend.setControlState = (...args) => actions.push(args);
-    const bridge = await startBridge({
-      bot: backend,
-      token: "semantic-bridge-fixture-token",
-      snapshotRadius: 1,
-    });
-    const bot = await connectBot({
-      url: bridge.url,
-      token: "semantic-bridge-fixture-token",
-      loadRegistry: false,
-    });
-    t.after(async () => {
-      bot.closeBridge();
-      await bridge.close();
-    });
-    let rendered;
-    const visualExtension = (pi) =>
-      pi.registerTool({
-        name: "inspect_world",
-        label: "Inspect world",
-        description: "Fixture local-mirror map",
-        parameters: { type: "object", properties: {} },
-        async execute() {
-          bot.setControlState("forward", true);
-          await bot.flush();
-          const snapshot = snapshotFromBot(bot, {
-            bounds: { min: { x: -1, y: 0, z: -1 }, max: { x: 1, y: 2, z: 1 } },
-          });
-          rendered = renderMinimap(snapshot, { width: 32, height: 32 });
-          return {
-            content: [
-              { type: "text", text: JSON.stringify(rendered.metadata) },
-              {
-                type: "image",
-                mimeType: "image/png",
-                data: rendered.png.toString("base64"),
-              },
-            ],
-            details: rendered.metadata,
-          };
-        },
-      });
-    const h = await harness(
-      t,
-      (_body, n) =>
-        n === 1
-          ? [{ id: "view-world", name: "inspect_world", args: {} }]
-          : "I saw the map.",
-      {
-        extensions: [visualExtension],
-        tools: ["inspect_world"],
-        gateway: true,
-      },
-    );
-    await h.session.prompt("Look at the fixture map.");
-    assert.equal(
-      h.requests.length,
-      2,
-      JSON.stringify(
-        h.events
-          .filter((e) => e.type === "gateway_payload")
-          .map((e) => Object.keys(e.body)),
-      ),
-    );
-    assert.deepEqual(actions, [["forward", true]]);
-    assert.equal(bot._client, undefined);
-    assert.equal(rendered.png.subarray(1, 4).toString(), "PNG");
-    assert.equal(rendered.metadata.columns.unknown, 1);
-    const transcript = JSON.stringify(h.requests[1].messages);
-    assert.match(transcript, /data:image\/png;base64,/);
-    assert.match(transcript, /top-down-schematic-minimap/);
-    assert.equal(h.ledger.snapshot("fixture")[0].usedTokens, 30);
-    assert.equal(h.ledger.snapshot("fixture")[1].usedTokens, 30);
-  },
-);
-
 for (const nested of [false, true])
   test(
-    `actual world_minimap tool ${nested ? "via real codemode" : "direct"} preserves PNG through Pi and budget gateway`,
+    `ordinary Pi read ${nested ? "via real codemode" : "direct"} preserves PNG through the budget gateway`,
     { timeout: 20000 },
     async (t) => {
       const h = await harness(
         t,
         async (_body, n, dir) => {
           if (n !== 1) return "Image received.";
-          const snapshotPath = join(dir, "world.json");
+          const path = join(dir, "fixture.png");
           await writeFile(
-            snapshotPath,
-            JSON.stringify({
-              bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } },
-              version: "1.21.1",
-              blocks: [
-                { x: 0, y: 0, z: 0, name: "stone" },
-                { x: 0, y: 1, z: 0, name: "air" },
-              ],
-            }),
+            path,
+            Buffer.from(
+              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+              "base64",
+            ),
           );
-          const args = { snapshotPath, width: 32, height: 32 };
           return nested
             ? [
                 {
-                  id: "outer-map",
+                  id: "outer-image",
                   name: "codemode",
                   args: {
-                    code: `const r=await tools.world_minimap(${JSON.stringify(args)});for(const block of r.content){if(block.type==='image')image(block);else if(block.type==='text')text(block.text);}`,
+                    code: `const r=await tools.read(${JSON.stringify({ path })});for(const block of r.content){if(block.type==='image')image(block);else if(block.type==='text')text(block.text);}`,
                   },
                 },
               ]
-            : [{ id: "direct-map", name: "world_minimap", args }];
+            : [{ id: "read-image", name: "read", args: { path } }];
         },
         {
-          extensions: [
-            worldVisualExtension,
-            ...(nested ? [createCodemodeExtension({ models: false })] : []),
-          ],
-          tools: ["world_minimap", ...(nested ? ["codemode"] : [])],
+          extensions: nested
+            ? [createCodemodeExtension({ models: false })]
+            : [],
+          tools: ["read", ...(nested ? ["codemode"] : [])],
           gateway: true,
         },
       );
-      await h.session.prompt("Inspect the selected local map.");
+      await h.session.prompt("Read the generated image.");
       assert.equal(h.requests.length, 2);
-      const transcript = JSON.stringify(h.requests[1].messages);
-      assert.match(transcript, /data:image\/png;base64,/);
-      assert.match(transcript, /top-down-schematic-minimap/);
+      assert.match(
+        JSON.stringify(h.requests[1].messages),
+        /data:image\/png;base64,/,
+      );
       assert.equal(
         h.requests[1].messages.filter((m) => m.role === "tool").length,
         1,
       );
       assert.equal(h.ledger.snapshot("fixture")[0].usedTokens, 30);
+      assert.equal(h.ledger.snapshot("fixture")[1].usedTokens, 30);
     },
   );
 
 for (const nested of [false, true])
   test(
-    `default observe tool ${nested ? "via real codemode" : "direct"} returns durable native images while latest state stays request-only`,
+    `default observe tool ${nested ? "via real codemode" : "direct"} returns durable state`,
     { timeout: 20000 },
     async (t) => {
       const saved = {
@@ -898,14 +752,8 @@ for (const nested of [false, true])
       const h = await harness(
         t,
         (_body, n) => {
-          if (n !== 1) return "Current state and requested view received.";
-          const args = {
-            views: ["local"],
-            viewRadius: 1,
-            width: 64,
-            height: 64,
-            textured: false,
-          };
+          if (n !== 1) return "Current state received.";
+          const args = {};
           return nested
             ? [
                 {
@@ -922,7 +770,6 @@ for (const nested of [false, true])
           extensions: nested
             ? [createCodemodeExtension({ models: false })]
             : [],
-          tail: true,
           tools: ["observe", ...(nested ? ["codemode"] : [])],
           gateway: true,
         },
@@ -930,23 +777,21 @@ for (const nested of [false, true])
       await h.session.prompt("Inspect the current state and nearby layer.");
       assert.equal(h.requests.length, 2);
       const transcript = JSON.stringify(h.requests[1].messages);
-      assert.match(transcript, /data:image\/png;base64,/);
+      assert.doesNotMatch(transcript, /data:image\/png;base64,/);
       assert.match(transcript, /default-observer/);
       const result = h.session.agent.state.messages.find(
         (message) => message.role === "toolResult",
       );
       assert(
-        result.content.some((block) => block.type === "image"),
-        "ordinary observe image remains in durable tool result",
+        result.content.some(
+          (block) =>
+            block.type === "text" && block.text.includes("default-observer"),
+        ),
+        "observe state remains in durable tool result",
       );
       assert.doesNotMatch(
         JSON.stringify(h.session.agent.state.messages),
         /mc-current-observation|Current observation for this model request only\./,
-      );
-      assert.equal(
-        transcript.split("Current observation for this model request only.")
-          .length - 1,
-        1,
       );
       assert.equal(
         actions,
@@ -958,7 +803,7 @@ for (const nested of [false, true])
   );
 
 test(
-  "bootstrap launches shipped Pi CLI with shared model profile, scoped auth, cash reference configuration and both extensions",
+  "bootstrap launches shipped Pi CLI with shared model profile, scoped auth, cash reference configuration and the arena extension",
   { timeout: 25000 },
   async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "mc-bootstrap-integration-"));
@@ -1141,9 +986,6 @@ test(
       "read",
       "task_cancel",
       "task_wait",
-      "world_minimap",
-      "world_opening",
-      "world_render3d",
       "write",
     ]);
     assert.ok(
@@ -1549,9 +1391,6 @@ test(
       "read",
       "task_cancel",
       "task_wait",
-      "world_minimap",
-      "world_opening",
-      "world_render3d",
       "write",
     ]);
     const second = JSON.stringify(requests[1].messages);

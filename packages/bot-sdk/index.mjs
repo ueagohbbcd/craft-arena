@@ -698,9 +698,6 @@ export class BotFacade extends EventEmitter {
   stop() {
     this._fire("stop", {});
   }
-  stopAndCenter() {
-    this.stop();
-  }
   look(yaw, pitch, force = false) {
     return this.action("look", { yaw, pitch, force });
   }

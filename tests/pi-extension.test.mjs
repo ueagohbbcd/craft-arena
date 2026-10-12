@@ -174,15 +174,14 @@ test("observe fullRuntime retrieves retained raw program state even while the ga
   });
   const value = { phase: "reported phase", payload: "x".repeat(24000) };
   await h.client.publishCurrent("large-program-state", value);
-  const savedTail = process.env.ARENA_PERCEPTION_TAIL;
-  process.env.ARENA_PERCEPTION_TAIL = "1";
-  const context = await h.handlers.get("context_with_system")(
-    { messages: [] },
-    h.ctx,
-  );
-  if (savedTail === undefined) delete process.env.ARENA_PERCEPTION_TAIL;
-  else process.env.ARENA_PERCEPTION_TAIL = savedTail;
-  const compact = JSON.parse(context.messages[0].content.split("\n")[1]);
+  // The request-only tail is retired; the compact projection arrives as an
+  // ordinary durable observation message at a natural boundary.
+  const connection = await h.handlers.get("before_agent_start")({}, h.ctx);
+  const compact = JSON.parse(
+    connection.message.content
+      .split("\n")
+      .findLast((line) => line.trim().startsWith("{")),
+  ).changes;
   assert.equal(compact.programState[0].data, undefined);
   assert.equal(compact.runtimeProjection.programState.dataOmitted, 1);
   assert(Buffer.byteLength(JSON.stringify(compact.programState)) < 8192);
@@ -279,8 +278,8 @@ test("bootstrap prepares an exact gateway provider without saving its bearer tok
   );
   assert.ok(!written.includes(token));
   assert.equal(JSON.parse(written).providers.arena.apiKey, "${OPENAI_API_KEY}");
-  assert.equal(profile.extensions.length, 3);
-  assert.equal(profile.extensions[2], "./local-extension.mjs");
+  assert.equal(profile.extensions.length, 2);
+  assert.equal(profile.extensions[1], "./local-extension.mjs");
   assert.equal((await lstat(join(dir, "node_modules"))).isSymbolicLink(), true);
   for (const name of ["examples", "packages", "docs"])
     assert.equal((await lstat(join(dir, name))).isSymbolicLink(), true);
@@ -382,9 +381,6 @@ test(
       "read",
       "task_cancel",
       "task_wait",
-      "world_minimap",
-      "world_opening",
-      "world_render3d",
       "write",
     ]);
   },

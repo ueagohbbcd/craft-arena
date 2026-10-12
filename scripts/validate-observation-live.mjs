@@ -24,7 +24,8 @@ import {
   watchObservation,
 } from "../packages/observation/index.mjs";
 import { observe } from "../packages/observation/observe.mjs";
-import { snapshotFromBot } from "../packages/world-visual/index.mjs";
+import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
+import { capturePrismarineSnapshot } from "../packages/world-visual/prismarine.mjs";
 import { startPerceptionRuntime } from "../packages/pi-extension/perception-runtime.mjs";
 import { Inbox } from "../packages/inbox/queue.mjs";
 import { createInboxServer } from "../packages/inbox/ipc.mjs";
@@ -80,7 +81,6 @@ const sourceFiles = [
   "packages/inbox/tasks.mjs",
   "examples/plugin-goal.mjs",
   "packages/world-visual/index.mjs",
-  "packages/world-visual/surface-textures.mjs",
   "packages/world-visual/prismarine.mjs",
   "scripts/validate-observation-live.mjs",
 ];
@@ -152,6 +152,19 @@ const report = {
 };
 const safeJSON = (x) =>
   JSON.stringify(x, (_, v) => (typeof v === "bigint" ? v.toString() : v), 2);
+/** Optional picture evidence: needs a local Chromium, so a failure is a limitation, not a test failure. */
+async function capturePicture(bot, bounds, name) {
+  try {
+    const { imagePath, metadata } = await capturePrismarineSnapshot(
+      snapshotFromBot(bot, { bounds }),
+      { outputPath: out + "/" + name + ".png" },
+    );
+    return { imagePath, metadata };
+  } catch (error) {
+    report.limitations.push(`picture ${name}: ${error.message}`);
+    return null;
+  }
+}
 const save = () => writeFileSync(out + "/report.json", safeJSON(report));
 const log = (type, data = {}) => {
   const event = { at: Date.now(), type, ...data };
@@ -780,50 +793,34 @@ async function main() {
       unknownFarBlock: null,
     };
   });
-  await test("real_world_views_and_unknown_crop", async () => {
+  await test("real_world_state_and_unknown_crop", async () => {
     const started = Date.now();
-    writeFileSync(
-      out + "/render-snapshot.json",
-      safeJSON(
-        snapshotFromBot(observer, {
-          bounds: { min: { x: -4, y: 61, z: -8 }, max: { x: 16, y: 70, z: 8 } },
-        }),
-      ),
-    );
-    const v = await observe(observer, {
-      views: ["overview", "local", "3d"],
-      viewRadius: 6,
-    });
-    for (const view of v.views) {
-      assert.equal(view.metadata.status, "ready", safeJSON(view.metadata));
-      assert(view.png?.length > 100);
-      writeFileSync(out + "/" + view.name + ".png", view.png);
-    }
-    writeFileSync(
-      out + "/view-metadata.json",
-      safeJSON({
-        metadata: v.metadata,
-        views: v.views.map(({ name, metadata }) => ({ name, metadata })),
-      }),
-    );
-    const unknown = await observe(observer, {
-      views: ["local"],
-      localBounds: {
+    const bounds = {
+      min: { x: -4, y: 61, z: -8 },
+      max: { x: 16, y: 70, z: 8 },
+    };
+    const v = await observe(observer, { fullLocal: true });
+    assert.equal(v.metadata.source, "on-demand observation");
+    assert.equal(typeof v.state.self.position.x, "number");
+    assert.equal(v.state.connection.status, "connected");
+    const picture = await capturePicture(observer, bounds, "observed-region");
+    // Unloaded coordinates stay unknown rather than becoming air.
+    const unknown = snapshotFromBot(observer, {
+      bounds: {
         min: { x: 1000000, y: 63, z: 1000000 },
         max: { x: 1000002, y: 65, z: 1000002 },
       },
     });
-    assert.equal(unknown.views[0].metadata.knownFraction, 0);
-    assert.equal(unknown.views[0].metadata.columns.unknown, 9);
-    writeFileSync(out + "/unknown.png", unknown.views[0].png);
+    assert.equal(unknown.blocks.length, 0);
+    writeFileSync(out + "/state.json", safeJSON(v.state));
     return {
       durationMs: Date.now() - started,
-      views: v.views.map(({ name, png, metadata }) => ({
-        name,
-        bytes: png?.length,
-        metadata,
-      })),
-      unknown: unknown.views[0].metadata,
+      self: v.state.self.position,
+      local: v.state.local,
+      unknownBlocks: unknown.blocks.length,
+      picture: picture
+        ? { imagePath: picture.imagePath, metadata: picture.metadata }
+        : null,
     };
   });
   if (args.includes("--manual-decision"))
@@ -832,36 +829,17 @@ async function main() {
       await command("fill 0 64 3 0 65 4 minecraft:air");
       await command("setblock -8 64 0 minecraft:gold_block");
       await delay(500);
-      const v = await observe(observer, {
-        views: ["overview", "local", "3d"],
-        viewRadius: 12,
-        overviewBounds: {
-          min: { x: -12, y: 62, z: -10 },
-          max: { x: 14, y: 70, z: 10 },
-        },
-        structureBounds: {
-          min: { x: -12, y: 62, z: -10 },
-          max: { x: 14, y: 68, z: 10 },
-        },
-      });
+      const bounds = {
+        min: { x: -12, y: 62, z: -10 },
+        max: { x: 14, y: 70, z: 10 },
+      };
+      const v = await observe(observer, { fullLocal: true });
+      const picture = await capturePicture(observer, bounds, "decision-region");
       writeFileSync(out + "/decision-state.json", safeJSON(v.state));
       writeFileSync(
-        out + "/decision-view-metadata.json",
-        safeJSON(v.views.map(({ name, metadata }) => ({ name, metadata }))),
+        out + "/decision-picture.json",
+        safeJSON(picture ? picture.metadata : { unavailable: true }),
       );
-      writeFileSync(
-        out + "/decision-render-snapshot.json",
-        safeJSON(
-          snapshotFromBot(observer, {
-            bounds: {
-              min: { x: -12, y: 62, z: -10 },
-              max: { x: 14, y: 68, z: 10 },
-            },
-          }),
-        ),
-      );
-      for (const w of v.views)
-        if (w.png) writeFileSync(out + "/decision-" + w.name + ".png", w.png);
       console.log(
         "MODEL DECISION REQUEST",
         out,

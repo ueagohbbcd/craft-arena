@@ -29,9 +29,6 @@ const defaultTools = [
   "read",
   "task_cancel",
   "task_wait",
-  "world_minimap",
-  "world_opening",
-  "world_render3d",
   "write",
 ];
 
@@ -195,7 +192,7 @@ test(
 );
 
 test(
-  "real default bootstrap returns direct bash stdout and observe native images without codemode",
+  "real default bootstrap returns direct bash stdout and observe state without codemode",
   { timeout: 20000 },
   async (t) => {
     const { dir } = await fixture(t);
@@ -259,13 +256,7 @@ test(
               },
               {
                 name: "observe",
-                args: {
-                  views: ["local"],
-                  viewRadius: 1,
-                  width: 64,
-                  height: 64,
-                  textured: false,
-                },
+                args: {},
               },
             ].map(({ name, args }, index) => ({
               index,
@@ -345,8 +336,6 @@ test(
     );
     assert.ok(observation, "native observe result reaches the next request");
     assert.match(JSON.stringify(observation), /entry-observer/);
-    assert.match(JSON.stringify(messages), /data:image\/png;base64,/);
-    assert.match(stdout, /"type":"image","data":/);
     assert.equal(actions, 0, "direct observation does not submit game actions");
   },
 );

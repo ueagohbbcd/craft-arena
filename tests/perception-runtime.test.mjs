@@ -15,7 +15,7 @@ import {
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { Inbox, TaskManager } from "../packages/inbox/index.mjs";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
-import { encodePNG } from "../packages/world-visual/index.mjs";
+import { encodePNG } from "mineflayer-world-memory/live.mjs";
 import inboxExtension from "../packages/pi-extension/index.mjs";
 import {
   currentTasks,
@@ -23,7 +23,6 @@ import {
   runtimeProjectionOptions,
   runtimeState,
   startPerceptionRuntime,
-  withCurrentObservation,
 } from "../packages/pi-extension/perception-runtime.mjs";
 
 async function until(check, timeout = 3000) {
@@ -262,15 +261,6 @@ test("current program facts survive event delivery; snapshot has explicit identi
   assert.equal(first.programState[0].source, "program");
   assert.equal(inbox.pending, false);
   assert.deepEqual((await observer.sample()).programState, first.programState);
-  const messages = [
-    { role: "system", content: "stable tools and instructions" },
-    { role: "user", content: "opening" },
-  ];
-  const output = withCurrentObservation(messages, first);
-  assert.equal(output.length, 3);
-  assert.deepEqual(output.slice(0, -1), messages);
-  assert.equal(messages.length, 2);
-  assert.equal(output.at(-1).customType, "mc-current-observation");
   assert.deepEqual(currentTasks(), []);
 });
 
@@ -428,7 +418,7 @@ test("a sampler fault degrades to explicit unavailable state without rejecting t
 });
 
 test(
-  "real Pi 1.1 keeps three latest snapshots request-only, preserves the full stable prefix and durable events",
+  "real Pi 1.1 delivers three latest snapshots at durable boundaries, preserving the full stable prefix and durable events",
   { timeout: 20000 },
   async (t) => {
     const saved = { ...process.env };
@@ -478,11 +468,12 @@ test(
       PI_OFFLINE: "1",
       ARENA_BRIDGE_URL: bridge.url,
       ARENA_BRIDGE_TOKEN: "perception-integration-token",
-      ARENA_PERCEPTION_TAIL: "1",
       MC_INBOX_TRANSPORT: "http",
       MC_INBOX_TOKEN: "perception-integration-token",
       ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS: "20",
-      ARENA_PERCEPTION_RECENT_BLOCK_DELIVERY: "tail",
+      // Interval reports join the next natural boundary; a zero minimum delay
+      // makes that delivery observable inside a short test.
+      ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS: "0",
     });
     for (const key of [
       "MC_INBOX_SOCKET",
@@ -566,7 +557,7 @@ test(
       resourceLoader: loader,
       settingsManager,
       sessionManager: manager,
-      tools: ["checkpoint", "observe"],
+      tools: ["read", "bash", "observe", "checkpoint"],
       customTools: [
         {
           name: "checkpoint",
@@ -641,59 +632,128 @@ test(
     await delay(1100);
     await session.prompt("EVENT_new_user_request");
     assert.equal(requests.length, 3);
-    const tail = (request) =>
-      JSON.parse(request.messages.at(-1).content[0].text.split("\n")[1]);
+    // Snapshots reach the model through real durable deliveries: a boundary
+    // message, a tool result or an inbox batch. No request-only tail exists.
+    const deliveriesIn = (messages) => {
+      const payloads = [];
+      const push = (value) => {
+        if (value && typeof value === "object" && !Array.isArray(value))
+          payloads.push(value);
+      };
+      const scan = (text) => {
+        if (typeof text !== "string") return;
+        for (const line of text.split("\n")) {
+          const trimmed = line.trim();
+          if (!trimmed.startsWith("{")) continue;
+          try {
+            push(JSON.parse(trimmed));
+          } catch {}
+        }
+        const envelopeAt = text.indexOf('{"sessionId"');
+        if (envelopeAt < 0) return;
+        try {
+          for (const item of JSON.parse(text.slice(envelopeAt)).messages ?? [])
+            push(item?.data);
+        } catch {}
+      };
+      for (const message of messages) {
+        if (typeof message.content === "string") scan(message.content);
+        for (const block of Array.isArray(message.content)
+          ? message.content
+          : [])
+          if (block?.type === "text") scan(block.text);
+      }
+      return payloads;
+    };
+    const observationsIn = (messages) =>
+      deliveriesIn(messages).filter((payload) =>
+        /^perception\./.test(payload.type ?? ""),
+      );
+    const reportsIn = (messages) =>
+      deliveriesIn(messages).filter(
+        (payload) => payload.type === "observation.recent_blocks",
+      );
+    let consumed = 0;
     for (let i = 0; i < 3; i++) {
-      const snapshot = tail(requests[i]);
+      const request = requests[i];
+      const appended = observationsIn(request.messages.slice(consumed));
       assert.equal(
-        snapshot.self.position.x,
+        appended.length,
+        1,
+        "each top-level request appends exactly one observation delivery",
+      );
+      const delivered = appended[0];
+      assert.equal(
+        delivered.changes.self.position.x,
         101 * (i + 1),
         "each call has the actual newest bot position",
       );
-      assert.equal(snapshot.freshness.stale, false);
-      assert.equal(snapshot.recentBlocks.dimensions[0].dimension, "overworld");
       assert.equal(
-        snapshot.recentBlocks.dimensions[0].counts[
-          ["oak_log", "furnace", "chest"][i]
-        ],
-        1,
-      );
-      if (i === 2)
-        assert.equal(
-          snapshot.recentBlocks.dimensions[0].counts.oak_log,
-          undefined,
-          "a successfully displayed old interval is not retained forever",
-        );
-      assert(
-        !JSON.stringify(snapshot.recentBlocks).includes("latestPositions"),
-      );
-      assert.equal(
-        snapshot.tasks.length,
+        (delivered.changes.tasks ?? []).length,
         0,
         "observer is not a managed action task",
       );
-      assert.equal(requests[i].messages.at(-1).role, "user");
+      if (delivered.changes.connection)
+        assert.notEqual(
+          delivered.changes.connection.status,
+          "unavailable",
+          "a delivered observation never reports a missing connection",
+        );
+      for (const report of reportsIn(request.messages)) {
+        assert.equal(report.dimensions[0].dimension, "overworld");
+        assert(
+          !JSON.stringify(report).includes("latestPositions"),
+          "projected interval reports stay compact",
+        );
+      }
+      assert(
+        !JSON.stringify(request.messages).includes("mc-current-observation"),
+      );
+      assert(
+        !JSON.stringify(request.messages).includes(
+          "Current observation for this model request only.",
+        ),
+      );
       assert(
         !JSON.stringify(hookInputs[i]).includes(
           "Current observation for this model request only.",
         ),
       );
-      assert.equal(
-        JSON.stringify(requests[i].messages).split(
-          "Current observation for this model request only.",
-        ).length - 1,
-        1,
-      );
       if (i > 0) {
-        const stable = requests[i - 1].messages.slice(0, -1);
-        assert.deepEqual(requests[i].messages.slice(0, stable.length), stable);
-        assert.deepEqual(requests[i].tools, requests[i - 1].tools);
-        assert.equal(requests[i].systemPrompt, requests[i - 1].systemPrompt);
+        const stable = requests[i - 1].messages;
+        assert.deepEqual(
+          request.messages.slice(0, stable.length),
+          stable,
+          "the earlier request context stays a stable prefix",
+        );
+        assert.deepEqual(request.tools, requests[i - 1].tools);
+        assert.equal(request.systemPrompt, requests[i - 1].systemPrompt);
       }
+      consumed = request.messages.length;
     }
+    const baseline = observationsIn(requests[0].messages)[0];
+    assert.equal(baseline.type, "perception.baseline");
+    assert.equal(baseline.changes.connection.status, "fresh");
+    assert.equal(baseline.changes.connection.dimension, "overworld");
+    assert.equal(
+      reportsIn(requests[0].messages).length,
+      0,
+      "no interval report is delivered before the first tool boundary",
+    );
+    const firstReport = reportsIn(requests[1].messages).at(-1);
+    assert.equal(firstReport.dimensions[0].dimension, "overworld");
+    assert.equal(firstReport.dimensions[0].counts.oak_log, 1);
+    assert.equal(firstReport.dimensions[0].counts.furnace, 1);
+    // A later boundary retires the interval it already displayed: the newest
+    // encounter appears and the previously displayed one does not return.
+    const laterReport = reportsIn(session.agent.state.messages).at(-1);
+    assert.equal(laterReport.dimensions[0].dimension, "overworld");
+    assert.equal(laterReport.dimensions[0].counts.chest, 1);
+    assert.equal(laterReport.dimensions[0].counts.oak_log, undefined);
     assert.deepEqual(
-      requests[1].messages.slice(-3).map((message) => message.role),
-      ["assistant", "toolResult", "user"],
+      requests[1].messages.slice(-2).map((message) => message.role),
+      ["assistant", "toolResult"],
+      "the tool boundary result carries the observation without a request-only tail",
     );
     const serializedState = JSON.stringify(session.agent.state.messages);
     const serializedEntries = JSON.stringify(manager.getEntries());

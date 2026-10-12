@@ -32,7 +32,7 @@ export function loadSelectedPlugins(
   // Keep optimized execution nodes (and their shiftable work lists) separate.
   const patched = (
     source.slice(0, start) +
-    "  function fullStop () { bot.stopAndCenter() }" +
+    "  function fullStop () { bot.stop() }" +
     source.slice(end)
   ).replace(
     pathHeader,

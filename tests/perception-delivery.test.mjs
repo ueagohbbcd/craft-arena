@@ -1,9 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  tailEnabled,
-  createPerceptionChanges,
-} from "../packages/pi-extension/perception-delivery.mjs";
+import { createPerceptionChanges } from "../packages/pi-extension/perception-delivery.mjs";
 const deliveredChanges = () => {
   const changes = createPerceptionChanges();
   return {
@@ -23,10 +20,6 @@ const sample = () => ({
   players: [],
   entities: { entries: [] },
   tasks: [],
-});
-test("tail is opt-in", () => {
-  assert.equal(tailEnabled({}), false);
-  assert.equal(tailEnabled({ ARENA_PERCEPTION_TAIL: "1" }), true);
 });
 test("ordinary history gets baseline then only changed sections, ignores sample age", () => {
   const changes = deliveredChanges(),

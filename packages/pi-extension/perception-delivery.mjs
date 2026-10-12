@@ -16,11 +16,6 @@ export async function readPerceptionOptions(cwd, env = process.env) {
   }
 }
 
-/** Latest-state tail is opt-in; ordinary boundary changes remain in ReAct history. */
-export function tailEnabled(env = process.env) {
-  return env.ARENA_PERCEPTION_TAIL === "1";
-}
-
 export function compactPerception(snapshot) {
   const {
     observedAt,

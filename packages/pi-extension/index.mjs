@@ -7,7 +7,6 @@ import { startChatInbox } from "./chat-inbox.mjs";
 import * as PerceptionRuntime from "./perception-runtime.mjs";
 import * as ObservationTools from "../observation/pi-extension.mjs";
 import {
-  tailEnabled,
   createPerceptionChanges,
   readPerceptionOptions,
 } from "./perception-delivery.mjs";
@@ -352,22 +351,6 @@ export default function participantInbox(pi) {
     await ensure(ctx);
   });
   pi.on("session_shutdown", stop);
-  pi.on("context_with_system", async (event, ctx) => {
-    if (!tailEnabled()) return;
-    const r = await ensure(ctx);
-    const snapshot = await r.perception.sample({ forRequest: true });
-    // This hook operates on Pi's cloned request context, not durable session history.
-    // Never rewrite, filter or persist any existing message, including opening images.
-    return {
-      messages: PerceptionRuntime.withCurrentObservation(
-        event.messages,
-        snapshot,
-      ),
-    };
-  });
-  pi.on("message_end", (event) => {
-    runtime?.perception.finishRequest(event.message);
-  });
   pi.on("turn_start", async (_event, ctx) => {
     const r = await ensure(ctx);
     r.tasks.resumeWaits();
@@ -415,7 +398,6 @@ export default function participantInbox(pi) {
     }
   });
   async function postPerception(r) {
-    if (tailEnabled()) return;
     const delivery = r.perceptionChanges.prepare(await r.perception.sample());
     if (delivery)
       r.inbox.post(
@@ -486,9 +468,7 @@ export default function participantInbox(pi) {
   });
   pi.on("before_agent_start", async (_event, ctx) => {
     const r = await ensure(ctx);
-    const initial = tailEnabled()
-      ? null
-      : r.perceptionChanges.prepare(await r.perception.sample());
+    const initial = r.perceptionChanges.prepare(await r.perception.sample());
     // This baseline is returned directly as a durable opening message.
     initial?.onDelivered();
     return {

@@ -117,7 +117,7 @@ try {
         goalLoaded: bot.blockAt({ x: xyz[0], y: xyz[1], z: xyz[2] }) !== null,
         terrain,
         observation:
-          "Use world_minimap for route/entrances and world_render3d for local walls, tunnels or levels when the summary is insufficient; terrain.bounds is a local crop, not the whole route.",
+          "terrain.bounds is a local crop, not the whole route. For a picture of the surroundings run examples/observe-and-render.mjs with explicit bounds, or query exact blocks with blockAt/findBlocks.",
         activity:
           "Pathfinder goto is still running; this report does not stop movement.",
         question:
