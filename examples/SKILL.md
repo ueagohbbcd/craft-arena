@@ -5,6 +5,8 @@ description: Play the Minecraft arena with ready-made situational awareness, on-
 
 # Play through Mineflayer
 
+The arena provides three reusable toolkit capabilities: default situational awareness (`packages/observation`), on-demand world images (`packages/world-visual` and `examples/observe-and-render.mjs`), and retained native chunk history (`mineflayer-world-memory`, queried through the bridge). Their code can be read and reused; the observation listener is currently started by the Pi session, so modifying your own script does not hot-replace that resident listener. Write a task-specific watcher when you need different observations and send its results through Inbox. For implementation and configuration, read the toolkit source and [observation guide](../docs/OBSERVATION.md); the [memory guide](../docs/BLOCK-MEMORY.md) distinguishes current from historical columns.
+
 Run Node programs through `bash` to control your Minecraft character. The host briefing supplies the team, map, objectives and time limit. Toolkit files live under `$ARENA_TOOLKIT_ROOT`; save your own programs in the current working directory.
 
 The runtime supplies an opening state and later changes to player state, inventory, equipment, entities, nearby terrain and managed programs. Each field in `changes` replaces that section, including empty arrays and null. Reports carry observation times and stay in history. Use `observe` for a fresh state snapshot.
@@ -50,7 +52,7 @@ For exact fields or blocks, run a [short SDK query](#query-the-sdk-from-a-short-
 
 The Inbox delivers health/hurt, resource loss, death/respawn, connection and chat events; Race of Wool also reports wool-color acquisition/loss. Critical health and death can release a tool wait while its program keeps running. Host `arena.clock` supplies match state, time and winner; programs can query `await bot.getMatchState()`.
 
-`recentBlocks` accumulates nearby block-type samples, becoming eligible after 30 seconds and arriving at the next tool/turn boundary. It includes the interval and sampled coverage. Nearby sign-text changes arrive separately. For exact positions use block queries; [observation coverage](../docs/OBSERVATION.md) explains the sampling limits and reusable `sampleObservation(bot)` / `entityRadar(bot, options)` functions.
+`recentBlocks` accumulates nearby block-type samples, becoming eligible after 30 seconds and arriving at the next tool/turn boundary. It includes the interval, sampled coverage, block-type counts and a few representative coordinates per type. Nearby sign-text changes arrive separately. For exact positions use block queries; [observation coverage](../docs/OBSERVATION.md) explains the sampling limits and reusable `sampleObservation(bot)` / `entityRadar(bot, options)` functions.
 
 ## Let a program watch while you do something else
 
@@ -58,9 +60,11 @@ Default perception reports ordinary surroundings on its own. Start your own list
 
 [watch-surroundings.mjs](watch-surroundings.mjs) is the shape to copy:
 
-```sh
-node "$ARENA_TOOLKIT_ROOT/examples/watch-surroundings.mjs" chest 60
+```json
+{"command":"node \"$ARENA_TOOLKIT_ROOT/examples/watch-surroundings.mjs\" chest 60","wait_seconds":0}
 ```
+
+Call this via `bash` so it immediately returns a running `taskId`; then start another controller with a separate `bash` call. The listener continues independently. Keep its `taskId` for `task_wait` or `task_cancel` rather than launching duplicates.
 
 It reuses the same sampling functions as default perception, remembers what it already reported, and calls `inbox.requestJudgment` once per new discovery:
 
