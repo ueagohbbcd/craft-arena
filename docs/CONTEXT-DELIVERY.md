@@ -6,7 +6,7 @@
 
 | 方式 | 来源与时机 | 例子 |
 | --- | --- | --- |
-| 主动执行的预期返回 | 模型主动调用工具或脚本，本次操作按原有返回约定给出结果 | 启动导航后收到运行状态、输出和最终结果；一次 `observe` 返回所选状态与图像 |
+| 主动执行的预期返回 | 模型主动调用工具或脚本，本次操作按原有返回约定给出结果 | 启动导航后收到运行状态、输出和最终结果；一次 `observe` 返回所选状态 |
 | 后台收集，按需读取 | 程序或服务先持续收集、保存，模型有问题时再读取 | 查看后台程序日志；通过共享方块记忆查某坐标或此前收到的区块 |
 | 普通 Inbox 合并 | 后台选中的普通信息合并到下一工具返回，保留会话历史 | 沿途方块区间、附近牌文字变化、程序进度与动作经过 |
 | 更早判断（early） | 事件值得比原等待结束更早判断，提前释放等待或唤醒空闲会话 | 危急生命、死亡、程序的 `requestJudgment` |
@@ -46,8 +46,8 @@
 
 无运行任务时的五秒续跑与模型错误恢复负责维持会话运行，沿既有上下文继续执行。
 
-实现入口：[普通观察交付](../packages/pi-extension/perception-delivery.mjs)、[边界与等待](../packages/pi-extension/index.mjs)、[近距累计](../packages/pi-extension/recent-block-runtime.mjs)、[共享方块记忆](BLOCK-MEMORY.md)。
+实现入口：[普通观察交付](../packages/pi-extension/perception-delivery.mjs)、[边界与等待](../packages/pi-extension/index.mjs)、[近距累计](../packages/observation/recent-block-runtime.mjs)、[共享方块记忆](BLOCK-MEMORY.md)。
 
 ## 历史实验记录：临时请求尾部
 
-早期实验通过 `context_with_system` 向单次请求追加 `mc-current-observation`，并尝试 `recentBlocks` 的 `tail`／`both` 通道。源码仍保留 `ARENA_PERCEPTION_TAIL` 开关，默认关闭，功能和使用效果验收未完成。这是历史实验，已退出当前上下文设计；当前采用上面的四类方式。
+早期实验通过 `context_with_system` 向单次请求追加 `mc-current-observation`，并尝试 `recentBlocks` 的 `tail`／`both` 通道。这些代码（含 `ARENA_PERCEPTION_TAIL` 开关）已随清理删除；会话历史里不再出现 `mc-current-observation`。这是历史实验，当前采用上面的四类方式。

@@ -1,6 +1,6 @@
 # 默认态势感知与观察工具
 
-默认采用普通 ReAct 工具结果与收件箱历史：开局提供基础状态，随后交付变化部分。按需 `observe` 返回完整快照与所选图像。后台采集、主动返回、普通 Inbox 与 early 的设计取舍见[上下文交付设计](CONTEXT-DELIVERY.md)。
+默认采用普通 ReAct 工具结果与收件箱历史：开局提供基础状态与地图配置的图像，随后交付变化部分。按需 `observe` 返回完整快照。后台采集、主动返回、普通 Inbox 与 early 的设计取舍见[上下文交付设计](CONTEXT-DELIVERY.md)。
 
 ## 系统是什么
 
@@ -19,7 +19,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 | 自身与物品 | 位置、生命、食物、装备、背包数量、手持物和当前打开窗口 |
 | 玩家与附近环境 | 中心可见实体雷达、较大范围非潜行玩家、掉落物群、脚边地形和告示牌 |
 | 变化事件 | 默认监听受伤、生命、关键物品耗尽／损失、死亡／出生和观察连接变化；游戏聊天另有默认通道 |
-| 图像 | 按需 `observe` 一次返回 JSON 和总览／局部／三维图 |
+| 图像 | 开局由启动流程按地图配置交付；需要新视角时用普通脚本渲染 |
 | 开局视觉 | 独立启动流程按地图配置发送开局／入场图像用户消息 |
 | 动作与程序 | 普通 JavaScript 与 SDK／插件；用 `taskId` 等待或取消同一受管程序 |
 | 比赛状态／时限／胜负 | 来自可信 host 简报、`arena.clock` 和终局反馈；程序可用 `await bot.getMatchState()` 查询 |
@@ -33,7 +33,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 1. 启动入口加载 Pi 扩展、工具与编程指南。Pi 会话启动时，运行时建立自己的只读桥连接并安装默认观察监听器；该连接是会话资源。
 2. 常驻实战启动等待可信 host 的 `running` 状态，再发送一次开局任务。公开简报进入用户消息；地图配置启用的开局图像随独立启动流程交付。
 3. 开局消息附基础观察；后续顶层工具返回将当前状态的变化部分与其他收件箱内容合并，进入普通会话历史。新一轮 agent 启动时也取样并交付变化。连接尚在准备或不可用时，`connection` 给出实际状态，错误另行标示。模型取样最多短等 500 ms，初始区块加载继续在后台完成；连接默认在连续 30 秒无网络进展后才超时。
-4. 模型选择下一步。可以直接运行一个短 SDK 查询／动作，调用 `observe` 看图，或者通过 `bash` 运行普通 Node 控制程序。
+4. 模型选择下一步。可以直接运行一个短 SDK 查询／动作，调用 `observe` 查状态，或者通过 `bash` 运行普通 Node 控制程序（需要图像时运行渲染脚本）。
 5. `bash`／`task_wait` 默认等待最多 30 秒，命令结束或紧急事件会更早返回；部署可通过 `ARENA_TOOL_WAIT_SECONDS` 配置默认时长，两工具均可用单次 `wait_seconds` 覆盖。长程序到时仍返回 `running` 和原 `taskId`，可继续等待。工具结果进入会话历史。下一次模型请求包含工具结果和本次合并交付的状态变化。模型据此核验实际变化并继续。
 6. 程序运行时，默认事件监听持续工作。紧急事件可提前释放 `bash`／`task_wait` 的等待，程序继续存活；模型用原 `taskId` 继续等待或明确取消。正常事件随下一自然工具／回合边界交付。
 
@@ -62,7 +62,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 需要全部仍保留的程序状态与当前报告时，调用 `observe({fullRuntime:true})` 读取未经显示预算裁剪的数据；游戏观察尚未就绪时也可读取，游戏字段同时标示不可用。这些显示预算只影响默认呈现，底层存储继续遵循自身的保留期和有效期。
 
-完整 `observe` 还返回源时间／年龄等 `freshness`、镜像的 `players`／`entities` 摘要、`local.signs` 及当前 `recentBlocks`／`nearbySigns`。这些查询字段的范围见[一次观察](#一次观察与图像)，与默认雷达分别使用。
+完整 `observe` 还返回源时间／年龄等 `freshness`、镜像的 `players`／`entities` 摘要、`local.signs` 及当前 `recentBlocks`／`nearbySigns`。这些查询字段的范围见[一次观察](#一次观察与按需图像)，与默认雷达分别使用。
 
 ### 沿途方块区间
 
@@ -85,12 +85,12 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 ### 常见决策
 
 - 开局：读简报和现成状态，结合开局图像选择第一个目标。
-- 探路：`observe({views:["overview","local"]})` 取得路线总览与脚边层；看到多层结构时追加 `3d`。
+- 看图：需要判断门洞、墙体或多层结构时，用 `node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs" [minX minY minZ maxX maxY maxZ]` 截图，再读它打印的 `imagePath`（需要 Chromium）。
 - 采木：从观察到的原木选一个 `seed`，调用[树候选查询](../examples/SKILL.md#query-a-candidate-tree)取得坐标和证据，再编写采集控制。
 - 开箱：普通程序调用 `openContainer`；查看现成 `window` 内容或工具打印的 `containerItems()`，再决定取哪些数量。
 - 受伤／死亡：读取事件、当前生命和位置，并检查仍在运行的任务；选择继续等待、取消旧控制或恢复。
 - 连接变化：根据新鲜度与连接事件判断可用证据；恢复后重新取得实体、窗口和目标引用。
-- 动作失败：读取工具异常或任务完成结果，再用现成状态和按需图像选择下一步。Pathfinder 示例另带具体的到达核验与停滞报告。
+- 动作失败：读取工具异常或任务完成结果，再用现成状态或按需渲染的图像选择下一步。Pathfinder 示例另带具体的到达核验与停滞报告。
 
 ## 默认事件与等待
 
@@ -119,28 +119,22 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 普通事件等待自然边界；紧急事件释放受管工具等待。这种提前返回只改变等待状态。`task_wait` 接续同一进程，`task_cancel` 请求终止进程组并返回 `cancelling`，随后应等待 `completed`／`delivered`，核查实际角色控制状态再更换控制程序。正常信号处理可完成程序自己的清理；强制终止或桥断连可能留下控制状态。`bash.timeout` 是执行截止时间。运行时报告事实和受管程序状态，动作代码负责控制和恢复。
 
-## 一次观察与图像
+## 一次观察与按需图像
 
-Pi 的直接 `observe` 工具默认返回状态 JSON；按需用 `fullItems`、`fullEntities`、`fullLocal` 展开物品原始组件、普通实体和局部方块／告示牌详情。图像按 `views` 显式选择。同一次调用先冻结状态和所选图像源，再渲染，结果包含来源采样序号、坐标、覆盖与时间。
+Pi 的直接 `observe` 工具只返回状态 JSON；按需用 `fullItems`、`fullEntities`、`fullLocal` 展开物品原始组件、普通实体和局部方块／告示牌详情。`observe(bot, options)` 返回 `{state, metadata}`：`state` 是同步冻结的取样结果，`metadata` 带 `epoch`、`sequence` 和本次 `sampledAt`。它不接受视图参数，也不返回图像。
 
-```js
-// 普通 Pi 工具参数：
-observe({ views: ["overview", "local"] })
-observe({ views: ["3d"] })
+需要看结构时，运行普通程序脚本 [observe-and-render.mjs](../examples/observe-and-render.mjs)：它用当前镜像抓取一份快照，再经 Prismarine 观看器截图。
+
+```sh
+node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs" [minX minY minZ maxX maxY maxZ]
 ```
 
-- `overview`：有可信 host 的公开赛道边界时使用该范围，否则采用全部已加载区块的水平范围和维度高度，显示已观察的最高表面。用 `overviewBounds` 另选明确范围。范围内缺少观察的位置保留未知标记。
-- `local`：默认水平半径 12，脚下整数 Y − 1 至 Y + 2 的浅层俯视图。局部范围独立于总览，用 `localBounds` 单独改变。
-- `3d`：默认水平半径 12，脚下 Y − 8 至 Y + 16 的结构范围；用 `structureBounds` 单独改变。
-- 总览／局部默认在 CPU 上使用真实 Minecraft 方块顶面材质铺图；部分方块形状简化为平面，特殊模型的示意回退及数量列在渲染元数据中。两种表面图使用已安装的 Prismarine 材质资源。
-- 边界格式为包含端点的 `{min:{x,y,z},max:{x,y,z}}`。表面图带玩家位置标记与世界／像素坐标换算；多层空间可结合 3D 读取。
-- 3D 默认请求 Prismarine 方块形状和材质。材质渲染失败时返回明确标记的结构示意回退；`fallback:"error"` 保留状态并报告该视图不可用。`textured:false` 为所有视图主动选择示意图。
+- 省略六个坐标时，默认取以玩家为中心、水平 ±12 格、垂直 −8 至 +16 的切片，并裁剪到已加载区块范围与维度高度。
+- 它把快照写到 `out/world.snapshot.json`、图像写到 `out/world.png`，并打印 `imagePath`、`bounds` 和 `knownFraction`。
+- 截图需要本地 Chromium（`CHROMIUM_PATH`，默认 `/usr/bin/chromium`）与可选 `playwright-core`；缺失时脚本报错，不产生示意图回退。
+- 六个坐标是包含端点的整数 `minX minY minZ maxX maxY maxZ`。另一份普通脚本 [observe.mjs](../examples/observe.mjs) 只打印状态 JSON，不产生图像。
 
-直接调用工具即可收到 JSON 文本和实际原生图像块，无需额外转交；示例见 [看图](../examples/SKILL.md#choose-a-view-for-the-decision)。单纯打印图像路径只表达文件位置。
-
-普通脚本入口 `node /opt/arena/examples/observe.mjs overview local` 将状态写到标准输出，并把所选图像与元数据保存到 `out/observation`；省略视图只输出状态，`--out=目录` 改变保存位置。Pi 中直接调用 `observe` 可立即得到原生图像内容。
-
-`world_minimap`、`world_render3d`、`world_opening` 继续支持明确边界或已保存快照的专门渲染。开局图像仍由 `bootstrap`／`opening-views` 按阶段发送用户消息；按需 `observe` 使用当前取样及所选视图，两条路径各自工作。
+开局图像是另一条独立路径：`bootstrap` 通过 `opening-views` 按地图配置渲染大厅／赛道复合图，作为开局用户消息交付，每个阶段最多尝试 3 次；渲染失败只留下报告，不影响游戏进行。
 
 ### 完整观察中的实体与告示牌详情
 
@@ -173,8 +167,8 @@ observe({ views: ["3d"] })
 | `sampleObservation(bot, options)`，`packages/observation/index.mjs` | 同步生成分离的 JSON 状态；`fullItems`／`fullEntities`／`fullLocal` 扩展相应细节 |
 | `entityRadar(bot, options)`，`packages/observation/entity-radar.mjs` | 单独复用范围／中心可见性筛选与掉落物分群；`sampleObservation` 另补可信队伍关系和已解码状态 |
 | `watchObservation(bot, {post, ...options})`，同文件 | 安装只读语义事件监听；返回 `sample(overrides)`、`close()` 和 `lastError` |
-| `await observe(bot, {views, ...options})`，`packages/observation/observe.mjs` | 返回 `{state, views:[{name,png,metadata}], metadata}`；视图不可用时保留错误元数据 |
-| 原始 SDK | `bot.inventory.slots`／`items()`、`bot.entities`、`bot.blockAt`、`knownBlockAt`、`knownBlocksIn` 和原生事件 |
+| `await observe(bot, options)`，`packages/observation/observe.mjs` | 返回 `{state, metadata}`；`metadata` 带 `epoch`、`sequence` 与本次 `sampledAt` |
+| 原始 SDK | `bot.inventory.slots`／`items()`、`bot.entities`、`bot.blockAt` 和原生事件；`knownBlockAt`／`knownBlocksIn` 读取已观察方块历史（优先当前镜像，返回 `observedAt`／`epoch`，上限 50,000 格，重连与换维度清空） |
 | `createBlockMemoryClient()`，`packages/bot-sdk/index.mjs` | 跨脚本读取角色收到的完整区块记忆；异步精确查询或显式预取后同步查询，见[共享方块记忆](BLOCK-MEMORY.md) |
 
 运行时把可信 host 的公开身份、目标物品和地图范围传入这些函数。高级调用也可显式提供 `teams`、`objectiveItems` 或 `inventoryWatchItems`，供特定用途复用。脚本可用 [实体雷达示例](../examples/entity-radar.mjs) 学习自定义筛选；该示例是可选程序，默认局势已由运行时负责。
@@ -199,18 +193,18 @@ Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报
 
 ## 源码与验证范围
 
-2026-10-11 在隔离 loopback 的真实 Minecraft 1.21.1、Mineflayer、HTTP/SSE 桥和默认观察运行时链路上，9 项测试全部通过。覆盖精确物品／装备、打开窗口中的多堆数量与物品转移、移动与 Pathfinder、其他玩家／方块变化、真实顶面材质总览与局部图、受伤／死亡／重生、观察流暂停过期与恢复、实际游戏断线。只读观察连接全程只发 GET。其中一次基于图像与实际方块查询的门洞寻路演示成功；模型一般化读图能力仍需独立评测。随后可复用脚本加入真实控制程序取消和副手盾牌状态检查，最终共享库与适配器版本的 9 项自动检查全部通过并恢复原服务器配置。[精简实服证据](evidence/observation-live-2026-10-11.json)。
+2026-10-11 在隔离 loopback 的真实 Minecraft 1.21.1、Mineflayer、HTTP/SSE 桥和默认观察运行时链路上，9 项测试全部通过。覆盖精确物品／装备、打开窗口中的多堆数量与物品转移、移动与 Pathfinder、其他玩家／方块变化、受伤／死亡／重生、观察流暂停过期与恢复、实际游戏断线。只读观察连接全程只发 GET。该批次还渲染过真实顶面材质总览与局部图，那是此后已移除的常驻图像工具，现由按需脚本承担。其中一次基于图像与实际方块查询的门洞寻路演示成功；模型一般化读图能力仍需独立评测。随后可复用脚本加入真实控制程序取消和副手盾牌状态检查，最终共享库与适配器版本的 9 项自动检查全部通过并恢复原服务器配置。[精简实服证据](evidence/observation-live-2026-10-11.json)。
 
-本环境验证了三维示意回退；Chromium 的 Unix socket 权限错误阻止本轮真实材质三维截图。真实 Pi 的请求上下文与程序等待测试使用固定本地模型响应，验证工具与交付契约。
+该批次验证的三维示意回退与材质三维截图随常驻图像工具一并移除；现在按需脚本在缺少 Chromium 时直接报错。真实 Pi 的请求上下文与程序等待测试使用固定本地模型响应，验证工具与交付契约。
 
 - [观察核心](../packages/observation/index.mjs)：状态投影、数量、范围和事件。
-- [一次观察](../packages/observation/observe.mjs)与 [Pi 工具](../packages/observation/pi-extension.mjs)：JSON、冻结取样、原生图像与回退。
+- [一次观察](../packages/observation/observe.mjs)与 [Pi 工具](../packages/observation/pi-extension.mjs)：状态 JSON 与冻结取样。
 - [会话观察运行时](../packages/pi-extension/perception-runtime.mjs)与 [Pi 扩展](../packages/pi-extension/index.mjs)：连接、自动生命周期、普通历史交付和任务关联。
 - [验证记录](VALIDATION.md)：当前离线、真实 Pi、渲染与实服证据；各项能力的实现范围与实战验证分别记录。
 
 需要复现真实游戏链路时，使用 [显式启用的验收脚本](../scripts/validate-observation-live.mjs) 的 `--help`。它要求已有、已停机且已接受 EULA 的隔离测试服，验证官方 1.21.1 JAR，为本次检查创建新世界，并在退出后恢复服务器配置。
 
-表面材质图依赖 Prismarine 资源，三维材质截图另需可用 Chromium。服务中断时以连接状态和过期标记呈现最后观察。默认小范围摘要用于当前判断，大地形和物品原始组件通过一次观察、专门查询及 SDK 获取。
+按需截图依赖 Prismarine 资源与本地 Chromium。服务中断时以连接状态和过期标记呈现最后观察。默认小范围摘要用于当前判断，大地形和物品原始组件通过一次观察、专门查询及 SDK 获取。
 
 ## 实体雷达与普通历史交付
 

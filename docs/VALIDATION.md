@@ -4,11 +4,11 @@
 
 ## 当前候选：原生 Pi 工具与实际入口
 
-功能提交 `905f444` 默认提供 10 个原生工具：read、bash、edit、write、observe、task_wait、task_cancel、world_minimap、world_render3d、world_opening。显式 CLI 工具选择仍可启用 codemode 或指定工具子集。
+功能提交 `905f444` 当时默认提供 10 个原生工具：read、bash、edit、write、observe、task_wait、task_cancel、world_minimap、world_render3d、world_opening。其中 `world_minimap`／`world_render3d`／`world_opening` 三个常驻图像工具与 `observe` 的图像参数已在后续清理中移除；当前默认工具为 read、edit、write、bash、observe、task_wait、task_cancel 共 7 个，图像改由普通脚本按需渲染。显式 CLI 工具选择仍可启用 codemode 或指定工具子集。
 
-- 真实 Pi bootstrap 配合可控模型与桥夹具，验证默认工具列表、显式 `--tools +codemode`、`-t read,bash`，以及直接 bash stdout 和 observe PNG 进入下一次模型请求。相关入口测试 14 项、定向整组 85 项通过。
+- 真实 Pi bootstrap 配合可控模型与桥夹具，验证默认工具列表、显式 `--tools +codemode`、`-t read,bash`，以及直接 bash stdout 进入下一次模型请求。该批次还验证了 observe PNG 进入请求，这项图像参数已在后续清理中移除。相关入口测试 14 项、定向整组 85 项通过。
 - `npm run validate`：562 项，560 通过，0 失败，2 个环境相关跳过。使用已发布的 world-memory 固定版本；本项覆盖语法和自动化回归。
-- 入口修正包括消除重复 AGENTS、区分只读查询与控制程序清理、注明紧凑观察和展开参数、工具直接返回原生图像。后续文字审读单独保存提交。
+- 入口修正包括消除重复 AGENTS、区分只读查询与控制程序清理、注明紧凑观察和展开参数。其中“工具直接返回原生图像”一项已随常驻图像工具移除，现由按需脚本渲染。后续文字审读单独保存提交。
 - 2v2 重赛于 2026-10-11 14:42:17 UTC 开始，四名选手使用冻结的 `905f444` 工具包。运行复用实际桥接、SDK、Inbox 与感知模块，通过文件 relay 接入子代理。比赛结果另行记录。
 
 [本轮证据范围](evidence/pi-native-tools-2026-10-11.json)。此前入口捕获的 11 工具和转发说明属于关闭默认 codemode 之前的批次。
@@ -59,7 +59,7 @@
 - 真实寻路程序前进后，经 TaskManager 取消，163ms 正常退出143，全部7项按键释放，稳定后1.2秒位移为0，Minecraft连接仍然存活。
 - 独立原版复现确认 Pathfinder partial A* 路径优化会修改尚在搜索堆中的节点，导致可达目标误报 NoPath。适配器复制执行路径节点，保留原有优化和预算；确定性回归及上述实服均通过。
 - 验证伤害、危急生命、死亡重生、实际暂停传输后的过期/恢复，以及断线状态；被动观察器没有发送动作请求。
-- CPU 真实纹理俯视图、局部图和朝向箭头已实际查看。纹理 3D 的 Chromium 启动受本云环境权限限制，返回明确的示意图回退信息。
+- 该批次查看了 CPU 真实纹理俯视图、局部图和朝向箭头，并验证纹理 3D 的示意图回退。这些常驻图像工具已在后续清理中移除；现在按需截图脚本在缺少 Chromium 时直接报错。
 - 本轮没有运行付费模型自主比赛；辅助选路演示仅证明这一场景的观察与行动链路。Windows/Docker 重部署及实战 PvP 尚未在本轮源码上复验。
 
 复现入口：[隔离实服脚本](../scripts/validate-observation-live.mjs)。结果与环境边界：[脱敏验收记录](evidence/observation-live-2026-10-11.json)。脚本需要已有接受 EULA 的隔离测试服，显式确认后运行；常规 npm test 不会启动 Minecraft。
@@ -94,21 +94,21 @@
 
 ## 验证范围
 
-此源码包实现了比赛宿主、模型预算网关、有限 Mineflayer 桥、参赛侧插件接口、Pi 收件箱扩展及世界图像工具。以下记录区分真实软件集成、可控夹具测试与目标部署验收。
+此源码包实现了比赛宿主、模型预算网关、有限 Mineflayer 桥、参赛侧插件接口、Pi 收件箱扩展及按需图像渲染。以下记录区分真实软件集成、可控夹具测试与目标部署验收。
 
 最终独立安装复测：108 项测试，106 项通过，2 项明确跳过，0 失败。JavaScript 语法检查与 Prettier 格式检查通过。
 
-在新的项目目录中，仅凭 package.json、锁文件和本地 npm 缓存执行 npm ci --offline --ignore-scripts，成功安装 320 个包；随后复制交付源码并运行完整验证。测试没有引用原项目 node_modules。模拟比赛、示例配置校验和 CPU 渲染示例亦执行成功。
+在新的项目目录中，仅凭 package.json、锁文件和本地 npm 缓存执行 npm ci --offline --ignore-scripts，成功安装 320 个包；随后复制交付源码并运行完整验证。测试没有引用原项目 node_modules。模拟比赛与示例配置校验亦执行成功；当时的 CPU 渲染示例已不在当前套件中，现有渲染示例需要 Chromium。
 
 ### 已执行的真实软件集成
 
 - 使用锁定的 Pi 1.1.0 启动真实 AgentSession 和 CLI/RPC 进程。本地假模型上游提供固定响应；整个测试过程没有调用付费模型。
 - 普通投递随下一次工具结果交付；紧急投递释放受管长命令的等待，命令继续运行；晚到结果仅交付一次。
-- Pi codemode 读取真实嵌套工具返回并自行过滤，收件箱内容在外层返回合并。图像工具的原生图像块经过实际模型代理进入下一次请求。
+- Pi codemode 读取真实嵌套工具返回并自行过滤，收件箱内容在外层返回合并。该批次还让图像工具的原生图像块经过实际模型代理进入下一次请求；该工具已移除。
 - 常驻 Pi 在模型结束一段回答后保留程序；普通投递不增加模型请求；紧急投递继续同一会话；可信比赛结束状态触发清理退出。
 - 实际安装的 Pathfinder 2.4.5、PvP 1.3.2 在本地接口上注入并运行选定能力。自定义 Goal、Movements 回调和平地寻路在本地执行，搜索节点不逐个产生 RPC；PvP 发出语义攻击。
 - HTTP 游戏桥、SSE 状态镜像、限权模型路由、个人/队伍计量及排队反馈通过跨模块测试。
-- CPU 俯视图和结构图生成可解码 PNG；Prismarine viewer 的真实静态资源与区块传输通过测试。
+- 该批次验证 CPU 俯视图与结构图生成可解码 PNG（该常驻渲染路径已移除）；Prismarine viewer 的真实静态资源与区块传输通过测试。
 
 上述游戏桥与计分测试使用可控 bot、世界和比赛状态夹具，尚未接入真实 Minecraft 对局。模型响应固定，因此这些测试验证交互与数据契约，不评价模型游戏水平。
 
@@ -135,7 +135,7 @@
 ## 原源码包跳过项及持续限制
 
 1. 当前执行环境禁止 Unix socket bind，相关用例明确跳过。带身份验证的 loopback HTTP IPC 已测试；目标 Linux 部署仍须验收 Unix socket。
-2. 当前环境 Chromium 启动被操作系统权限限制，真实 WebGL 截图用例跳过。CPU 图像和 Prismarine 资源/区块传输已通过；部署后运行 MC_TEST_CHROMIUM=1 的截图测试。
+2. 当前环境 Chromium 启动被操作系统权限限制，真实 WebGL 截图用例跳过。Prismarine 资源/区块传输已通过；部署后运行 MC_TEST_CHROMIUM=1 的按需截图测试。
 3. 当前环境无 Docker daemon。Compose 网络隔离、跨队卷隔离、资源上限、禁止绕过模型网关及 Minecraft 直连，需要在实际宿主机验收。
 4. 运营者提供地图、服务器镜像/版本、目标坐标、RCON 生命周期命令、模型服务配置和凭证。先使用测试身份完成一次地图重置、同时开局、目标计分、超时与退出的真实冒烟对局。
 5. 插件适配覆盖已列出的能力。动态地形寻路、实战 PvP、挖掘/放置和完整容器交互须按选定地图验证。具体接口差异见 packages/bot-sdk/README.md。
@@ -159,7 +159,7 @@ npm run validate
 npm run format:check
 node packages/arena/src/cli.mjs validate infra/match.example.json
 npm run demo:match
-npm run demo:visual
+npm run demo:screenshot   # 需要本地 Chromium 与可选 playwright-core
 ```
 
 真实 Pi 的逐项证据见 [INTEGRATION.md](INTEGRATION.md)。容器部署步骤见 [infra/README.md](../infra/README.md)。本包不含 node_modules、真实凭证、地图、世界存档或模型运行日志。
@@ -181,7 +181,7 @@ npm run demo:visual
 - 验证 1.21 物品组件的名称、损耗和附魔，BigInt NBT，equip 默认手部/数字类型，tossStack 指定槽位，晚调用 flush 仍可观察失败。
 - 挖掘取消与死亡保留原生 `Digging aborted`，重生后恢复桥接自身事件转发；Pathfinder 保留上游死亡/停止语义。错误保留 name/message/code/action 并脱敏凭据。
 - 实际完整克隆官方 Mineflayer 4.39.0、Pathfinder 2.4.5、PvP 1.3.2 参考仓库；固定 HEAD 与官方 tag、npm gitHead 一致，均保留 `.git` 和完整历史，未运行上游仓库脚本。镜像通过 `ARENA_REFERENCE_ROOT` 提供文档、示例与源码。
-- 视觉示例分别输出概览切片与局部结构快照；skill 说明现成工具、收件箱用法、上游参考库及可读适配器源码。
+- 该批次的视觉示例输出概览切片与局部结构快照，该示例已由按需的 observe-and-render 截图脚本取代；skill 说明现成工具、收件箱用法、上游参考库及可读适配器源码。
 
 独立复核发现的窗口目标、JSON 凭据脱敏、物品组件和事件/响应时序问题已修复。全量运行还暴露一个预算测试的真实时钟假设：1 毫秒正常偿债使精确金额断言偶发失败；该例现使用注入的固定时钟，保留原严格业务断言。
 

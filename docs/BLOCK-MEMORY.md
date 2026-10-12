@@ -144,5 +144,7 @@ accepted from a read client.
 The library runs with `analysis: "lazy"`: exact recording and queries do not
 force full-world exposure/connectivity analysis. Complete native columns use
 memory proportional to explored terrain; they have no silent 50,000-cell
-truncation. The older facade `knownBlockAt`/`knownBlocksIn` sampled history remains
-a distinct, bounded, per-script API and is not this shared store.
+truncation. The separate `BotFacade.knownBlockAt`/`knownBlocksIn` history (see
+[the SDK reference](../packages/bot-sdk/README.md#observation-and-actions)) keeps
+at most 50,000 cells observed during that facade session, so it is not this shared
+store: read unloaded or previously received columns through the queries above.

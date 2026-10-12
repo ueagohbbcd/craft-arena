@@ -1,13 +1,13 @@
 ---
 name: minecraft-arena-programming
-description: Play the Minecraft arena with ready-made situational awareness, on-demand images, Mineflayer APIs and ordinary action programs.
+description: Play the Minecraft arena with ready-made situational awareness, on-demand screenshot scripts, Mineflayer APIs and ordinary action programs.
 ---
 
 # Play through Mineflayer
 
 Run Node programs through `bash` to control your Minecraft character. The host briefing supplies the team, map, objectives and time limit. Toolkit files live under `$ARENA_TOOLKIT_ROOT`; save your own programs in the current working directory.
 
-The runtime supplies an opening state and later changes to player state, inventory, equipment, entities, nearby terrain and managed programs. Each field in `changes` replaces that section, including empty arrays and null. Reports carry observation times and stay in history. Use `observe` for a fresh snapshot or images.
+The runtime supplies an opening state and later changes to player state, inventory, equipment, entities, nearby terrain and managed programs. Each field in `changes` replaces that section, including empty arrays and null. Reports carry observation times and stay in history. Use `observe` for a fresh state snapshot.
 
 ## First movement
 
@@ -38,8 +38,6 @@ periodic model wake-ups.
 | What you need | Direct Pi tool call |
 | --- | --- |
 | Current state | `observe({})` |
-| Route overview and nearby detail | `observe({views:["overview","local"]})` |
-| Walls, tunnels or overlapping levels | `observe({views:["3d"]})` |
 | Full item, entity or local-block details | `observe({fullItems:true, fullEntities:true, fullLocal:true})`; select the fields you need |
 | Recent block sample coordinates and coverage | `observe({fullRecentBlocks:true})` |
 | All retained task statuses and current program reports | `observe({fullRuntime:true})`; also works while game observation is unavailable |
@@ -54,24 +52,49 @@ The Inbox delivers health/hurt, resource loss, death/respawn, connection and cha
 
 `recentBlocks` accumulates nearby block-type samples, becoming eligible after 30 seconds and arriving at the next tool/turn boundary. It includes the interval and sampled coverage. Nearby sign-text changes arrive separately. For exact positions use block queries; [observation coverage](../docs/OBSERVATION.md) explains the sampling limits and reusable `sampleObservation(bot)` / `entityRadar(bot, options)` functions.
 
-## Choose a view for the decision
+## Let a program watch while you do something else
 
-For a new view, call `observe` with:
+Default perception reports ordinary surroundings on its own. Start your own listener when one specific discovery should reach you before the action you are waiting on finishes: a chest appearing on the route, a named player entering the area, a build that has stopped making progress. The program keeps running; only the notification interrupts your wait.
 
-```json
-{ "views": ["overview", "local"] }
+[watch-surroundings.mjs](watch-surroundings.mjs) is the shape to copy:
+
+```sh
+node "$ARENA_TOOLKIT_ROOT/examples/watch-surroundings.mjs" chest 60
 ```
 
-The result contains state JSON and native images.
+It reuses the same sampling functions as default perception, remembers what it already reported, and calls `inbox.requestJudgment` once per new discovery:
 
-- `overview` uses the host-provided public course bounds when available, otherwise the full loaded-column extent. Pass `overviewBounds` for another explicit area. Unknown parts of the selected area remain labeled.
-- `local` shows a shallow crop around your current feet for nearby obstacles and interactions. Its crop is independent of the overview. Both maps use real Minecraft top-face textures on CPU, with simplified geometry and any special-block fallbacks identified in metadata.
-- `3d` shows local structure. Requested 3D views use block models and textures by default; a labeled schematic fallback records a texture-rendering failure. Set `textured:false` to select schematic maps and 3D views.
-- Omit `views` for state JSON only. Image metadata gives coordinates, crop, known/unknown coverage, observation time and renderer.
+```js
+const scan = sampleNearbyConnectedBlocks({
+  origin,
+  radius: 6,
+  blockAt: position => bot.blockAt(position),
+});
+await inbox.requestJudgment({
+  reason: `Found ${target} nearby`,
+  observedAt: Date.now(),
+  dimension: bot.game?.dimension,
+  blocks: found,
+  process: "Lookout continues; other running actions are unchanged",
+});
+```
 
-For a precise crop, pass inclusive `overviewBounds`, `localBounds` or `structureBounds`, each shaped as `{min:{x,y,z},max:{x,y,z}}`. The lower-level `world_minimap` and `world_render3d` tools remain available with explicit `bounds` or `snapshotPath`. `world_render3d` defaults to schematic geometry; `textured:true` selects Prismarine rendering. See [visual tools](../packages/world-visual/README.md).
+Two things make this work with a running controller. The report says whether the program continues, so you can decide while it keeps watching. And the listener only reads: it never installs goals or takes the controls, so an existing navigation or build program keeps moving. Several listeners can run at once, but character actions still need one coordinator. Closing a read-only listener with `bot.closeBridge()` stops only that program.
 
-After `NoPath` or a stall, compare the current position, movement settings and known terrain. Use an overview to select a nearer waypoint or entrance; use local/3D views for the obstacle. `node "$ARENA_TOOLKIT_ROOT/examples/summarize-terrain.mjs"` supplies a more detailed local block-count and geometric-connectivity query when needed. Geometric connectivity describes sampled space; walking also depends on body clearance, support and hazards.
+## Look at the world when a picture helps
+
+`observe` returns state JSON only; it has no image option. When terrain is easier to judge as a picture, run the screenshot example and then `read` the PNG it prints:
+
+```sh
+node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs"
+node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs" minX minY minZ maxX maxY maxZ
+```
+
+Without coordinates it frames the area around your feet: at most 25×25 cells horizontally, 8 below to 16 above, clipped to loaded columns and dimension height. With six inclusive coordinates it captures exactly that box. It prints `imagePath` plus the captured bounds, known fraction and metadata, so always read the printed JSON before reading the image. Everything unknown stays unknown: the picture shows only cells the participant mirror has actually received, and blank regions are missing data, not air.
+
+Screenshots need Chromium (`CHROMIUM_PATH`, `/usr/bin/chromium` in the participant image) and the local Prismarine viewer; outside that environment the script fails and the text state remains your evidence. One image costs real render time and tokens, so take one when a decision depends on shape — a doorway, a wall, stacked levels — and keep using `blockAt`, `findBlocks` and [shared block memory](../docs/BLOCK-MEMORY.md) for exact coordinates.
+
+After `NoPath` or a stall, compare the current position, movement settings and known terrain. `node "$ARENA_TOOLKIT_ROOT/examples/summarize-terrain.mjs"` supplies a local block-count and geometric-connectivity query when a picture is not needed. Geometric connectivity describes sampled space; walking also depends on body clearance, support and hazards.
 
 ## Use observation to change one concrete decision
 

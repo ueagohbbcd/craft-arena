@@ -4,7 +4,7 @@
 
 ## 开始与补查
 
-目标、地图、队伍和时限见可信 host 简报。开局自动提供状态与地图配置的图像，后续变化随工具返回交付；需要当前细节或新图像时用 `observe`。采样范围、历史和完整明细选项见[观察架构](OBSERVATION.md)。
+目标、地图、队伍和时限见可信 host 简报。开局自动提供状态与地图配置的图像，后续变化随工具返回交付；`observe` 返回当前细节，需要新图像时运行普通渲染脚本。采样范围、历史和完整明细选项见[观察架构](OBSERVATION.md)。
 
 从[首次移动](../examples/SKILL.md#first-movement)开始，或运行下表的查询／动作示例。`running` 表示原程序仍在运行，用原 `taskId` 调用 `task_wait`；取消与更换控制程序见[等待语义](../packages/pi-extension/README.md#behavior)。
 
@@ -13,7 +13,7 @@
 | 要做什么 | 入口 |
 | --- | --- |
 | 读取位置、物品或精确方块 | [只读短程序](../examples/SKILL.md#query-the-sdk-from-a-short-program) |
-| 看总览、局部障碍或多层结构 | [observe 图像参数](../examples/SKILL.md#choose-a-view-for-the-decision)；保存快照的专门渲染见[视觉工具](../packages/world-visual/README.md) |
+| 看总览、局部障碍或多层结构 | [按需图像脚本](../examples/observe-and-render.mjs)：快照 + Prismarine／Chromium 截图 |
 | 寻路到坐标 | [Pathfinder 示例](../examples/plugin-goal.mjs)，含停滞报告和到达核验 |
 | 查树干候选、放置位置的实体重叠 | [树查询](../examples/SKILL.md#query-a-candidate-tree)、[实体几何查询](../examples/inspect-placement-entities.mjs) |
 | 查询前一脚本或已卸载区域的方块／牌 | [共享方块记忆](BLOCK-MEMORY.md)：查询角色实际收到的完整区块 |

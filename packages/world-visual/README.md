@@ -1,76 +1,93 @@
 # Local world visualization
 
-The renderer takes participant-side world snapshots as input and produces images with observation metadata.
+This package turns participant-side world snapshots into PNGs plus observation
+metadata. Generic snapshot capture, rasterization and PNG encoding live upstream
+in the MIT `mineflayer-world-memory` package; this package adds the arena opening
+composite ([index.mjs](index.mjs)) and the optional real Prismarine renderer
+([prismarine.mjs](prismarine.mjs)).
 
-## Three distinct views
+## Two paths to an image
 
-- `renderMinimap(snapshot, options)`: fast highest-observed-block, top-down PNG. Uses a schematic material palette, subtle procedural grain and height shade. Captions and coordinates are supplied as separate metadata.
-- `renderOblique(snapshot, options)`: orthographic full-cube structural PNG, selected box, shaded faces. Stairs/plants/water/glass use simplified full-cube geometry.
-- `servePrismarineSnapshot` / `capturePrismarineSnapshot`: actual Prismarine viewer 1.33.0 Minecraft models and textures. The adapter serializes observed cells into version-compatible Prismarine chunks and serves the published viewer assets on **127.0.0.1 only**. Optional Chromium capture screenshots the actual WebGL canvas. Unsupported Minecraft patch versions may use the viewer's nearest supported models/textures.
+1. **Opening composite (automatic).** With map-configured `live.openingViews`, the
+   runtime captures one composite from the participant's loaded world and delivers
+   it as a bootstrap user message; `packages/pi-extension/opening-views.mjs` owns
+   the timing and transport. `renderOpeningComposite(snapshot,{layout:"lobby"|"course",width,height,gap,position})`
+   from [index.mjs](index.mjs) returns `{png,metadata,rgba}`: one top-down
+   `renderMinimap` panel plus two oblique `renderOblique` panels.
+   `captureOpeningComposite` from [prismarine.mjs](prismarine.mjs) renders that
+   layout and then replaces both oblique panels with real Prismarine captures
+   taken through one shared browser session, keeping the top-down panel as
+   coverage. Panel rectangles, cameras, bounds, coverage and the observed player
+   position are in the metadata.
+2. **On-demand script screenshot.** A program acquires a snapshot and captures it
+   itself:
 
-Bare images and metadata are separate. The Pi tools put `{type:'image',mimeType:'image/png',data:...}` and an independent JSON text item in the **same** tool result.
+   ```js
+   import { connectBot } from "../bot-sdk/index.mjs";
+   import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
+   import { capturePrismarineSnapshot } from "./prismarine.mjs";
+   const bot = await connectBot({ url, token });
+   const snapshot = snapshotFromBot(bot, { bounds });
+   await capturePrismarineSnapshot(snapshot, { outputPath: "out/world.png" });
+   ```
+
+   [observe-and-render.mjs](../../examples/observe-and-render.mjs) is the
+   ready-made example. Without arguments it frames the player by 12 blocks
+   horizontally and from 8 below to 16 above vertically, bounded by the dimension
+   height; cells outside loaded columns stay unknown. Six inclusive coordinates
+   (`minX minY minZ maxX maxY maxZ`) override that box. It writes
+   `out/world.snapshot.json` and `out/world.png`, with a `.json` metadata file
+   beside the PNG, and prints `imagePath`, `bounds`, `knownFraction` and `notes`.
+   [render-fixture.mjs](../../examples/render-fixture.mjs) screenshots the
+   synthetic fixture with no game connection. The Pi runtime registers no
+   resident world tool, so image production and its timing are a program choice,
+   and a missing Chromium only breaks the render, not text observation.
 
 ## Input contract
 
 ```js
 {
-  version: '1.20.4', // required only for genuine textured view
+  version: '1.20.4', // required only for the textured viewer
   bounds: { min:{x:0,y:0,z:0}, max:{x:15,y:8,z:15} }, // inclusive
-  blocks: [{x:0,y:0,z:0,name:'grass_block'}], // optional stateId from matching version
+  blocks: [{x:0,y:0,z:0,name:'grass_block'}], // optional stateId from the same version
   sampledAt: '2026-10-10T00:00:00Z', sequence: 123,
   source: 'participant local mirror'
 }
 ```
 
-Use the exact stateId from the same Minecraft version; do not guess a numerical ID. Omit stateId if unavailable: textured rendering then uses the registered default state and reports how many cells were defaulted. A mismatched name/stateId is rejected.
+Use the exact stateId from the same Minecraft version; do not guess a numerical
+ID. Omit stateId if unavailable: textured rendering then uses the registered
+default state and reports how many cells were defaulted. A mismatched
+name/stateId is rejected.
 
-Every explicit air cell is known air. **An absent cell is unknown**, including cells absent above an observed surface. The minimap shows:
+Every explicit air cell is known air. **An absent cell is unknown**, including
+cells absent above an observed surface. The top-down panel uses:
 
 - Purple: missing observations; purple diagonal marks over a material mean missing observations above that surface.
 - Dark blue-gray: fully observed, clear air column in the selected Y slice.
 - Amber diagonal marks: a stale explored-memory surface observation.
-- Other colors: known material with height shading; metadata includes palette, bounds, scale, orientation and coverage.
+- Other colors: known material with height shading; metadata carries palette, bounds, scale, orientation and coverage.
 
-The bounds define a **slice**; surface height is the highest observed block within it. The textured viewer omits unobserved cells, so blank regions may be unknown. Pair it with minimap coverage to distinguish observed air from missing data. Water uses the renderer’s existing material behavior; unknown cells remain omitted rather than becoming solid barriers.
+Bounds define a **slice**; surface height is the highest observed block within it.
+The textured viewer omits unobserved cells, so blank regions may be unknown. Pair
+it with the top-down coverage panel to separate observed air from missing data.
+Unknown cells are never turned into solid barriers.
 
-## Use
+## Resource limits
 
-```sh
-node examples/render-fixture.mjs  # explicitly SYNTHETIC test fixture only
-node packages/world-visual/cli.mjs minimap out/fixture/snapshot.json out/map 1024 1024
-node packages/world-visual/cli.mjs oblique out/fixture/snapshot.json out/structure
-node packages/world-visual/cli.mjs viewer out/fixture/snapshot.json
-node packages/world-visual/cli.mjs textured out/fixture/snapshot.json out/textured
-```
+- At most 4,000,000 voxels per snapshot selection (`normalizeSnapshot`); the bounds are inclusive and must be ordered.
+- `snapshotFromBot(bot,{bounds,maxVoxels})` defaults to at most 1,000,000 queried voxels. `snapshotFromExplored(bot,{bounds,maxAgeMs})` retains observation time and staleness.
+- Images may use any positive integer dimensions totaling at most 16,777,216 pixels; the textured capture checks the same budget before starting Chromium.
+- An oblique panel refuses more than 150,000 non-air voxels.
 
-`node examples/observe-and-render.mjs` is an optional quick look. Its default overview is a player-centered slice of at most 65×65 horizontal cells, from 16 below to 32 above the player; the local structural view is at most 25×25 horizontally, from 8 below to 16 above. Both are clipped to loaded-column extents and dimension height. These are vertical slices, not a complete surface map: underground, they show the selected underground terrain. Holes inside the loaded-column extent remain unknown. Selection, bounds, coverage and timestamps are in each image’s metadata.
+## Dependencies
 
-The example writes `out/observed-world.json` + `out/minimap.png/.json` for the overview and `out/observed-structure.json` + `out/structural.png/.json` for the local view. Override the overview with six inclusive coordinates: `node examples/observe-and-render.mjs minX minY minZ maxX maxY maxZ`. Its one-million-voxel acquisition budget bounds local sampling/memory, not what the bot can observe. For other viewpoints or budgets, choose explicit bounds through the Pi tools or call `snapshotFromBot(bot,{bounds,maxVoxels})` and a renderer directly. The example does not run automatically or prescribe when to use images.
+- Schematic/minimap rendering needs only Node built-ins and `mineflayer-world-memory` (MIT); it draws the top-down coverage panel and the two oblique panels that the textured capture then replaces.
+- The real viewer needs the optional `prismarine-viewer` (pinned in the root `package.json`), `prismarine-chunk`, `minecraft-data`, `express` and `socket.io`; screenshots additionally need `playwright-core` and a local Chromium executable (`CHROMIUM_PATH`, default `/usr/bin/chromium`). Missing packages throw one explicit install error; the opening composite then reports the failure and text play continues, because the arena no longer has a separate schematic image path.
+- `servePrismarineSnapshot` serves the viewer assets on **127.0.0.1 only** and never connects to Minecraft. State IDs are remapped onto the viewer's nearest supported patch. Blocks without a stateId use the version default state, so orientation details may differ.
+- Minecraft artwork is supplied through the viewer's own distribution and keeps Mojang/Microsoft licensing; this repository vendors neither `node_modules` nor texture assets.
 
-`viewer` prints a local URL and remains open until Ctrl-C. `textured` requires installed optional dependencies (`prismarine-viewer`, `playwright` in the root lockfile) and a local Chromium executable. Set `CHROMIUM_PATH` if it is not `/usr/bin/chromium`. The viewer renders the supplied local snapshot. Browser capture waits for actual WebGL geometry submission and rejects browser errors.
+## Validation
 
-Acquire real data using `snapshotFromBot(bot,{bounds})`, which reads synchronous `blockAt` from the current mirror and preserves nulls as unknown. `snapshotFromExplored(bot,{bounds,maxAgeMs})` reads the bounded explored cache and retains observation time/staleness. The current mirror includes Minecraft’s loaded chunk columns at full dimension height; selected bounds outside those columns remain unknown. The explored view combines loaded columns with retained historical cells, preferring current data. The Pi extension keeps one facade connection alive for explored accumulation and closes it on session shutdown; reconnect/reset may clear this cache.
-
-Pi entry: `packages/world-visual/pi-extension.mjs`. Tool names `world_minimap` and `world_render3d`, parameters `snapshotPath` **or** `bounds`, optional `explored`, `width`, `height`; `textured:true` selects the real renderer for `world_render3d`. Canonical credentials are `ARENA_BRIDGE_URL`, `ARENA_BRIDGE_TOKEN`; `MC_BRIDGE_*` are aliases. They stay local and are never included in image metadata.
-
-## Validation and measured limits
-
-`node --test tests/visual*.test.mjs` checks PNG decoding/dimensions, deterministic output, highest surface, unknown versus air, palette, bounds/memory limits, stale cache, native Pi image result, static viewer assets, and actual chunk decoding after Socket.IO transport. The CPU images were visually inspected. The native image result was also verified through a real Pi session and gateway, both as a direct tool and via codemode image forwarding; see `examples/SKILL.md`.
-
-One local Node 24.19 run rendered 262,144 supplied voxels covering a 256×256×4 box to a 1024×1024 PNG in **634 ms** (51,127 PNG bytes). This synthetic performance sample measures local rendering time. Default fixture CPU renders were roughly 8–80 ms. Snapshot acquisition/bridge delay is separate.
-
-`MC_TEST_CHROMIUM=1 node --test tests/visual-prismarine.test.mjs` additionally validates actual textured PNG capture. In the delivery environment Chromium was installed but launch failed with OS `socket() ... Operation not permitted`; that screenshot test is explicitly skipped by default. Local viewer assets/chunk transport passed; actual WebGL screenshot validation remains a deployment check.
-
-Resource budgets: 4,000,000 selected voxels, acquisition default 1,000,000 queries, images totaling at most 16,777,216 pixels, oblique ≤150,000 non-air voxels. Any positive integer image dimensions fitting the pixel budget are accepted, including narrow and small images. The Pi tools and textured capture use the same image budget. Explicit `known:false` entries need no invented material name and remain unknown.
-
-## Sources and licenses
-
-This package’s CPU palette, rasterizer and PNG encoder use an original implementation built on Node built-ins.
-
-Optional genuine rendering uses [PrismarineJS/prismarine-viewer](https://github.com/PrismarineJS/prismarine-viewer) (MIT), [prismarine-chunk](https://github.com/PrismarineJS/prismarine-chunk) (MIT), [minecraft-data](https://github.com/PrismarineJS/minecraft-data) (MIT), Socket.IO (MIT), Express (MIT), and Playwright (Apache-2.0), installed from official npm packages. The adapter follows the viewer's published standalone Socket.IO protocol; dependency licenses remain in their npm distributions. Minecraft artwork is Mojang/Microsoft intellectual property supplied through the viewer's existing distribution; that artwork retains its own licensing terms. The source archive does not vendor node_modules or third-party texture assets.
-
-## Opening composites and view directions
-
-`captureOpeningComposite(snapshot,{layout:"lobby"|"course",position,textured:true})` from `opening.mjs` makes one square PNG. Lobby uses a large top-down panel with two smaller oblique views. Course uses a long-axis top-down strip and two opposite oblique views. Metadata identifies each panel's rectangle, crop and camera, plus the observed player position. Textured capture uses Prismarine models; `textured:false` selects schematic full cubes.
-
-Pi tool `world_opening` accepts the same layout with a snapshot path or bounds. `world_render3d` also accepts `viewDirection`: `+x+z`, `-x+z`, `-x-z`, or `+x-z`.
+- `node --test tests/visual-opening.test.mjs` checks panel pixels and geometry, layout/gap rejection, fitted perspective cameras and cross-version state-ID remapping.
+- `node --test tests/visual-prismarine.test.mjs` serves the real viewer assets, decodes a real chunk over Socket.IO and rejects invalid IDs or missing versions. `MC_TEST_CHROMIUM=1` adds a real Chromium PNG capture; capture success in the delivery environment remains a deployment check.
