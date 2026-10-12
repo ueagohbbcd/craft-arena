@@ -4,6 +4,17 @@
 
 首类场景是 Race of Wool 一类 PvP 竞速地图。AI 需要理解目标、获取资源、规划路线、搭建和战斗。平台负责运行条件与可信判定；游戏策略由参赛 AI 选择。
 
+## 框架、预装工具箱与 Skill
+
+**框架**负责可比较的比赛条件和 Agent 的长期运行：可信比赛宿主、资源预算、真实 Mineflayer 角色的受限桥、参赛 SDK、进程管理与 Inbox。Pi 是当前 Coding Agent 的接入实现，不是游戏能力必须依赖的抽象。
+
+**预装工具箱**是提供给参赛代码使用的现成能力，不因功能重要或自动启动而成为框架本身。三项代表性能力并列：
+- **态势感知（observation）**：普通的游戏观察、采样与事件汇总代码，由当前 Pi 会话默认启动并通过 Inbox／普通历史交付，用来弥补模型不知道该查什么的盲区；参赛代码可以复用其函数并编写自己的监听器。
+- **世界视觉（world-visual）**：可复用的快照和渲染能力；地图配置可在开局自动提供图像，其余图像由普通脚本按需生成。
+- **区块记忆（mineflayer-world-memory / bridge memory）**：可信 Bot 一侧默认保存实际接收的原生区块，供部分现成功能和参赛程序查询；卸载区块的记录是最近一次收到的**历史知识**，并非保证服务器当前未变化。
+
+**Skill 与示例**负责向模型介绍工具箱的调用、源码入口和修改办法；它们不是第四种执行框架。自动启用、部署所在进程和“属于框架”是不同的维度。目前观察器的默认实例仍由 Pi 会话管理，区块记忆仍由 Bridge 初始化；若要让模型直接替换默认实例，需要额外的启动接线，见 [后续工作](docs/PERCEPTION-TODO.md)。详细的信息收集／呈递选择见 [上下文设计](docs/CONTEXT-DELIVERY.md)。
+
 ## 一场比赛怎么进行
 
 1. **准备。** 运营者选定地图、规则和版本，配置队伍、角色、模型预算与资源上限，启动并检查游戏服务器和比赛服务。
@@ -60,16 +71,13 @@ node examples/render-fixture.mjs
 - **部署比赛：** [运营指南](infra/README.md)。Windows 本机使用 `scripts/initialize-windows-arena.ps1` 和 `scripts/windows-arena.ps1`，输入准备好的世界目录与比赛配置，统一保存为 `map-original/world` 供重置使用。Direct Fire 配置作为示例保留；Codex OAuth、DeepSeek 和自动系统代理按部署需要选择。通用部署使用 `infra/compose.live.yaml` 与 `infra/match.live.template.json`；`compose.yaml` 用于单独服务调试。默认 live 部署使用固定版本的 Fabric + ServerReplay：开局录制、结束校验并按 runId 保存到可信 results；可用 `live.replay.enabled:false` 关闭。回放查看、升级和存储管理见运营指南。
 - **开发验证：** 修改后运行 `npm test`；涉及 Pi 或插件适配时检查相应集成用例。部署前固定地图、依赖与镜像版本，保存配置和结果。
 
-### 模块入口
+### 代码入口（按归属，而非重要性排列）
 
-| 模块                                                | 用途                                 |
-| --------------------------------------------------- | ------------------------------------ |
-| [arena](packages/arena/README.md)                   | 比赛生命周期、可信目标事件与结果     |
-| [mf-bridge](packages/mf-bridge/README.md)           | 可信 Mineflayer 后端与语义动作       |
-| [bot-sdk](packages/bot-sdk/README.md)               | 本地状态镜像、动作接口与选定插件适配 |
-| [observation](docs/OBSERVATION.md)                 | 默认局势、事件与一次状态观察         |
-| [world-visual](packages/world-visual/README.md)     | 开局复合图与按需 Prismarine 截图     |
-| [budget-gateway](packages/budget-gateway/README.md) | 模型路由、额度、排队与用量结算       |
-| [pi-extension](packages/pi-extension/README.md)     | Pi 接入、启动、工具及会话生命周期    |
-| [inbox](packages/inbox/README.md)                   | 程序报告、状态合并与进程等待         |
+| 归属 | 入口 | 当前职责 |
+| --- | --- | --- |
+| 比赛框架 | [arena](packages/arena/README.md)、[budget-gateway](packages/budget-gateway/README.md) | 比赛生命周期、可信判定、模型预算与排队 |
+| 角色与执行框架 | [mf-bridge](packages/mf-bridge/README.md)、[bot-sdk](packages/bot-sdk/README.md)、[inbox](packages/inbox/README.md) | 真实 Bot 的安全动作边界、玩家侧 SDK、后台进程与消息交付 |
+| 当前 Agent 接入 | [pi-extension](packages/pi-extension/README.md) | Pi 的启动、工具注册、会话资源和默认工具箱接线 |
+| 预装工具箱 | [observation](docs/OBSERVATION.md)、[world-visual](packages/world-visual/README.md)、[共享区块记忆](docs/BLOCK-MEMORY.md) | 观察和事件汇总、图像渲染、已接收区块的历史查询 |
+| 模型使用说明 | [SKILL.md](examples/SKILL.md)、[玩家指南](docs/PLAYER.md) | 使用、复用及扩展现成能力 |
 
