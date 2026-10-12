@@ -56,30 +56,66 @@ The Inbox delivers health/hurt, resource loss, death/respawn, connection and cha
 
 Default perception reports ordinary surroundings on its own. Start your own listener when one specific discovery should reach you before the action you are waiting on finishes: a chest appearing on the route, a named player entering the area, a build that has stopped making progress. The program keeps running; only the notification interrupts your wait.
 
-[watch-surroundings.mjs](watch-surroundings.mjs) is the shape to copy:
+[watch-surroundings.mjs](watch-surroundings.mjs) is the shape to copy. It reuses the same sampling functions as default perception, remembers what it already reported, and calls `inbox.requestJudgment` once per new discovery.
 
-```sh
-node "$ARENA_TOOLKIT_ROOT/examples/watch-surroundings.mjs" chest 60
+### Run a listener and a controller side by side
+
+Two bash calls make two independent managed tasks. Start the listener in the background first:
+
+```json
+{
+  "command": "node \"$ARENA_TOOLKIT_ROOT/examples/watch-surroundings.mjs\" chest 60",
+  "wait_seconds": 0
+}
 ```
 
-It reuses the same sampling functions as default perception, remembers what it already reported, and calls `inbox.requestJudgment` once per new discovery:
+The result is `status:"running"` plus the listener's own `taskId`; it keeps running for its 60 seconds. Then start the work you actually want to do, as a separate call with its own task:
+
+```json
+{
+  "command": "node \"$ARENA_TOOLKIT_ROOT/examples/plugin-goal.mjs\" 100 64 100",
+  "wait_seconds": 30
+}
+```
+
+Four rules keep this working:
+
+- One bash call, one program, one `taskId`. Do not join the two commands into one call, and do not start a second copy of the listener.
+- `wait_seconds` is only how long *this call* waits. `wait_seconds: 0` returns immediately; it never stops the program. Only `task_cancel` does that.
+- Wait on either task later with `task_wait({taskId})`; a wait expiry returns the same task still running.
+- The listener only reads. It installs no goals and never touches the controls, so the navigation keeps moving. Several listeners may run at once, but movement and the main hand still need one coordinator.
+
+### When a judgment request arrives
+
+A `requestJudgment` releases the waits on your managed tasks without killing them. You get the decision request as inbox data alongside the tool result, with the discovery's `reason`, `observedAt`, `dimension` and the positions the listener actually sampled. Both programs are still running; the next move is yours.
+
+Do not trust coordinates from earlier context: the character has been moving, so re-read the place in a short program.
 
 ```js
-const scan = sampleNearbyConnectedBlocks({
-  origin,
-  radius: 6,
-  blockAt: position => bot.blockAt(position),
+const { connectBot } = await import(
+  `${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/index.mjs`
+);
+const bot = await connectBot({
+  url: process.env.ARENA_BRIDGE_URL,
+  token: process.env.ARENA_BRIDGE_TOKEN,
 });
-await inbox.requestJudgment({
-  reason: `Found ${target} nearby`,
-  observedAt: Date.now(),
-  dimension: bot.game?.dimension,
-  blocks: found,
-  process: "Lookout continues; other running actions are unchanged",
-});
+try {
+  for (const { x, y, z } of [[98, 64, 97], [100, 64, 100]]) {
+    console.log({ x, y, z, block: bot.blockAt({ x, y, z })?.name ?? null });
+  }
+} finally {
+  bot.closeBridge();
+}
 ```
 
-Two things make this work with a running controller. The report says whether the program continues, so you can decide while it keeps watching. And the listener only reads: it never installs goals or takes the controls, so an existing navigation or build program keeps moving. Several listeners can run at once, but character actions still need one coordinator. Closing a read-only listener with `bot.closeBridge()` stops only that program.
+Then pick one outcome deliberately, and say which one you picked:
+
+1. **Not worth reacting to.** Keep waiting on the controller; the listener continues by itself and reports the next discovery once.
+2. **A short detour that must not disturb the route.** Leave the controller running and do the small action in your own program, reusing the same `connectBot`. Expect the main-hand conflict described in the [control FAQ](../docs/PLAYER-FAQ.md) when both programs touch the same hand.
+3. **The plan changes.** `task_cancel({taskId})` the controller, `task_wait` until `completed`/`delivered`, confirm the character actually stopped, and only then start the replacing program. A canceled controller can still have an action in flight.
+4. **The discovery is already handled** (the listener finished, or a controller reached the target). Cancel what is left and continue from the new state.
+
+Urgent health, death and disconnect events arrive the same way and take priority over a discovery. The recurring mistake is treating a released wait as a program failure and restarting the same task; the fix is always `task_wait` on the existing `taskId`.
 
 ## Look at the world when a picture helps
 
