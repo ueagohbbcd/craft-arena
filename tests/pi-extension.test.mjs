@@ -28,7 +28,7 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
   const saved = { ...process.env };
   process.env.MC_INBOX_TRANSPORT = "http";
   process.env.MC_INBOX_TOKEN = "unit-test-scoped-token";
-  process.env.MC_INBOX_IDLE_URGENT = idleWake ? "1" : "0";
+  process.env.ARENA_WAKE_ON_URGENT = idleWake ? "1" : "0";
   delete process.env.MC_INBOX_SOCKET;
   Object.assign(process.env, env);
   const handlers = new Map();
@@ -184,12 +184,12 @@ test("observe fullRuntime retrieves retained raw program state even while the ga
       .split("\n")
       .findLast((line) => line.trim().startsWith("{")),
   ).changes;
-  assert.equal(compact.programState[0].data, undefined);
-  assert.equal(compact.runtimeProjection.programState.dataOmitted, 1);
-  assert(Buffer.byteLength(JSON.stringify(compact.programState)) < 8192);
+  assert.equal(compact.programStatus[0].data, undefined);
+  assert.equal(compact.displayLimits.programStatus.dataOmitted, 1);
+  assert(Buffer.byteLength(JSON.stringify(compact.programStatus)) < 8192);
   const full = await h.run("observe", { fullRuntime: true }, "full-current");
-  assert.deepEqual(full.details.state.programState[0].data, value);
-  assert.equal(full.details.state.runtimeProjection.mode, "full");
+  assert.deepEqual(full.details.state.programStatus[0].data, value);
+  assert.equal(full.details.state.displayLimits.mode, "full");
   assert.equal(full.details.state.freshness.status, "unavailable");
   assert.equal(full.details.state.tasks.length, 1);
   assert.equal(h.sent.length, 0);
@@ -363,7 +363,7 @@ test(
     assert.equal(requests[0].path, "/v1/chat/completions");
     assert.equal(requests[0].authorization, "Bearer scoped-fixture-token");
     const guidance = await readFile(
-      new URL("../AGENTS.md", import.meta.url),
+      new URL("../examples/PROMPT.md", import.meta.url),
       "utf8",
     );
     assert.ok(
@@ -414,7 +414,7 @@ test("budget headers become deduplicated platform feedback with explicit reserva
   assert.equal(h.platform.length, 1);
   const [message, options] = h.platform[0];
   assert.deepEqual(options, { triggerTurn: false });
-  assert.match(message.content, /^Arena platform update/);
+  assert.match(message.content, /^Arena platform message/);
   const { budget, clock } = message.details;
   assert.equal(budget.type, undefined);
   assert.equal(budget.queueDelayMs, 12);
@@ -594,12 +594,12 @@ test(
       ARENA_BRIDGE_TOKEN: "host-resident-fixture",
       // A host stub, not a game: no default observer/chat scripts.
       ARENA_DEFAULT_SCRIPTS: "",
-      ARENA_CONTINUE_DELAY_MS: "30",
+      ARENA_IDLE_REMINDER_MS: "30",
       ARENA_TOOL_WAIT_SECONDS: "0.05",
       MC_INBOX_TRANSPORT: "http",
       MC_INBOX_TOKEN: "resident-loopback-fixture-token",
     };
-    for (const name of ["MC_INBOX_IDLE_URGENT", "ARENA_EXTRA_EXTENSIONS"])
+    for (const name of ["ARENA_WAKE_ON_URGENT", "ARENA_EXTRA_EXTENSIONS"])
       delete env[name];
     child = spawn(
       process.execPath,
@@ -964,12 +964,12 @@ function residentHost(t) {
   );
   return {
     env: {
-      ARENA_RUNTIME_RESIDENT: "1",
+      ARENA_CONTINUOUS_SESSION: "1",
       ARENA_BRIDGE_URL: "http://host.invalid",
       ARENA_BRIDGE_TOKEN: "host-fixture-token",
       // A host stub, not a game: no default observer/chat scripts.
       ARENA_DEFAULT_SCRIPTS: "",
-      ARENA_CONTINUE_DELAY_MS: "30",
+      ARENA_IDLE_REMINDER_MS: "30",
     },
     setState: (value) => {
       state = value;

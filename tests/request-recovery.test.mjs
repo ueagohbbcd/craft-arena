@@ -9,9 +9,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  createResidentRecovery,
+  createRequestRecovery,
   observeRpcOutput,
-  permanentResidentError,
+  isPermanentRequestError,
 } from "../packages/pi-extension/request-recovery.mjs";
 
 function harness() {
@@ -27,7 +27,7 @@ function harness() {
   const timers = new Map(),
     sent = [],
     reports = [];
-  const controller = createResidentRecovery({
+  const controller = createRequestRecovery({
     now: () => time,
     checkDelayMs: 100,
     retryDelayMs: 200,
@@ -204,13 +204,13 @@ test("error classification excludes arbitrary status numbers and ended host reje
     "unsupported upstream temporarily unavailable",
     "Authentication failed; credentials may have expired or network is unavailable",
   ])
-    assert.equal(permanentResidentError(message), false, message);
+    assert.equal(isPermanentRequestError(message), false, message);
   for (const message of [
     "401 Incorrect API key provided: sk-fixture",
     "400 This model's maximum context length is 8192 tokens (context_length_exceeded)",
     "Model is not allowed",
   ])
-    assert.equal(permanentResidentError(message), true, message);
+    assert.equal(isPermanentRequestError(message), true, message);
   const h = harness();
   h.setMatch("ended");
   h.settle("error", [], "invalid API key");
@@ -478,7 +478,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
             ARENA_BRIDGE_TOKEN: "trusted-host-fixture",
             ARENA_WAIT_FOR_MATCH: "1",
             ARENA_PROMPT: "Complete the local fixture objective.",
-            ARENA_CONTINUE_DELAY_MS: "120",
+            ARENA_IDLE_REMINDER_MS: "120",
             ARENA_RETRY_DELAY_MS: "200",
             ARENA_RETRY_MAX_DELAY_MS: "200",
             ARENA_EXTRA_EXTENSIONS:

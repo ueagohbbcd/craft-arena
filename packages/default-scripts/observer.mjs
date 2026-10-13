@@ -4,12 +4,12 @@
 // nearby blocks and signs, and events such as damage or death through the
 // same InboxClient any program can use. Stop it with task_cancel; to change
 // what it reports, copy it, edit the copy and run that instead. Sampling
-// options can also be set in the workspace perception.json (read at start).
+// options can also be set in the workspace observer.json (read at start).
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 import { connectBot } from "../bot-sdk/index.mjs";
 import { InboxClient } from "../inbox/index.mjs";
-import { startObserver } from "../observation/observer-loop.mjs";
+import { startObserver } from "../observation/observer.mjs";
 
 /** Connect (retrying while the bridge is unavailable) and observe until closed. */
 export async function runObserver({

@@ -20,7 +20,7 @@ import { encodePNG } from "mineflayer-world-memory/live.mjs";
 import inboxExtension from "../packages/pi-extension/index.mjs";
 import {
   currentTasks,
-  runtimeProjectionOptions,
+  displayLimitOptions,
   runtimeState,
 } from "../packages/pi-extension/runtime-state.mjs";
 
@@ -79,29 +79,29 @@ test("default runtime projection bounds program bytes and historical tasks, pres
   const before = inbox.currentSnapshot();
   const projected = runtimeState(tasks, inbox, { now: time });
   assert.equal(projected.tasks.length, 24);
-  assert.equal(projected.runtimeProjection.tasks.detailed, 16);
-  assert.equal(projected.runtimeProjection.tasks.compactRunning, 8);
-  assert.equal(projected.runtimeProjection.tasks.omitted, 104);
+  assert.equal(projected.displayLimits.tasks.detailed, 16);
+  assert.equal(projected.displayLimits.tasks.compactRunning, 8);
+  assert.equal(projected.displayLimits.tasks.omitted, 104);
   assert.deepEqual(
     projected.tasks.map((task) => task.taskId).sort(),
     Array.from({ length: 24 }, (_, i) => `task-${i}`).sort(),
   );
-  assert.equal(projected.programState.length, 8);
+  assert.equal(projected.programStatus.length, 8);
   assert(
-    projected.programState.every(
+    projected.programStatus.every(
       (entry) => entry.data === undefined && entry.dataOmitted.bytes > 20000,
     ),
   );
-  assert.equal(projected.runtimeProjection.programState.omitted, 2);
-  assert.equal(projected.runtimeProjection.programState.dataOmitted, 8);
-  assert(Buffer.byteLength(JSON.stringify(projected.programState)) <= 8192);
-  assert.deepEqual(projected.runtimeProjection.fullQuery, {
+  assert.equal(projected.displayLimits.programStatus.omitted, 2);
+  assert.equal(projected.displayLimits.programStatus.dataOmitted, 8);
+  assert(Buffer.byteLength(JSON.stringify(projected.programStatus)) <= 8192);
+  assert.deepEqual(projected.displayLimits.fullQuery, {
     tool: "observe",
     arguments: { fullRuntime: true },
   });
   const full = runtimeState(tasks, inbox, { now: time, fullRuntime: true });
   assert.equal(full.tasks.length, 128);
-  assert.deepEqual(full.programState, before);
+  assert.deepEqual(full.programStatus, before);
   assert.deepEqual(
     inbox.currentSnapshot(),
     before,
@@ -116,22 +116,22 @@ test("default runtime projection bounds program bytes and historical tasks, pres
     now: time,
     projection: {
       taskLimit: 2,
-      programStateLimit: 1,
-      programStateBytes: 256,
-      programStateEntryBytes: 256,
+      programStatusLimit: 1,
+      programStatusBytes: 256,
+      programStatusEntryBytes: 256,
     },
   });
   assert.equal(custom.tasks.length, 24);
-  assert.equal(custom.runtimeProjection.tasks.detailed, 2);
-  assert.equal(custom.programState.length, 1);
-  assert(Buffer.byteLength(JSON.stringify(custom.programState)) <= 256);
+  assert.equal(custom.displayLimits.tasks.detailed, 2);
+  assert.equal(custom.programStatus.length, 1);
+  assert(Buffer.byteLength(JSON.stringify(custom.programStatus)) <= 256);
   assert.equal(
-    runtimeProjectionOptions({ ARENA_PERCEPTION_TASK_LIMIT: "3" }).taskLimit,
+    displayLimitOptions({ ARENA_RUNTIME_TASK_LIMIT: "3" }).taskLimit,
     3,
   );
   assert.equal(
-    runtimeProjectionOptions({ ARENA_PERCEPTION_PROGRAM_BYTES: "bad" })
-      .programStateBytes,
+    displayLimitOptions({ ARENA_RUNTIME_STATUS_BYTES: "bad" })
+      .programStatusBytes,
     8192,
   );
 });
@@ -189,10 +189,10 @@ test(
       ARENA_BRIDGE_TOKEN: "perception-integration-token",
       MC_INBOX_TRANSPORT: "http",
       MC_INBOX_TOKEN: "perception-integration-token",
-      ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS: "20",
+      ARENA_OBSERVER_RECENT_BLOCK_INTERVAL_MS: "20",
       // Interval reports join the next natural boundary; a zero minimum delay
       // makes that delivery observable inside a short test.
-      ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS: "0",
+      ARENA_OBSERVER_RECENT_BLOCK_MIN_REPORT_MS: "0",
       // The default observer and chat listener run as child processes.
       ARENA_OBSERVER_INTERVAL_MS: "20",
     });
@@ -201,8 +201,8 @@ test(
       "MC_INBOX_SOCKET",
       "OPENAI_BASE_URL",
       "OPENAI_API_KEY",
-      "ARENA_RUNTIME_RESIDENT",
-      "MC_INBOX_IDLE_URGENT",
+      "ARENA_CONTINUOUS_SESSION",
+      "ARENA_WAKE_ON_URGENT",
     ])
       delete process.env[key];
     let session;
@@ -389,7 +389,7 @@ test(
     };
     const observationsIn = (messages) =>
       deliveriesIn(messages).filter((payload) =>
-        /^perception\./.test(payload.type ?? ""),
+        /^observation\.(snapshot|changed)$/.test(payload.type ?? ""),
       );
     const reportsIn = (messages) =>
       deliveriesIn(messages).filter(
@@ -454,12 +454,12 @@ test(
       consumed = request.messages.length;
     }
     const baseline = observationsIn(requests[0].messages)[0];
-    assert.equal(baseline.type, "perception.baseline");
+    assert.equal(baseline.type, "observation.snapshot");
     assert.equal(baseline.changes.connection.status, "fresh");
     assert.equal(baseline.changes.connection.dimension, "overworld");
     // The default scripts are ordinary, labelled background tasks.
     const runtimeBaseline = deliveriesIn(requests[0].messages).find(
-      (payload) => payload.type === "runtime.baseline",
+      (payload) => payload.type === "runtime.snapshot",
     );
     assert.deepEqual(
       runtimeBaseline.changes.tasks
@@ -495,7 +495,7 @@ test(
     for (const message of messages.slice(toolAt + 1)) {
       const text = JSON.stringify(message.content);
       assert(
-        /Arena platform update|Participant inbox/.test(text),
+        /Arena platform message|Participant inbox/.test(text),
         `unexpected request tail: ${text.slice(0, 300)}`,
       );
       const body = (

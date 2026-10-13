@@ -177,6 +177,14 @@ export class InboxClient {
   upsert(key, data, options = {}) {
     return this.send({ ...options, kind: "state", key, data });
   }
+  /**
+   * Set this program's current status under key (shown to the model as
+   * programStatus until replaced, cleared with null, or expired).
+   */
+  setStatus(key, data, options = {}) {
+    return this.publishCurrent(key, data, options);
+  }
+  /** Older name for setStatus. */
   publishCurrent(key, data, options = {}) {
     return this.send({
       ...options,

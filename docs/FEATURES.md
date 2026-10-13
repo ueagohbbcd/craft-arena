@@ -26,7 +26,7 @@
 
 ## 模型判断与资源
 
-8. **普通历史与可替换程序状态｜已实现。** 工具结果、查询、观察变化和已交付收件箱事件保留历史。程序可用 `post` 记录事件、`upsert` 合并待交付报告，或用 `publishCurrent` 维护有时效的当前值，供后续 `programState` 观察读取。紧急事件释放受管工具等待并保留进程，常驻模式可唤起空闲中的同一会话；程序报告携带任务关联。[历史与状态](OBSERVATION.md#历史与本次请求状态) · [收件箱](../packages/inbox/README.md)
+8. **普通历史与可替换程序状态｜已实现。** 工具结果、查询、观察变化和已交付收件箱事件保留历史。程序可用 `post` 记录事件、`upsert` 合并待交付报告，或用 `publishCurrent` 维护有时效的当前值，供后续 `programStatus` 观察读取。紧急事件释放受管工具等待并保留进程，常驻模式可唤起空闲中的同一会话；程序报告携带任务关联。[历史与状态](OBSERVATION.md#历史与本次请求状态) · [收件箱](../packages/inbox/README.md)
 
 9. **直接工具与普通程序｜默认启用。** 文件工具处理代码，`bash` 运行 Node 程序，`observe` 直接返回状态 JSON；`task_wait`／`task_cancel` 管理同一程序的等待与取消。codemode 默认关闭，显式 CLI 工具选择仍保留。[用法示例](../examples/SKILL.md)
 

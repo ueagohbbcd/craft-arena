@@ -1,19 +1,19 @@
 /** Task and program-state facts owned by the runtime, projected for the model. */
-export const DEFAULT_RUNTIME_PROJECTION = Object.freeze({
+export const DEFAULT_DISPLAY_LIMITS = Object.freeze({
   taskLimit: 16,
-  programStateLimit: 8,
-  programStateBytes: 8192,
-  programStateEntryBytes: 2048,
+  programStatusLimit: 8,
+  programStatusBytes: 8192,
+  programStatusEntryBytes: 2048,
 });
 
 /** Presentation budgets only; retained TaskManager and Inbox data stay unchanged. */
-export function runtimeProjectionOptions(env = process.env) {
+export function displayLimitOptions(env = process.env) {
   return Object.fromEntries(
     Object.entries({
-      taskLimit: "ARENA_PERCEPTION_TASK_LIMIT",
-      programStateLimit: "ARENA_PERCEPTION_PROGRAM_LIMIT",
-      programStateBytes: "ARENA_PERCEPTION_PROGRAM_BYTES",
-      programStateEntryBytes: "ARENA_PERCEPTION_PROGRAM_ENTRY_BYTES",
+      taskLimit: "ARENA_RUNTIME_TASK_LIMIT",
+      programStatusLimit: "ARENA_RUNTIME_STATUS_LIMIT",
+      programStatusBytes: "ARENA_RUNTIME_STATUS_BYTES",
+      programStatusEntryBytes: "ARENA_RUNTIME_STATUS_ENTRY_BYTES",
     }).map(([key, name]) => {
       const value = Number(env[name]);
       return [
@@ -23,7 +23,7 @@ export function runtimeProjectionOptions(env = process.env) {
         Number.isSafeInteger(value) &&
         value >= 0
           ? value
-          : DEFAULT_RUNTIME_PROJECTION[key],
+          : DEFAULT_DISPLAY_LIMITS[key],
       ];
     }),
   );
@@ -61,14 +61,14 @@ export function runtimeState(
   if (fullRuntime)
     return {
       tasks: allTasks,
-      programState: allProgram,
-      runtimeProjection: {
+      programStatus: allProgram,
+      displayLimits: {
         mode: "full",
         tasks: { total: allTasks.length, omitted: 0 },
-        programState: { total: allProgram.length, omitted: 0 },
+        programStatus: { total: allProgram.length, omitted: 0 },
       },
     };
-  const budget = { ...DEFAULT_RUNTIME_PROJECTION, ...projection };
+  const budget = { ...DEFAULT_DISPLAY_LIMITS, ...projection };
   for (const [key, value] of Object.entries(budget))
     if (!Number.isSafeInteger(value) || value < 0)
       throw new RangeError(`${key} must be a nonnegative integer`);
@@ -89,13 +89,13 @@ export function runtimeState(
       detailOmitted: true,
     })),
   ];
-  const programState = [];
+  const programStatus = [];
   let bytes = 2,
     dataOmitted = 0;
   for (const entry of [...allProgram].sort(
     (a, b) => b.createdAt - a.createdAt,
   )) {
-    if (programState.length >= budget.programStateLimit) break;
+    if (programStatus.length >= budget.programStatusLimit) break;
     // Runtime envelope fields needed for attribution/freshness; no repeated session IDs.
     const record = {
       source: entry.source,
@@ -115,7 +115,7 @@ export function runtimeState(
       data: entry.data,
     };
     let size = Buffer.byteLength(JSON.stringify(record));
-    if (size > budget.programStateEntryBytes) {
+    if (size > budget.programStatusEntryBytes) {
       delete record.data;
       record.dataOmitted = {
         reason: "entry display budget",
@@ -124,18 +124,18 @@ export function runtimeState(
       size = Buffer.byteLength(JSON.stringify(record));
     }
     if (
-      size > budget.programStateEntryBytes ||
-      bytes + size + (programState.length ? 1 : 0) > budget.programStateBytes
+      size > budget.programStatusEntryBytes ||
+      bytes + size + (programStatus.length ? 1 : 0) > budget.programStatusBytes
     )
       continue;
-    bytes += size + (programState.length ? 1 : 0);
-    programState.push(record);
+    bytes += size + (programStatus.length ? 1 : 0);
+    programStatus.push(record);
     if (record.dataOmitted) dataOmitted++;
   }
   return {
     tasks: selectedTasks,
-    programState,
-    runtimeProjection: {
+    programStatus,
+    displayLimits: {
       mode: "compact",
       tasks: {
         total: allTasks.length,
@@ -143,10 +143,10 @@ export function runtimeState(
         compactRunning: remainingRunning.length,
         omitted: allTasks.length - selectedTasks.length,
       },
-      programState: {
+      programStatus: {
         total: allProgram.length,
-        included: programState.length,
-        omitted: allProgram.length - programState.length,
+        included: programStatus.length,
+        omitted: allProgram.length - programStatus.length,
         dataOmitted,
         bytes,
       },

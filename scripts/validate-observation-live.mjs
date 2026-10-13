@@ -26,7 +26,7 @@ import {
 import { observe } from "../packages/observation/observe.mjs";
 import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
 import { capturePrismarineSnapshot } from "../packages/world-visual/prismarine.mjs";
-import { startObserver } from "../packages/observation/observer-loop.mjs";
+import { startObserver } from "../packages/observation/observer.mjs";
 import { Inbox, localInboxClient } from "../packages/inbox/queue.mjs";
 import { createInboxServer } from "../packages/inbox/ipc.mjs";
 import { TaskManager } from "../packages/tasks/index.mjs";
@@ -77,7 +77,7 @@ const sourceFiles = [
   "packages/bot-sdk/plugins.mjs",
   "packages/observation/index.mjs",
   "packages/observation/observe.mjs",
-  "packages/observation/observer-loop.mjs",
+  "packages/observation/observer.mjs",
   "packages/default-scripts/observer.mjs",
   "packages/tasks/index.mjs",
   "examples/navigate.mjs",

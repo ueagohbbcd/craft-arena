@@ -1,8 +1,86 @@
-import { createDefaultObserver } from "./default-observer.mjs";
-import { compactPerception, createPerceptionChanges } from "./section-diff.mjs";
+import { sampleObservation, watchObservation } from "./index.mjs";
+import {
+  recentBlockOptions,
+  projectRecentBlocks,
+  startNearbyScan,
+} from "./nearby-scan.mjs";
+import { compactObservation, createSectionDiff } from "./section-diff.mjs";
 import { observationOptionsFromMatch } from "./match-options.mjs";
-import { readPerceptionConfig } from "./observer-config.mjs";
-import { recentBlockOptions } from "./nearby-scan.mjs";
+import { readObserverConfig } from "./observer-config.mjs";
+
+// The default observer: createDefaultObserver is the sampling and event
+// policy; startObserver runs it against a bot and reports through an inbox
+// client. packages/default-scripts/observer.mjs is the script that calls it.
+
+/** Observation policy over a supplied mirror; no Pi, Inbox or connection ownership. */
+export function createDefaultObserver({
+  getBot,
+  connectionStatus,
+  now = Date.now,
+  post = () => ({ accepted: true }),
+  onError = () => {},
+  options = {},
+  recentBlocks = recentBlockOptions(),
+  watch = watchObservation,
+  sample = sampleObservation,
+}) {
+  let watcher;
+  const recent = startNearbyScan({
+    getBot,
+    connectionStatus,
+    now,
+    options: recentBlocks,
+    postReport: (data, { onDelivered, minDeliveryDelayMs }) =>
+      post(
+        {
+          kind: "state",
+          key: "observation.recent_blocks",
+          minDeliveryDelayMs,
+          priority: "normal",
+          data: { type: "observation.recent_blocks", ...data },
+        },
+        { onDelivered },
+      ),
+    postSigns: (data, { key, onDelivered }) =>
+      post(
+        {
+          kind: "state",
+          key,
+          priority: "normal",
+          data: { type: "observation.nearby_signs", ...data },
+        },
+        { onDelivered },
+      ),
+  });
+  return {
+    attachBot(bot) {
+      watcher?.close();
+      watcher = bot
+        ? watch(bot, { ...options, now, post, onError })
+        : undefined;
+      if (bot) recent.sampleNow();
+    },
+    sample(overrides = {}) {
+      const settings = { ...options, ...overrides, now };
+      return {
+        ...(watcher ? watcher.sample(settings) : sample(null, settings)),
+        nearbySigns: recent.currentSigns(),
+        ...(recentBlocks.enabled === false
+          ? {}
+          : {
+              recentBlocks: overrides.fullRecentBlocks
+                ? recent.snapshot()
+                : projectRecentBlocks(recent.snapshot(), now()),
+            }),
+      };
+    },
+    close() {
+      watcher?.close();
+      watcher = undefined;
+      recent.close();
+    },
+  };
+}
 
 /**
  * Run the default observation policy against one connected bot and report
@@ -27,7 +105,7 @@ export async function startObserver({
   onError = (error) =>
     console.error(`observer: ${error?.message ?? String(error)}`),
 }) {
-  const config = await readPerceptionConfig(cwd, env);
+  const config = await readObserverConfig(cwd, env);
   let match;
   try {
     match = await bot.getMatchState?.();
@@ -81,14 +159,14 @@ export async function startObserver({
   });
   core.attachBot(bot);
 
-  const changes = createPerceptionChanges();
+  const changes = createSectionDiff();
   let posted = null; // { signature, keys } of the report still waiting in the inbox
   function publish() {
     if (closed) return;
     let snapshot;
     try {
       // Task and program-state facts belong to the runtime, not this script.
-      const { tasks, programState, runtimeProjection, ...game } = core.sample(
+      const { tasks, programStatus, displayLimits, ...game } = core.sample(
         status === "connected" ? {} : { connectionStatus: status },
       );
       snapshot = game;
@@ -102,9 +180,9 @@ export async function startObserver({
       if (!posted) return;
       // Everything returned to what the model last saw; replace the pending
       // report so it does not describe a state that no longer holds.
-      const state = compactPerception(snapshot);
+      const state = compactObservation(snapshot);
       message = {
-        type: "perception.changed",
+        type: "observation.changed",
         observedAt: snapshot.observedAt,
         changes: Object.fromEntries(
           posted.keys.map((key) => [key, state[key] ?? null]),

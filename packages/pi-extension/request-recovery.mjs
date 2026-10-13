@@ -45,7 +45,7 @@ export function observeRpcOutput(
   return () => stream.off("data", data);
 }
 
-export function permanentResidentError(message = "") {
+export function isPermanentRequestError(message = "") {
   // Status numbers and words such as "unsupported" in arbitrary provider text
   // are not a diagnosis. In particular, a host end can reject a request with 403.
   return /invalid api[ _-]?key|incorrect api[ _-]?key|api[ _-]?key (?:is )?(?:missing|not configured)|no api key|missing api key|insufficient_quota|(?:token|cash|model) budget exhausted|request exceeds maximum budget|model is not allowed|no model (?:selected|configured)|context[_ ]length[_ ]exceeded|context overflow|prompt (?:is )?too long/i.test(
@@ -57,7 +57,7 @@ const continueMessage = (reason) =>
   `${reason === "length" ? "The previous response reached the output limit. Continue concisely from the saved state and choose the next executable step." : "The previous model request failed. Recheck the current state and continue the match objective."} Existing tools or background programs may still be running: inspect their task IDs, use task_wait or observations as appropriate, and do not restart or repeat actions already submitted. Preserve successful work; do not assume an action failed merely because the model response ended.`;
 
 /** Recover failed/truncated requests only. Ordinary decision scheduling belongs to the extension. */
-export function createResidentRecovery({
+export function createRequestRecovery({
   send,
   getMatchState,
   report = () => {},
@@ -106,7 +106,7 @@ export function createResidentRecovery({
       return;
     }
     if (reason === "error") {
-      if (permanentResidentError(message.errorMessage)) {
+      if (isPermanentRequestError(message.errorMessage)) {
         // Verify the trusted host is still running before failing the runtime.
         plan = { reason: "fatal", delay: checkDelayMs };
         arm(plan.delay);

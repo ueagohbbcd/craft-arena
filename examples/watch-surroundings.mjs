@@ -1,6 +1,6 @@
 // Run a custom lookout alongside a movement/building task:
 // node "$ARENA_TOOLKIT_ROOT/examples/watch-surroundings.mjs" chest 60
-// Default perception already reports ordinary surroundings. Use this when a
+// The default observer already reports ordinary surroundings. Use this when a
 // particular discovery should wake you before the current action finishes.
 import { setTimeout as sleep } from "node:timers/promises";
 import { connectBot } from "../packages/bot-sdk/index.mjs";

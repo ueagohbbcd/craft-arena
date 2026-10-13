@@ -20,7 +20,7 @@ import { Vector } from "../packages/bot-sdk/index.mjs";
 import { arenaGuidanceArgs } from "../packages/pi-extension/bootstrap.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const guidance = join(root, "AGENTS.md");
+const guidance = join(root, "examples", "PROMPT.md");
 const append = ["--append-system-prompt", guidance];
 const defaultTools = [
   "bash",
@@ -40,14 +40,14 @@ async function fixture(t) {
   return { dir, agentDir };
 }
 
-test("arena guidance uses Pi discovery for toolkit root and descendants", async (t) => {
+test("the participant prompt is appended even inside the repository, whose AGENTS.md is for developers", async (t) => {
   const { agentDir } = await fixture(t);
   for (const cwd of [
     root,
     join(root, "examples"),
     join(root, "packages", "pi-extension"),
   ])
-    assert.deepEqual(await arenaGuidanceArgs({ cwd, agentDir }), []);
+    assert.deepEqual(await arenaGuidanceArgs({ cwd, agentDir }), append);
 });
 
 test("arena guidance matches physical cwd and symlinked instruction identity", async (t) => {
@@ -55,7 +55,7 @@ test("arena guidance matches physical cwd and symlinked instruction identity", a
   const alias = join(dir, "toolkit-alias");
   await symlink(root, alias, "dir");
   for (const cwd of [alias, join(alias, "examples")])
-    assert.deepEqual(await arenaGuidanceArgs({ cwd, agentDir }), []);
+    assert.deepEqual(await arenaGuidanceArgs({ cwd, agentDir }), append);
   const workspace = join(dir, "workspace");
   await mkdir(workspace);
   await symlink(guidance, join(workspace, "AGENTS.md"), "file");

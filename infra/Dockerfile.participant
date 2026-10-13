@@ -9,7 +9,7 @@ RUN node scripts/prepare-mf-reference.mjs /opt/mf-reference && chown -R node:nod
 ENV ARENA_REFERENCE_ROOT="/opt/mf-reference"
 COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --ignore-scripts && chown -R node:node /opt/arena
-COPY --chown=node:node README.md AGENTS.md ./
+COPY --chown=node:node README.md ./
 COPY --chown=node:node packages ./packages
 COPY --chown=node:node examples ./examples
 COPY --chown=node:node docs ./docs

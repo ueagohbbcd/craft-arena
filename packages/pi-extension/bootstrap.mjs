@@ -14,7 +14,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import {
-  createResidentRecovery,
+  createRequestRecovery,
   observeRpcOutput,
 } from "./request-recovery.mjs";
 import { createOpeningViews } from "./opening-views.mjs";
@@ -28,9 +28,13 @@ const positiveInteger = (value, fallback) => {
   return n;
 };
 
-/** Keep arena guidance once without disabling Pi's user/project context discovery. */
+/**
+ * Append the participant prompt (examples/PROMPT.md) once, without disabling
+ * Pi's own discovery of user/project context files. The repository's root
+ * AGENTS.md is the developer guide, not this prompt.
+ */
 export async function arenaGuidanceArgs({ cwd, agentDir, args = [] }) {
-  const guidance = join(projectRoot, "AGENTS.md");
+  const guidance = join(projectRoot, "examples", "PROMPT.md");
   if (!args.includes("--no-context-files") && !args.includes("-nc")) {
     const { loadProjectContextFiles } =
       await import("@earendil-works/pi-coding-agent");
@@ -198,8 +202,8 @@ export async function launchPi({
     PI_CODING_AGENT_SESSION_DIR: sessionDir,
     ...(resident
       ? {
-          MC_INBOX_IDLE_URGENT: env.MC_INBOX_IDLE_URGENT ?? "1",
-          ARENA_RUNTIME_RESIDENT: "1",
+          ARENA_WAKE_ON_URGENT: env.ARENA_WAKE_ON_URGENT ?? "1",
+          ARENA_CONTINUOUS_SESSION: "1",
         }
       : {}),
   };
@@ -272,7 +276,7 @@ export async function launchPi({
       }
     };
     if (bridgeUrl && token) {
-      recovery = createResidentRecovery({
+      recovery = createRequestRecovery({
         send(command) {
           if (stopping || child.stdin.destroyed)
             throw new Error("Resident RPC input unavailable");

@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { InboxClient } from "../inbox/index.mjs";
 
 /** Passive chat only: no world mirror, action calls, or model wakeups. */
-export function startChatInbox({
+export function startChatForwarder({
   url = process.env.ARENA_BRIDGE_URL,
   token = process.env.ARENA_BRIDGE_TOKEN,
   inbox,
@@ -111,7 +111,7 @@ if (
 ) {
   const client = new InboxClient();
   // InboxClient.send assigns the program source; the data stays marked untrusted.
-  const chat = startChatInbox({
+  const chat = startChatForwarder({
     inbox: {
       sessionId: client.sessionId,
       post: (message) => client.send(message),

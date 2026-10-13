@@ -37,8 +37,7 @@ export const observeParameters = Type.Object({
 
 export async function observeForModel(bot, options = {}, dependencies) {
   const result = await observe(bot, options, dependencies);
-  if (options.runtimeProjection)
-    result.state.runtimeProjection = options.runtimeProjection;
+  if (options.displayLimits) result.state.displayLimits = options.displayLimits;
   return observationForModel(result);
 }
 

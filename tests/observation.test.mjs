@@ -670,14 +670,14 @@ test("detail queries expand previews and local range with an explicit work budge
 test("tasks and program reports are detached facts, not inferred movement policy", () => {
   const bot = fixture();
   const tasks = [{ taskId: "build", status: "running" }];
-  const programState = [
+  const programStatus = [
     { source: "program", data: { progress: { placed: 3 }, status: "blocked" } },
   ];
-  const sample = sampleObservation(bot, { now: 1000, tasks, programState });
+  const sample = sampleObservation(bot, { now: 1000, tasks, programStatus });
   tasks[0].status = "complete";
-  programState[0].data.progress.placed = 100;
+  programStatus[0].data.progress.placed = 100;
   assert.equal(sample.tasks[0].status, "running");
-  assert.equal(sample.programState[0].data.progress.placed, 3);
+  assert.equal(sample.programStatus[0].data.progress.placed, 3);
   assert.equal(sample.self.stuck, undefined);
 });
 

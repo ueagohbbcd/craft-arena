@@ -10,7 +10,7 @@ import {
   TaskManager,
   localInboxClient,
 } from "../packages/inbox/index.mjs";
-import { startObserver } from "../packages/observation/observer-loop.mjs";
+import { startObserver } from "../packages/observation/observer.mjs";
 import { runObserver } from "../packages/default-scripts/observer.mjs";
 import { defaultScripts } from "../packages/pi-extension/default-scripts.mjs";
 
@@ -62,7 +62,7 @@ async function observe(t, bot, inbox) {
     bot,
     inbox: localInboxClient(inbox),
     cwd,
-    env: { ARENA_PERCEPTION_RECENT_BLOCKS: "0" },
+    env: { ARENA_OBSERVER_RECENT_BLOCKS: "0" },
     intervalMs: 5,
     watch: fakeWatch,
     sample: fakeSample,
@@ -84,7 +84,7 @@ test("default observer reports state changes only after the previous report was 
   let batch = inbox.drain();
   const [baseline] = batch.messages;
   assert.equal(baseline.source, "program", "an ordinary inbox client");
-  assert.equal(baseline.data.type, "perception.baseline");
+  assert.equal(baseline.data.type, "observation.snapshot");
   assert.equal(baseline.data.changes.self.health, 20);
   assert.equal(baseline.data.changes.connection.status, "fresh");
   await delay(40);
@@ -149,7 +149,7 @@ test("observer script retries an unavailable bridge and closes its connection", 
     },
     inbox: localInboxClient(inbox),
     retryMs: 5,
-    env: { ARENA_PERCEPTION_RECENT_BLOCKS: "0" },
+    env: { ARENA_OBSERVER_RECENT_BLOCKS: "0" },
     watch: fakeWatch,
     sample: fakeSample,
   });

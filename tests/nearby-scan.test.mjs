@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import {
   recentBlockOptions,
   projectRecentBlocks,
-  startRecentBlockRuntime,
+  startNearbyScan,
 } from "../packages/observation/nearby-scan.mjs";
 import { Inbox } from "../packages/inbox/index.mjs";
 
@@ -36,7 +36,7 @@ function fixture(options = {}) {
     sessionId: "recent-block-reports",
     now: () => time,
   });
-  const runtime = startRecentBlockRuntime({
+  const runtime = startNearbyScan({
     getBot: () => bot,
     connectionStatus: () => status,
     now: () => time,
@@ -173,7 +173,7 @@ test("low-frequency polling only scans fresh changed sources and uses no event l
 });
 
 test("disabling prevents polling and exposes no request section; numeric settings are configurable", () => {
-  const off = startRecentBlockRuntime({
+  const off = startNearbyScan({
     getBot() {
       throw Error("must not read");
     },
@@ -188,11 +188,11 @@ test("disabling prevents polling and exposes no request section; numeric setting
   off.close();
   assert.deepEqual(
     recentBlockOptions({
-      ARENA_PERCEPTION_RECENT_BLOCKS: "0",
-      ARENA_PERCEPTION_RECENT_BLOCK_RADIUS: "8",
-      ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS: "1500",
-      ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS: "8000",
-      ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS: "2",
+      ARENA_OBSERVER_RECENT_BLOCKS: "0",
+      ARENA_OBSERVER_RECENT_BLOCK_RADIUS: "8",
+      ARENA_OBSERVER_RECENT_BLOCK_INTERVAL_MS: "1500",
+      ARENA_OBSERVER_RECENT_BLOCK_MAX_READS: "8000",
+      ARENA_OBSERVER_RECENT_BLOCK_POSITIONS: "2",
     }),
     {
       enabled: false,
@@ -204,7 +204,7 @@ test("disabling prevents polling and exposes no request section; numeric setting
     },
   );
   assert.equal(
-    recentBlockOptions({ ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS: "bad" })
+    recentBlockOptions({ ARENA_OBSERVER_RECENT_BLOCK_INTERVAL_MS: "bad" })
       .intervalMs,
     1000,
   );

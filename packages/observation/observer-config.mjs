@@ -1,25 +1,32 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
-/** Optional workspace perception.json: { radar?, recentBlocks? } for the default observer. */
-export async function readPerceptionConfig(cwd, env = process.env) {
-  try {
-    const config = JSON.parse(
-      await readFile(
-        env.ARENA_PERCEPTION_CONFIG ?? join(cwd, "perception.json"),
-        "utf8",
-      ),
-    );
+/**
+ * Optional workspace observer.json: { radar?, recentBlocks? } for the default
+ * observer. ARENA_OBSERVER_CONFIG names another file. perception.json, the
+ * previous name, is still read when observer.json is absent.
+ */
+export async function readObserverConfig(cwd, env = process.env) {
+  const candidates = env.ARENA_OBSERVER_CONFIG
+    ? [env.ARENA_OBSERVER_CONFIG]
+    : [join(cwd, "observer.json"), join(cwd, "perception.json")];
+  for (const path of candidates) {
+    let text;
+    try {
+      text = await readFile(path, "utf8");
+    } catch (error) {
+      if (error.code === "ENOENT") continue;
+      throw error;
+    }
+    const config = JSON.parse(text);
     if (!config || typeof config !== "object" || Array.isArray(config))
-      throw new TypeError("perception.json must contain an object");
+      throw new TypeError(`${path} must contain an object`);
     return config;
-  } catch (error) {
-    if (error.code === "ENOENT") return {};
-    throw error;
   }
+  return {};
 }
 
-export async function readPerceptionOptions(cwd, env = process.env) {
-  const value = await readPerceptionConfig(cwd, env);
+export async function readObserverOptions(cwd, env = process.env) {
+  const value = await readObserverConfig(cwd, env);
   return value.radar ? { radar: value.radar } : {};
 }

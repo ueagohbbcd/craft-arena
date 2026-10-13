@@ -32,7 +32,7 @@ try {
   if (!candidates.length)
     throw new Error("None of the supplied IDs is currently observed");
   const target = candidates[0].entity;
-  bot.combatObservation.reportDecision({
+  bot.combatReport.reportDecision({
     candidates: candidates.map(({ entity, distance }) => ({
       ...entity,
       distance,
@@ -46,12 +46,10 @@ try {
   bot.pvp.movements.canDig = false;
   await bot.pvp.attack(target);
   await sleep(10000, undefined, { signal: controller.signal });
-  bot.combatObservation.reportStopReason(
-    "Example's ten-second action window ended",
-  );
+  bot.combatReport.reportStopReason("Example's ten-second action window ended");
   await bot.pvp.stop(); // Native stop can wait until the next path node.
 } catch (error) {
-  bot.combatObservation.reportStopReason(error.message);
+  bot.combatReport.reportStopReason(error.message);
   if (!controller.signal.aborted) {
     console.error(error);
     process.exitCode = 1;
@@ -67,8 +65,8 @@ try {
     try {
       await bot.flush();
     } finally {
-      await bot.combatObservation.close();
-      console.log(JSON.stringify(bot.combatObservation.summary()));
+      await bot.combatReport.close();
+      console.log(JSON.stringify(bot.combatReport.summary()));
       process.off("SIGTERM", cancel);
       process.off("SIGINT", cancel);
       for (const name of ["death", "bridgeReset", "end"]) bot.off(name, cancel);

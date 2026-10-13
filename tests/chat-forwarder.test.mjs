@@ -5,7 +5,7 @@ import { EventEmitter } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
 import { Inbox } from "../packages/inbox/index.mjs";
-import { startChatInbox } from "../packages/default-scripts/chat.mjs";
+import { startChatForwarder } from "../packages/default-scripts/chat.mjs";
 import extension from "../packages/pi-extension/index.mjs";
 const token = "chat-inbox-test-token";
 async function until(fn, timeout = 2000) {
@@ -43,7 +43,7 @@ test("authenticated chat stream retains ordinary/system/repeated messages withou
   const { b, bot, connections, active } = await bridge(t);
   assert.equal((await fetch(`${b.url}/v1/chat`)).status, 401);
   const inbox = new Inbox({ sessionId: "chat" });
-  const subscription = startChatInbox({ url: b.url, token, inbox });
+  const subscription = startChatForwarder({ url: b.url, token, inbox });
   t.after(() => subscription.close());
   await until(() => connections() === 2);
   message(bot, "same");
@@ -95,7 +95,7 @@ test("chat reconnects after disconnect and close cancels retry", async (t) => {
     await new Promise((r) => server.close(r));
   });
   const inbox = new Inbox({ sessionId: "reconnect" });
-  const subscription = startChatInbox({
+  const subscription = startChatForwarder({
     url: `http://127.0.0.1:${server.address().port}`,
     token,
     inbox,

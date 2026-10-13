@@ -24,7 +24,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 | 图像 | 开局由启动流程按地图配置交付；需要新视角时用普通脚本渲染 |
 | 开局视觉 | 独立启动流程按地图配置发送开局／入场图像用户消息 |
 | 动作与程序 | 普通 JavaScript 与 SDK／插件；用 `taskId` 等待或取消同一受管程序 |
-| 比赛状态／时限／胜负 | 来自可信 host 简报、平台更新（`Arena platform update` 中的 `clock`）和终局反馈；程序可用 `await bot.getMatchState()` 查询 |
+| 比赛状态／时限／胜负 | 来自可信 host 简报、平台更新（`Arena platform message` 中的 `clock`）和终局反馈；程序可用 `await bot.getMatchState()` 查询 |
 | 树干／树枝候选 | 按需 `queryTreeCandidate({blockAt, seed})` 返回相连原木、叶子证据和未知／截断边界；控制程序选择采集方块 |
 | 精确查询 | 原始 SDK 字段和方法保留，按需要读取详细物品、实体与方块 |
 
@@ -40,7 +40,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 只想调整采样时，可以在工作目录写 `perception.json`：`radar` 调整实体雷达；`recentBlocks` 对象可设置 `radius`、`intervalMs`、`maxReads`、`positionLimit` 和 `minReportMs`。观察器在启动时读取它，修改后按上面的步骤重启观察器。停掉观察器而不替换，等于放弃自动观察报告；按需 `observe`、程序状态和其他 Inbox 消息仍可使用，模型自行承担遗漏周围情况的代价。
 
-观察器的核心是 [`observer-loop.mjs`](../packages/observation/observer-loop.mjs) 的 `startObserver({bot, inbox})`：它运行[默认观察策略](../packages/observation/default-observer.mjs)，事件即时发送；沿途方块区间和附近牌持续累计，收到[送达回执](../packages/inbox/README.md#delivery-receipts)确认模型已经看到后才清除；状态变化与上一次已送达的报告比较，未送达前出现的新变化合并进同一条报告，变回原值的部分也会更新，不会留下过时内容。
+观察器的核心是 [`observer.mjs`](../packages/observation/observer.mjs) 的 `startObserver({bot, inbox})`：它运行[默认观察策略](../packages/observation/observer.mjs)，事件即时发送；沿途方块区间和附近牌持续累计，收到[送达回执](../packages/inbox/README.md#delivery-receipts)确认模型已经看到后才清除；状态变化与上一次已送达的报告比较，未送达前出现的新变化合并进同一条报告，变回原值的部分也会更新，不会留下过时内容。
 
 部署可用 `ARENA_DEFAULT_SCRIPTS` 选择默认脚本（默认 `observer,chat`，设为空则不启动）。开局请求最多等待 `ARENA_OBSERVER_READY_MS`（默认 5000 ms）让观察器先报告一次。
 
@@ -57,7 +57,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 ## 现成状态如何使用
 
-观察器的第一份 `perception.baseline` 提供基础快照，后续 `perception.changed` 的 `changes` 中每个字段替换该部分的旧记录；空数组和 null 也会交付。比较基线在送达回执确认后推进，被替换或丢弃的报告会在后续报告中重新提供尚未交付的变化。任务与程序状态以同样格式另报为 `runtime.baseline`／`runtime.changed`。按需 `observe` 返回可独立阅读的完整快照。长文本以带截断标记的预览呈现，按需用详情选项展开。
+观察器的第一份 `observation.snapshot` 提供基础快照，后续 `observation.changed` 的 `changes` 中每个字段替换该部分的旧记录；空数组和 null 也会交付。比较基线在送达回执确认后推进，被替换或丢弃的报告会在后续报告中重新提供尚未交付的变化。任务与程序状态以同样格式另报为 `runtime.snapshot`／`runtime.changed`。按需 `observe` 返回可独立阅读的完整快照。长文本以带截断标记的预览呈现，按需用详情选项展开。
 
 下表是默认普通历史中的状态部分。方块区间与附近牌有自己的 Inbox 交付节奏。
 
@@ -73,8 +73,8 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 | 方块区间报告 | `observation.recent_blocks` 经普通 Inbox 交付：各维度整体区间、实际已知格 bbox、唯一不透明边界面面积、类型数量与少量代表坐标 |
 | 附近牌变化 | `observation.nearby_signs` 以可替换待交付状态经普通 Inbox 报告：近距连通样本遇到的牌及正反面已知／未知文字 |
 | `tasks` | 默认最多 16 条程序详情，优先运行中程序；额外运行中程序全部保留 `taskId`／状态，附 `detailOmitted` |
-| `programState` | 默认最多 8 条当前程序报告、总计 8 KiB、每条 2 KiB，保留来源、关联任务和有效期；超大正文以 `dataOmitted` 标明 |
-| `runtimeProjection` | 报告总数、已显示／省略条数、正文省略数及完整查询入口 |
+| `programStatus` | 默认最多 8 条当前程序报告、总计 8 KiB、每条 2 KiB，保留来源、关联任务和有效期；超大正文以 `dataOmitted` 标明 |
+| `displayLimits` | 报告总数、已显示／省略条数、正文省略数及完整查询入口 |
 
 需要全部仍保留的程序状态与当前报告时，调用 `observe({fullRuntime:true})` 读取未经显示预算裁剪的数据；游戏观察尚未就绪时也可读取，游戏字段同时标示不可用。这些显示预算只影响默认呈现，底层存储继续遵循自身的保留期和有效期。
 
@@ -90,7 +90,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 报告延迟与采样频率独立。默认 `delivery=inbox`，生产者从第一份样本开始以 `kind:"state"`、固定 key `observation.recent_blocks` 更新原有 Inbox 的同一待交付条目；每次提供本区间完整累计结果。Inbox 的 `minDeliveryDelayMs=30000` 从首个待交付条目创建时计时，后续覆盖不延后到期。到期只使条目可交付，等待原有工具／回合自然边界；未到期条目不使 `pending` 为真，也不唤醒模型。真正 `drain` 后通过同进程 `onDelivered` 释放该条目水位以内的样本，期间新增样本仍保留。入队被拒绝、过期或被挤出都不会自行清空生产者累计器；下次采样再提供完整累计。普通交付后的历史保留，不覆盖历史，也不把多个已封口报告简单相加。
 
-可用 `ARENA_PERCEPTION_RECENT_BLOCKS=0` 关闭；`ARENA_PERCEPTION_RECENT_BLOCK_RADIUS=6`、`ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS=1000`、`ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS=4096` 调整范围、频率和单次预算。`ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS` 设置 Inbox 的首次 pending 创建到可交付延迟。`ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS=3` 调整每类型保存的代表位置数，影响紧凑报告中的 `positions`，也影响完整查询可见的代表位置。采样中断／源过期不被记作完整空白观察，间隔内没有采到的瞬间不能追补。
+可用 `ARENA_OBSERVER_RECENT_BLOCKS=0` 关闭；`ARENA_OBSERVER_RECENT_BLOCK_RADIUS=6`、`ARENA_OBSERVER_RECENT_BLOCK_INTERVAL_MS=1000`、`ARENA_OBSERVER_RECENT_BLOCK_MAX_READS=4096` 调整范围、频率和单次预算。`ARENA_OBSERVER_RECENT_BLOCK_MIN_REPORT_MS` 设置 Inbox 的首次 pending 创建到可交付延迟。`ARENA_OBSERVER_RECENT_BLOCK_POSITIONS=3` 调整每类型保存的代表位置数，影响紧凑报告中的 `positions`，也影响完整查询可见的代表位置。采样中断／源过期不被记作完整空白观察，间隔内没有采到的瞬间不能追补。
 
 近距采样还复用现有告示牌文字读取，单独提供 `nearbySigns`，区分 `front`／`back` 的 `known` 与 `text`。只处理这次连通扫描实际遇到的牌，双方都确定为空白时省略；缺少 block entity 或某一侧消息字段时保留未知，不编成空牌。每面沿用 240 字符预览上限及 `textTruncated` 标记。附近牌集合／文字改变后，以可替换待交付状态投递普通 `observation.nearby_signs` 报告。同一未交付集合的往返观察合并，先前文字报告与走开后的空集合分别保留到实际交付；过期或挤出后仍可补交。时间戳变化本身不新增报告，空集合表示本次样本未遇到文字牌。该交付独立于区间方块报告的延迟；`observe` 也可读取当前附近牌。
 
@@ -170,9 +170,9 @@ node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY max
 | `inbox.post`、`inbox.requestJudgment` | 按事件交付，交付后保留在历史 |
 | `inbox.upsert` | 同来源、同 key 的待交付消息合并；交付后的历史条目保留 |
 | 默认观察状态 | 开局 baseline，随后顶层工具结果与新一轮入口交付 changed；各部分替换旧值，交付后保留历史 |
-| `inbox.publishCurrent` | 独立的最新值存储，同来源／key 替换、到期移除；运行时在观察边界读取为 `programState`，交付的观察保留历史 |
+| `inbox.publishCurrent` | 独立的最新值存储，同来源／key 替换、到期移除；运行时在观察边界读取为 `programStatus`，交付的观察保留历史 |
 
-例如：一次查询得到位置 A，该输出成为历史事实。后来 bot 到达 B，后续工具结果中的 changed 用新的 `self` 替换旧状态，原查询仍在原位置。`publishCurrent` 值过期或清除后，后续 `programState` 更新体现移除；已经交付的旧记录仍属于当时的历史。若某个短动作的经过值得单独保留，用 `post` 报告。
+例如：一次查询得到位置 A，该输出成为历史事实。后来 bot 到达 B，后续工具结果中的 changed 用新的 `self` 替换旧状态，原查询仍在原位置。`publishCurrent` 值过期或清除后，后续 `programStatus` 更新体现移除；已经交付的旧记录仍属于当时的历史。若某个短动作的经过值得单独保留，用 `post` 报告。
 
 ## 进阶复用与扩展
 
@@ -203,9 +203,9 @@ await inbox.publishCurrent("build-progress", {
 await inbox.publishCurrent("build-progress", null);
 ```
 
-Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报告信封，建立明确的任务关联。`programState` 保留程序来源，运行时另外提供真实进程状态；结合两者理解“进程仍在运行”和“程序自述当前在做什么”。需要永久事件记录时用 `post`，`requestJudgment` 投递成功后返回 `{accepted:true,id}`；模型收到报告后独立决定下一步，程序按自身代码继续执行。需要完整的运行中报告例子，见 [plugin-goal](../examples/navigate.mjs)。具体有效期、传输与大小限制见 [收件箱](../packages/inbox/README.md)。
+Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报告信封，建立明确的任务关联。`programStatus` 保留程序来源，运行时另外提供真实进程状态；结合两者理解“进程仍在运行”和“程序自述当前在做什么”。需要永久事件记录时用 `post`，`requestJudgment` 投递成功后返回 `{accepted:true,id}`；模型收到报告后独立决定下一步，程序按自身代码继续执行。需要完整的运行中报告例子，见 [plugin-goal](../examples/navigate.mjs)。具体有效期、传输与大小限制见 [收件箱](../packages/inbox/README.md)。
 
-高级部署可调整默认显示预算：`ARENA_PERCEPTION_TASK_LIMIT=16`、`ARENA_PERCEPTION_PROGRAM_LIMIT=8`、`ARENA_PERCEPTION_PROGRAM_BYTES=8192`、`ARENA_PERCEPTION_PROGRAM_ENTRY_BYTES=2048`。这些值接受非负整数，只控制默认呈现；`observe({fullRuntime:true})` 仍返回底层尚保留的完整运行状态。
+高级部署可调整默认显示预算：`ARENA_RUNTIME_TASK_LIMIT=16`、`ARENA_RUNTIME_STATUS_LIMIT=8`、`ARENA_RUNTIME_STATUS_BYTES=8192`、`ARENA_RUNTIME_STATUS_ENTRY_BYTES=2048`。这些值接受非负整数，只控制默认呈现；`observe({fullRuntime:true})` 仍返回底层尚保留的完整运行状态。
 
 ## 源码与验证范围
 
@@ -215,7 +215,7 @@ Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报
 
 - [观察核心](../packages/observation/index.mjs)：状态投影、数量、范围和事件。
 - [一次观察](../packages/observation/observe.mjs)与 [Pi 工具](../packages/pi-extension/observe-tool.mjs)：状态 JSON 与冻结取样。
-- [默认观察器脚本](../packages/default-scripts/observer.mjs)、[观察循环](../packages/observation/observer-loop.mjs)与 [Pi 扩展](../packages/pi-extension/index.mjs)：默认脚本的启动、送达回执驱动的报告，以及运行时状态与普通历史交付。
+- [默认观察器脚本](../packages/default-scripts/observer.mjs)、[观察循环](../packages/observation/observer.mjs)与 [Pi 扩展](../packages/pi-extension/index.mjs)：默认脚本的启动、送达回执驱动的报告，以及运行时状态与普通历史交付。
 - [验证记录](VALIDATION.md)：当前离线、真实 Pi、渲染与实服证据；各项能力的实现范围与实战验证分别记录。
 
 需要复现真实游戏链路时，使用 [显式启用的验收脚本](../scripts/validate-observation-live.mjs) 的 `--help`。它要求已有、已停机且已接受 EULA 的隔离测试服，验证官方 1.21.1 JAR，为本次检查创建新世界，并在退出后恢复服务器配置。
@@ -234,7 +234,7 @@ Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报
 {"radar":{"radius":48,"playerRadius":64,"dropGroupRadius":3}}
 ```
 
-`ARENA_PERCEPTION_CONFIG` 可指定配置文件路径。该文件改变展示范围；不会限制原始查询能力。
+`ARENA_OBSERVER_CONFIG` 可指定配置文件路径。该文件改变展示范围；不会限制原始查询能力。
 
 普通历史交付省略未变状态段，忽略采样年龄与任务运行时长的自然增长。自身位置／速度展示到一位小数、朝向两位小数；按需查询保留原精度。雷达的新空列表会清除上次名单。每条报告的 `observedAt` 表示观察时刻，旧坐标始终是历史记录。
 

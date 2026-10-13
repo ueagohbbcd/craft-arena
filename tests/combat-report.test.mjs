@@ -37,11 +37,11 @@ async function fixture(t, options = {}) {
   };
   loadSelectedPlugins(bot, {
     ...(options.autoInbox ? {} : { inbox }),
-    combatObservation: { now: () => now, ...options },
+    combatReport: { now: () => now, ...options },
   });
   t.after(async () => {
     bot.pvp.forceStop();
-    await bot.combatObservation.close();
+    await bot.combatReport.close();
     bot.closeBridge();
   });
   const entity = (id, name = "zombie", x = 2) =>
@@ -59,14 +59,14 @@ async function fixture(t, options = {}) {
     actions,
     queue,
     entity,
-    observer: bot.combatObservation,
+    observer: bot.combatReport,
     urgent: () => urgent,
     advance: (ms) => {
       now += ms;
     },
     async stop() {
       bot.pvp.forceStop();
-      await bot.combatObservation.flush();
+      await bot.combatReport.flush();
     },
     tick() {
       bot.emit("physicTick");
@@ -220,10 +220,10 @@ test("observer does not stop strategy on death/reset, and cleanup releases its o
 test("failed inbox delivery is retained locally without changing PvP or retrying", async (t) => {
   const f = await fixture(t);
   await f.observer.close();
-  const { observeCombat } =
+  const { reportCombat } =
     await import("../packages/bot-sdk/combat-report.mjs");
   let sends = 0;
-  const observer = observeCombat(f.bot, {
+  const observer = reportCombat(f.bot, {
     inbox: {
       post() {
         sends++;
@@ -281,9 +281,9 @@ test("attaching mid-combat and observing a surviving target after spawn do not i
   const f = await fixture(t);
   await f.observer.close();
   await f.bot.pvp.attack(f.entity(2));
-  const { observeCombat } =
+  const { reportCombat } =
     await import("../packages/bot-sdk/combat-report.mjs");
-  const observer = observeCombat(f.bot);
+  const observer = reportCombat(f.bot);
   assert.equal(
     observer.summary().active.startEvidence,
     "active_target_observed_on_attach",

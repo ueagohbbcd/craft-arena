@@ -1320,7 +1320,7 @@ test(
       "ARENA_EXTRA_EXTENSIONS",
       "PI_CODING_AGENT_DIR",
       "PI_CODING_AGENT_SESSION_DIR",
-      "MC_INBOX_IDLE_URGENT",
+      "ARENA_WAKE_ON_URGENT",
     ])
       delete env[name];
     child = spawn(
@@ -1363,7 +1363,7 @@ test(
     assert.equal(requests.length, 2, "idle does not poll the model");
     assert.equal(child.exitCode, null);
     const first = JSON.stringify(requests[0].messages);
-    assert.match(first, /Minecraft AI 竞速测试场/);
+    assert.match(first, /# Minecraft AI Arena/);
     assert.match(first, /minecraft-arena-programming/);
     assert.match(first, /SKILL.md/);
     const tools = requests[0].tools.map((x) => x.function.name);
@@ -1418,8 +1418,8 @@ for (const urgent of [false, true])
     `real Pi ${urgent ? "urgent" : "passive"} IPC during final response stream ${urgent ? "continues exactly once" : "does not force continuation"}`,
     { timeout: 15000 },
     async (t) => {
-      const previous = process.env.MC_INBOX_IDLE_URGENT;
-      process.env.MC_INBOX_IDLE_URGENT = "1";
+      const previous = process.env.ARENA_WAKE_ON_URGENT;
+      process.env.ARENA_WAKE_ON_URGENT = "1";
       let h;
       try {
         h = await harness(t, async (_body, n, dir) => {
@@ -1461,14 +1461,14 @@ for (const urgent of [false, true])
           return "continuation after streamed urgent event";
         });
       } finally {
-        if (previous === undefined) delete process.env.MC_INBOX_IDLE_URGENT;
-        else process.env.MC_INBOX_IDLE_URGENT = previous;
+        if (previous === undefined) delete process.env.ARENA_WAKE_ON_URGENT;
+        else process.env.ARENA_WAKE_ON_URGENT = previous;
       }
       await h.session.prompt("Exercise the final streaming boundary.");
       await sleep(100);
       assert.equal(h.requests.length, urgent ? 3 : 2);
       const delivered = h.session.messages
-        .filter((m) => m.role === "custom" && m.customType === "mc-inbox")
+        .filter((m) => m.role === "custom" && m.customType === "arena-inbox")
         .flatMap((m) => m.details?.messages ?? [])
         .filter((m) => m.data.marker === "during-final-stream-event");
       assert.equal(
@@ -1506,7 +1506,7 @@ function platformFromRequest(request) {
         : Array.isArray(m.content)
           ? m.content.map((c) => c.text ?? "").join("")
           : "";
-    const at = text.indexOf("Arena platform update");
+    const at = text.indexOf("Arena platform message");
     if (at >= 0) return JSON.parse(text.slice(text.indexOf("\n", at) + 1));
   }
 }
@@ -1833,13 +1833,13 @@ test("default real Pi persists runtime task changes and has no temporary tail", 
   await h.session.prompt("Run one command.");
   assert.equal(h.requests.length, 2);
   const request = JSON.stringify(h.requests[1].messages);
-  assert.match(request, /runtime.baseline/);
+  assert.match(request, /runtime.snapshot/);
   assert.match(request, /runtime.changed/);
   assert.doesNotMatch(
     request,
     /Current observation for this model request only/,
   );
   const history = JSON.stringify(h.session.agent.state.messages);
-  assert.match(history, /runtime.baseline/);
+  assert.match(history, /runtime.snapshot/);
   assert.match(history, /runtime.changed/);
 });

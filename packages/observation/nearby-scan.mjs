@@ -15,12 +15,12 @@ export function recentBlockOptions(env = process.env) {
       : fallback;
   };
   return {
-    enabled: env.ARENA_PERCEPTION_RECENT_BLOCKS !== "0",
-    radius: integer("ARENA_PERCEPTION_RECENT_BLOCK_RADIUS", 6),
-    intervalMs: integer("ARENA_PERCEPTION_RECENT_BLOCK_INTERVAL_MS", 1000, 1),
-    maxReads: integer("ARENA_PERCEPTION_RECENT_BLOCK_MAX_READS", 4096, 1),
-    positionLimit: integer("ARENA_PERCEPTION_RECENT_BLOCK_POSITIONS", 3),
-    minReportMs: integer("ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS", 30000),
+    enabled: env.ARENA_OBSERVER_RECENT_BLOCKS !== "0",
+    radius: integer("ARENA_OBSERVER_RECENT_BLOCK_RADIUS", 6),
+    intervalMs: integer("ARENA_OBSERVER_RECENT_BLOCK_INTERVAL_MS", 1000, 1),
+    maxReads: integer("ARENA_OBSERVER_RECENT_BLOCK_MAX_READS", 4096, 1),
+    positionLimit: integer("ARENA_OBSERVER_RECENT_BLOCK_POSITIONS", 3),
+    minReportMs: integer("ARENA_OBSERVER_RECENT_BLOCK_MIN_REPORT_MS", 30000),
   };
 }
 
@@ -87,7 +87,7 @@ export function projectRecentBlocks(snapshot, asOf = Date.now()) {
 }
 
 /** A session-local collector; optional normal Inbox reports never request model wakes. */
-export function startRecentBlockRuntime({
+export function startNearbyScan({
   getBot,
   connectionStatus,
   now = Date.now,

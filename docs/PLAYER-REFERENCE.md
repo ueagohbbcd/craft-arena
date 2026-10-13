@@ -6,7 +6,7 @@
 
 主 agent、脚本中的模型调用和子代理统一使用 `OPENAI_BASE_URL` 与本参赛者的 `OPENAI_API_KEY`。网关按配置的官方 API 标价，将未缓存输入、缓存输入和输出 usage 折算为参考成本 `referenceCost`，据此限制个人和队伍在时间窗口内的使用速率。参考成本用于公平计量；实际账单支付以服务商账单为准。
 
-**模型据什么决策**：平台更新（`Arena platform update`）中 `budget` 部分的 `cash.participant` 和 `cash.team` 分别提供个人、队伍的成本反馈。每个账户的成本视图包含比例、时长和计量质量：
+**模型据什么决策**：平台更新（`Arena platform message`）中 `budget` 部分的 `cash.participant` 和 `cash.team` 分别提供个人、队伍的成本反馈。每个账户的成本视图包含比例、时长和计量质量：
 
 - `costShare.uncachedInput/cachedInput/output`：当前窗口已结算成本中，三个计费项各占多少。可用来判断上下文、缓存输入和输出分别占了多少成本，选择下一步如何组织工作。
 - `rate.overRateRatioBeforeWait`：初次入队时，尚未偿还的成本债务、进行中占用与本请求成本预估之和，超出一个窗口额度的部分占额度的比例，最低为 0。例如 0.25 表示当时预计超过窗口额度 25%。

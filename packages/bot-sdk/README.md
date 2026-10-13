@@ -152,11 +152,11 @@ components. They are not a substitute for live-server container testing.
 
 ## Default combat observation
 
-`loadSelectedPlugins(bot)` attaches `bot.combatObservation` alongside native PvP.
+`loadSelectedPlugins(bot)` attaches `bot.combatReport` alongside native PvP.
 In a managed program it uses the ordinary `InboxClient` environment automatically.
-You can pass `{ inbox }`, configure `{ combatObservation: { nearbyRadius: 16 } }`,
-or disable it with `{ combatObservation: false }`. Without an Inbox environment,
-`bot.combatObservation.summary()` still exposes bounded task-local results.
+You can pass `{ inbox }`, configure `{ combatReport: { nearbyRadius: 16 } }`,
+or disable it with `{ combatReport: false }`. Without an Inbox environment,
+`bot.combatReport.summary()` still exposes bounded task-local results.
 
 One normal `combat.summary` combines actual start/stop events, attack attempts,
 target changes/disappearance, observed pursuit distance, your health changes and

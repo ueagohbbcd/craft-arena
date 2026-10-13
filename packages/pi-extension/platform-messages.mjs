@@ -105,7 +105,7 @@ export function clockData(host, { now, bootAt, configured }) {
  * message rather than through the participant inbox. `collect()` returns only
  * the sections that changed since the last delivered update.
  */
-export function createPlatformFeedback({
+export function createPlatformMessages({
   readMatch,
   budgetUrl,
   budgetToken,
@@ -198,5 +198,5 @@ export function createPlatformFeedback({
   };
 }
 
-export const platformText = (update) =>
-  `Arena platform update (trusted match host and model budget gateway):\n${JSON.stringify(update)}`;
+export const platformMessageText = (update) =>
+  `Arena platform message (trusted match host and model budget gateway):\n${JSON.stringify(update)}`;

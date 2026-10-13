@@ -1,8 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPerceptionChanges } from "../packages/observation/section-diff.mjs";
+import { createSectionDiff } from "../packages/observation/section-diff.mjs";
 const deliveredChanges = () => {
-  const changes = createPerceptionChanges();
+  const changes = createSectionDiff();
   return {
     next(snapshot) {
       const delivery = changes.prepare(snapshot);
@@ -24,7 +24,7 @@ const sample = () => ({
 test("ordinary history gets baseline then only changed sections, ignores sample age", () => {
   const changes = deliveredChanges(),
     first = sample();
-  assert.equal(changes.next(first).type, "perception.baseline");
+  assert.equal(changes.next(first).type, "observation.snapshot");
   assert.equal(
     changes.next({
       ...first,
@@ -85,10 +85,10 @@ test("ordinary local changes do not repeat the legacy loaded-world sign list", (
 });
 
 test("undelivered or rejected changes do not advance the comparison baseline", () => {
-  const c = createPerceptionChanges(),
+  const c = createSectionDiff(),
     s = sample();
   const first = c.prepare(s);
-  assert.equal(c.prepare(s).message.type, "perception.baseline");
+  assert.equal(c.prepare(s).message.type, "observation.snapshot");
   first.onDelivered();
   s.self.health = 10;
   const pending = c.prepare(s);
@@ -99,20 +99,20 @@ test("undelivered or rejected changes do not advance the comparison baseline", (
 });
 test("default state retains runtime omission and full-query guidance", () => {
   const s = sample();
-  s.runtimeProjection = {
+  s.displayLimits = {
     tasks: { omitted: 20 },
     fullQuery: { tool: "observe", arguments: { fullRuntime: true } },
   };
   assert.deepEqual(
-    deliveredChanges().next(s).changes.runtimeProjection,
-    s.runtimeProjection,
+    deliveredChanges().next(s).changes.displayLimits,
+    s.displayLimits,
   );
 });
 
 test("Inbox overflow leaves the previous delivered baseline available for retry", async () => {
   const { Inbox } = await import("../packages/inbox/index.mjs");
   const inbox = new Inbox({ sessionId: "s", maxItems: 1 }),
-    c = createPerceptionChanges(),
+    c = createSectionDiff(),
     s = sample();
   c.prepare(s).onDelivered();
   s.self.health = 6;

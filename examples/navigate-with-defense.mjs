@@ -91,7 +91,7 @@ export async function navigateWithDefense(
     if (!candidates.length) return;
     selection = { state, candidates, targetId: candidates[0].id };
     // Save this decision's evidence now. Later combat ticks may show different entities.
-    bot.combatObservation.reportDecision({
+    bot.combatReport.reportDecision({
       candidates,
       selectedTargetId: selection.targetId,
       reason: `Example selected the nearest observed registry-hostile mob within ${radius} blocks`,
@@ -202,14 +202,14 @@ export async function navigateWithDefense(
           stopReason = "defense_window_elapsed";
         else await pause(100, undefined, { signal });
       }
-      bot.combatObservation.reportStopReason(stopReason);
+      bot.combatReport.reportStopReason(stopReason);
       await bot.pvp.stop();
       // entityGone may already have started native stop before our own call.
       // Wait for its actual event before restoring the route.
       const stopError = await stopped;
       if (stopError) throw stopError;
       signal.throwIfAborted();
-      await bot.combatObservation.flush();
+      await bot.combatReport.flush();
       const after = perception();
       Object.assign(resumeReport, {
         endedAt: now(),
@@ -242,7 +242,7 @@ export async function navigateWithDefense(
     signal.removeEventListener("abort", externalAbort);
     controller.abort(); // Remove a pending native-event wait after failure.
     if (resumeReport) report("post", resumeReport);
-    bot.combatObservation.reportStopReason(result.error ?? result.status);
+    bot.combatReport.reportStopReason(result.error ?? result.status);
     bot.pvp.forceStop();
     bot.pathfinder.setGoal(null);
     try {
@@ -252,7 +252,7 @@ export async function navigateWithDefense(
       bot.clearControlStates();
       await bot.flush();
     }
-    await bot.combatObservation.flush();
+    await bot.combatReport.flush();
     // Final event is distinct history, not a replacement for progress. The final
     // stdout also survives Inbox TTL and states whether this program has exited.
     report("upsert", "journey.progress", {
@@ -272,7 +272,7 @@ export async function navigateWithDefense(
   return {
     ...result,
     activity: "controller stopped",
-    combat: bot.combatObservation.summary(),
+    combat: bot.combatReport.summary(),
   };
 }
 
@@ -308,7 +308,7 @@ async function main() {
     if (["failed", "defense_timeout"].includes(result.status))
       process.exitCode = 1;
   } finally {
-    await bot.combatObservation.close();
+    await bot.combatReport.close();
     bot.closeBridge();
     process.off("SIGTERM", onTerm);
     process.off("SIGINT", onInt);

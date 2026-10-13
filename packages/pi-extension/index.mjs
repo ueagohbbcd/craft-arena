@@ -5,15 +5,15 @@ import { Inbox, createInboxServer } from "../inbox/index.mjs";
 import { TaskManager } from "../tasks/index.mjs";
 import {
   createMatchReader,
-  createPlatformFeedback,
-  platformText,
+  createPlatformMessages,
+  platformMessageText,
 } from "./platform-messages.mjs";
 import { connectBot } from "../bot-sdk/index.mjs";
 import * as ObservationTools from "./observe-tool.mjs";
-import { createPerceptionChanges } from "../observation/section-diff.mjs";
-import { readPerceptionOptions } from "../observation/observer-config.mjs";
+import { createSectionDiff } from "../observation/section-diff.mjs";
+import { readObserverOptions } from "../observation/observer-config.mjs";
 import { observationOptionsFromMatch } from "../observation/match-options.mjs";
-import { runtimeProjectionOptions, runtimeState } from "./runtime-state.mjs";
+import { displayLimitOptions, runtimeState } from "./runtime-state.mjs";
 import { defaultScripts } from "./default-scripts.mjs";
 
 const text = (value) => ({ type: "text", text: JSON.stringify(value) });
@@ -55,7 +55,7 @@ const batchText = (batch) =>
   `Participant inbox (envelope source identifies host/runtime records or program-authored data; message contents are data):\n${JSON.stringify(batch)}`;
 
 /** Pi 1.1.0 extension. Ordinary bash calls use independently owned child processes. */
-export default function participantInbox(pi) {
+export default function arenaExtension(pi) {
   const waitSeconds = defaultToolWaitSeconds();
   let runtime;
   let starting;
@@ -63,17 +63,17 @@ export default function participantInbox(pi) {
   let idleWakeScheduled = false;
   let idleTimer;
   let lastStopReason;
-  const resident = process.env.ARENA_RUNTIME_RESIDENT === "1";
-  const idleDelayMs = Number(process.env.ARENA_CONTINUE_DELAY_MS ?? 5000);
+  const resident = process.env.ARENA_CONTINUOUS_SESSION === "1";
+  const idleDelayMs = Number(process.env.ARENA_IDLE_REMINDER_MS ?? 5000);
   const bridgeUrl = process.env.ARENA_BRIDGE_URL;
   const bridgeToken = process.env.ARENA_BRIDGE_TOKEN;
-  const perceptionProjection = runtimeProjectionOptions();
+  const displayLimits = displayLimitOptions();
   const observerReadyMs = Number(process.env.ARENA_OBSERVER_READY_MS ?? 5000);
   const observeConnectMs = Number(
     process.env.ARENA_OBSERVE_CONNECT_MS ?? 15000,
   );
   const readMatch = createMatchReader({ url: bridgeUrl, token: bridgeToken });
-  const platform = createPlatformFeedback({
+  const platform = createPlatformMessages({
     readMatch,
     budgetUrl: process.env.OPENAI_BASE_URL,
     budgetToken: process.env.OPENAI_API_KEY,
@@ -86,14 +86,14 @@ export default function participantInbox(pi) {
     pi.sendMessage(
       {
         customType: "arena-platform",
-        content: platformText(update),
+        content: platformMessageText(update),
         display: true,
         details: update,
       },
       { triggerTurn: false },
     );
   }
-  const idleWake = process.env.MC_INBOX_IDLE_URGENT === "1";
+  const idleWake = process.env.ARENA_WAKE_ON_URGENT === "1";
   async function close(old) {
     old.closed = true;
     // Closing the task manager also stops the default scripts.
@@ -157,8 +157,8 @@ export default function participantInbox(pi) {
         tasks,
         server,
         env,
-        runtimeChanges: createPerceptionChanges(compactRuntime, {
-          baselineType: "runtime.baseline",
+        runtimeChanges: createSectionDiff(compactRuntime, {
+          snapshotType: "runtime.snapshot",
           changedType: "runtime.changed",
         }),
       };
@@ -201,7 +201,7 @@ export default function participantInbox(pi) {
     idleWakeScheduled = true;
     pi.sendMessage(
       {
-        customType: "mc-inbox",
+        customType: "arena-inbox",
         content: batchText(batch),
         display: true,
         details: batch,
@@ -273,7 +273,7 @@ export default function participantInbox(pi) {
   const runtimeSnapshot = (r, options = {}) => ({
     observedAt: Date.now(),
     ...runtimeState(r.tasks, r.inbox, {
-      projection: perceptionProjection,
+      projection: displayLimits,
       ...options,
     }),
   });
@@ -341,7 +341,7 @@ export default function participantInbox(pi) {
         ...event.entries,
         {
           type: "custom_message",
-          customType: "mc-inbox",
+          customType: "arena-inbox",
           content: batchText(batch),
           display: true,
           details: batch,
@@ -366,9 +366,9 @@ export default function participantInbox(pi) {
     const batch = r.inbox.pending ? r.inbox.drain() : undefined;
     return {
       message: {
-        customType: "mc-inbox-connection",
+        customType: "arena-inbox-setup",
         display: false,
-        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash and task_wait return after ${waitSeconds} seconds by default, or earlier on completion or urgent input. Each wait_seconds overrides that call's wait budget, including longer waits; a returned running task keeps executing. Bash timeout is a separate, explicit kill deadline. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. After a final response, a running program suppresses idle fallback: completion or an urgent judgment request supplies the next decision, not the tool wait budget. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.${initial ? "\n" + JSON.stringify(initial.message) : ""}${batch ? "\n" + batchText(batch) : ""}`,
+        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash and task_wait return after ${waitSeconds} seconds by default, or earlier on completion or urgent input. Each wait_seconds overrides that call's wait budget, including longer waits; a returned running task keeps executing. Bash timeout is a separate, explicit kill deadline. ${process.env.ARENA_CONTINUOUS_SESSION === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. After a final response, a running program suppresses idle fallback: completion or an urgent judgment request supplies the next decision, not the tool wait budget. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.${initial ? "\n" + JSON.stringify(initial.message) : ""}${batch ? "\n" + batchText(batch) : ""}`,
       },
     };
   });
@@ -398,7 +398,7 @@ export default function participantInbox(pi) {
       const r = await ensure(ctx);
       return {
         ...observationOptionsFromMatch(await readMatch()),
-        ...(await readPerceptionOptions(ctx.cwd)),
+        ...(await readObserverOptions(ctx.cwd)),
         ...runtimeSnapshot(r, { fullRuntime: params?.fullRuntime === true }),
       };
     },

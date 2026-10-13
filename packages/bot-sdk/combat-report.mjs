@@ -48,7 +48,7 @@ const bounded = (list, entry, limit = 8) => {
 };
 
 /** Read installed PvP events and observed entities. Never calls a bot action. */
-export function observeCombat(
+export function reportCombat(
   bot,
   {
     inbox = null,
