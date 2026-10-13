@@ -1,20 +1,4 @@
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-
-export async function readPerceptionOptions(cwd, env = process.env) {
-  try {
-    const value = JSON.parse(
-      await readFile(
-        env.ARENA_PERCEPTION_CONFIG ?? join(cwd, "perception.json"),
-        "utf8",
-      ),
-    );
-    return value.radar ? { radar: value.radar } : {};
-  } catch (error) {
-    if (error.code === "ENOENT") return {};
-    throw error;
-  }
-}
+export { readPerceptionOptions } from "../observation/config.mjs";
 
 export function compactPerception(snapshot) {
   const {

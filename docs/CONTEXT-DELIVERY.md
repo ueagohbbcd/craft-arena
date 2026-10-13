@@ -6,7 +6,7 @@
 
 比赛宿主、受限 Minecraft Bot 接口、模型预算、后台任务生命周期与 Inbox 是运行框架；Pi 负责当前框架的 Agent 会话接线。**态势感知、世界视觉、区块记忆都是可复用的预装工具箱能力**，并不因为某项需要自动启动、在可信侧保存数据或需要 Pi 呈递结果，就成为新的框架层。
 
-三项工具箱的默认政策不同：态势感知默认监听并选择性向模型报告，世界视觉只按地图配置提供开局图像、其他时候按需渲染，区块记忆默认收集但通常只在代码主动查询时读出。Skill 介绍调用与修改入口；当前观察器自动启动及区块记忆的初始化仍与宿主接线，尚未提供一键热替换默认实例的机制。[框架与工具箱分类](../README.md#框架预装工具箱与-skill) · [工作清单](PERCEPTION-TODO.md)。
+三项工具箱的默认政策不同：态势感知默认监听并选择性向模型报告，世界视觉只按地图配置提供开局图像、其他时候按需渲染，区块记忆默认收集但通常只在代码主动查询时读出。Skill 介绍调用与修改入口：工作区 `perception.mjs` 经显式 `observe({reload:true})` 接替默认观察逻辑，Pi 保留连接和交付接线；区块记忆由可信 Bridge 初始化，可由宿主替换或关闭。[框架与工具箱分类](../README.md#框架预装工具箱与-skill) · [工作清单](PERCEPTION-TODO.md)。
 
 ## 四类信息进入上下文的方式
 
@@ -54,6 +54,6 @@
 
 实现入口：[普通观察交付](../packages/pi-extension/perception-delivery.mjs)、[边界与等待](../packages/pi-extension/index.mjs)、[近距累计](../packages/observation/recent-block-runtime.mjs)、[共享方块记忆](BLOCK-MEMORY.md)。
 
-## 历史实验记录：临时请求尾部
+## 已退役的实验
 
-早期实验通过 `context_with_system` 向单次请求追加 `mc-current-observation`，并尝试 `recentBlocks` 的 `tail`／`both` 通道。这些代码（含 `ARENA_PERCEPTION_TAIL` 开关）已随清理删除；会话历史里不再出现 `mc-current-observation`。这是历史实验，当前采用上面的四类方式。
+“每次请求附加最新观察”的请求尾部方案已退役，代码删除，当前采用上面的四类方式。完整的机制、不变量、放弃理由和复活步骤见[实验记录](EXPERIMENTS.md#请求尾部观察)。

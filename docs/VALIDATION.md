@@ -1,157 +1,54 @@
 # 交付验证记录
 
-更新日期：2026-10-11。版本：0.1.0。各节记录对应当次源码与环境；历史部署状态不代表当前服务器状态。
+本文件分两部分：**当前状态**（现在能信什么、还缺什么验收）和**历史批次**（按日期保留结论，便于追溯）。逐次原始记录在 [evidence/](evidence/) 中，本文件不复制它们。
 
-## 当前候选：原生 Pi 工具与实际入口
+版本 0.1.0。历史批次的源码版本、环境和跳过项只对当次有效，不代表当前服务器状态。
 
-功能提交 `905f444` 当时默认提供 10 个原生工具：read、bash、edit、write、observe、task_wait、task_cancel、world_minimap、world_render3d、world_opening。其中 `world_minimap`／`world_render3d`／`world_opening` 三个常驻图像工具与 `observe` 的图像参数已在后续清理中移除；当前默认工具为 read、edit、write、bash、observe、task_wait、task_cancel 共 7 个，图像改由普通脚本按需渲染。显式 CLI 工具选择仍可启用 codemode 或指定工具子集。
+## 当前状态
 
-- 真实 Pi bootstrap 配合可控模型与桥夹具，验证默认工具列表、显式 `--tools +codemode`、`-t read,bash`，以及直接 bash stdout 进入下一次模型请求。该批次还验证了 observe PNG 进入请求，这项图像参数已在后续清理中移除。相关入口测试 14 项、定向整组 85 项通过。
-- `npm run validate`：562 项，560 通过，0 失败，2 个环境相关跳过。使用已发布的 world-memory 固定版本；本项覆盖语法和自动化回归。
-- 入口修正包括消除重复 AGENTS、区分只读查询与控制程序清理、注明紧凑观察和展开参数。其中“工具直接返回原生图像”一项已随常驻图像工具移除，现由按需脚本渲染。后续文字审读单独保存提交。
-- 2v2 重赛于 2026-10-11 14:42:17 UTC 开始，四名选手使用冻结的 `905f444` 工具包。运行复用实际桥接、SDK、Inbox 与感知模块，通过文件 relay 接入子代理。比赛结果另行记录。
+### 已验证
 
-[本轮证据范围](evidence/pi-native-tools-2026-10-11.json)。此前入口捕获的 11 工具和转发说明属于关闭默认 codemode 之前的批次。
+- **默认态势感知**：在隔离的 Minecraft 1.21.1 实服完成 9 项检查（物品／装备、开箱转移、移动与 Pathfinder、其他玩家与方块更新、受伤死亡重生、观察流暂停恢复、断线）；被动观察器全程只发 GET。见[实服证据](evidence/observation-live-2026-10-11.json)。
+- **Pi 接入与交付契约**：真实 Pi 1.1.0 会话（本地固定模型响应）验证普通投递随工具结果交付、紧急投递释放受管等待而进程继续、晚到结果只交付一次、常驻会话在终局状态清理退出。
+- **可信侧**：比赛宿主、模型预算网关、语义桥的动作校验与计量有自动化覆盖；模拟比赛与配置校验可离线复现。
+- **本机可复现**：`npm ci`、`npm test`、`npm run format:check`、`node packages/arena/src/cli.mjs validate infra/match.example.json`、`npm run demo:match`；`npm run demo:screenshot` 另需本地 Chromium。
 
-## 此前候选：合作试验发现的 SDK 稳定性与扫描开销
+### 当前默认工具
 
-合作试验运行固定版本 `d88727f`。以下候选在独立副本修改和验证，尚未用于该场比赛。
+`read`、`edit`、`write`、`bash`、`observe`、`task_wait`、`task_cancel` 共 7 个，codemode 默认关闭但可显式启用。图像不再有常驻工具或 `observe` 参数：开局图由启动流程交付，其他按需截图走 `examples/observe-and-render.mjs`。
 
-- 世界高度外的方块快照会让 SDK 写入不存在的光照 section。候选按当前列 minY/worldHeight 跳过非法写入，保持原有 blockAt 的未知/空气区别。旧版新增 7 项回归全失败，修复后通过；真实 HTTP/SSE 夹具复现旧版重复断开并验证修复。实场日志未保存异常栈，但三次恢复位置 y=-121/-188/-260 与复现条件一致。
-- findBlocks 保留同步返回、真实 Block 筛选回调、完整查询范围及稳定最近结果，按 section 距离剪枝、数字 ID palette 跳过不匹配区块，并在球外点创建 Block 前排除它们。使用相同人工区块与本场查询参数，medium 连续两次稀疏查询从 7.73 秒降至 2.89 秒，light 查询从 9.28 秒降至 3.03 秒（双轮中位数）。这些仍是同步阻塞，未宣称彻底解决背压。
-- 完整并行回归首次暴露原 Inbox 测试依赖固定 400ms 等待子进程完成的偶发失败。测试改为等待实际启动/退出并用文件信号放行，保留提前返回、进程存活、两条最终结果和仅交付一次的业务断言。生产 Inbox 代码未改。
-- 最终 `PI_OFFLINE=1 npm run validate`：423 项，421 通过，0 失败，2 个既有环境跳过。相关 JavaScript 格式与 diff 检查通过。
+### 尚未验收
 
-性能原始记录见 [扫描基准](evidence/find-blocks-benchmark-2026-10-11.json)，使用 324 个人工区块列，未读取比赛隐藏地图。取消后残留控制另属脚本信号处理：Node 默认 SIGTERM 终止不会执行异步 finally，现有工具合同要求脚本释放控制；该项没有加入全局游戏动作策略。
+1. **完整自主对局**：没有一场从开局到判胜的全自动比赛记录；已完成的实服检查都是受控场景。
+2. **部署隔离**：Compose 网络／卷隔离、资源上限、禁止绕过模型网关与直连 Minecraft，需要在目标宿主机复验。
+3. **Unix socket IPC**：开发环境禁止绑定，仅带身份验证的 loopback HTTP 已测。
+4. **真实 Chromium 截图**：开发环境启动受限，Prismarine 资源与区块传输已测；部署后用 `MC_TEST_CHROMIUM=1` 复验。
+5. **实战插件表现**：动态地形寻路、PvP、完整容器交互按选定地图另行验证。
+6. **模型读图与策略效果**：图片可用性已验证；模型据此决策的改善与代价未评估。
 
-## 此前：单人实战后的修复与短真实回归
+### 持续限制
 
-最终功能提交 `6ea4317` 的全量 `PI_OFFLINE=1 npm run validate`：409 项，407 通过，0 失败，2 个既有环境跳过（Unix socket 权限、可选 Chromium 真截图）。
+- 预算账本为单进程内存状态，不跨进程共享、不跨重启恢复。
+- 依赖审计：锁文件对应 8 个 moderate、0 high、0 critical，主要传播自 Minecraft 认证链路上的 uuid 公告（[GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq)）。部署前复查上游修复。
+- 本源码包不含 node_modules、真实凭证、地图、世界存档或模型运行日志。
 
-- 同步槽位事件合并一次快照，修复正常读取客户端被 inventory slot burst 断开的情况；真实 HTTP 旧版对照可复现。
-- `craftItem` 按新增成品数量换算配方次数；合成、关箱完成响应携带原生库存，SDK 应用后才返回，并防止迟到响应或 SSE 回滚。
-- Pathfinder 水平侧放等待落地再执行边缘移动；垂直搭高和开门保留原行为。Java 1.21.1 中实际下挖后于浮空 y94.9216 发起侧放目标，202ms 后落地，空中后退请求为 0，随后侧放成功。确定的已规划节点经公开 getPathTo 注入，真实执行器和服务端物理运行；该项验证执行时序。
-- 真实关箱用例覆盖取出 128 件、立即读取槽位并装备、存回后立即为 0，以及暂停 SSE 后依赖 HTTP 响应更新。最终合成 3 轮各用 5 木头得到 20 木板，await 返回时 SDK/native 立即一致；另有加载候选完成屏障的 20 轮成功记录，按源码哈希单独标注。
-- 可选放置空间实体查询从完整实体镜像筛 AABB 重叠，包含默认雷达可能省略的蝙蝠；重叠结果供诊断使用。自动进食范例保留事件监听和 hand 互斥，每次短动作普通投递结果，最终汇总累计动作、失败与实际恢复记录。两项新增逻辑目前以自动化夹具验证。
+## 历史批次
 
-单人实战为 2 小时 17 分 38 秒、17 次死亡、0/3 羊毛。留下连续 24 格桥、深井与物资缓存；前三次死亡发生在默认感知接入前，后续也未形成可靠取羊毛流程。详见[单人实战记录](evidence/solo-wool-trial-2026-10-11.json)。上述修复发生在实战之后。
+各批次只保留结论；数字为当次运行的统计，与当前测试数量不可比。
 
-旧版本短回归曾有一次合成后服务端清除仅报告 17 件总物品，缺少该次具体槽位记录，原因未定。库存完成响应修复解决已复现的 SDK 滞后，未证明解决该历史异常。早期导航夹具节点缺 Vec3.minus 的一轮已剔除，最终补测断言无 transport 错误。详见[短真实回归汇总](evidence/post-solo-regression-2026-10-11.json)。所有测试服已关闭，上局保存世界未变；此处不代表 Docker/Pi 全栈比赛验收。
-
-## 此前：默认等待、风险呈现与独立使用验收
-
-本轮全量 `PI_OFFLINE=1 npm run validate`：360 项，358 通过，0 失败，2 个既有环境跳过（Unix socket 权限、可选 Chromium 真截图）。修改的 JavaScript 格式与 diff 检查通过。
-
-- Pi 的 bash/task_wait 共用 `ARENA_TOOL_WAIT_SECONDS`，默认 30 秒，可由每次调用的 `wait_seconds` 覆盖。到期返回 running 与原 taskId，进程继续；`bash.timeout` 仍负责终止期限。真实 Pi 默认预算实测分别 30019ms、30015ms，同一进程仅启动一次，四次模型请求均带更新状态。模型响应来自本地固定夹具；该项没有连接游戏。模型最终回复后，这个预算本身不产生周期唤醒。
-- 默认实体摘要优先呈现附近已有证据的危险实体，再按距离排列；完整查询保留全部跟踪实体。显著及持续损血将原 health_loss 事件升级为提前判断，并按事件段去重、冷却和恢复。38 项观察单测覆盖阈值与延迟合并边界，仍需实际对抗评价提示频率。
-- 全新 coding agent 仅阅读玩家指南与公开工具，在未知布局的小庭院中自行看图、寻路、查两箱、取恰好 3 钻石并抵达终点，3 分 26 秒完成，0 死亡，其他物品与 4000 格地图保持不变；同时提交了整棵树候选查询。裁判仅搭场、原样中继命令和核验结果。此项验证 CLI/SDK 易用性；完整 Pi 自动注入和复杂 PvP 属于不同验收范围。详见[脱敏盲测记录](evidence/perception-blind-trial-2026-10-11.json)。
-- 盲测准备发现大首帧被慢读保护提前截断，随后修复为有界按序 drain。3 项真实 HTTP 回归验证约 5.33 MB 首帧完整送达、后续状态/事件顺序、持续慢读断开及关闭清理；旧实现同例失败。该修复的验证使用合成 bot 与真实 HTTP，位于上述实服盲测之后。
-
-默认 30 秒实测复现：`ARENA_TEST_REAL_DEFAULT_WAIT=1 node --test --test-name-pattern='omitted bash' tests/integration-pi.test.mjs`。下节保留此前 9 项真实游戏链路验收及其版本范围。测试服已停，原配置已恢复。
-
-## 2026-10-11：默认观察套组的真实服务端验收
-
-在独立 Minecraft Java 1.21.1 测试服，通过真实 Mineflayer、HTTP/SSE 桥、参赛 SDK 和被动观察器完成 9 项自动化检查。最终轮包含共享世界记忆库 `8df14e7`、控制 FIFO 和 Pathfinder partial-path 修复，9/9 通过；早先另完成过一次根据图像选择门洞路线并实际到达的辅助演示。
-
-最终源码全量 `PI_OFFLINE=1 npm run validate`：343 项，341 通过，0 失败，2 跳过（本环境 Unix socket 权限与可选 Chromium 真截图）。修改的 JavaScript 格式检查通过。
-
-- 验证移动与 Pathfinder 到达、打开箱子及跨堆叠转移、装备与背包精确数量、其他玩家及方块更新；真实副手盾牌使用状态通过原生实体事件送达。
-- 真实寻路程序前进后，经 TaskManager 取消，163ms 正常退出143，全部7项按键释放，稳定后1.2秒位移为0，Minecraft连接仍然存活。
-- 独立原版复现确认 Pathfinder partial A* 路径优化会修改尚在搜索堆中的节点，导致可达目标误报 NoPath。适配器复制执行路径节点，保留原有优化和预算；确定性回归及上述实服均通过。
-- 验证伤害、危急生命、死亡重生、实际暂停传输后的过期/恢复，以及断线状态；被动观察器没有发送动作请求。
-- 该批次查看了 CPU 真实纹理俯视图、局部图和朝向箭头，并验证纹理 3D 的示意图回退。这些常驻图像工具已在后续清理中移除；现在按需截图脚本在缺少 Chromium 时直接报错。
-- 本轮没有运行付费模型自主比赛；辅助选路演示仅证明这一场景的观察与行动链路。Windows/Docker 重部署及实战 PvP 尚未在本轮源码上复验。
-
-复现入口：[隔离实服脚本](../scripts/validate-observation-live.mjs)。结果与环境边界：[脱敏验收记录](evidence/observation-live-2026-10-11.json)。脚本需要已有接受 EULA 的隔离测试服，显式确认后运行；常规 npm test 不会启动 Minecraft。
-
-以下各节按历史验收批次保留。
-
-## 2026-10-11 模型停滞修复
-
-两次实际对局暴露了旧 32K 网关限制、字节级费用预留、单次费用硬拒绝、2K 输出截断后不续跑的问题；此前短链路验收不足以证明持续比赛可靠。
-
-- 最终 Linux 容器回归 148 项通过，0 失败、0 跳过，包含实际 Chromium 与 Pi RPC。
-- 双方配置统一为 300000 上下文、50000 压缩预留、20000 最近历史、32768 输出预算，Pi 压缩触发点为 250000。Codex SDK 不发送输出硬 cap，仍按实际输出结算；DeepSeek 发送实际 cap。
-- 250K 合成历史与 32K 输出通过真实配置的上下文及现金 admission。现金额度仍为 USD 0.50/min；超大单笔不再永久 429，实际缓存用量结算为持续偿还的债务，后续调用排队。测试覆盖跨多个窗口、退款、取消、队伍 FIFO、并发与长期上下文价格档。
-- 真实 Pi RPC 配合本地模型夹具验证：零输出 length、临时 502、正常 stop 后分别继续；可信结束后退出且不再调用。重复空截断或永久配置错误有界停止自动恢复并明确记录，保留后台任务。
-- 实际 HTTP 测试验证网关长排队和上游慢流不会被默认五分钟空闲超时提前中断；显式请求期限、取消和其他 origin 原有超时仍有效。网关上下文错误已通过实际 Pi SDK overflow 识别测试。
-- 这轮恢复/排队的故障注入使用可控模型响应；完整自主通关与实战策略效果仍未验证。
-- 新镜像通过临时可信测试网关分别连续调用真实 Codex、DeepSeek 两次，使用 32768 输出预算，四次均返回 READY 并正确结算。生产比赛保持 prepared；部署核心文件 SHA256 与本次源码一致。
-
-## Windows 本机部署验收
-
-- 最新完整容器测试：126 项通过，0 失败，0 跳过，启用 `MC_TEST_CHROMIUM=1`，包含实际 Chromium PNG 与 Unix IPC。JavaScript 语法检查通过。
-- 官方 Minecraft 1.21 与 Direct Fire Java 1.21：准备、双方出生点、纪念碑加载、开局、目标计分、结束与断开冒烟通过。通过 RCON 放置三个目标羊毛验证红队胜利及 `stopConfirmed`，随后恢复地图；恢复的 21 个文件与原地图哈希一致。这不是自主通关成绩。
-- 锁定依赖的协议 767 配方映射存在偏移；已在可信 bot 建立连接前作版本限定修正。真实 108271 字节配方包解析出 1290 条并逐字节回写一致；实际连接不再出现对应 PartialReadError。
-- Codex `gpt-6.1-sol` OAuth 与 DeepSeek `deepseek-flash` 均完成真实生成；两队各完成 Pi→预算网关→可信适配器→模型→bash→游戏 SDK→Minecraft 位置/生命观察。长期 OAuth 刷新稳定性仍需运行观察。
-- 双方容器可达自己的桥和预算网关；跨队网关、模型适配器、Minecraft/RCON、外部 IPv4/IPv6、Windows 10808 代理和 18181 转发器均不可达。己方 token 访问另一队桥返回 401。UID 1000、no-new-privileges、无 Docker socket、独立工作/团队卷及配置资源上限已核对；未做资源耗尽压力测试。
-- Windows 转发器已完成真实 Codex 调用。5 项本地 TCP 测试覆盖新连接动态选择 direct/两个代理、原隧道存活、认证和目标限制、超时/取消、上游凭据隔离及半关闭响应。没有为测试修改用户系统代理。
-- 全新目录初始化、地图/JAR 校验、拒绝覆盖、私有 ACL 和 Compose 配置解析通过；Windows 控制脚本通过语法检查。已在真实部署完成 stop/reset/up 循环，旧世界和结果归档，两队重新等待开赛。
-
-本机证据保留在忽略的 `runtime/deploy/`：`container-tests.log`、`results/smoke-result.json`、`pi-red1.log`、`pi-blue1.log`。密钥、模型原始日志和地图不上传仓库。该批次结束时地图已准备、两名 Pi 等待开赛；当时完整自主对局、实战 PvP、动态地形寻路及容器交互尚未验证。
-
-以下为较早源码包的离线交付记录；其中环境限制和跳过项由上面的部署验收更新。
-
-## 验证范围
-
-此源码包实现了比赛宿主、模型预算网关、有限 Mineflayer 桥、参赛侧插件接口、Pi 收件箱扩展及按需图像渲染。以下记录区分真实软件集成、可控夹具测试与目标部署验收。
-
-最终独立安装复测：108 项测试，106 项通过，2 项明确跳过，0 失败。JavaScript 语法检查与 Prettier 格式检查通过。
-
-在新的项目目录中，仅凭 package.json、锁文件和本地 npm 缓存执行 npm ci --offline --ignore-scripts，成功安装 320 个包；随后复制交付源码并运行完整验证。测试没有引用原项目 node_modules。模拟比赛与示例配置校验亦执行成功；当时的 CPU 渲染示例已不在当前套件中，现有渲染示例需要 Chromium。
-
-### 已执行的真实软件集成
-
-- 使用锁定的 Pi 1.1.0 启动真实 AgentSession 和 CLI/RPC 进程。本地假模型上游提供固定响应；整个测试过程没有调用付费模型。
-- 普通投递随下一次工具结果交付；紧急投递释放受管长命令的等待，命令继续运行；晚到结果仅交付一次。
-- Pi codemode 读取真实嵌套工具返回并自行过滤，收件箱内容在外层返回合并。该批次还让图像工具的原生图像块经过实际模型代理进入下一次请求；该工具已移除。
-- 常驻 Pi 在模型结束一段回答后保留程序；普通投递不增加模型请求；紧急投递继续同一会话；可信比赛结束状态触发清理退出。
-- 实际安装的 Pathfinder 2.4.5、PvP 1.3.2 在本地接口上注入并运行选定能力。自定义 Goal、Movements 回调和平地寻路在本地执行，搜索节点不逐个产生 RPC；PvP 发出语义攻击。
-- HTTP 游戏桥、SSE 状态镜像、限权模型路由、个人/队伍计量及排队反馈通过跨模块测试。
-- 该批次验证 CPU 俯视图与结构图生成可解码 PNG（该常驻渲染路径已移除）；Prismarine viewer 的真实静态资源与区块传输通过测试。
-
-上述游戏桥与计分测试使用可控 bot、世界和比赛状态夹具，尚未接入真实 Minecraft 对局。模型响应固定，因此这些测试验证交互与数据契约，不评价模型游戏水平。
-
-### 本轮现金窗口增量验证
-
-- 按配置的官方 API 标价折算参考成本；缓存输入从普通输入扣除，reasoning token 不重复计费。
-- 个人和队伍现金窗口排队、取消退款、未知 usage 保守预留、并发请求指标归属均通过测试。
-- 模型仅接收窗口成本占比、超速比例、负载、排队时间和计量质量。运营侧保留精确参考金额与累计成本。
-- 真实 Pi 的 429 错误边界可附带速率反馈，取消不会触发配额查询；自然边界查询不增加模型调用。真实集成共 19 项通过。
-- 结构化供应商计费扩展字段经过筛选；普通响应文本和工具参数原样保留。
-- 参赛 Dockerfile 按目录复制公开工具包，运营侧 infra 配置留在可信侧；此项已静态检查，容器运行隔离仍待部署验收。
-
-参考成本使用官方标价衡量资源消耗。实际账单取决于供应商与账户；累计金额由运营者监控并通过可信宿主结束比赛。默认现金模板需运营者填写窗口额度，累计 token 上限默认关闭。
-
-### 已覆盖的关键边界
-
-- 操作白名单、参数验证、身份验证、每个身份对应一个角色；参赛接口不提供原始 Minecraft 包或可信进程代码执行。
-- 状态基线/增量、序列缺口重连、稳定实体引用、未知格/空气/过期世界数据区分。
-- 取消与开始并发、停服清理、同时达成目标、当前纪念碑状态计分。羊毛移除会更新当前进度；观察区块失载会显式结束为地图故障。
-- 游戏连接停止后，可信 HTTP 状态继续报告终局，直到运营者关闭服务。模型网关在队列前及上游派发前检查比赛状态；已派发请求正常结算。
-- 程序事件、最新状态及紧急判断各有投递入口；消息容量、有效期、输出与进程数量有界。
-- Pi 自动压缩启用，默认 32,768 上下文对应 8,192 预留与 8,192 最近历史；摘要走相同模型网关。供应商上下文估算和保守额度预留分别配置，长历史回归测试通过。
-
-## 原源码包跳过项及持续限制
-
-1. 当前执行环境禁止 Unix socket bind，相关用例明确跳过。带身份验证的 loopback HTTP IPC 已测试；目标 Linux 部署仍须验收 Unix socket。
-2. 当前环境 Chromium 启动被操作系统权限限制，真实 WebGL 截图用例跳过。Prismarine 资源/区块传输已通过；部署后运行 MC_TEST_CHROMIUM=1 的按需截图测试。
-3. 当前环境无 Docker daemon。Compose 网络隔离、跨队卷隔离、资源上限、禁止绕过模型网关及 Minecraft 直连，需要在实际宿主机验收。
-4. 运营者提供地图、服务器镜像/版本、目标坐标、RCON 生命周期命令、模型服务配置和凭证。先使用测试身份完成一次地图重置、同时开局、目标计分、超时与退出的真实冒烟对局。
-5. 插件适配覆盖已列出的能力。动态地形寻路、实战 PvP、挖掘/放置和完整容器交互须按选定地图验证。具体接口差异见 packages/bot-sdk/README.md。
-6. 预算账本为单进程内存状态。每场按运营说明启动/收集结果；重启恢复与跨进程共享账本尚未实现。预留估算与供应商最终 usage 的区别见预算网关说明。
-
-## 依赖审计
-
-锁文件对应的 npm audit 报告：8 个 moderate 依赖节点，0 high，0 critical。主要链路来自 uuid 的缓冲区边界检查公告，经 Minecraft 身份认证依赖传播；这里的“8”按受影响依赖节点计数。
-
-公告：https://github.com/advisories/GHSA-w5hq-g745-h8pq
-
-本次未强制跨主版本覆盖认证依赖。部署前复查上游修复与锁文件，结合所用认证方式评估；依赖告警须单独评估和处理。完整第三方依赖和版本见 package-lock.json。
+| 日期／版本 | 结论 |
+| --- | --- |
+| 2026-10-11 `905f444` | 原生 Pi 工具入口批次：当时 10 个工具（含 3 个图像工具与 `observe` 图像参数，均已在后续清理移除）；2v2 重赛使用冻结工具包。证据 [pi-native-tools](evidence/pi-native-tools-2026-10-11.json)。 |
+| 2026-10-11 `d88727f` | 合作试验暴露的 SDK 稳定性问题：世界高度外快照的非法光照写入、`findBlocks` 剪枝优化、Inbox 测试的固定等待。基准见 [find-blocks-benchmark](evidence/find-blocks-benchmark-2026-10-11.json)。 |
+| 2026-10-11 `6ea4317` | 单人实战（2h17m、17 死、0/3 羊毛）后的修复：槽位突发合并、`craftItem` 配方换算、Pathfinder 侧放等待落地。记录见 [solo-wool-trial](evidence/solo-wool-trial-2026-10-11.json)、[post-solo-regression](evidence/post-solo-regression-2026-10-11.json)。 |
+| 2026-10-11 | 等待预算与风险呈现：`ARENA_TOOL_WAIT_SECONDS` 默认 30 秒实测（30019ms／30015ms）；全新 agent 盲测 3 分 26 秒取 3 钻石。见 [perception-blind-trial](evidence/perception-blind-trial-2026-10-11.json)。 |
+| 2026-10-11 | 默认观察套组实服验收：9/9 通过，含一次按图选门洞路线的辅助演示。 |
+| 2026-10-11 | 模型停滞修复：Linux 容器回归 148 项通过；统一 300000 上下文／32768 输出／压缩触发 250000；真实 Codex 与 DeepSeek 各两次调用返回 READY。 |
+| 2026-10-11 | Windows 本机部署：Direct Fire Java 1.21 生命周期与计分冒烟、两队网络隔离、Chromium PNG、Unix IPC；启用 `MC_TEST_CHROMIUM=1` 时容器测试 126 项通过。证据保留在忽略的 `runtime/deploy/`。 |
+| 2026-10-11 `aca0fb4` | 玩家入口链路审计：入口布局、文档链接与工具包路径检查；与对局成绩无关。见 [pi-entry-audit](evidence/pi-entry-audit-2026-10-11.json)。 |
+| 更早 | 独立安装复测、近距连通区间原型与面积／延迟／告示牌补充：性能与投影数据见 [recent-block-benchmark](evidence/recent-block-benchmark-2026-10-11.json)、[recent-block-context](evidence/recent-block-context-2026-10-11.json)、[recent-block-interval-benchmark](evidence/recent-block-interval-benchmark-2026-10-11.json)。区间扫描 P50 约 2 ms、P95 约 4 ms（半径 6 空气球，每次 925 次本地读取），时间受负载影响。 |
 
 ## 复现
-
-在 craft-arena 项目目录执行：
 
 ```sh
 npm ci
@@ -162,56 +59,4 @@ npm run demo:match
 npm run demo:screenshot   # 需要本地 Chromium 与可选 playwright-core
 ```
 
-真实 Pi 的逐项证据见 [INTEGRATION.md](INTEGRATION.md)。容器部署步骤见 [infra/README.md](../infra/README.md)。本包不含 node_modules、真实凭证、地图、世界存档或模型运行日志。
-
-
-## 2026-10-11：限制清理与加载区块镜像
-
-本轮在云端 Node.js 24.19.0 环境执行 `PI_OFFLINE=1 npm run validate`：194 项测试，192 通过，0 失败，2 跳过。跳过项分别为当前执行环境禁止绑定的 Unix socket 测试，以及需要显式启用真实 Chromium 的截图测试。
-
-新增覆盖包括跨三个区块列的 40 格 Pathfinder 路径、原生挖掘移动、区块加载/卸载/维度切换、旧版本世界高度、光照更新、空路径失败退出码、现金速率负债与大上下文请求、模型配置共用、后台任务等待与恢复、原子判胜和逐场结果归档。真实 Pi 进程使用本地可控模型响应；本轮没有调用付费模型。
-
-本轮验证为源码和集成夹具验证。Windows PowerShell 初始化/重置、Docker 构建、真实 Minecraft 动态地形寻路和 PvP 仍需部署后验收；前文 Windows 实战记录属于更早版本。修改的 JavaScript 文件通过格式检查，未批量格式化无关的历史文件。
-
-## 2026-10-11：Mineflayer 接口还原与玩家工具补充
-
-补充修改后再次运行 `PI_OFFLINE=1 npm run validate`：222 项，220 通过，0 失败，2 跳过（与上一轮相同的 Unix socket / Chromium 环境条件）。修改的 JavaScript 文件通过 Prettier，`git diff --check` 通过。
-
-- 使用实际安装的 Mineflayer inventory/chest/simple_inventory/digging 代码与合成服务端事件，验证 Window 查询、128 件跨堆叠存取、更新/关闭事件、窗口 ID 复用、迟到 HTTP 与旧快照、重连后 revision 重置。
-- 验证 1.21 物品组件的名称、损耗和附魔，BigInt NBT，equip 默认手部/数字类型，tossStack 指定槽位，晚调用 flush 仍可观察失败。
-- 挖掘取消与死亡保留原生 `Digging aborted`，重生后恢复桥接自身事件转发；Pathfinder 保留上游死亡/停止语义。错误保留 name/message/code/action 并脱敏凭据。
-- 实际完整克隆官方 Mineflayer 4.39.0、Pathfinder 2.4.5、PvP 1.3.2 参考仓库；固定 HEAD 与官方 tag、npm gitHead 一致，均保留 `.git` 和完整历史，未运行上游仓库脚本。镜像通过 `ARENA_REFERENCE_ROOT` 提供文档、示例与源码。
-- 该批次的视觉示例输出概览切片与局部结构快照，该示例已由按需的 observe-and-render 截图脚本取代；skill 说明现成工具、收件箱用法、上游参考库及可读适配器源码。
-
-独立复核发现的窗口目标、JSON 凭据脱敏、物品组件和事件/响应时序问题已修复。全量运行还暴露一个预算测试的真实时钟假设：1 毫秒正常偿债使精确金额断言偶发失败；该例现使用注入的固定时钟，保留原严格业务断言。
-
-这些测试没有启动真实 Minecraft 服务器。Windows 操作、Docker 构建、真实地图导航与战斗仍待部署验收；特殊熔炉、村民交易、附魔等高层 API 尚未作为本轮接口提供。
-
-## 2026-10-11：近距透明连通区间原型
-
-独立分支基于 `65046d4`，未热改活动比赛或推送部署。`node --test tests/nearby-connected-blocks.test.mjs tests/recent-blocks.test.mjs tests/recent-block-runtime.test.mjs tests/perception-runtime.test.mjs` 最终 27/27 通过，覆盖真实 registry/形状、未知边界、925 格距离范围、预算截断、类型／坐标去重、仅类型计数投影、按需读取不清空、重试／中止／length 保留、成功响应期间新增样本保留，以及真实 Pi 请求尾部与历史分离。真实 Pi 使用固定本地模型响应；本轮没有启动 Minecraft 服务器或调用付费模型。
-
-全量检查状态必须分开看：早期累计器版本 `npm run validate` 的 490 项为 487 通过、2 跳过、1 失败，失败在 `budget-config.test.mjs:114` 的预期 HTTP 200／实际 502。该文件窄重跑 2/2 通过，未改其代码。最终版本的全量复跑通过语法检查后，执行器报告 `automatic approval review was cancelled`，测试进程中止且没有最终汇总；这是未完成验证，既不是全量通过，也没有据此判定代码失败。最终修改文件的格式及 `git diff --check` 通过。
-
-- [可复跑性能与投影脚本](../scripts/benchmark-recent-blocks.mjs)：`node scripts/benchmark-recent-blocks.mjs`，仅使用内存中的真实 SDK／Prismarine chunk。500 次半径 6 全空气扫描，每次最多 925 次本地读取；本次记录 P50 1.91 ms、P95 3.18 ms、最大 14.09 ms。时间受运行负载影响，采样默认每秒一次。[精简证据](evidence/recent-block-benchmark-2026-10-11.json)
-- 同脚本的合成 10／20／30 类型默认模型投影分别 351／485／616 字符及 UTF-8 字节，按字符除以 4 至除以 3 粗估为 88–117／122–162／154–206 token。没有目标模型 tokenizer，不能称为精确 token 数；没有逐项坐标和时间。
-- [真实旧观察统计脚本](../scripts/estimate-recent-block-context.py)：`python scripts/estimate-recent-block-context.py EXPORT_DIR --output report.json`。先核对导出清单的文件哈希，再统计已提供坐标；不会读取服务器／世界或追补缺失格。[精简证据](evidence/recent-block-context-2026-10-11.json)
-- 实际导出含 699 个 5×5×5 工具边界、8961 个原生位置点和 60 批完整查询数组。151 个边界有明细省略；另有 543 个边界即使 `omitted=0`，非空气格数量仍大于明细数量，说明旧类型筛选让其成为严重偏低的代理。边界类型数中位 1、最多 4；严格限定的连续移动片段合并后最多 5；主动查询数组最多 6。它们不是新半径 6 连通雷达的实服测量或上界。查询时间只有任务区间，不与轨迹强行同步；原始比赛数据未提交。
-
-
-### 区间面积、延迟 Inbox 与告示牌补充验证
-
-本轮最终 `PI_OFFLINE=1 npm run validate` 完整结束：518 项，516 通过、0 失败、2 项既有环境条件跳过（Unix socket／Chromium），耗时 33.7 秒。前述早期 HTTP 502 和执行器中止记录保持，不能把窄重跑或中止当作全量通过。此轮使用内存世界及真实 Pi／loopback HTTP 夹具，没有调用付费模型或连接活动 Minecraft 比赛。
-
-最新定向组合 `node --test tests/nearby-connected-blocks.test.mjs tests/recent-blocks.test.mjs tests/recent-block-runtime.test.mjs tests/perception-runtime.test.mjs tests/observation.test.mjs tests/inbox-delay.test.mjs` 为 82/82 通过。覆盖区间唯一方块面面积、bbox 不冒充边界、默认 Inbox／显式 tail／both 三种交付、首个 pending 创建延迟不被覆盖推迟、HTTP `InboxClient.upsert` 参数透传、drain 前完整累计与水位退休、拒绝入队和较晚样本保留、回调异常隔离，以及真实告示牌前后面／未知文字和普通变化事件。
-
-含面积统计与告示牌检查的当前扫描再次运行同一离线 benchmark：500 次半径 6 空气球，每次 925 次本地读取，P50 2.42 ms、P95 3.69 ms、最大 7.80 ms。当前合成 10／20／30 类型紧凑投影分别 396／530／661 字符及字节，字符除以 4 至除以 3 的粗估为 99–132／133–177／166–221 token。合成输入未提供空间范围，故 bbox=null、面积=0；这是结构大小示例，不是实际比赛测量或有字告示牌的长度估计。新增整体范围字段会增加真实输出长度；目标模型 tokenizer 尚未用于精确计数。[当前精简证据](evidence/recent-block-interval-benchmark-2026-10-11.json)。
-
-队列仅支持同进程 `onDelivered` 交付回调；HTTP 端目前只有接受回执，没有跨进程消费通知。生产者负责唯一集合累计，Inbox 负责待交付延迟和原有自然边界，不建立持久 ACK 或第二份报告定时框架。
-
-
-## Pi player-entry chain audit (2026-10-11)
-
-Real Pi bootstrap captures covered the opening and the next request after reading the skill, in both an independent player workspace and the repository directory. A fresh reader reviewed the concatenated inputs. Repairs remove duplicate AGENTS discovery, use direct bash for first movement, separate read-only and controller cleanup, make toolkit paths portable, and limit budget explanations to present fields.
-
-The integrated suite at `aca0fb4` passes **559 tests: 557 passed, 2 skipped, 0 failed**. Entry-layout tests cover 11 cases; focused Pi tests pass 42/42. Documentation checks cover 57 links, 8 code blocks and 10 toolkit paths. These are fixture and usability checks, separate from real-match outcomes. See [structured evidence](evidence/pi-entry-audit-2026-10-11.json).
+真实 Pi 的逐项证据见 [INTEGRATION.md](INTEGRATION.md)，实服链路见[隔离验收脚本](../scripts/validate-observation-live.mjs)（`--help`），容器部署见 [infra/README.md](../infra/README.md)。

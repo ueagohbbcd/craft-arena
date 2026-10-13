@@ -13,7 +13,7 @@
 - **世界视觉（world-visual）**：可复用的快照和渲染能力；地图配置可在开局自动提供图像，其余图像由普通脚本按需生成。
 - **区块记忆（mineflayer-world-memory / bridge memory）**：可信 Bot 一侧默认保存实际接收的原生区块，供部分现成功能和参赛程序查询；卸载区块的记录是最近一次收到的**历史知识**，并非保证服务器当前未变化。
 
-**Skill 与示例**负责向模型介绍工具箱的调用、源码入口和修改办法；它们不是第四种执行框架。自动启用、部署所在进程和“属于框架”是不同的维度。目前观察器的默认实例仍由 Pi 会话管理，区块记忆仍由 Bridge 初始化；若要让模型直接替换默认实例，需要额外的启动接线，见 [后续工作](docs/PERCEPTION-TODO.md)。详细的信息收集／呈递选择见 [上下文设计](docs/CONTEXT-DELIVERY.md)。
+**Skill 与示例**负责向模型介绍工具箱的调用、源码入口和修改办法；它们不是第四种执行框架。自动启用、部署所在进程和“属于框架”是不同的维度。Pi 托管观察连接，参赛者用工作区 `perception.mjs` 和 `observe({reload:true})` 替换观察逻辑，见[修改默认观察器](docs/OBSERVATION.md#修改默认观察器)。区块记忆留在收到原始数据的 Bridge 一侧，宿主可替换或关闭其初始化。详细的信息收集／呈递选择见 [上下文设计](docs/CONTEXT-DELIVERY.md)。
 
 ## 一场比赛怎么进行
 
@@ -65,8 +65,8 @@ node examples/render-fixture.mjs
 
 模拟比赛和渲染示例使用合成数据；`examples/render-fixture.mjs` 需要本地 Chromium 与可选 `playwright-core`。测试的模型响应由本地假上游提供。依赖版本由 `package-lock.json` 固定，npm 依赖与材质通过安装获取。
 
-- **了解范围：** [主要特性](docs/FEATURES.md)、[项目规格](docs/SPEC.txt)。规格记录目标与待决策项，验证记录说明当前证据。
-- **上下文设计：** [信息来源、交付时机与默认选择](docs/CONTEXT-DELIVERY.md)，说明主动返回、后台按需读、普通 Inbox、early，以及默认采集与默认交付各自的责任。
+- **了解范围：** [主要特性](docs/FEATURES.md)、[项目规格](docs/SPEC.txt)、[交付验证记录](docs/VALIDATION.md)。规格记录目标与待决策项，验证记录区分已验证、尚未验收与持续限制。
+- **上下文设计：** [信息来源、交付时机与默认选择](docs/CONTEXT-DELIVERY.md)，说明主动返回、后台按需读、普通 Inbox、early，以及默认采集与默认交付各自的责任；已退役方案的复活步骤见[实验记录](docs/EXPERIMENTS.md)。
 - **参赛编程：** [玩家入门](docs/PLAYER.md)、[观察架构](docs/OBSERVATION.md)、[短说明](AGENTS.md)、[编程指南与示例](examples/SKILL.md)、[Pi 启动配置](packages/pi-extension/README.md)。入口为 `packages/pi-extension/bootstrap.mjs`。
 - **部署比赛：** [运营指南](infra/README.md)。Windows 本机使用 `scripts/initialize-windows-arena.ps1` 和 `scripts/windows-arena.ps1`，输入准备好的世界目录与比赛配置，统一保存为 `map-original/world` 供重置使用。Direct Fire 配置作为示例保留；Codex OAuth、DeepSeek 和自动系统代理按部署需要选择。通用部署使用 `infra/compose.live.yaml` 与 `infra/match.live.template.json`；`compose.yaml` 用于单独服务调试。默认 live 部署使用固定版本的 Fabric + ServerReplay：开局录制、结束校验并按 runId 保存到可信 results；可用 `live.replay.enabled:false` 关闭。回放查看、升级和存储管理见运营指南。
 - **开发验证：** 修改后运行 `npm test`；涉及 Pi 或插件适配时检查相应集成用例。部署前固定地图、依赖与镜像版本，保存配置和结果。

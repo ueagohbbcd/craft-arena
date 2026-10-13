@@ -133,6 +133,16 @@ startBridge({
 });
 ```
 
+The trusted host may pass `blockMemory: false` to disable recording, or
+`createBlockMemory(bot, options, serializeBlock)` to supply a replacement adapter
+returning `{query(url), close(), ready?}`. The standalone bridge CLI accepts
+`BRIDGE_BLOCK_MEMORY=false`. These are host startup choices; participant queries
+cannot change the implementation or its scope. Disabled memory queries return
+HTTP 503; actions and the observation stream remain available. With memory
+enabled, startup waits for `ready`; a rejected initialization promise aborts
+startup and cleans up. The native library can instead report individual corrupt
+columns through the existing query `error` field while restoring the others.
+
 Persistence requires all three explicit IDs. It uses the existing
 `mineflayer-world-memory` gzip/native-column storage under their combined scope;
 restored columns start historical. Use a new run ID after every map reset and
@@ -144,7 +154,4 @@ accepted from a read client.
 The library runs with `analysis: "lazy"`: exact recording and queries do not
 force full-world exposure/connectivity analysis. Complete native columns use
 memory proportional to explored terrain; they have no silent 50,000-cell
-truncation. The separate `BotFacade.knownBlockAt`/`knownBlocksIn` history (see
-[the SDK reference](../packages/bot-sdk/README.md#observation-and-actions)) keeps
-at most 50,000 cells observed during that facade session, so it is not this shared
-store: read unloaded or previously received columns through the queries above.
+truncation. Use the connected facade for loaded-world queries and the shared queries above for unloaded or previously received columns.

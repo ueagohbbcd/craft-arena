@@ -110,8 +110,7 @@ export function createOpeningViews({
       if (stage === "course" && attempts.course >= 3) close();
       if (initial)
         return {
-          message:
-            'Opening image unavailable; when needed run node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs" [minX minY minZ maxX maxY maxZ] and read the printed imagePath.',
+          message: `Opening image unavailable; run node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs" when a picture is needed, then read its imagePath.`,
         };
     }
   }
