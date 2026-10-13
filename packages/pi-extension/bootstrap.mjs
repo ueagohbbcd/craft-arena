@@ -16,7 +16,7 @@ import { spawn } from "node:child_process";
 import {
   createResidentRecovery,
   observeRpcOutput,
-} from "./resident-recovery.mjs";
+} from "./request-recovery.mjs";
 import { createOpeningViews } from "./opening-views.mjs";
 
 const extensionPath = fileURLToPath(new URL("./index.mjs", import.meta.url));

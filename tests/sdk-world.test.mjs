@@ -238,11 +238,10 @@ test("goal example reports nonzero failure for native empty noPath and only repo
   };
   delete env.MC_INBOX_SOCKET;
   const run = (args) =>
-    promisify(execFile)(
-      process.execPath,
-      ["examples/plugin-goal.mjs", ...args],
-      { env, timeout: 5000 },
-    );
+    promisify(execFile)(process.execPath, ["examples/navigate.mjs", ...args], {
+      env,
+      timeout: 5000,
+    });
   await assert.rejects(run(["10", "1", "4"]), (error) => {
     assert.equal(error.code, 1);
     const report = JSON.parse(error.stderr.trim());

@@ -221,7 +221,7 @@ test("failed inbox delivery is retained locally without changing PvP or retrying
   const f = await fixture(t);
   await f.observer.close();
   const { observeCombat } =
-    await import("../packages/bot-sdk/combat-observation.mjs");
+    await import("../packages/bot-sdk/combat-report.mjs");
   let sends = 0;
   const observer = observeCombat(f.bot, {
     inbox: {
@@ -282,7 +282,7 @@ test("attaching mid-combat and observing a surviving target after spawn do not i
   await f.observer.close();
   await f.bot.pvp.attack(f.entity(2));
   const { observeCombat } =
-    await import("../packages/bot-sdk/combat-observation.mjs");
+    await import("../packages/bot-sdk/combat-report.mjs");
   const observer = observeCombat(f.bot);
   assert.equal(
     observer.summary().active.startEvidence,

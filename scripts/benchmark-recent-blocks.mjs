@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 import { BotFacade } from "../packages/bot-sdk/index.mjs";
 import { sampleNearbyConnectedBlocks } from "../packages/observation/nearby-connected-blocks.mjs";
 import { createRecentBlockAccumulator } from "../packages/observation/recent-blocks.mjs";
-import { projectRecentBlocks } from "../packages/observation/recent-block-runtime.mjs";
+import { projectRecentBlocks } from "../packages/observation/nearby-scan.mjs";
 
 const bot = new BotFacade({
   url: "http://benchmark.invalid",

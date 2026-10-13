@@ -4,7 +4,7 @@ import {
   recentBlockOptions,
   projectRecentBlocks,
   startRecentBlockRuntime,
-} from "../packages/observation/recent-block-runtime.mjs";
+} from "../packages/observation/nearby-scan.mjs";
 import { Inbox } from "../packages/inbox/index.mjs";
 
 function fixture(options = {}) {

@@ -8,10 +8,7 @@ const { Vec3 } = createRequire(import.meta.url)("vec3");
 // Run the actual CLI body with controlled observations/time and a pending goto.
 // Native plugin/bridge behavior is covered separately in sdk-world.test.mjs.
 const source = (
-  await readFile(
-    new URL("../examples/plugin-goal.mjs", import.meta.url),
-    "utf8",
-  )
+  await readFile(new URL("../examples/navigate.mjs", import.meta.url), "utf8")
 ).replace(/^import .*;\r?\n/gm, "");
 async function harness({ failDelivery = false, failFlush = false } = {}) {
   const bot = new EventEmitter(),

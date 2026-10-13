@@ -1,7 +1,7 @@
 /** Pi access to current observation state. */
 import { Type } from "typebox";
 import { connectBot } from "../bot-sdk/index.mjs";
-import { observe } from "./observe.mjs";
+import { observe } from "../observation/observe.mjs";
 
 export const observeParameters = Type.Object({
   radar: Type.Optional(

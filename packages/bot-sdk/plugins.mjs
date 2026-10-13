@@ -2,7 +2,7 @@ import { createRequire, Module } from "node:module";
 import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { InboxClient } from "../inbox/index.mjs";
-import { observeCombat } from "./combat-observation.mjs";
+import { observeCombat } from "./combat-report.mjs";
 const require = createRequire(import.meta.url);
 /** Local plugin adaptation. No participant code is sent to the authority. */
 export function loadSelectedPlugins(

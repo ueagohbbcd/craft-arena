@@ -1,8 +1,8 @@
 import { createDefaultObserver } from "./default-observer.mjs";
-import { compactPerception, createPerceptionChanges } from "./changes.mjs";
+import { compactPerception, createPerceptionChanges } from "./section-diff.mjs";
 import { observationOptionsFromMatch } from "./match-options.mjs";
-import { readPerceptionConfig } from "./config.mjs";
-import { recentBlockOptions } from "./recent-block-runtime.mjs";
+import { readPerceptionConfig } from "./observer-config.mjs";
+import { recentBlockOptions } from "./nearby-scan.mjs";
 
 /**
  * Run the default observation policy against one connected bot and report

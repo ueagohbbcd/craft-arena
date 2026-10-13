@@ -12,7 +12,7 @@ import {
   createResidentRecovery,
   observeRpcOutput,
   permanentResidentError,
-} from "../packages/pi-extension/resident-recovery.mjs";
+} from "../packages/pi-extension/request-recovery.mjs";
 
 function harness() {
   let time = 0,

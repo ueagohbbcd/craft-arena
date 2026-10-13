@@ -15,7 +15,7 @@
 
 ### 当前默认工具
 
-`read`、`edit`、`write`、`bash`、`observe`、`task_wait`、`task_cancel` 共 7 个，codemode 默认关闭但可显式启用。图像不再有常驻工具或 `observe` 参数：开局图由启动流程交付，其他按需截图走 `examples/observe-and-render.mjs`。
+`read`、`edit`、`write`、`bash`、`observe`、`task_wait`、`task_cancel` 共 7 个，codemode 默认关闭但可显式启用。图像不再有常驻工具或 `observe` 参数：开局图由启动流程交付，其他按需截图走 `examples/screenshot.mjs`。
 
 ### 尚未验收
 

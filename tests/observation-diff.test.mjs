@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPerceptionChanges } from "../packages/observation/changes.mjs";
+import { createPerceptionChanges } from "../packages/observation/section-diff.mjs";
 const deliveredChanges = () => {
   const changes = createPerceptionChanges();
   return {

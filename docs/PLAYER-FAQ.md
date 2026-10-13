@@ -13,7 +13,7 @@
 
 PvP 有独立的 `bot.pvp.movements`，`attack(entity)` 会将它交给 Pathfinder。
 要保留战斗途中的地形，直接设置 `bot.pvp.movements.canDig = false`。
-[战斗薄示例](../examples/observe-pvp.mjs) 展示这个接点。
+[战斗薄示例](../examples/fight-target.mjs) 展示这个接点。
 
 ### `pathfinder.stop()` 返回了，可以立刻换手吃饭吗？
 

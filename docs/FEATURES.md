@@ -20,7 +20,7 @@
 
 5. **预装态势感知｜已实现，默认启用。** 这是可供参赛代码复用的观察／监听工具箱，当前由 Pi 会话启动只读观察：开局交付基础状态，后续顶层工具结果与新一轮入口交付变化部分，保留普通历史。内容包括自身、背包数量、装备、当前窗口、实体雷达、局部环境和受管程序状态（`taskId`）。沿途方块累计摘要与附近牌文字变化分别进入普通收件箱，另有受伤、关键物品损失／耗尽、羊毛获得／失去、死亡／出生和连接变化事件。控制程序可直接复用同源观察函数。[观察架构与覆盖范围](OBSERVATION.md)
 
-6. **按需观察、视觉库与区块记忆｜已实现。** `observe` 只返回状态 JSON，可直接阅读，按需用 `fullItems`、`fullEntities`、`fullLocal` 等展开细节。开局图像由启动流程按地图配置作为用户消息交付，与会话观察各自独立。需要新视角时运行普通脚本 [observe-and-render.mjs](../examples/observe-and-render.mjs)（Prismarine 观看器 + 本地 Chromium 截图，可传显式边界）。共享区块记忆默认在可信 Bridge 中记录角色实际接收的完整区块，脚本按需查询已卸载的历史；历史不保证当前仍然有效。这三项预装能力的使用说明位于 Skill／源码／文档中，并不要求模型另造框架。[观察用法](OBSERVATION.md#一次观察与按需图像) · [区块记忆](BLOCK-MEMORY.md) · [图像库](../packages/world-visual/README.md)
+6. **按需观察、视觉库与区块记忆｜已实现。** `observe` 只返回状态 JSON，可直接阅读，按需用 `fullItems`、`fullEntities`、`fullLocal` 等展开细节。开局图像由启动流程按地图配置作为用户消息交付，与会话观察各自独立。需要新视角时运行普通脚本 [observe-and-render.mjs](../examples/screenshot.mjs)（Prismarine 观看器 + 本地 Chromium 截图，可传显式边界）。共享区块记忆默认在可信 Bridge 中记录角色实际接收的完整区块，脚本按需查询已卸载的历史；历史不保证当前仍然有效。这三项预装能力的使用说明位于 Skill／源码／文档中，并不要求模型另造框架。[观察用法](OBSERVATION.md#一次观察与按需图像) · [区块记忆](BLOCK-MEMORY.md) · [图像库](../packages/world-visual/README.md)
 
 7. **持续运行的普通程序｜已实现。** 程序可在模型思考、排队或暂时结束回答后继续运行。工具等待和进程寿命分开；AI 通过 taskId 等待结果或明确取消，比赛结束时运行时清理进程。[Pi 运行集成](../packages/pi-extension/README.md)
 

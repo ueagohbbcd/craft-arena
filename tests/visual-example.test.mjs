@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { observationBounds } from "../examples/observe-and-render.mjs";
+import { observationBounds } from "../examples/screenshot.mjs";
 import { Vector } from "../packages/bot-sdk/index.mjs";
 test("on-demand rendering frames nearby structures and clips dimension height", () => {
   const bot = {

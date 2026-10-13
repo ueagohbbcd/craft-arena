@@ -31,7 +31,7 @@ composite ([index.mjs](index.mjs)) and the optional real Prismarine renderer
    await capturePrismarineSnapshot(snapshot, { outputPath: "out/world.png" });
    ```
 
-   [observe-and-render.mjs](../../examples/observe-and-render.mjs) is the
+   [observe-and-render.mjs](../../examples/screenshot.mjs) is the
    ready-made example. Without arguments it frames the player by 12 blocks
    horizontally and from 8 below to 16 above vertically, bounded by the dimension
    height; cells outside loaded columns stay unknown. Six inclusive coordinates

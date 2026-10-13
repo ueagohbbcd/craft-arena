@@ -3,7 +3,7 @@ import {
   recentBlockOptions,
   projectRecentBlocks,
   startRecentBlockRuntime,
-} from "./recent-block-runtime.mjs";
+} from "./nearby-scan.mjs";
 
 /** Observation policy over a supplied mirror; no Pi, Inbox or connection ownership. */
 export function createDefaultObserver({

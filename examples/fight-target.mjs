@@ -6,7 +6,7 @@ import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
 const ids = process.argv.slice(2).map(Number);
 if (!ids.length || !ids.every(Number.isInteger))
   throw new Error(
-    "Usage: node examples/observe-pvp.mjs ENTITY_ID [ENTITY_ID ...]",
+    "Usage: node examples/fight-target.mjs ENTITY_ID [ENTITY_ID ...]",
   );
 const bot = await connectBot();
 const controller = new AbortController();

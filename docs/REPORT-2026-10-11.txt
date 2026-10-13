@@ -96,6 +96,6 @@ reset 归档会话和 match-artifacts，但保留工作区代码、其他输出�
 会话：双方持久工作卷 /workspace/.pi/sessions/2026-10-10T23-58-08-*；以本场起始时间过滤。原始记录保留在本机，不在报告中复制凭据或私有思维链。
 视觉预览：runtime/opening-review/lobby-final.png、course-final.png 及对应 metadata；这些是赛前预览，不能冒充本场消息原图。
 地图兼容说明：runtime/deploy/map-original/README-1.21-zh.txt。
-相关实现：packages/mf-bridge/index.mjs；packages/bot-sdk/index.mjs；packages/pi-extension/opening-views.mjs；examples/plugin-goal.mjs；scripts/archive-participant-state.mjs。
+相关实现：packages/mf-bridge/index.mjs；packages/bot-sdk/index.mjs；packages/pi-extension/opening-views.mjs；examples/navigate.mjs；scripts/archive-participant-state.mjs。
 
 报告中的建议尚未实施。本场保持停止状态；一次性检查自动化已暂停。

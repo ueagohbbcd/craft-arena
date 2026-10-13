@@ -52,7 +52,7 @@
 
 无运行任务时的五秒续跑与模型错误恢复负责维持会话运行，沿既有上下文继续执行。
 
-实现入口：[默认观察器脚本](../packages/default-scripts/observer.mjs)、[变化报告](../packages/observation/changes.mjs)、[边界与等待](../packages/pi-extension/index.mjs)、[近距累计](../packages/observation/recent-block-runtime.mjs)、[共享方块记忆](BLOCK-MEMORY.md)。
+实现入口：[默认观察器脚本](../packages/default-scripts/observer.mjs)、[变化报告](../packages/observation/section-diff.mjs)、[边界与等待](../packages/pi-extension/index.mjs)、[近距累计](../packages/observation/nearby-scan.mjs)、[共享方块记忆](BLOCK-MEMORY.md)。
 
 ## 已退役的实验
 

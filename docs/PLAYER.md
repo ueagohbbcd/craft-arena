@@ -13,8 +13,8 @@
 | 要做什么 | 入口 |
 | --- | --- |
 | 读取位置、物品或精确方块 | [只读短程序](../examples/SKILL.md#query-the-sdk-from-a-short-program) |
-| 看总览、局部障碍或多层结构 | [按需图像脚本](../examples/observe-and-render.mjs)：快照 + Prismarine／Chromium 截图 |
-| 寻路到坐标 | [Pathfinder 示例](../examples/plugin-goal.mjs)，含停滞报告和到达核验 |
+| 看总览、局部障碍或多层结构 | [按需图像脚本](../examples/screenshot.mjs)：快照 + Prismarine／Chromium 截图 |
+| 寻路到坐标 | [Pathfinder 示例](../examples/navigate.mjs)，含停滞报告和到达核验 |
 | 查树干候选、放置位置的实体重叠 | [树查询](../examples/SKILL.md#query-a-candidate-tree)、[实体几何查询](../examples/inspect-placement-entities.mjs) |
 | 查询前一脚本或已卸载区域的方块／牌 | [共享方块记忆](BLOCK-MEMORY.md)：查询角色实际收到的完整区块 |
 | 精确检查局部地形与连通性 | [地形摘要](../examples/summarize-terrain.mjs) |
@@ -22,7 +22,7 @@
 | 开箱，决定后再取物 | [两步容器操作](../examples/SKILL.md#inspect-a-container-then-transfer) |
 | 导航中进食并报告经过 | [导航进食](../examples/navigate-with-autoeat.mjs)：暂停、进食、恢复及每次动作报告 |
 | 导航中自卫并保留决策证据 | [导航自卫](../examples/navigate-with-defense.mjs)：候选选择、战斗摘要、路线恢复与进度合并 |
-| 选择目标执行 PvP | [战斗示例](../examples/observe-pvp.mjs)；标准适配器自动提供战斗过程报告 |
+| 选择目标执行 PvP | [战斗示例](../examples/fight-target.mjs)；标准适配器自动提供战斗过程报告 |
 | 在同一程序中协调施工与进食 | [施工进食](../examples/build-with-autoeat.mjs)：主手串行化 |
 | 报告进展或请求模型判断 | [Inbox 用法](../examples/SKILL.md#report-action-specific-progress)与[完整协议](../packages/inbox/README.md) |
 

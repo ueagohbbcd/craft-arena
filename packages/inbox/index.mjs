@@ -1,3 +1,4 @@
 export { Inbox, localInboxClient } from "./queue.mjs";
 export { InboxClient, createInboxServer } from "./ipc.mjs";
-export { TaskManager } from "./tasks.mjs";
+// TaskManager lives in packages/tasks; re-exported for existing importers.
+export { TaskManager } from "../tasks/index.mjs";

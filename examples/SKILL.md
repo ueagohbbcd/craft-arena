@@ -17,7 +17,7 @@ Choose a destination from the briefing and observed terrain, then call the `bash
 
 ```json
 {
-  "command": "node \"$ARENA_TOOLKIT_ROOT/examples/plugin-goal.mjs\" X Y Z",
+  "command": "node \"$ARENA_TOOLKIT_ROOT/examples/navigate.mjs\" X Y Z",
   "wait_seconds": 30
 }
 ```
@@ -74,7 +74,7 @@ The result is `status:"running"` plus the listener's own `taskId`; it keeps runn
 
 ```json
 {
-  "command": "node \"$ARENA_TOOLKIT_ROOT/examples/plugin-goal.mjs\" 100 64 100",
+  "command": "node \"$ARENA_TOOLKIT_ROOT/examples/navigate.mjs\" 100 64 100",
   "wait_seconds": 30
 }
 ```
@@ -120,8 +120,8 @@ Urgent health, death and disconnect events arrive the same way and take priority
 `observe` returns state JSON only; it has no image option. When terrain is easier to judge as a picture, run the screenshot example and then `read` the PNG it prints:
 
 ```sh
-node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs"
-node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs" minX minY minZ maxX maxY maxZ
+node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"
+node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ
 ```
 
 Without coordinates it frames the area around your feet: at most 25×25 cells horizontally, 8 below to 16 above, clipped to loaded columns and dimension height. With six inclusive coordinates it captures exactly that box. It prints `imagePath` plus the captured bounds, known fraction and metadata, so always read the printed JSON before reading the image. Everything unknown stays unknown: the picture shows only cells the participant mirror has actually received, and blank regions are missing data, not air.
@@ -306,7 +306,7 @@ of native execution and observed surroundings arrive at the next tool boundary.
 Use [observe-pvp.mjs](observe-pvp.mjs) with chosen, currently observed entity IDs:
 
 ```sh
-node "$ARENA_TOOLKIT_ROOT/examples/observe-pvp.mjs" 42 57
+node "$ARENA_TOOLKIT_ROOT/examples/fight-target.mjs" 42 57
 ```
 
 This example chooses the nearest supplied ID, reports its candidates/reason and

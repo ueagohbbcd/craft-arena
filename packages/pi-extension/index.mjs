@@ -1,16 +1,17 @@
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Inbox, TaskManager, createInboxServer } from "../inbox/index.mjs";
+import { Inbox, createInboxServer } from "../inbox/index.mjs";
+import { TaskManager } from "../tasks/index.mjs";
 import {
   createMatchReader,
   createPlatformFeedback,
   platformText,
-} from "./platform-feedback.mjs";
+} from "./platform-messages.mjs";
 import { connectBot } from "../bot-sdk/index.mjs";
-import * as ObservationTools from "../observation/pi-extension.mjs";
-import { createPerceptionChanges } from "../observation/changes.mjs";
-import { readPerceptionOptions } from "../observation/config.mjs";
+import * as ObservationTools from "./observe-tool.mjs";
+import { createPerceptionChanges } from "../observation/section-diff.mjs";
+import { readPerceptionOptions } from "../observation/observer-config.mjs";
 import { observationOptionsFromMatch } from "../observation/match-options.mjs";
 import { runtimeProjectionOptions, runtimeState } from "./runtime-state.mjs";
 import { defaultScripts } from "./default-scripts.mjs";

@@ -1,6 +1,6 @@
 // Take one picture of the loaded world and print where it was saved.
 // Run when a decision depends on shape: a doorway, a wall, stacked levels.
-// Usage: node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs" [minX minY minZ maxX maxY maxZ]
+// Usage: node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ]
 // Without coordinates it frames the area around your feet. Read the printed JSON,
 // then read imagePath with the read tool.
 import { mkdir, writeFile } from "node:fs/promises";
@@ -30,7 +30,7 @@ async function main() {
     (args.length !== 6 || args.some((v) => !Number.isInteger(Number(v))))
   )
     throw new Error(
-      "Usage: node examples/observe-and-render.mjs [minX minY minZ maxX maxY maxZ]",
+      "Usage: node examples/screenshot.mjs [minX minY minZ maxX maxY maxZ]",
     );
   const bot = await connectBot();
   let snapshot;

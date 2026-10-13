@@ -7,7 +7,7 @@ const args = process.argv.slice(2);
 const noDig = args.includes("--no-dig");
 const xyz = args.filter((arg) => arg !== "--no-dig").map(Number);
 if (xyz.length !== 3 || !xyz.every(Number.isFinite))
-  throw new Error("Usage: node examples/plugin-goal.mjs X Y Z [--no-dig]");
+  throw new Error("Usage: node examples/navigate.mjs X Y Z [--no-dig]");
 const bot = await connectBot(),
   inbox = new InboxClient();
 const { Movements, goals } = loadSelectedPlugins(bot, { pvp: false });
@@ -114,7 +114,7 @@ try {
         goalLoaded: bot.blockAt({ x: xyz[0], y: xyz[1], z: xyz[2] }) !== null,
         terrain,
         observation:
-          "terrain.bounds is a local crop, not the whole route. For a picture of the surroundings run examples/observe-and-render.mjs with explicit bounds, or query exact blocks with blockAt/findBlocks.",
+          "terrain.bounds is a local crop, not the whole route. For a picture of the surroundings run examples/screenshot.mjs with explicit bounds, or query exact blocks with blockAt/findBlocks.",
         activity:
           "Pathfinder goto is still running; this report does not stop movement.",
         question:

@@ -29,7 +29,7 @@ import { capturePrismarineSnapshot } from "../packages/world-visual/prismarine.m
 import { startObserver } from "../packages/observation/observer-loop.mjs";
 import { Inbox, localInboxClient } from "../packages/inbox/queue.mjs";
 import { createInboxServer } from "../packages/inbox/ipc.mjs";
-import { TaskManager } from "../packages/inbox/tasks.mjs";
+import { TaskManager } from "../packages/tasks/index.mjs";
 // Opt-in only: this script is never part of npm test. It starts an official
 // offline loopback server and mutates a NEW test world, never the existing world.
 // The operator must provide a stopped isolated QA installation that has already
@@ -79,8 +79,8 @@ const sourceFiles = [
   "packages/observation/observe.mjs",
   "packages/observation/observer-loop.mjs",
   "packages/default-scripts/observer.mjs",
-  "packages/inbox/tasks.mjs",
-  "examples/plugin-goal.mjs",
+  "packages/tasks/index.mjs",
+  "examples/navigate.mjs",
   "packages/world-visual/index.mjs",
   "packages/world-visual/prismarine.mjs",
   "scripts/validate-observation-live.mjs",
@@ -644,7 +644,7 @@ async function main() {
     const horizontalDistance = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
     try {
       const id = tasks.start(
-        `exec ${quote(process.execPath)} ${quote(join(root, "examples/plugin-goal.mjs"))} 16 64 0 --no-dig`,
+        `exec ${quote(process.execPath)} ${quote(join(root, "examples/navigate.mjs"))} 16 64 0 --no-dig`,
       );
       await waitFor(
         () => {
@@ -656,7 +656,7 @@ async function main() {
           );
         },
         15000,
-        "real plugin-goal must be moving before cancellation",
+        "real navigate example must be moving before cancellation",
       );
       const atCancel = bridge.bot.entity.position.clone();
       const controlsAtCancel = flags();

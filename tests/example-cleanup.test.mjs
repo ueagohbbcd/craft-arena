@@ -60,7 +60,7 @@ async function cancelExample(t, name, args, env = {}) {
 }
 
 test("managed SIGTERM stops the actual navigation CLI and flushes controls before exit", async (t) => {
-  const { trace, closed } = await cancelExample(t, "plugin-goal.mjs", [
+  const { trace, closed } = await cancelExample(t, "navigate.mjs", [
     "10",
     "1",
     "0",

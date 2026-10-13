@@ -55,7 +55,7 @@ Plugins and model code are written against real Mineflayer, so the facade aims t
 
 ## Pathfinder and PvP adaptation
 
-Load the adapters once with `loadSelectedPlugins(bot)`. Keep native Movements defaults unless the task calls for a change. [plugin-goal.mjs](../../examples/plugin-goal.mjs) demonstrates arrival verification, progress and stall reporting; `--no-dig` opts into preserving blocks.
+Load the adapters once with `loadSelectedPlugins(bot)`. Keep native Movements defaults unless the task calls for a change. [plugin-goal.mjs](../../examples/navigate.mjs) demonstrates arrival verification, progress and stall reporting; `--no-dig` opts into preserving blocks.
 [navigate-with-autoeat.mjs](../../examples/navigate-with-autoeat.mjs) demonstrates
 borrowing the hand from an active route, native consumption and restoring the
 same goal, with normal Inbox evidence for each meal. `NoPath` describes the loaded terrain and current movement settings, so inspect those when choosing the next attempt.
@@ -181,11 +181,11 @@ These are labeled `controller_report`. Unreported selection or stopping reasons
 stay unknown. The observer does not infer a multi-target algorithm inside PvP.
 The complete [trip/defense Inbox example](../../examples/navigate-with-defense.mjs)
 combines ready-made perception, native execution and route-specific reports.
-The thin [observe-pvp example](../../examples/observe-pvp.mjs) demonstrates this
+The thin [observe-pvp example](../../examples/fight-target.mjs) demonstrates this
 with explicit observed IDs and PvP's separate `movements` instance:
 
 ```sh
-node /opt/arena/examples/observe-pvp.mjs 42 57
+node /opt/arena/examples/fight-target.mjs 42 57
 ```
 
 A normal report has this shape (illustrative values):

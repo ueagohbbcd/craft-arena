@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { Vector } from "../packages/bot-sdk/index.mjs";
 import { observe } from "../packages/observation/observe.mjs";
-import { registerObserveTool } from "../packages/observation/pi-extension.mjs";
+import { registerObserveTool } from "../packages/pi-extension/observe-tool.mjs";
 function fakeBot() {
   const bot = {
     version: "1.20.4",

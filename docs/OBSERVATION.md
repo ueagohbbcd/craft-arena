@@ -101,7 +101,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 ### 常见决策
 
 - 开局：读简报和现成状态，结合开局图像选择第一个目标。
-- 看图：需要判断门洞、墙体或多层结构时，用 `node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs" [minX minY minZ maxX maxY maxZ]` 截图，再读它打印的 `imagePath`（需要 Chromium）。
+- 看图：需要判断门洞、墙体或多层结构时，用 `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ]` 截图，再读它打印的 `imagePath`（需要 Chromium）。
 - 采木：从观察到的原木选一个 `seed`，调用[树候选查询](../examples/SKILL.md#query-a-candidate-tree)取得坐标和证据，再编写采集控制。
 - 开箱：普通程序调用 `openContainer`；查看现成 `window` 内容或工具打印的 `containerItems()`，再决定取哪些数量。
 - 受伤／死亡：读取事件、当前生命和位置，并检查仍在运行的任务；选择继续等待、取消旧控制或恢复。
@@ -139,10 +139,10 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 Pi 的直接 `observe` 工具只返回状态 JSON；按需用 `fullItems`、`fullEntities`、`fullLocal` 展开物品原始组件、普通实体和局部方块／告示牌详情。`observe(bot, options)` 返回 `{state, metadata}`：`state` 是同步冻结的取样结果，`metadata` 带 `epoch`、`sequence` 和本次 `sampledAt`。它不接受视图参数，也不返回图像。
 
-需要看结构时，运行普通程序脚本 [observe-and-render.mjs](../examples/observe-and-render.mjs)：它用当前镜像抓取一份快照，再经 Prismarine 观看器截图。
+需要看结构时，运行普通程序脚本 [observe-and-render.mjs](../examples/screenshot.mjs)：它用当前镜像抓取一份快照，再经 Prismarine 观看器截图。
 
 ```sh
-node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs" [minX minY minZ maxX maxY maxZ]
+node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ]
 ```
 
 - 省略六个坐标时，默认取以玩家为中心、水平 ±12 格、垂直 −8 至 +16 的切片，并裁剪到已加载区块范围与维度高度。
@@ -203,7 +203,7 @@ await inbox.publishCurrent("build-progress", {
 await inbox.publishCurrent("build-progress", null);
 ```
 
-Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报告信封，建立明确的任务关联。`programState` 保留程序来源，运行时另外提供真实进程状态；结合两者理解“进程仍在运行”和“程序自述当前在做什么”。需要永久事件记录时用 `post`，`requestJudgment` 投递成功后返回 `{accepted:true,id}`；模型收到报告后独立决定下一步，程序按自身代码继续执行。需要完整的运行中报告例子，见 [plugin-goal](../examples/plugin-goal.mjs)。具体有效期、传输与大小限制见 [收件箱](../packages/inbox/README.md)。
+Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报告信封，建立明确的任务关联。`programState` 保留程序来源，运行时另外提供真实进程状态；结合两者理解“进程仍在运行”和“程序自述当前在做什么”。需要永久事件记录时用 `post`，`requestJudgment` 投递成功后返回 `{accepted:true,id}`；模型收到报告后独立决定下一步，程序按自身代码继续执行。需要完整的运行中报告例子，见 [plugin-goal](../examples/navigate.mjs)。具体有效期、传输与大小限制见 [收件箱](../packages/inbox/README.md)。
 
 高级部署可调整默认显示预算：`ARENA_PERCEPTION_TASK_LIMIT=16`、`ARENA_PERCEPTION_PROGRAM_LIMIT=8`、`ARENA_PERCEPTION_PROGRAM_BYTES=8192`、`ARENA_PERCEPTION_PROGRAM_ENTRY_BYTES=2048`。这些值接受非负整数，只控制默认呈现；`observe({fullRuntime:true})` 仍返回底层尚保留的完整运行状态。
 
@@ -214,7 +214,7 @@ Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报
 该批次验证的三维示意回退与材质三维截图随常驻图像工具一并移除；现在按需脚本在缺少 Chromium 时直接报错。真实 Pi 的请求上下文与程序等待测试使用固定本地模型响应，验证工具与交付契约。
 
 - [观察核心](../packages/observation/index.mjs)：状态投影、数量、范围和事件。
-- [一次观察](../packages/observation/observe.mjs)与 [Pi 工具](../packages/observation/pi-extension.mjs)：状态 JSON 与冻结取样。
+- [一次观察](../packages/observation/observe.mjs)与 [Pi 工具](../packages/pi-extension/observe-tool.mjs)：状态 JSON 与冻结取样。
 - [默认观察器脚本](../packages/default-scripts/observer.mjs)、[观察循环](../packages/observation/observer-loop.mjs)与 [Pi 扩展](../packages/pi-extension/index.mjs)：默认脚本的启动、送达回执驱动的报告，以及运行时状态与普通历史交付。
 - [验证记录](VALIDATION.md)：当前离线、真实 Pi、渲染与实服证据；各项能力的实现范围与实战验证分别记录。
 

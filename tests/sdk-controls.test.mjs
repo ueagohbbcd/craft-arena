@@ -292,7 +292,7 @@ test(
 );
 
 for (const [example, eating] of [
-  ["plugin-goal.mjs", false],
+  ["navigate.mjs", false],
   ["navigate-with-autoeat.mjs", false],
   ["navigate-with-defense.mjs", false],
   ["navigate-with-autoeat.mjs", true],
