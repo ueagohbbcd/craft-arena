@@ -156,10 +156,7 @@ async function main() {
     throw new Error(
       "Usage: node examples/summarize-terrain.mjs [minX minY minZ maxX maxY maxZ]",
     );
-  const bot = await connectBot({
-    url: process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL,
-    token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
-  });
+  const bot = await connectBot();
   try {
     const position = bot.entity.position;
     const [x, y, z, maxX, maxY, maxZ] = args.map(Number);

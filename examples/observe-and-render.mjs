@@ -32,10 +32,7 @@ async function main() {
     throw new Error(
       "Usage: node examples/observe-and-render.mjs [minX minY minZ maxX maxY maxZ]",
     );
-  const bot = await connectBot({
-    url: process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL,
-    token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
-  });
+  const bot = await connectBot();
   let snapshot;
   try {
     const [x, y, z, maxX, maxY, maxZ] = args.map(Number);

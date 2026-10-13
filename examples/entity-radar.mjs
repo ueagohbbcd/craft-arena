@@ -104,10 +104,7 @@ async function main() {
     );
   const radius = Number(process.argv[2] ?? 32),
     intervalMs = Number(process.argv[3] ?? 1000);
-  const bot = await connectBot({
-    url: process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL,
-    token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
-  });
+  const bot = await connectBot();
   const controller = new AbortController();
   const stop = () => controller.abort();
   process.once("SIGTERM", stop);

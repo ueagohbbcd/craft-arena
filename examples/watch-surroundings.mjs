@@ -15,10 +15,7 @@ const seconds = Number(process.argv[3] ?? 60);
 if (!Number.isFinite(seconds) || seconds <= 0)
   throw new Error("Watch duration must be positive seconds");
 const inbox = new InboxClient();
-const bot = await connectBot({
-  url: process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL,
-  token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
-});
+const bot = await connectBot();
 const reported = new Set();
 try {
   const until = Date.now() + seconds * 1000;

@@ -235,10 +235,7 @@ export async function buildWithAutoeat(
 async function main() {
   if (!process.argv[2]) throw new Error("Pass a JSON placement plan");
   const plan = JSON.parse(await readFile(process.argv[2], "utf8"));
-  const bot = await connectBot({
-      url: process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL,
-      token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
-    }),
+  const bot = await connectBot(),
     inbox = new InboxClient(),
     controller = new AbortController();
   const stop = (name) => {

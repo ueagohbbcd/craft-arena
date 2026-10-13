@@ -168,8 +168,6 @@ test("observe fullRuntime retrieves retained raw program state even while the ga
     env: {
       ARENA_BRIDGE_URL: "",
       ARENA_BRIDGE_TOKEN: "",
-      MC_BRIDGE_URL: "",
-      MC_BRIDGE_TOKEN: "",
     },
   });
   const value = { phase: "reported phase", payload: "x".repeat(24000) };
@@ -583,11 +581,7 @@ test(
       MC_INBOX_TRANSPORT: "http",
       MC_INBOX_TOKEN: "resident-loopback-fixture-token",
     };
-    for (const name of [
-      "MC_BRIDGE_URL",
-      "MC_INBOX_IDLE_URGENT",
-      "ARENA_EXTRA_EXTENSIONS",
-    ])
+    for (const name of ["MC_INBOX_IDLE_URGENT", "ARENA_EXTRA_EXTENSIONS"])
       delete env[name];
     child = spawn(
       process.execPath,

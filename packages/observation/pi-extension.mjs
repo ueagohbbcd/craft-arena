@@ -123,10 +123,7 @@ export default function observationExtension(pi) {
   let connection;
   registerObserveTool(pi, {
     async getBot() {
-      connection ??= connectBot({
-        url: process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL,
-        token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
-      });
+      connection ??= connectBot();
       try {
         return await connection;
       } catch (error) {

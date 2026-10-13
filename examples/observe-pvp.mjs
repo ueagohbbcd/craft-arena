@@ -8,10 +8,7 @@ if (!ids.length || !ids.every(Number.isInteger))
   throw new Error(
     "Usage: node examples/observe-pvp.mjs ENTITY_ID [ENTITY_ID ...]",
   );
-const bot = await connectBot({
-  url: process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL,
-  token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
-});
+const bot = await connectBot();
 const controller = new AbortController();
 const cancel = () => {
   controller.abort(new Error("Controller cancelled"));

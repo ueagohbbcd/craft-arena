@@ -42,8 +42,7 @@ export default function participantInbox(pi) {
   let context;
   const bootAt = Date.now();
   const configuredDuration = Number(process.env.ARENA_DURATION_MS);
-  const startValue =
-    process.env.ARENA_MATCH_STARTED_AT ?? process.env.ARENA_STARTED_AT_MS;
+  const startValue = process.env.ARENA_MATCH_STARTED_AT;
   const configuredStart =
     startValue === undefined
       ? NaN
@@ -66,9 +65,8 @@ export default function participantInbox(pi) {
   let lastStopReason;
   const resident = process.env.ARENA_RUNTIME_RESIDENT === "1";
   const idleDelayMs = Number(process.env.ARENA_CONTINUE_DELAY_MS ?? 5000);
-  const bridgeUrl = process.env.ARENA_BRIDGE_URL || process.env.MC_BRIDGE_URL;
-  const bridgeToken =
-    process.env.ARENA_BRIDGE_TOKEN || process.env.MC_BRIDGE_TOKEN;
+  const bridgeUrl = process.env.ARENA_BRIDGE_URL;
+  const bridgeToken = process.env.ARENA_BRIDGE_TOKEN;
   const perceptionProjection = PerceptionRuntime.runtimeProjectionOptions();
   async function readMatch(fresh = false) {
     if (!bridgeUrl || !bridgeToken) return undefined;

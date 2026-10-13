@@ -1,6 +1,6 @@
 # Mineflayer SDK reference
 
-Use `connectBot({url,token})` from `index.mjs` to control your existing arena bot. Load Pathfinder and PvP with `loadSelectedPlugins(bot)` from `plugins.mjs`. The [programming skill](../../examples/SKILL.md) gives the action loop and runnable examples.
+Use `connectBot()` from `index.mjs` to control your existing arena bot; it reads `ARENA_BRIDGE_URL` and `ARENA_BRIDGE_TOKEN` from the environment (pass `{url, token}` to override). Load Pathfinder and PvP with `loadSelectedPlugins(bot)` from `plugins.mjs`. The [programming skill](../../examples/SKILL.md) gives the action loop and runnable examples.
 
 ## Common APIs
 

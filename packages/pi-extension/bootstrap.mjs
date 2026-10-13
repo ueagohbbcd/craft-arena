@@ -159,8 +159,8 @@ export async function launchPi({
   const packageRoot = resolve(dirname(entry), "..");
   const resident = args.length === 0;
   const waitForMatch = resident && env.ARENA_WAIT_FOR_MATCH === "1";
-  const bridgeUrl = env.ARENA_BRIDGE_URL || env.MC_BRIDGE_URL;
-  const token = env.ARENA_BRIDGE_TOKEN || env.MC_BRIDGE_TOKEN;
+  const bridgeUrl = env.ARENA_BRIDGE_URL;
+  const token = env.ARENA_BRIDGE_TOKEN;
   const startTimeoutMs = positiveInteger(env.ARENA_START_TIMEOUT_MS, 600000);
   if (waitForMatch && (!bridgeUrl || !token))
     throw new Error(

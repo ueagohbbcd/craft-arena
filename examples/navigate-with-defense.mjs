@@ -280,10 +280,7 @@ async function main() {
   const xyz = process.argv.slice(2).map(Number);
   if (xyz.length !== 3 || !xyz.every(Number.isFinite))
     throw new Error("Usage: node examples/navigate-with-defense.mjs X Y Z");
-  const bot = await connectBot({
-    url: process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL,
-    token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
-  });
+  const bot = await connectBot();
   const inbox = new InboxClient(),
     controller = new AbortController();
   const { Movements, goals } = loadSelectedPlugins(bot, { inbox });

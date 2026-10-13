@@ -68,14 +68,19 @@ export class Vector {
 const coords = (v) => ({ x: v.x, y: v.y, z: v.z });
 const key = (v) => `${Math.floor(v.x)},${Math.floor(v.y)},${Math.floor(v.z)}`;
 export class BotFacade extends EventEmitter {
+  /** url/token default to the container's ARENA_BRIDGE_URL/ARENA_BRIDGE_TOKEN. */
   constructor({
-    url,
-    token,
+    url = process.env.ARENA_BRIDGE_URL,
+    token = process.env.ARENA_BRIDGE_TOKEN,
     fetchImpl = fetch,
     reconnectDelay = 250,
     loadRegistry = true,
-  }) {
+  } = {}) {
     super();
+    if (!url)
+      throw new Error(
+        "Bridge URL is required: set ARENA_BRIDGE_URL and ARENA_BRIDGE_TOKEN, or pass {url, token}",
+      );
     this.url = url.replace(/\/$/, "");
     this.token = token;
     this.fetch = fetchImpl;
@@ -886,7 +891,7 @@ export class BotFacade extends EventEmitter {
     this.emit("end", "bridge closed");
   }
 }
-export async function connectBot(options) {
+export async function connectBot(options = {}) {
   const bot = new BotFacade(options);
   let resolve, reject;
   const ready = new Promise((r, j) => {

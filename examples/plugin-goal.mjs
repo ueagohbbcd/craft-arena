@@ -8,10 +8,7 @@ const noDig = args.includes("--no-dig");
 const xyz = args.filter((arg) => arg !== "--no-dig").map(Number);
 if (xyz.length !== 3 || !xyz.every(Number.isFinite))
   throw new Error("Usage: node examples/plugin-goal.mjs X Y Z [--no-dig]");
-const bot = await connectBot({
-    url: process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL,
-    token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
-  }),
+const bot = await connectBot(),
   inbox = new InboxClient();
 const { Movements, goals } = loadSelectedPlugins(bot, { pvp: false });
 // Participant policy: tune for the terrain (digging may legitimately take time).

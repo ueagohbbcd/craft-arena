@@ -44,10 +44,7 @@ async function main() {
       "Usage: node examples/inspect-placement-entities.mjs X Y Z",
     );
   const [x, y, z] = args.map(Number);
-  const bot = await connectBot({
-    url: process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL,
-    token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
-  });
+  const bot = await connectBot();
   try {
     console.log(JSON.stringify(inspectPlacementEntities(bot, { x, y, z })));
   } finally {

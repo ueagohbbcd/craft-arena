@@ -97,10 +97,7 @@ Do not trust coordinates from earlier context: the character has been moving, so
 const { connectBot } = await import(
   `${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/index.mjs`
 );
-const bot = await connectBot({
-  url: process.env.ARENA_BRIDGE_URL,
-  token: process.env.ARENA_BRIDGE_TOKEN,
-});
+const bot = await connectBot();
 try {
   for (const [x, y, z] of [[98, 64, 97], [100, 64, 100]]) {
     console.log({ x, y, z, block: bot.blockAt({ x, y, z })?.name ?? null });
@@ -150,10 +147,7 @@ Each `connectBot` connection has its own observation mirror; actions from all pr
 const { connectBot } = await import(
   `${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/index.mjs`
 );
-const bot = await connectBot({
-  url: process.env.ARENA_BRIDGE_URL,
-  token: process.env.ARENA_BRIDGE_TOKEN,
-});
+const bot = await connectBot();
 bot.on("error", error => console.error(error));
 try {
   console.log({
@@ -202,10 +196,7 @@ const { loadSelectedPlugins } = await import(
 );
 const [x, y, z] = process.argv.slice(2).map(Number);
 
-const bot = await connectBot({
-  url: process.env.ARENA_BRIDGE_URL,
-  token: process.env.ARENA_BRIDGE_TOKEN,
-});
+const bot = await connectBot();
 const { Movements, goals } = loadSelectedPlugins(bot);
 bot.pathfinder.setMovements(new Movements(bot));
 bot.on("error", error => console.error(error));
