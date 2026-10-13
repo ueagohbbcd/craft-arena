@@ -46,15 +46,9 @@ export function observeRpcOutput(
 }
 
 export function permanentResidentError(message = "") {
-  if (
-    /^Trusted provider failure \[category=(?:authentication|context_length|invalid_request)(?:; status=\d{3})?\]/.test(
-      message,
-    )
-  )
-    return true;
   // Status numbers and words such as "unsupported" in arbitrary provider text
   // are not a diagnosis. In particular, a host end can reject a request with 403.
-  return /invalid api[ _-]?key|incorrect api[ _-]?key|api[ _-]?key (?:is )?(?:missing|not configured)|no api key|missing api key|insufficient_quota|(?:token|cash|model) budget exhausted|request exceeds maximum budget|native pi upstream is not configured|model is not allowed|no model (?:selected|configured)|context[_ ]length[_ ]exceeded|context overflow|prompt (?:is )?too long/i.test(
+  return /invalid api[ _-]?key|incorrect api[ _-]?key|api[ _-]?key (?:is )?(?:missing|not configured)|no api key|missing api key|insufficient_quota|(?:token|cash|model) budget exhausted|request exceeds maximum budget|model is not allowed|no model (?:selected|configured)|context[_ ]length[_ ]exceeded|context overflow|prompt (?:is )?too long/i.test(
     message,
   );
 }

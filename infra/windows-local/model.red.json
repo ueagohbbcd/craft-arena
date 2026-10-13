@@ -1,6 +1,6 @@
 {
-  "id": "deepseek-flash",
-  "api": "pi-messages",
+  "id": "gpt-6.1-sol",
+  "api": "openai-completions",
   "reasoning": true,
   "input": [
     "text",

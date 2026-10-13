@@ -205,17 +205,12 @@ test("error classification excludes arbitrary status numbers and ended host reje
     "Authentication failed; credentials may have expired or network is unavailable",
   ])
     assert.equal(permanentResidentError(message), false, message);
-  for (const category of [
-    "authentication",
-    "invalid_request",
-    "context_length",
+  for (const message of [
+    "401 Incorrect API key provided: sk-fixture",
+    "400 This model's maximum context length is 8192 tokens (context_length_exceeded)",
+    "Model is not allowed",
   ])
-    assert.equal(
-      permanentResidentError(
-        `Trusted provider failure [category=${category}; status=401]`,
-      ),
-      true,
-    );
+    assert.equal(permanentResidentError(message), true, message);
   const h = harness();
   h.setMatch("ended");
   h.settle("error", [], "invalid API key");
@@ -350,7 +345,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
           );
           return;
         }
-        if (req.url !== "/v1/messages") {
+        if (req.url !== "/v1/chat/completions") {
           res.writeHead(404);
           res.end();
           return;
@@ -363,69 +358,75 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
           at: Date.now(),
         });
         const count = requests.length;
-        const usage = {
-          input: 10,
-          output: count === 1 ? 0 : 5,
-          cacheRead: 0,
-          cacheWrite: 0,
-          totalTokens: count === 1 ? 10 : 15,
-          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        // An OpenAI-compatible upstream: errors are HTTP statuses, results stream as chunks.
+        const fail = (status, message) => {
+          res.writeHead(status, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: { message } }));
         };
-        res.writeHead(200, { "content-type": "text/event-stream" });
-        const event = (value) =>
-          res.write(`data: ${JSON.stringify(value)}\n\n`);
-        event({ type: "start" });
-        if (scenario === "queued" && count === 1)
+        if (scenario === "fatal")
+          return fail(401, "Incorrect API key provided: fixture");
+        if (scenario === "queued" && count === 1) {
           await new Promise((resolve) => setTimeout(resolve, 100));
+          return fail(502, "temporary upstream fixture failure");
+        }
+        if (
+          ["transient", "background"].includes(scenario) &&
+          count >= 2 &&
+          count <= 6
+        )
+          return fail(502, "temporary upstream fixture failure");
+        res.writeHead(200, { "content-type": "text/event-stream" });
+        const chunk = (delta, finish = null) =>
+          res.write(
+            `data: ${JSON.stringify({
+              id: `fixture-${count}`,
+              object: "chat.completion.chunk",
+              created: 0,
+              model: "fixture",
+              choices: [{ index: 0, delta, finish_reason: finish }],
+            })}\n\n`,
+          );
+        const finish = (reason, output) => {
+          chunk({}, reason);
+          res.write(
+            `data: ${JSON.stringify({
+              id: `fixture-${count}`,
+              object: "chat.completion.chunk",
+              created: 0,
+              model: "fixture",
+              choices: [],
+              usage: {
+                prompt_tokens: 10,
+                completion_tokens: output,
+                total_tokens: 10 + output,
+              },
+            })}\n\ndata: [DONE]\n\n`,
+          );
+        };
+        chunk({ role: "assistant" });
         if (scenario === "background" && count === 1) {
           const program = `require("node:fs").appendFileSync(${JSON.stringify(join(dir, "action-starts.txt"))},"started\\n");setTimeout(()=>{},60000)`;
-          const toolCall = {
-            type: "toolCall",
-            id: "fixture-background",
-            name: "bash",
-            arguments: { command: `node -e '${program}'`, wait_seconds: 0.05 },
-          };
-          event({
-            type: "toolcall_start",
-            contentIndex: 0,
-            id: toolCall.id,
-            toolName: toolCall.name,
+          chunk({
+            tool_calls: [
+              {
+                index: 0,
+                id: "fixture-background",
+                type: "function",
+                function: {
+                  name: "bash",
+                  arguments: JSON.stringify({
+                    command: `node -e '${program}'`,
+                    wait_seconds: 0.05,
+                  }),
+                },
+              },
+            ],
           });
-          event({ type: "toolcall_end", contentIndex: 0, toolCall });
-          event({ type: "done", reason: "toolUse", usage });
-        } else if (scenario === "fatal")
-          event({
-            type: "error",
-            reason: "error",
-            errorMessage:
-              "Trusted provider failure [category=authentication; status=401]",
-            usage,
-          });
-        else if (scenario === "transient" && count === 1)
-          event({ type: "done", reason: "length", usage });
-        else if (
-          (["transient", "background"].includes(scenario) && count <= 6) ||
-          (scenario === "queued" && count === 1)
-        )
-          event({
-            type: "error",
-            reason: "error",
-            errorMessage: "502 temporary upstream fixture failure",
-            usage,
-          });
+          finish("tool_calls", 5);
+        } else if (scenario === "transient" && count === 1) finish("length", 0);
         else {
-          event({ type: "text_start", contentIndex: 0 });
-          event({
-            type: "text_delta",
-            contentIndex: 0,
-            delta: `actual RPC progress ${count}`,
-          });
-          event({
-            type: "text_end",
-            contentIndex: 0,
-            content: `actual RPC progress ${count}`,
-          });
-          event({ type: "done", reason: "stop", usage });
+          chunk({ content: `actual RPC progress ${count}` });
+          finish("stop", 5);
           if (
             count ===
             (scenario === "queued" ? 2 : scenario === "background" ? 7 : 8)
@@ -448,7 +449,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
         join(dir, "model.json"),
         JSON.stringify({
           id: "fixture",
-          api: "pi-messages",
+          api: "openai-completions",
           contextWindow: 32768,
           maxOutputTokens: 64,
         }),
@@ -522,7 +523,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
       if (scenario === "queued") {
         assert.equal(requests.length, 2, stderr);
         assert.match(
-          JSON.stringify(requests[1].body.context.messages),
+          JSON.stringify(requests[1].body.messages),
           /Preserve queued fixture decision/,
         );
         assert.doesNotMatch(
@@ -539,13 +540,13 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
           "started\n",
           "the managed action starts exactly once across five failed model requests",
         );
-        const results = requests[1].body.context.messages.filter(
-          (message) => message.role === "toolResult",
+        const results = requests[1].body.messages.filter(
+          (message) => message.role === "tool",
         );
         assert.match(JSON.stringify(results), /running/);
         for (const request of requests.slice(2)) {
           assert.match(
-            JSON.stringify(request.body.context.messages),
+            JSON.stringify(request.body.messages),
             /fixture-background/,
           );
         }
@@ -554,9 +555,9 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
       }
       assert.equal(requests.length, 8, `${stderr}\n${stdout.slice(-2000)}`);
       const prompt = (index) =>
-        requests[index].body.context.messages.findLast(
+        requests[index].body.messages.findLast(
           (message) =>
-            ["user", "custom"].includes(message.role) &&
+            message.role === "user" &&
             /The previous response|The previous model request|The trusted host still/.test(
               JSON.stringify(message.content),
             ),

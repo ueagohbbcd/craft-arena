@@ -20,10 +20,13 @@ test("gateway CLI reads model, protocol, output default and timeout from the pub
     let raw = "";
     for await (const chunk of req) raw += chunk;
     received = JSON.parse(raw);
-    if (received.context.messages[0].content === "slow") return;
-    res.setHeader("content-type", "text/event-stream");
+    if (received.messages[0].content === "slow") return;
+    res.setHeader("content-type", "application/json");
     res.end(
-      'data: {"type":"done","usage":{"input":1,"output":1,"cacheRead":0,"cacheWrite":0,"totalTokens":2}}\n\n',
+      JSON.stringify({
+        choices: [{ index: 0, message: { role: "assistant", content: "ok" } }],
+        usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },
+      }),
     );
   });
   const upstreamPort = await listen(upstream);
@@ -33,7 +36,7 @@ test("gateway CLI reads model, protocol, output default and timeout from the pub
   const directory = await mkdtemp(join(tmpdir(), "arena-model-config-"));
   const model = {
     id: "descriptor-only-model",
-    api: "pi-messages",
+    api: "openai-completions",
     maxOutputTokens: 73,
     contextWindow: 1000,
     requestTimeoutMs: 100,
@@ -100,26 +103,27 @@ test("gateway CLI reads model, protocol, output default and timeout from the pub
     assert(Date.now() < deadline, `Gateway startup timed out: ${errors}`);
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
-  const call = (content, id = model.id, endpoint = "messages") =>
+  const call = (content, id = model.id, endpoint = "chat/completions") =>
     fetch(`${base}/${endpoint}`, {
       method: "POST",
       signal: AbortSignal.timeout(5000),
       headers: { authorization: "Bearer fixture" },
       body: JSON.stringify({
         model: id,
-        context: { messages: [{ role: "user", content }] },
+        messages: [{ role: "user", content }],
       }),
     });
   const response = await call("hello");
   assert.equal(response.status, 200);
   await response.text();
   assert.equal(received.model, model.id);
-  assert.equal(received.options.maxTokens, 73);
+  assert.equal(received.max_completion_tokens, 73);
   const otherModel = await call("hello", "other-model");
   assert.equal(otherModel.status, 400);
   await otherModel.text();
-  const otherProtocol = await call("hello", model.id, "chat/completions");
-  assert.equal(otherProtocol.status, 400);
+  // Only the OpenAI-compatible route exists; there is no native Pi endpoint.
+  const otherProtocol = await call("hello", model.id, "messages");
+  assert.equal(otherProtocol.status, 403);
   await otherProtocol.text();
   const slow = await call("slow");
   assert.equal(slow.status, 502);

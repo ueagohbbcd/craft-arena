@@ -20,15 +20,15 @@
     }
   },
   "upstream": {
-    "url": "http://deepseek-adapter:8083/messages",
-    "apiKeyEnv": "DEEPSEEK_ADAPTER_TOKEN"
+    "url": "https://api.deepseek.com/chat/completions",
+    "apiKeyEnv": "DEEPSEEK_API_KEY"
   },
   "limits": {
     "estimator": "approximate",
     "imageTokenAllowance": 4096
   },
   "requireRunningMatch": true,
-  "examplePurpose": "Local 1v1: USD 0.50/minute reference-cost rate; 250000-token compaction threshold, 32768 output tokens.",
+  "examplePurpose": "Local 1v1, blue team: USD 0.50/minute reference-cost rate; 250000-token compaction threshold, 32768 output tokens. DeepSeek's OpenAI-compatible endpoint; its key comes from DEEPSEEK_API_KEY.",
   "referenceCost": {
     "mode": "official-api-list-price",
     "currency": "USD",
@@ -44,5 +44,5 @@
       }
     }
   },
-  "modelConfig": "model.deepseek.json"
+  "modelConfig": "model.blue.json"
 }

@@ -17,8 +17,7 @@
     "format": "prettier --write \"packages/**/*.mjs\" \"tests/**/*.mjs\" \"examples/**/*.mjs\" \"scripts/**/*.mjs\"",
     "format:check": "prettier --check \"packages/**/*.mjs\" \"tests/**/*.mjs\" \"examples/**/*.mjs\" \"scripts/**/*.mjs\"",
     "arena:live": "node packages/arena/src/live-cli.mjs",
-    "agent:start": "node packages/pi-extension/bootstrap.mjs",
-    "auth:codex": "node packages/codex-adapter/login.mjs"
+    "agent:start": "node packages/pi-extension/bootstrap.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.1.0",

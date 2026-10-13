@@ -20,15 +20,15 @@
     }
   },
   "upstream": {
-    "url": "http://codex-adapter:8083/messages",
-    "apiKeyEnv": "CODEX_ADAPTER_TOKEN"
+    "url": "https://api.openai.com/v1/chat/completions",
+    "apiKeyEnv": "RED_UPSTREAM_API_KEY"
   },
   "limits": {
     "estimator": "approximate",
     "imageTokenAllowance": 4096
   },
   "requireRunningMatch": true,
-  "examplePurpose": "Local 1v1: USD 0.50/minute reference-cost rate; 250000-token compaction threshold, 32768 output tokens.",
+  "examplePurpose": "Local 1v1, red team: USD 0.50/minute reference-cost rate; 250000-token compaction threshold, 32768 output tokens. upstream.url is any OpenAI-compatible chat completions endpoint (an OAuth-to-API service works the same way); its key comes from RED_UPSTREAM_API_KEY.",
   "referenceCost": {
     "mode": "official-api-list-price",
     "currency": "USD",
@@ -50,5 +50,5 @@
       }
     }
   },
-  "modelConfig": "model.codex.json"
+  "modelConfig": "model.red.json"
 }

@@ -128,11 +128,10 @@ switch ($Action) {
   'logs' { Invoke-Compose @('logs','--tail','80') }
   'proxy' {
     Start-ProxyRelay
-    Invoke-Compose @('up','-d','--no-deps','codex-adapter')
+    Invoke-Compose @('up','-d','--no-deps','budget-red','budget-blue')
   }
   'up' {
     if (Test-Path -LiteralPath "$deployment/control/start") { throw 'An earlier match has a start marker. Use status, or reset for a new match.' }
-    if (-not (Test-Path -LiteralPath "$deployment/auth/auth.json")) { throw 'Complete the project OAuth login before up.' }
     Start-ProxyRelay
     Invoke-Compose @('up','-d','minecraft')
     $ready = $false

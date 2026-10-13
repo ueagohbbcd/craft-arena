@@ -4,7 +4,6 @@ import { once } from "node:events";
 import { fetch as upstreamFetch, getGlobalDispatcher } from "undici";
 import { inspectMessages } from "./vision.mjs";
 import { publicProviderResponse } from "./reference-cost.mjs";
-import { inspectPiRequest, piUsage, publicPiEvent } from "./pi-messages.mjs";
 export { ReferenceCostLedger } from "./reference-cost.mjs";
 export { BudgetLedger, BudgetError } from "./ledger.mjs";
 const equal = (a, b) =>
@@ -90,7 +89,7 @@ export function createBudgetGateway({
     });
     try {
       const match =
-        /^\/participants\/([a-zA-Z0-9_-]+)\/v1\/(chat\/completions|messages|budget)$/.exec(
+        /^\/participants\/([a-zA-Z0-9_-]+)\/v1\/(chat\/completions|budget)$/.exec(
           req.url,
         );
       const id = match?.[1],
@@ -126,20 +125,7 @@ export function createBudgetGateway({
         );
         return;
       }
-      const nativePi = match[2] === "messages";
-      if (nativePi && upstream.api !== "pi-messages")
-        throw Object.assign(new Error("Native Pi upstream is not configured"), {
-          status: 400,
-        });
-      if (!nativePi && upstream.api === "pi-messages")
-        throw Object.assign(
-          new Error("This upstream requires the native Pi endpoint"),
-          { status: 400 },
-        );
-      if (
-        req.method !== "POST" ||
-        !["chat/completions", "messages"].includes(match[2])
-      )
+      if (req.method !== "POST" || match[2] !== "chat/completions")
         throw Object.assign(new Error("Method not allowed"), { status: 405 });
       if (authorizeRequest && (await authorizeRequest(id)) !== true)
         throw Object.assign(new Error("Match is not running"), { status: 403 });
@@ -163,44 +149,37 @@ export function createBudgetGateway({
       // Hosted tools carry extra charges/actions that this token-price ledger cannot account for.
       // Function/custom tools execute in the participant; provider schema details remain upstream's job.
       if (
-        !nativePi &&
-        (body.web_search_options !== undefined ||
-          (Array.isArray(body.tools) &&
-            body.tools.some(
-              (tool) =>
-                tool?.type && !["function", "custom"].includes(tool.type),
-            )))
+        body.web_search_options !== undefined ||
+        (Array.isArray(body.tools) &&
+          body.tools.some(
+            (tool) => tool?.type && !["function", "custom"].includes(tool.type),
+          ))
       )
         throw Object.assign(
           new Error("Only client-executed tools are budgeted"),
           { status: 400 },
         );
-      const estimationBody = nativePi ? inspectPiRequest(body) : body;
-      const estimate = estimateReservation(estimationBody, limits);
+      const estimate = estimateReservation(body, limits);
       requestModel = body.model;
       queueStartedAt = Date.now();
       cashQuote = cashLedger?.quote(id, body.model, estimate);
-      if (nativePi)
-        body.options = { ...body.options, maxTokens: estimate.requestedOutput };
-      else {
-        // The shared provider account must not retain participant-created completion resources
-        // or accept participant-selected attribution for another user.
-        body.store = false;
-        delete body.user;
-        delete body.safety_identifier;
-        // Forward exactly the concrete output value we reserved, preserving legacy
-        // max_tokens clients without leaving null or conflicting caps upstream.
-        if (body.max_completion_tokens == null && body.max_tokens != null) {
-          body.max_tokens = estimate.requestedOutput;
-          delete body.max_completion_tokens;
-        } else {
-          body.max_completion_tokens = estimate.requestedOutput;
-          delete body.max_tokens;
-        }
-        if (body.n === null) body.n = 1;
-        if (body.stream)
-          body.stream_options = { ...body.stream_options, include_usage: true };
+      // The shared provider account must not retain participant-created completion resources
+      // or accept participant-selected attribution for another user.
+      body.store = false;
+      delete body.user;
+      delete body.safety_identifier;
+      // Forward exactly the concrete output value we reserved, preserving legacy
+      // max_tokens clients without leaving null or conflicting caps upstream.
+      if (body.max_completion_tokens == null && body.max_tokens != null) {
+        body.max_tokens = estimate.requestedOutput;
+        delete body.max_completion_tokens;
+      } else {
+        body.max_completion_tokens = estimate.requestedOutput;
+        delete body.max_tokens;
       }
+      if (body.n === null) body.n = 1;
+      if (body.stream)
+        body.stream_options = { ...body.stream_options, include_usage: true };
       reservation = await ledger.acquire(id, estimate.total, {
         signal: abort.signal,
       });
@@ -268,7 +247,7 @@ export function createBudgetGateway({
         ]),
       });
       res.statusCode = response.status;
-      if ((!nativePi && !body.stream) || !response.ok) {
+      if (!body.stream || !response.ok) {
         const text = await response.text();
         let value;
         try {
@@ -277,11 +256,7 @@ export function createBudgetGateway({
           actualUsage = value.usage;
         } catch {}
         requestRejected =
-          !response.ok &&
-          actual === undefined &&
-          actualUsage == null &&
-          (!nativePi ||
-            response.headers.get("x-arena-request-rejected") === "1");
+          !response.ok && actual === undefined && actualUsage == null;
         res.setHeader(
           "content-type",
           response.headers.get("content-type") ?? "application/json",
@@ -306,36 +281,21 @@ export function createBudgetGateway({
         const decoder = new TextDecoder();
         const processLine = (line) => {
           if (!line.startsWith("data:"))
-            return cashLedger || nativePi ? (line === "" ? "\n" : "") : "";
+            return cashLedger ? (line === "" ? "\n" : "") : "";
           const data = line.slice(5).trim();
           if (data === "[DONE]") return cashLedger ? "data: [DONE]\n" : "";
           let value;
           try {
             value = JSON.parse(data);
           } catch {
-            if (cashLedger || nativePi)
-              throw new Error("Malformed upstream SSE data");
+            if (cashLedger) throw new Error("Malformed upstream SSE data");
             return "";
           }
-          if (nativePi) {
-            const usage = piUsage(value);
-            if (usage) {
-              actual = usage.total_tokens;
-              actualUsage = usage;
-            }
-            if (
-              value.type === "error" &&
-              value.requestRejected === true &&
-              !usage
-            )
-              requestRejected = true;
-          } else {
-            actual = usageTokens(value) ?? actual;
-            if (value.usage !== undefined && value.usage !== null)
-              actualUsage = value.usage;
-          }
-          return cashLedger || nativePi
-            ? `data: ${JSON.stringify(nativePi ? publicPiEvent(value) : publicProviderResponse(value))}\n`
+          actual = usageTokens(value) ?? actual;
+          if (value.usage !== undefined && value.usage !== null)
+            actualUsage = value.usage;
+          return cashLedger
+            ? `data: ${JSON.stringify(publicProviderResponse(value))}\n`
             : "";
         };
         for await (const chunk of response.body) {
@@ -357,7 +317,7 @@ export function createBudgetGateway({
             Buffer.byteLength(pending) > limits.maxSseLineBytes
           )
             throw new Error("Upstream SSE line too large");
-          const data = cashLedger || nativePi ? out : chunk;
+          const data = cashLedger ? out : chunk;
           if (data.length && !res.write(data))
             await once(res, "drain", { signal: abort.signal });
         }
@@ -369,7 +329,7 @@ export function createBudgetGateway({
           )
             throw new Error("Upstream SSE line too large");
           const out = processLine(pending);
-          if ((cashLedger || nativePi) && out) res.write(out);
+          if (cashLedger && out) res.write(out);
         }
         res.end();
       }
