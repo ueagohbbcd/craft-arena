@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createPerceptionChanges } from "../packages/pi-extension/perception-delivery.mjs";
+import { createPerceptionChanges } from "../packages/observation/changes.mjs";
 const deliveredChanges = () => {
   const changes = createPerceptionChanges();
   return {

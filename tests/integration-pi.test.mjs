@@ -334,7 +334,7 @@ test(
             message.content.slice(message.content.indexOf("\n", marker) + 1),
           );
           for (const { data } of batch.messages)
-            if (data.type?.startsWith("perception.") && data.changes?.tasks)
+            if (data.type?.startsWith("runtime.") && data.changes?.tasks)
               tasks = data.changes.tasks;
         }
         if (n === 2 || n === 3) {
@@ -521,10 +521,11 @@ test(
     );
     await h.session.prompt("Collect results at the next natural boundary.");
     assert.equal(h.requests.length, 4);
-    const late = h.requests[3].messages
-      .filter((m) => m.role === "tool")
-      .map((m) => JSON.stringify(m))
-      .join("\n");
+    // The new prompt is itself a boundary: pending completions are delivered
+    // with it, exactly once.
+    const late = JSON.stringify(
+      h.requests[3].messages.filter((m) => m.role !== "assistant"),
+    );
     assert.equal((late.match(/unique-completion-a/g) || []).length, 1);
     assert.equal((late.match(/unique-completion-b/g) || []).length, 1);
   },
@@ -1817,7 +1818,7 @@ test(
   },
 );
 
-test("default real Pi persists perception changes and has no temporary tail", async (t) => {
+test("default real Pi persists runtime task changes and has no temporary tail", async (t) => {
   const h = await harness(t, async (_body, n) =>
     n === 1
       ? [
@@ -1832,13 +1833,13 @@ test("default real Pi persists perception changes and has no temporary tail", as
   await h.session.prompt("Run one command.");
   assert.equal(h.requests.length, 2);
   const request = JSON.stringify(h.requests[1].messages);
-  assert.match(request, /perception.baseline/);
-  assert.match(request, /perception.changed/);
+  assert.match(request, /runtime.baseline/);
+  assert.match(request, /runtime.changed/);
   assert.doesNotMatch(
     request,
     /Current observation for this model request only/,
   );
   const history = JSON.stringify(h.session.agent.state.messages);
-  assert.match(history, /perception.baseline/);
-  assert.match(history, /perception.changed/);
+  assert.match(history, /runtime.baseline/);
+  assert.match(history, /runtime.changed/);
 });

@@ -14,71 +14,15 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { Inbox, TaskManager } from "../packages/inbox/index.mjs";
+import { observationOptionsFromMatch } from "../packages/observation/match-options.mjs";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
 import { encodePNG } from "mineflayer-world-memory/live.mjs";
 import inboxExtension from "../packages/pi-extension/index.mjs";
 import {
   currentTasks,
-  observationOptionsFromMatch,
   runtimeProjectionOptions,
   runtimeState,
-  startPerceptionRuntime,
-} from "../packages/pi-extension/perception-runtime.mjs";
-
-async function until(check, timeout = 3000) {
-  const deadline = Date.now() + timeout;
-  while (!check()) {
-    if (Date.now() >= deadline)
-      assert.fail("Timed out waiting for observation");
-    await delay(5);
-  }
-}
-function fakeBot() {
-  const bot = new EventEmitter();
-  bot.closed = false;
-  bot.health = 20;
-  bot.closeBridge = () => {
-    bot.closed = true;
-    bot.emit("end");
-  };
-  return bot;
-}
-function fakeSample(
-  bot,
-  { now = Date.now, tasks = [], connectionStatus } = {},
-) {
-  return {
-    type: "observation",
-    observedAt: now(),
-    freshness: { status: connectionStatus ?? "fresh", stale: !bot },
-    self: bot ? { health: bot.health } : null,
-    tasks,
-  };
-}
-function fakeWatch(bot, { post, now }) {
-  const damage = () =>
-    post({
-      kind: "event",
-      priority: "urgent",
-      data: { type: "observation.health", health: bot.health },
-    });
-  bot.on("damage", damage);
-  return {
-    sample: (options) => fakeSample(bot, { now, ...options }),
-    close: () => bot.off("damage", damage),
-  };
-}
-function runtime(inbox, options = {}) {
-  return startPerceptionRuntime({
-    url: "http://bridge.invalid",
-    token: "perception-fixture-token",
-    inbox,
-    watch: fakeWatch,
-    sample: fakeSample,
-    report() {},
-    ...options,
-  });
-}
+} from "../packages/pi-extension/runtime-state.mjs";
 
 test("trusted match projection identifies teams and wool interests without guessing hidden objective items", () => {
   const options = observationOptionsFromMatch({
@@ -192,234 +136,9 @@ test("default runtime projection bounds program bytes and historical tasks, pres
   );
 });
 
-test("perception is not an action task; urgent events release waits without stopping the process", async (t) => {
-  const inbox = new Inbox({ sessionId: "perception-urgent" });
-  const tasks = new TaskManager({ inbox });
-  const bot = fakeBot();
-  const observer = runtime(inbox, { tasks, connect: async () => bot });
-  t.after(async () => {
-    await observer.close();
-    await tasks.close();
-  });
-  const first = await observer.sample();
-  assert.deepEqual(first.tasks, []);
-  assert.equal(
-    tasks.tasks.size,
-    0,
-    "a passive observer cannot prevent genuinelyIdle",
-  );
-  const id = tasks.start("sleep 0.15; printf still-running", {
-    callId: "action",
-  });
-  const waiting = tasks.wait(id);
-  bot.health = 9;
-  bot.emit("damage");
-  const released = await waiting;
-  assert.equal(released.taskId, id);
-  assert.equal(released.status, "running");
-  assert.match(released.reason, /urgent inbox/);
-  const snapshot = await observer.sample();
-  assert.equal(snapshot.self.health, 9);
-  assert.equal(snapshot.tasks[0].taskId, id);
-  assert.equal(snapshot.tasks[0].status, "running");
-  assert.equal(typeof snapshot.tasks[0].durationMs, "number");
-  assert.equal(snapshot.tasks[0].command, undefined);
-  const event = inbox.drain().messages[0];
-  assert.equal(event.source, "runtime");
-  assert.equal(event.priority, "urgent");
-  await observer.close();
-  assert.equal(
-    tasks.get(id).status,
-    "running",
-    "closing observation never cancels an action",
-  );
-  tasks.resumeWaits();
-  const completed = await tasks.wait(id);
-  assert.equal(completed.stdout, "still-running");
-  assert.equal(completed.exitCode, 0);
-  assert.equal(bot.listenerCount("damage"), 0);
-});
-
-test("current program facts survive event delivery; snapshot has explicit identities and no inferred intent", async (t) => {
-  const inbox = new Inbox({ sessionId: "current" });
-  const bot = fakeBot();
-  inbox.setCurrent(
-    "route",
-    { phase: "approaching", progress: 4 },
-    { taskId: "actual-task", ttlMs: 5000 },
-  );
-  inbox.post({ sessionId: inbox.sessionId, data: { type: "durable-event" } });
-  const observer = runtime(inbox, { connect: async () => bot });
-  t.after(() => observer.close());
-  assert.equal(inbox.drain().messages.length, 1);
-  const first = await observer.sample();
-  assert.equal(first.programState[0].taskId, "actual-task");
-  assert.deepEqual(first.programState[0].data, {
-    phase: "approaching",
-    progress: 4,
-  });
-  assert.equal(first.programState[0].source, "program");
-  assert.equal(inbox.pending, false);
-  assert.deepEqual((await observer.sample()).programState, first.programState);
-  assert.deepEqual(currentTasks(), []);
-});
-
-test("initial connection failures are bounded, warn once, retry and clean up", async (t) => {
-  const inbox = new Inbox({ sessionId: "retry" });
-  let calls = 0;
-  const warnings = [];
-  const bot = fakeBot();
-  const observer = runtime(inbox, {
-    retryMs: 10,
-    connect: async () => {
-      if (++calls < 3) throw new Error("bridge offline");
-      return bot;
-    },
-    report: (message) => warnings.push(message),
-  });
-  t.after(() => observer.close());
-  const missing = await observer.sample();
-  assert.equal(missing.freshness.status, "unavailable");
-  assert.match(missing.observationError, /bridge offline/);
-  await until(() => calls === 3);
-  const latest = await observer.sample();
-  assert.equal(latest.self.health, 20);
-  assert.equal(latest.observationError, undefined);
-  assert.equal(warnings.length, 1);
-  bot.emit("bridgeDisconnected");
-  assert.equal((await observer.sample()).freshness.status, "unavailable");
-  await assert.rejects(observer.getBot(), /unavailable/);
-  bot.emit("bridgeReset");
-  assert.equal(await observer.getBot(), bot);
-  bot.emit("end");
-  assert.equal((await observer.sample()).freshness.status, "disconnected");
-  await observer.close();
-  assert.equal(bot.closed, true);
-  assert.equal(bot.eventNames().length, 0);
-  await delay(30);
-  assert.equal(calls, 3);
-});
-
-test("hung initial connection never holds a model call or session shutdown indefinitely", async () => {
-  const inbox = new Inbox({ sessionId: "timeout" });
-  let resolve;
-  const observer = runtime(inbox, {
-    connect: () =>
-      new Promise((done) => {
-        resolve = done;
-      }),
-    sampleTimeoutMs: 15,
-    connectTimeoutMs: 100,
-  });
-  const start = Date.now();
-  const snapshot = await observer.sample();
-  assert.equal(snapshot.freshness.status, "connecting");
-  assert(Date.now() - start < 90);
-  await observer.close();
-  const late = fakeBot();
-  resolve(late);
-  await delay(0);
-  assert.equal(
-    late.closed,
-    true,
-    "a late connection cannot leak after shutdown",
-  );
-  assert.equal(inbox.pending, false);
-});
-
 test(
-  "slow initial chunk hydration survives short model waits and renews the background connection progress timeout",
-  { timeout: 6000 },
-  async () => {
-    const inbox = new Inbox({ sessionId: "slow-hydration" });
-    const bot = fakeBot();
-    let connections = 0,
-      requests = 0;
-    const warnings = [];
-    const observer = runtime(inbox, {
-      connectTimeoutMs: 450,
-      sampleTimeoutMs: 10,
-      report: (message) => warnings.push(message),
-      fetchImpl: async () => {
-        requests++;
-        await delay(300);
-        return Response.json({ chunk: requests });
-      },
-      connect: async ({ fetchImpl, url }) => {
-        connections++;
-        for (let i = 0; i < 6; i++)
-          await (await fetchImpl(`${url}/v1/chunk?x=${i}&z=0`)).json();
-        return bot;
-      },
-    });
-    const started = Date.now();
-    try {
-      assert.equal((await observer.sample()).freshness.status, "connecting");
-      await delay(1550);
-      assert.equal(
-        (await observer.sample()).freshness.status,
-        "connecting",
-        "the old total 1.5s deadline must not restart active hydration",
-      );
-      await until(() => requests === 6);
-      await delay(320);
-      assert.equal(await observer.getBot(), bot);
-      assert.equal((await observer.sample()).self.health, 20);
-      assert.equal(connections, 1);
-      assert(Date.now() - started >= 1800);
-      assert.deepEqual(warnings, []);
-    } finally {
-      await observer.close();
-    }
-  },
-);
-
-test("SDK retry stops after close even when a test transport ignores abort and sends no initial snapshot", async () => {
-  const inbox = new Inbox({ sessionId: "empty-stream" });
-  let reads = 0;
-  const observer = startPerceptionRuntime({
-    url: "http://bridge.invalid",
-    token: "fixture-token",
-    inbox,
-    sampleTimeoutMs: 10,
-    report() {},
-    fetchImpl: async () => {
-      reads++;
-      return Response.json({ unrelated: true });
-    },
-  });
-  const snapshot = await observer.sample();
-  assert.equal(snapshot.freshness.status, "connecting");
-  await observer.close();
-  await delay(300);
-  assert.equal(
-    reads,
-    1,
-    "an aborted connection must not restart a transport that ignores AbortSignal",
-  );
-});
-
-test("a sampler fault degrades to explicit unavailable state without rejecting the model call", async () => {
-  const inbox = new Inbox({ sessionId: "sample-error" });
-  const observer = runtime(inbox, {
-    connect: async () => fakeBot(),
-    watch: () => ({
-      sample() {
-        throw new Error("sampling failed");
-      },
-      close() {},
-    }),
-  });
-  const state = await observer.sample();
-  assert.equal(state.freshness.status, "unavailable");
-  assert.equal(state.self, null);
-  assert.match(state.observationError, /sampling failed/);
-  await observer.close();
-});
-
-test(
-  "real Pi 1.1 delivers three latest snapshots at durable boundaries, preserving the full stable prefix and durable events",
-  { timeout: 20000 },
+  "real Pi 1.1 receives the default observer script's latest snapshots at durable boundaries, preserving the full stable prefix and durable events",
+  { timeout: 30000 },
   async (t) => {
     const saved = { ...process.env };
     const dir = await mkdtemp(join(tmpdir(), "pi-perception-"));
@@ -474,8 +193,11 @@ test(
       // Interval reports join the next natural boundary; a zero minimum delay
       // makes that delivery observable inside a short test.
       ARENA_PERCEPTION_RECENT_BLOCK_MIN_REPORT_MS: "0",
+      // The default observer and chat listener run as child processes.
+      ARENA_OBSERVER_INTERVAL_MS: "20",
     });
     for (const key of [
+      "ARENA_DEFAULT_SCRIPTS",
       "MC_INBOX_SOCKET",
       "OPENAI_BASE_URL",
       "OPENAI_API_KEY",
@@ -689,9 +411,9 @@ test(
         "each call has the actual newest bot position",
       );
       assert.equal(
-        (delivered.changes.tasks ?? []).length,
-        0,
-        "observer is not a managed action task",
+        delivered.changes.tasks,
+        undefined,
+        "game observation and runtime task facts are separate reports",
       );
       if (delivered.changes.connection)
         assert.notEqual(
@@ -735,14 +457,28 @@ test(
     assert.equal(baseline.type, "perception.baseline");
     assert.equal(baseline.changes.connection.status, "fresh");
     assert.equal(baseline.changes.connection.dimension, "overworld");
-    assert.equal(
-      reportsIn(requests[0].messages).length,
-      0,
-      "no interval report is delivered before the first tool boundary",
+    // The default scripts are ordinary, labelled background tasks.
+    const runtimeBaseline = deliveriesIn(requests[0].messages).find(
+      (payload) => payload.type === "runtime.baseline",
     );
-    const firstReport = reportsIn(requests[1].messages).at(-1);
+    assert.deepEqual(
+      runtimeBaseline.changes.tasks
+        .map(({ label, background, status }) => ({ label, background, status }))
+        .sort((a, b) => a.label.localeCompare(b.label)),
+      [
+        { label: "default chat", background: true, status: "running" },
+        { label: "default observer", background: true, status: "running" },
+      ],
+    );
+    // The opening may already carry the first interval; together with the
+    // tool boundary, every encountered type is delivered exactly when seen.
+    const firstReports = reportsIn(requests[1].messages);
+    const firstReport = firstReports.at(-1);
     assert.equal(firstReport.dimensions[0].dimension, "overworld");
-    assert.equal(firstReport.dimensions[0].counts.oak_log, 1);
+    assert(
+      firstReports.some((r) => r.dimensions[0].counts.oak_log === 1),
+      "the starting block was reported",
+    );
     assert.equal(firstReport.dimensions[0].counts.furnace, 1);
     // A later boundary retires the interval it already displayed: the newest
     // encounter appears and the previously displayed one does not return.
@@ -750,17 +486,30 @@ test(
     assert.equal(laterReport.dimensions[0].dimension, "overworld");
     assert.equal(laterReport.dimensions[0].counts.chest, 1);
     assert.equal(laterReport.dimensions[0].counts.oak_log, undefined);
-    // The durable platform update (clock/budget) may follow the tool result;
-    // nothing else is appended after it for this request only.
-    const durable = requests[1].messages.filter(
-      (message) =>
-        !JSON.stringify(message.content).includes("Arena platform update"),
-    );
-    assert.deepEqual(
-      durable.slice(-2).map((message) => message.role),
-      ["assistant", "toolResult"],
-      "the tool boundary result carries the observation without a request-only tail",
-    );
+    // After the tool result, only durable boundary messages may follow: the
+    // platform update and inbox batches that arrived before the turn ended.
+    // Nothing is appended for this request only.
+    const messages = requests[1].messages;
+    const toolAt = messages.findLastIndex((m) => m.role === "toolResult");
+    assert.equal(messages[toolAt - 1].role, "assistant");
+    for (const message of messages.slice(toolAt + 1)) {
+      const text = JSON.stringify(message.content);
+      assert(
+        /Arena platform update|Participant inbox/.test(text),
+        `unexpected request tail: ${text.slice(0, 300)}`,
+      );
+      const body = (
+        Array.isArray(message.content)
+          ? message.content.map((block) => block.text ?? "").join("")
+          : message.content
+      ).slice(0, 400);
+      assert(
+        JSON.stringify(session.agent.state.messages).includes(
+          JSON.stringify(body).slice(1, -1),
+        ),
+        "the boundary message is part of durable session history",
+      );
+    }
     const serializedState = JSON.stringify(session.agent.state.messages);
     const serializedEntries = JSON.stringify(manager.getEntries());
     const persisted = await readFile(manager.getSessionFile(), "utf8");

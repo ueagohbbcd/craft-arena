@@ -26,8 +26,8 @@ import {
 import { observe } from "../packages/observation/observe.mjs";
 import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
 import { capturePrismarineSnapshot } from "../packages/world-visual/prismarine.mjs";
-import { startPerceptionRuntime } from "../packages/pi-extension/perception-runtime.mjs";
-import { Inbox } from "../packages/inbox/queue.mjs";
+import { startObserver } from "../packages/observation/observer-loop.mjs";
+import { Inbox, localInboxClient } from "../packages/inbox/queue.mjs";
 import { createInboxServer } from "../packages/inbox/ipc.mjs";
 import { TaskManager } from "../packages/inbox/tasks.mjs";
 // Opt-in only: this script is never part of npm test. It starts an official
@@ -77,7 +77,8 @@ const sourceFiles = [
   "packages/bot-sdk/plugins.mjs",
   "packages/observation/index.mjs",
   "packages/observation/observe.mjs",
-  "packages/pi-extension/perception-runtime.mjs",
+  "packages/observation/observer-loop.mjs",
+  "packages/default-scripts/observer.mjs",
   "packages/inbox/tasks.mjs",
   "examples/plugin-goal.mjs",
   "packages/world-visual/index.mjs",
@@ -441,13 +442,11 @@ async function main() {
     maxBytes: 1048576,
   });
   inbox.on("message", (message) => log("inbox", { message }));
-  perception = startPerceptionRuntime({
+  // The same pieces the default observer script runs, in this process so the
+  // validator can pause its event stream and sample it directly.
+  const observedBot = connectBot({
     url: bridge.url,
     token,
-    inbox,
-    connectTimeoutMs: 8000,
-    sampleTimeoutMs: 1500,
-    report: (message) => log("perception_warning", { message }),
     fetchImpl: async (input, init = {}) => {
       report.observationRequests.push({
         at: Date.now(),
@@ -479,6 +478,19 @@ async function main() {
       );
     },
   });
+  const defaultObserver = await startObserver({
+    bot: await observedBot,
+    inbox: localInboxClient(inbox, { source: "runtime" }),
+    onError: (error) => log("perception_warning", { message: error.message }),
+  });
+  perception = {
+    getBot: () => observedBot,
+    sample: async () => defaultObserver.sample(),
+    async close() {
+      defaultObserver.close();
+      (await observedBot).closeBridge();
+    },
+  };
   observer = await waitFor(
     () => perception.getBot().catch(() => false),
     20000,

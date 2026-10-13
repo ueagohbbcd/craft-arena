@@ -10,8 +10,8 @@
 
 本轮围绕玩家能实际修改预装能力整理，不另建工具箱管理框架。
 
-- [x] 默认观察逻辑独立为 `packages/observation/default-observer.mjs`；Pi 负责只读连接、会话与 Inbox 接线，同进程交付水位保留。
-- [x] 工作区 `perception.mjs` 可接替默认实例，`observe({reload:true})` 显式应用；缺省继续自启动。`perception.json` 可调整默认采样，或明确关闭自动报告。用法见[修改默认观察器](OBSERVATION.md#修改默认观察器)。
+- [x] 默认观察逻辑独立为 `packages/observation/default-observer.mjs`。
+- [x] 观察器与聊天监听改为开局启动的普通脚本（`packages/default-scripts/`），作为受管后台任务运行，可停、可换；收件箱新增跨进程送达回执，替代同进程交付水位。Pi 扩展只保留默认脚本启动、运行时状态（`runtime.current`）与平台消息（时钟、预算）。此前 `perception.mjs` + `observe({reload:true})` 的替换机制随之删除。`perception.json` 仍可调整采样，观察器启动时读取。用法见[修改默认观察器](OBSERVATION.md#修改默认观察器)。
 - [x] 区块记忆继续在可信 Bridge 收集原始数据；宿主可传入工厂或禁用。身份范围、卸载历史与当前／历史／未知状态保留，见[记忆接线](BLOCK-MEMORY.md#trusted-ownership-isolation-and-lifecycle)。
 - [x] 开局渲染保留，失败提示改为按需脚本；修正代表坐标说明、已删除接口残留与 Skill 的双任务示例。
 

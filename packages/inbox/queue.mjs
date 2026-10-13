@@ -250,3 +250,38 @@ export class Inbox extends EventEmitter {
     );
   }
 }
+
+/**
+ * The InboxClient interface (send/post/upsert/requestJudgment/delivery) over
+ * an in-process Inbox, for tests and single-process tools.
+ */
+export function localInboxClient(inbox, { source = "program" } = {}) {
+  const send = async (message) =>
+    inbox.post({ ...message, sessionId: inbox.sessionId }, { source });
+  return {
+    sessionId: inbox.sessionId,
+    send,
+    post: (data, options = {}) => send({ ...options, kind: "event", data }),
+    upsert: (key, data, options = {}) =>
+      send({ ...options, kind: "state", key, data }),
+    requestJudgment: (data, options = {}) =>
+      send({ ...options, kind: "judgment", data, priority: "urgent" }),
+    delivery(id, { timeoutMs = 30000 } = {}) {
+      return new Promise((resolve) => {
+        const done = (outcome) => {
+          inbox.off("settled", onSettled);
+          clearTimeout(timer);
+          resolve({ id, outcome });
+        };
+        const onSettled = (event) => event.id === id && done(event.outcome);
+        const outcome = inbox.outcome(id);
+        if (outcome !== "pending") return resolve({ id, outcome });
+        inbox.on("settled", onSettled);
+        const timer =
+          timeoutMs === Infinity
+            ? undefined
+            : setTimeout(() => done(inbox.outcome(id)), timeoutMs);
+      });
+    },
+  };
+}

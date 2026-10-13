@@ -1,7 +1,18 @@
+#!/usr/bin/env node
+// Default chat listener. The runtime starts this ordinary script at session
+// start; it forwards in-game chat to the inbox. Stop it with task_cancel, or
+// run your own copy to filter or summarize chat differently.
 import { setTimeout as delay } from "node:timers/promises";
+import { pathToFileURL } from "node:url";
+import { InboxClient } from "../inbox/index.mjs";
 
 /** Passive chat only: no world mirror, action calls, or model wakeups. */
-export function startChatInbox({ url, token, inbox, retryMs = 1000 }) {
+export function startChatInbox({
+  url = process.env.ARENA_BRIDGE_URL,
+  token = process.env.ARENA_BRIDGE_TOKEN,
+  inbox,
+  retryMs = 1000,
+}) {
   const controller = new AbortController();
   const { signal } = controller;
   function accept(frame) {
@@ -27,25 +38,29 @@ export function startChatInbox({ url, token, inbox, retryMs = 1000 }) {
     if (!Array.isArray(args) || typeof args[0] !== "string") return;
     if (args[1] === "game_info") return;
     const metadata = args[5] ?? {};
-    inbox.post(
-      {
-        sessionId: inbox.sessionId,
-        kind: "event",
-        priority: "normal",
-        data: {
-          type: "game.chat",
-          source: "minecraft",
-          trusted: false,
-          text: args[0],
-          position: args[1] ?? null,
-          senderUUID: args[3] ?? null,
-          verified: args[4] ?? null,
-          observedAt: metadata.observedAt ?? Date.now(),
-          truncated: metadata.truncated === true,
+    inbox
+      .post(
+        {
+          sessionId: inbox.sessionId,
+          kind: "event",
+          priority: "normal",
+          data: {
+            type: "game.chat",
+            source: "minecraft",
+            trusted: false,
+            text: args[0],
+            position: args[1] ?? null,
+            senderUUID: args[3] ?? null,
+            verified: args[4] ?? null,
+            observedAt: metadata.observedAt ?? Date.now(),
+            truncated: metadata.truncated === true,
+          },
         },
-      },
-      { source: "runtime" },
-    );
+        { source: "runtime" },
+      )
+      ?.catch?.(() => {
+        /* The inbox may be closing; chat is not replayed. */
+      });
   }
   const done = (async () => {
     while (!signal.aborted) {
@@ -88,4 +103,20 @@ export function startChatInbox({ url, token, inbox, retryMs = 1000 }) {
       await done;
     },
   };
+}
+
+if (
+  process.argv[1] &&
+  import.meta.url === pathToFileURL(process.argv[1]).href
+) {
+  const client = new InboxClient();
+  // InboxClient.send assigns the program source; the data stays marked untrusted.
+  const chat = startChatInbox({
+    inbox: {
+      sessionId: client.sessionId,
+      post: (message) => client.send(message),
+    },
+  });
+  for (const signal of ["SIGTERM", "SIGINT"])
+    process.once(signal, () => chat.close().then(() => process.exit(0)));
 }

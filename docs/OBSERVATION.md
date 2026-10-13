@@ -1,6 +1,6 @@
 # 默认态势感知与观察工具
 
-本模块是**预装工具箱的一项能力**：其采样与事件判断逻辑和模型自写的观察程序同类，区别是目前由 Pi 会话默认启动并连接 Inbox。世界视觉和共享区块记忆复用 `mineflayer-world-memory` 等现成库。参赛代码可复用观察函数、运行自己的监听器，也可通过工作区的 `perception.mjs` 接替默认观察逻辑，见下文。[工具箱与框架边界](../README.md#框架预装工具箱与-skill) · [后续待办](PERCEPTION-TODO.md)。
+默认观察器是一个**普通脚本**（[`default-scripts/observer.mjs`](../packages/default-scripts/observer.mjs)）：会话开始时由运行时作为受管任务启动，在任务列表中标为 `default observer`，和模型自己写的程序一样通过 `InboxClient` 报告，可以 `task_cancel` 停掉，也可以复制修改后运行自己的版本。游戏聊天同样由默认脚本 [`default-scripts/chat.mjs`](../packages/default-scripts/chat.mjs) 转发。世界视觉和共享区块记忆复用 `mineflayer-world-memory` 等现成库。[后续待办](PERCEPTION-TODO.md)。
 
 默认采用普通 ReAct 工具结果与收件箱历史：开局提供基础状态与地图配置的图像，随后交付变化部分。按需 `observe` 返回完整快照。后台采集、主动返回、普通 Inbox 与 early 的设计取舍见[上下文交付设计](CONTEXT-DELIVERY.md)。
 
@@ -16,7 +16,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 | 能力 | 默认行为／使用入口 |
 | --- | --- |
-| 当前状态变化 | 开局基础状态，后续顶层工具返回与新一轮入口合并变化部分，省略未变部分；`observe` 返回完整状态 |
+| 当前状态变化 | 观察器脚本把变化部分作为可替换的 `observation.current` 报告发到收件箱，随下一个边界交付，省略未变部分；任务与程序状态由运行时另报为 `runtime.current`；`observe` 返回完整状态 |
 | 沿途方块摘要 | 低频采样近距透明连通空间，区间按类型／坐标去重；普通 Inbox 报告保留历史 |
 | 自身与物品 | 位置、生命、食物、装备、背包数量、手持物和当前打开窗口 |
 | 玩家与附近环境 | 中心可见实体雷达、较大范围非潜行玩家、掉落物群、脚边地形和告示牌 |
@@ -32,42 +32,32 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 ## 修改默认观察器
 
-没有自定义文件时，会话自动运行预装观察器。要改变它，在工作目录写 `perception.mjs`，导出同步工厂 `createObserver(context)`，再调用 `observe({reload:true})`。删除文件后再次 reload 可恢复预装实现。入口只在启动和显式 reload 时加载；它导入的辅助模块遵循 Node 的普通缓存。
+默认观察器就是一个任务。要改变它：
 
-例如，复用默认实现，只改变危急生命阈值：
+1. 复制 `$ARENA_TOOLKIT_ROOT/packages/default-scripts/observer.mjs` 到工作目录并修改（例如改用 `startObserver` 的其他参数，或换成自己的采样逻辑）。
+2. 用 `task_cancel` 停掉任务列表里的 `default observer`，确认已停止。
+3. 用 `bash`（`wait_seconds: 0`）运行自己的版本。
 
-```js
-const { createDefaultObserver } = await import(
-  `${process.env.ARENA_TOOLKIT_ROOT}/packages/observation/default-observer.mjs`
-);
-export function createObserver(context) {
-  return createDefaultObserver({
-    ...context,
-    options: { ...context.options, criticalHealth: 8 },
-  });
-}
-```
+只想调整采样时，可以在工作目录写 `perception.json`：`radar` 调整实体雷达；`recentBlocks` 对象可设置 `radius`、`intervalMs`、`maxReads`、`positionLimit` 和 `minReportMs`。观察器在启动时读取它，修改后按上面的步骤重启观察器。停掉观察器而不替换，等于放弃自动观察报告；按需 `observe`、程序状态和其他 Inbox 消息仍可使用，模型自行承担遗漏周围情况的代价。
 
-`context` 提供当前只读镜像的 `getBot()`、`connectionStatus()`、时钟 `now`、报告回调 `post`、`onError` 与默认选项。工厂返回 `sample(options)`、`close()`；有事件监听时用 `attachBot(bot)` 绑定或解除监听。默认工厂已处理这些细节，通常直接复用它。自定义状态字段也会参与变化交付；`recentBlocks`／`nearbySigns` 仍走独立报告，`players`／`entities` 由 `radar` 投影替代。独立发现也可通过 `context.post({kind:"event", priority:"normal", data:{type:"route.discovery", ...facts}})` 进入 Inbox。普通程序也能给核心传入自己的镜像和报告回调，无需 Pi 对象。
+观察器的核心是 [`observer-loop.mjs`](../packages/observation/observer-loop.mjs) 的 `startObserver({bot, inbox})`：它运行[默认观察策略](../packages/observation/default-observer.mjs)，事件即时发送；沿途方块区间和附近牌持续累计，收到[送达回执](../packages/inbox/README.md#delivery-receipts)确认模型已经看到后才清除；状态变化与上一次已送达的报告比较，未送达前出现的新变化合并进同一条报告，变回原值的部分也会更新，不会留下过时内容。
 
-工作区 `perception.json` 仍可调整 `radar`；`recentBlocks` 对象可设置 `radius`、`intervalMs`、`maxReads`、`positionLimit` 和 `minReportMs`，修改后 reload。`{"observer":{"enabled":false}}` 关闭自动观察报告；按需 `observe`、程序状态和其他 Inbox 消息仍可使用。选择关闭后，模型自行承担遗漏周围情况的代价。
-
-替换成功后旧观察器停止，其未交付的状态摘要撤下，已经交付的历史和普通事件保留。加载失败会返回错误并保留当前实例。连接、任务管理和 Inbox 交付仍由运行时负责；观察策略与区间累计在 [默认观察核心](../packages/observation/default-observer.mjs)。
+部署可用 `ARENA_DEFAULT_SCRIPTS` 选择默认脚本（默认 `observer,chat`，设为空则不启动）。开局请求最多等待 `ARENA_OBSERVER_READY_MS`（默认 5000 ms）让观察器先报告一次。
 
 ## 第一轮与后续工具循环
 
-1. 启动入口加载 Pi 扩展、工具与编程指南。Pi 会话启动时，运行时建立自己的只读桥连接并安装默认观察监听器；该连接是会话资源。
+1. 启动入口加载 Pi 扩展、工具与编程指南。Pi 会话启动时，运行时把默认观察器和聊天监听作为受管任务启动；它们各自连接桥。
 2. 常驻实战启动等待可信 host 的 `running` 状态，再发送一次开局任务。公开简报进入用户消息；地图配置启用的开局图像随独立启动流程交付。
-3. 开局消息附基础观察；后续顶层工具返回将当前状态的变化部分与其他收件箱内容合并，进入普通会话历史。新一轮 agent 启动时也取样并交付变化。连接尚在准备或不可用时，`connection` 给出实际状态，错误另行标示。模型取样最多短等 500 ms，初始区块加载继续在后台完成；连接默认在连续 30 秒无网络进展后才超时。
+3. 开局消息附运行时状态和收件箱中已就绪的报告（包括观察器的第一份基础状态）；后续顶层工具返回、回合结束和新一轮 agent 启动都会把收件箱内容合并交付，进入普通会话历史。观察器连接不可用时，`connection` 给出实际状态。
 4. 模型选择下一步。可以直接运行一个短 SDK 查询／动作，调用 `observe` 查状态，或者通过 `bash` 运行普通 Node 控制程序（需要图像时运行渲染脚本）。
 5. `bash`／`task_wait` 默认等待最多 30 秒，命令结束或紧急事件会更早返回；部署可通过 `ARENA_TOOL_WAIT_SECONDS` 配置默认时长，两工具均可用单次 `wait_seconds` 覆盖。长程序到时仍返回 `running` 和原 `taskId`，可继续等待。工具结果进入会话历史。下一次模型请求包含工具结果和本次合并交付的状态变化。模型据此核验实际变化并继续。
 6. 程序运行时，默认事件监听持续工作。紧急事件可提前释放 `bash`／`task_wait` 的等待，程序继续存活；模型用原 `taskId` 继续等待或明确取消。正常事件随下一自然工具／回合边界交付。
 
-这套观察随会话启动、替换和关闭。常驻观察连接与受管动作进程分别拥有生命周期，因此模型直接得到默认局势，受管程序列表反映实际运行的命令。常驻模式中，运行的受管程序抑制五秒空闲续跑，程序完成或紧急事件提供下一决策点；默认观察连接自身是会话资源。
+默认脚本随会话启动和关闭。它们标为后台任务（`background: true`）：常驻模式中，运行的受管程序会抑制五秒空闲续跑，但后台的默认脚本不会。
 
 ## 现成状态如何使用
 
-开局 `perception.baseline` 提供基础快照，后续 `perception.changed` 的 `changes` 中每个字段替换该部分的旧记录；空数组和 null 也会交付。比较基线在实际交付时推进，队列拒绝或丢弃后会在后续边界重新提供尚未交付的变化。按需 `observe` 返回可独立阅读的完整快照。长文本以带截断标记的预览呈现，按需用详情选项展开。
+观察器的第一份 `perception.baseline` 提供基础快照，后续 `perception.changed` 的 `changes` 中每个字段替换该部分的旧记录；空数组和 null 也会交付。比较基线在送达回执确认后推进，被替换或丢弃的报告会在后续报告中重新提供尚未交付的变化。任务与程序状态以同样格式另报为 `runtime.baseline`／`runtime.changed`。按需 `observe` 返回可独立阅读的完整快照。长文本以带截断标记的预览呈现，按需用详情选项展开。
 
 下表是默认普通历史中的状态部分。方块区间与附近牌有自己的 Inbox 交付节奏。
 
@@ -94,7 +84,7 @@ export function createObserver(context) {
 
 `recentBlocks` 在已有只读观察连接上默认每 1000 ms 采样一次，不随每个 physics tick 扫描。以观察到的眼睛所在整数格为起点，在整数格坐标欧氏半径 6 内做六邻接扩展；缺少 `eyeHeight` 时使用已有 `height - 0.18`，完整结果注明近似来源。`transparent:true` 或没有整格碰撞盒的格允许扩展，全格不透明块只计作边界。玻璃、树叶、水、梯子、半砖等共用该粗规则，闭门和其他部分形状也可能透过；这不是可行走性或精确视线判断。未知格停止扩展。每次最多读取 4096 格，超预算显式标记，默认半径完整空气球为 925 格。
 
-所有实际采到的非空气类型都进入计数，没有“宝物”白名单。同维度、同类型、同坐标在本区间只计一次；跨报告重新计数。若同坐标变成另一类型，则两种实际见过的类型分别记录。空气和未知覆盖另计。模型紧凑报告给各类型数量、每种类型少量代表坐标（`dimensions[].positions`），以及整体时间段、3D bbox、边界面积和采样／缺口信息；不逐格列出全部位置或逐项时间。`observe({fullRecentBlocks:true})` 可读取仍保留样本的每类型采样帧数、少量位置、时间与覆盖；显式观察结果遵循普通工具历史，读取本身不清空区间。
+所有实际采到的非空气类型都进入计数，没有“宝物”白名单。同维度、同类型、同坐标在本区间只计一次；跨报告重新计数。若同坐标变成另一类型，则两种实际见过的类型分别记录。空气和未知覆盖另计。模型紧凑报告给各类型数量、每种类型少量代表坐标（`dimensions[].positions`），以及整体时间段、3D bbox、边界面积和采样／缺口信息；不逐格列出全部位置或逐项时间。需要更细的累计数据时，在自己的观察器副本中调用 `startObserver(...).sample()`（返回含 `recentBlocks` 的完整快照），或用方块查询与共享区块记忆读取精确位置。
 
 面积单位为整格面面积（block²）：每条“已触达透明格—六邻接已知不透明整格”邻接计不透明块朝向透明格的一个面，区间按维度、方块坐标和面方向去重。透明格之间的内部面、未知边缘和采样球的范围边缘不计。绕到同一块另一侧可增加另一个面；同面反复采样不增加。bbox 只是实际触达已知格的外包范围，内部可含孔洞，绝不拿 bbox 的壳面积代替边界面集合。该数不是部分方块精细网格面积。
 
@@ -225,7 +215,7 @@ Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报
 
 - [观察核心](../packages/observation/index.mjs)：状态投影、数量、范围和事件。
 - [一次观察](../packages/observation/observe.mjs)与 [Pi 工具](../packages/observation/pi-extension.mjs)：状态 JSON 与冻结取样。
-- [会话观察运行时](../packages/pi-extension/perception-runtime.mjs)与 [Pi 扩展](../packages/pi-extension/index.mjs)：连接、自动生命周期、普通历史交付和任务关联。
+- [默认观察器脚本](../packages/default-scripts/observer.mjs)、[观察循环](../packages/observation/observer-loop.mjs)与 [Pi 扩展](../packages/pi-extension/index.mjs)：默认脚本的启动、送达回执驱动的报告，以及运行时状态与普通历史交付。
 - [验证记录](VALIDATION.md)：当前离线、真实 Pi、渲染与实服证据；各项能力的实现范围与实战验证分别记录。
 
 需要复现真实游戏链路时，使用 [显式启用的验收脚本](../scripts/validate-observation-live.mjs) 的 `--help`。它要求已有、已停机且已接受 EULA 的隔离测试服，验证官方 1.21.1 JAR，为本次检查创建新世界，并在退出后恢复服务器配置。

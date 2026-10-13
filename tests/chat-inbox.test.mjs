@@ -5,11 +5,11 @@ import { EventEmitter } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
 import { Inbox } from "../packages/inbox/index.mjs";
-import { startChatInbox } from "../packages/pi-extension/chat-inbox.mjs";
+import { startChatInbox } from "../packages/default-scripts/chat.mjs";
 import extension from "../packages/pi-extension/index.mjs";
 const token = "chat-inbox-test-token";
-async function until(fn) {
-  for (let i = 0; i < 200; i++) {
+async function until(fn, timeout = 2000) {
+  for (let i = 0; i < timeout / 10; i++) {
     if (fn()) return;
     await delay(10);
   }
@@ -108,12 +108,13 @@ test("chat reconnects after disconnect and close cancels retry", async (t) => {
   await delay(60);
   assert.equal(count, 2);
 });
-test("Pi subscribes by default and switches chat ownership with sessions", async (t) => {
+test("Pi starts the default chat script per session and replaces it on session switch", async (t) => {
   const { b, bot, connections, active } = await bridge(t);
   const saved = { ...process.env };
   Object.assign(process.env, {
     ARENA_BRIDGE_URL: b.url,
     ARENA_BRIDGE_TOKEN: token,
+    ARENA_DEFAULT_SCRIPTS: "chat",
     MC_INBOX_TRANSPORT: "http",
     MC_INBOX_TOKEN: token,
   });
@@ -139,39 +140,50 @@ test("Pi subscribes by default and switches chat ownership with sessions", async
     isIdle: () => true,
     hasPendingMessages: () => false,
   };
+  // The chat script is a child process: poll a boundary until its IPC post lands.
+  const chatsAt = async (boundary) => {
+    for (let i = 0; i < 150; i++) {
+      const batch = await boundary();
+      const texts = (batch?.messages ?? [])
+        .filter((m) => m.data.type === "game.chat")
+        .map((m) => m.data.text);
+      if (texts.length) return { batch, texts };
+      await delay(20);
+    }
+    return { texts: [] };
+  };
+  const toolBoundary = async () => {
+    const result = await handlers.get("tool_result")({ content: [] }, ctx);
+    const text = result?.content.at(-1).text ?? "";
+    return text.startsWith("Participant inbox")
+      ? JSON.parse(text.slice(text.indexOf("\n") + 1))
+      : undefined;
+  };
+  const turnBoundary = async () =>
+    (
+      await handlers.get("turn_end")({ entries: [], outcome: "stop" }, ctx)
+    )?.entries.at(-1).details;
+
   await handlers.get("session_start")({}, ctx);
-  await until(() => connections() === 1);
+  await until(() => connections() === 1, 10000);
   message(bot, "first");
-  await delay(30);
-  const first = await handlers.get("tool_result")({ content: [] }, ctx);
-  assert.equal(
-    JSON.parse(first.content.at(-1).text.split("\n")[1]).messages.filter(
-      (m) => m.data.type === "game.chat",
-    )[0].data.text,
-    "first",
-  );
+  const first = await chatsAt(toolBoundary);
+  assert.deepEqual(first.texts, ["first"]);
+  const chat = first.batch.messages.find((m) => m.data.type === "game.chat");
+  assert.equal(chat.source, "program", "an ordinary script, not the runtime");
+  assert.equal(chat.data.trusted, false);
+
   message(bot, "old pending");
-  await delay(30);
+  await delay(100);
   session = "second";
   await handlers.get("session_start")({}, ctx);
-  await until(() => connections() === 2);
-  await until(() => active() === 1);
+  await until(() => connections() === 2, 10000);
+  await until(() => active() === 1, 10000);
   message(bot, "second");
-  await delay(30);
-  const second = await handlers.get("turn_end")(
-    { entries: [], outcome: "stop" },
-    ctx,
-  );
-  const batch = second.entries.at(-1).details;
-  assert.equal(batch.sessionId, "second");
-  assert.deepEqual(
-    batch.messages
-      .filter((m) => m.data.type === "game.chat")
-      .map((m) => m.data.text),
-    ["second"],
-  );
-  assert.equal(second.continue, undefined);
+  const second = await chatsAt(turnBoundary);
+  assert.equal(second.batch.sessionId, "second");
+  assert.deepEqual(second.texts, ["second"]);
   assert.equal(sent.length, 0);
   await handlers.get("session_shutdown")();
-  await until(() => active() === 0);
+  await until(() => active() === 0, 10000);
 });

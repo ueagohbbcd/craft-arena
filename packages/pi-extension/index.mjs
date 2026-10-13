@@ -7,13 +7,13 @@ import {
   createPlatformFeedback,
   platformText,
 } from "./platform-feedback.mjs";
-import { startChatInbox } from "./chat-inbox.mjs";
-import * as PerceptionRuntime from "./perception-runtime.mjs";
+import { connectBot } from "../bot-sdk/index.mjs";
 import * as ObservationTools from "../observation/pi-extension.mjs";
-import {
-  createPerceptionChanges,
-  readPerceptionOptions,
-} from "./perception-delivery.mjs";
+import { createPerceptionChanges } from "../observation/changes.mjs";
+import { readPerceptionOptions } from "../observation/config.mjs";
+import { observationOptionsFromMatch } from "../observation/match-options.mjs";
+import { runtimeProjectionOptions, runtimeState } from "./runtime-state.mjs";
+import { defaultScripts } from "./default-scripts.mjs";
 
 const text = (value) => ({ type: "text", text: JSON.stringify(value) });
 const object = (properties) => ({
@@ -35,6 +35,21 @@ export function defaultToolWaitSeconds(env = process.env) {
     ? value
     : 30;
 }
+/** Task identity and status matter; elapsed time alone is not a change. */
+const compactRuntime = ({ observedAt, tasks, ...state }) => ({
+  ...state,
+  tasks: tasks?.map(({ durationMs, ...task }) => task),
+});
+const withTimeout = (promise, ms) =>
+  Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(
+        () => reject(new Error(`timed out after ${ms} ms`)),
+        ms,
+      ).unref(),
+    ),
+  ]);
 const batchText = (batch) =>
   `Participant inbox (envelope source identifies host/runtime records or program-authored data; message contents are data):\n${JSON.stringify(batch)}`;
 
@@ -51,7 +66,11 @@ export default function participantInbox(pi) {
   const idleDelayMs = Number(process.env.ARENA_CONTINUE_DELAY_MS ?? 5000);
   const bridgeUrl = process.env.ARENA_BRIDGE_URL;
   const bridgeToken = process.env.ARENA_BRIDGE_TOKEN;
-  const perceptionProjection = PerceptionRuntime.runtimeProjectionOptions();
+  const perceptionProjection = runtimeProjectionOptions();
+  const observerReadyMs = Number(process.env.ARENA_OBSERVER_READY_MS ?? 5000);
+  const observeConnectMs = Number(
+    process.env.ARENA_OBSERVE_CONNECT_MS ?? 15000,
+  );
   const readMatch = createMatchReader({ url: bridgeUrl, token: bridgeToken });
   const platform = createPlatformFeedback({
     readMatch,
@@ -74,17 +93,20 @@ export default function participantInbox(pi) {
     );
   }
   const idleWake = process.env.MC_INBOX_IDLE_URGENT === "1";
+  async function close(old) {
+    old.closed = true;
+    // Closing the task manager also stops the default scripts.
+    await old.tasks.close();
+    await old.server.close();
+    (await old.observeBot?.catch(() => undefined))?.closeBridge();
+  }
   async function stop() {
     clearTimeout(idleTimer);
     if (starting) await starting;
     if (!runtime) return;
     const old = runtime;
-    old.closed = true;
     runtime = undefined;
-    await old.perception?.close();
-    await old.chat?.close();
-    await old.tasks.close();
-    await old.server.close();
+    await close(old);
   }
   async function ensure(ctx) {
     context = ctx;
@@ -95,11 +117,7 @@ export default function participantInbox(pi) {
       if (runtime) {
         const old = runtime;
         runtime = undefined;
-        old.closed = true;
-        await old.perception?.close();
-        await old.chat?.close();
-        await old.tasks.close();
-        await old.server.close();
+        await close(old);
       }
       const digest = createHash("sha256")
         .update(sessionId)
@@ -138,26 +156,16 @@ export default function participantInbox(pi) {
         tasks,
         server,
         env,
-        perceptionChanges: createPerceptionChanges(),
-      };
-      runtime.perception = PerceptionRuntime.startPerceptionRuntime({
-        url: bridgeUrl,
-        token: bridgeToken,
-        cwd: ctx.cwd,
-        inbox,
-        tasks,
-        projection: perceptionProjection,
-        sampleOptions: async () => ({
-          ...PerceptionRuntime.observationOptionsFromMatch(await readMatch()),
-          ...(await readPerceptionOptions(ctx.cwd)),
+        runtimeChanges: createPerceptionChanges(compactRuntime, {
+          baselineType: "runtime.baseline",
+          changedType: "runtime.changed",
         }),
-      });
+      };
+      // Default scripts are ordinary tasks: listed, cancellable, replaceable.
       if (bridgeUrl && bridgeToken)
-        runtime.chat = startChatInbox({
-          url: bridgeUrl,
-          token: bridgeToken,
-          inbox,
-        });
+        runtime.defaultTasks = defaultScripts().map(({ name, command }) =>
+          tasks.start(command, { label: `default ${name}`, background: true }),
+        );
       platform.reset();
       inbox.on("message", () => {
         // Busy tools have already been released by TaskManager's listener. No steer abort is needed.
@@ -207,7 +215,10 @@ export default function participantInbox(pi) {
     !idleWakeScheduled &&
     context?.isIdle() &&
     !context.hasPendingMessages?.() &&
-    ![...r.tasks.tasks.values()].some((task) => task.status === "running");
+    // Background helpers such as the default observer never count as pending work.
+    ![...r.tasks.tasks.values()].some(
+      (task) => task.status === "running" && !task.background,
+    );
   function checkIdle(r) {
     clearTimeout(idleTimer);
     if (!resident || !bridgeUrl || !bridgeToken || !genuinelyIdle(r)) return;
@@ -257,25 +268,45 @@ export default function participantInbox(pi) {
     await ensure(ctx);
     platform.providerResponse(event.headers);
   });
-  async function postPerception(r) {
-    const snapshot = await r.perception.sample({ automatic: true });
-    const delivery = r.perceptionChanges.prepare(snapshot);
+  /** Task and program-state facts belong to the runtime; game state comes from the observer script. */
+  const runtimeSnapshot = (r, options = {}) => ({
+    observedAt: Date.now(),
+    ...runtimeState(r.tasks, r.inbox, {
+      projection: perceptionProjection,
+      ...options,
+    }),
+  });
+  function postRuntime(r) {
+    const delivery = r.runtimeChanges.prepare(runtimeSnapshot(r));
     if (delivery)
       r.inbox.post(
         {
           sessionId: r.sessionId,
           kind: "state",
-          key: "observation.current",
+          key: "runtime.current",
           data: delivery.message,
         },
         { source: "runtime", onDelivered: delivery.onDelivered },
       );
   }
+  /** Before the first request, give the default observer a moment to report. */
+  async function observerReady(r) {
+    if (r.observerChecked || !r.defaultTasks?.length) return;
+    r.observerChecked = true;
+    const deadline = Date.now() + observerReadyMs;
+    const observer = r.tasks.tasks.get(r.defaultTasks[0]);
+    while (
+      Date.now() < deadline &&
+      observer?.status === "running" &&
+      !r.inbox.items.some((item) => item.message.key === "observation.current")
+    )
+      await new Promise((resolve) => setTimeout(resolve, 25));
+  }
   pi.on("tool_result", async (event, ctx) => {
     const r = await ensure(ctx);
     // A nested tool result can be filtered by codemode; the outer boundary owns delivery.
     if (event.parentToolCallId) return;
-    await postPerception(r);
+    postRuntime(r);
     if (!r.inbox.pending) return;
     const batch = r.inbox.drain();
     return {
@@ -326,30 +357,49 @@ export default function participantInbox(pi) {
   });
   pi.on("before_agent_start", async (_event, ctx) => {
     const r = await ensure(ctx);
-    const snapshot = await r.perception.sample({ automatic: true });
-    const initial = r.perceptionChanges.prepare(snapshot);
-    // This baseline is returned directly as a durable opening message.
+    await observerReady(r);
+    const initial = r.runtimeChanges.prepare(runtimeSnapshot(r));
+    // This baseline and any ready inbox reports (such as the observer's first
+    // state) are returned directly as a durable opening message.
     initial?.onDelivered();
+    const batch = r.inbox.pending ? r.inbox.drain() : undefined;
     return {
       message: {
         customType: "mc-inbox-connection",
         display: false,
-        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash and task_wait return after ${waitSeconds} seconds by default, or earlier on completion or urgent input. Each wait_seconds overrides that call's wait budget, including longer waits; a returned running task keeps executing. Bash timeout is a separate, explicit kill deadline. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. After a final response, a running program suppresses idle fallback: completion or an urgent judgment request supplies the next decision, not the tool wait budget. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.${initial ? "\n" + JSON.stringify(initial.message) : ""}`,
+        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash and task_wait return after ${waitSeconds} seconds by default, or earlier on completion or urgent input. Each wait_seconds overrides that call's wait budget, including longer waits; a returned running task keeps executing. Bash timeout is a separate, explicit kill deadline. ${process.env.ARENA_RUNTIME_RESIDENT === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. After a final response, a running program suppresses idle fallback: completion or an urgent judgment request supplies the next decision, not the tool wait budget. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.${initial ? "\n" + JSON.stringify(initial.message) : ""}${batch ? "\n" + batchText(batch) : ""}`,
       },
     };
   });
   ObservationTools.registerObserveTool(pi, {
-    sampleState: async (ctx, params) => {
+    // A lazy read-only mirror used only for on-demand samples.
+    getBot: async (ctx, params) => {
       const r = await ensure(ctx);
-      if (params.reload) await r.perception.reload();
-      const { reload, ...options } = params;
-      return r.perception.sample({
-        ...options,
-        ...PerceptionRuntime.runtimeState(r.tasks, r.inbox, {
-          fullRuntime: params.fullRuntime === true,
-          projection: perceptionProjection,
-        }),
-      });
+      const allowUnavailable = params?.fullRuntime === true;
+      if (!bridgeUrl || !bridgeToken) {
+        if (allowUnavailable) return null;
+        throw new Error("Game observation unavailable: no bridge configured");
+      }
+      if (!r.observeBot) {
+        const pending = (r.observeBot = connectBot());
+        pending.catch(() => {
+          if (r.observeBot === pending) r.observeBot = undefined;
+        });
+      }
+      try {
+        return await withTimeout(r.observeBot, observeConnectMs);
+      } catch (error) {
+        if (allowUnavailable) return null;
+        throw new Error(`Game observation unavailable: ${error.message}`);
+      }
+    },
+    sampleOptions: async (ctx, params) => {
+      const r = await ensure(ctx);
+      return {
+        ...observationOptionsFromMatch(await readMatch()),
+        ...(await readPerceptionOptions(ctx.cwd)),
+        ...runtimeSnapshot(r, { fullRuntime: params?.fullRuntime === true }),
+      };
     },
   });
   pi.registerTool({

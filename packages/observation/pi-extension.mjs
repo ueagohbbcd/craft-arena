@@ -4,23 +4,11 @@ import { connectBot } from "../bot-sdk/index.mjs";
 import { observe } from "./observe.mjs";
 
 export const observeParameters = Type.Object({
-  reload: Type.Optional(
-    Type.Boolean({
-      description:
-        "Reload workspace perception.mjs and perception.json into the default observer; report the active source and any reload error.",
-    }),
-  ),
   radar: Type.Optional(
     Type.Object({
       radius: Type.Optional(Type.Number({ minimum: 0 })),
       playerRadius: Type.Optional(Type.Number({ minimum: 0 })),
       dropGroupRadius: Type.Optional(Type.Number({ minimum: 0 })),
-    }),
-  ),
-  fullRecentBlocks: Type.Optional(
-    Type.Boolean({
-      description:
-        "Expand the retained interval block samples with per-type sample-frame counts, representative coordinates, source times and sample coverage. Does not clear the interval.",
     }),
   ),
   fullRuntime: Type.Optional(
@@ -51,8 +39,6 @@ export async function observeForModel(bot, options = {}, dependencies) {
   const result = await observe(bot, options, dependencies);
   if (options.runtimeProjection)
     result.state.runtimeProjection = options.runtimeProjection;
-  if (options.recentBlocks) result.state.recentBlocks = options.recentBlocks;
-  if (options.nearbySigns) result.state.nearbySigns = options.nearbySigns;
   return observationForModel(result);
 }
 
@@ -72,15 +58,16 @@ export function observationForModel(result) {
     structuredContent: { ...payload, content },
   };
 }
-/** Reuse the runtime's connection. Register exactly once; no background observer is created here. */
+/**
+ * One on-demand sample. Background reporting belongs to the default observer
+ * script; this tool creates no listeners or reports. Register exactly once.
+ */
 export function registerObserveTool(
   pi,
-  { getBot, sampleState, sampleOptions = {}, dependencies } = {},
+  { getBot, sampleOptions = {}, dependencies } = {},
 ) {
-  if (typeof getBot !== "function" && typeof sampleState !== "function")
-    throw new TypeError(
-      "registerObserveTool requires getBot(ctx) or sampleState(ctx, params)",
-    );
+  if (typeof getBot !== "function")
+    throw new TypeError("registerObserveTool requires getBot(ctx, params)");
   pi.registerTool({
     name: "observe",
     label: "Observe current state",
@@ -93,20 +80,6 @@ export function registerObserveTool(
       content: Type.Array(Type.Any()),
     }),
     async execute(_id, params = {}, signal, _onUpdate, ctx) {
-      if (sampleState) {
-        if (signal?.aborted)
-          throw signal.reason ?? new Error("Observation cancelled");
-        const state = await sampleState(ctx, params);
-        return observationForModel({
-          state,
-          metadata: {
-            epoch: state.freshness?.epoch ?? null,
-            sequence: state.freshness?.sequence ?? null,
-            sampledAt: state.freshness?.sampledAt ?? null,
-            source: "on-demand observation",
-          },
-        });
-      }
       const bot = await getBot(ctx, params);
       const defaults =
         typeof sampleOptions === "function"

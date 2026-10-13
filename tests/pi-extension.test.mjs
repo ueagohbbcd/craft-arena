@@ -476,6 +476,8 @@ test("authenticated host match clock preserves ended state and cached frozen ela
     env: {
       ARENA_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`,
       ARENA_BRIDGE_TOKEN: "clock-fixture-token",
+      // A host stub, not a game: no default observer/chat scripts.
+      ARENA_DEFAULT_SCRIPTS: "",
     },
   });
   await await h.handlers.get("turn_end")(
@@ -590,6 +592,8 @@ test(
       OPENAI_API_KEY: "resident-scoped-fixture-token",
       ARENA_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`,
       ARENA_BRIDGE_TOKEN: "host-resident-fixture",
+      // A host stub, not a game: no default observer/chat scripts.
+      ARENA_DEFAULT_SCRIPTS: "",
       ARENA_CONTINUE_DELAY_MS: "30",
       ARENA_TOOL_WAIT_SECONDS: "0.05",
       MC_INBOX_TRANSPORT: "http",
@@ -750,6 +754,8 @@ test(
           OPENAI_API_KEY: "model-scoped-token",
           ARENA_BRIDGE_URL: url,
           ARENA_BRIDGE_TOKEN: "bridge-fixture-token",
+          // A host stub, not a game: no default observer/chat scripts.
+          ARENA_DEFAULT_SCRIPTS: "",
           ARENA_WAIT_FOR_MATCH: "1",
           ARENA_START_TIMEOUT_MS: "10000",
           MC_INBOX_TRANSPORT: "http",
@@ -961,6 +967,8 @@ function residentHost(t) {
       ARENA_RUNTIME_RESIDENT: "1",
       ARENA_BRIDGE_URL: "http://host.invalid",
       ARENA_BRIDGE_TOKEN: "host-fixture-token",
+      // A host stub, not a game: no default observer/chat scripts.
+      ARENA_DEFAULT_SCRIPTS: "",
       ARENA_CONTINUE_DELAY_MS: "30",
     },
     setState: (value) => {

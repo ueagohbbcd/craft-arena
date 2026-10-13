@@ -1,5 +1,3 @@
-export { readPerceptionOptions } from "../observation/config.mjs";
-
 export function compactPerception(snapshot) {
   const {
     observedAt,
@@ -47,13 +45,23 @@ export function compactPerception(snapshot) {
   return state;
 }
 
-/** One baseline, then replaced sections; explicit empty arrays/null report removals. */
-export function createPerceptionChanges() {
+/**
+ * One baseline, then replaced sections; explicit empty arrays/null report
+ * removals. The baseline only advances when the caller confirms delivery, so
+ * an undelivered report is folded into the next one.
+ */
+export function createPerceptionChanges(
+  compact = compactPerception,
+  {
+    baselineType = "perception.baseline",
+    changedType = "perception.changed",
+  } = {},
+) {
   let previous = new Map();
   let initialized = false;
   return {
     prepare(snapshot) {
-      const state = compactPerception(snapshot),
+      const state = compact(snapshot),
         changes = {},
         next = new Map();
       for (const [key, value] of Object.entries(state)) {
@@ -66,7 +74,7 @@ export function createPerceptionChanges() {
       if (initialized && !Object.keys(changes).length) return null;
       return {
         message: {
-          type: initialized ? "perception.changed" : "perception.baseline",
+          type: initialized ? changedType : baselineType,
           observedAt: snapshot.observedAt,
           changes,
         },

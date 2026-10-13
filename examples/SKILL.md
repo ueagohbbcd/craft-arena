@@ -5,11 +5,11 @@ description: Play the Minecraft arena with ready-made situational awareness, on-
 
 # Play through Mineflayer
 
-The preinstalled toolkit supplies situational awareness, optional world images and retained chunk history. Default awareness starts automatically. To change its policy, write `perception.mjs` in your workspace exporting `createObserver(context)`, then call `observe({reload:true})`. Start with the small [customization example](../docs/OBSERVATION.md#修改默认观察器) and the [default observer source](../packages/observation/default-observer.mjs). Removing your file and reloading restores the default. For a separate task-specific listener, use the example below. [Block memory](../docs/BLOCK-MEMORY.md) retains received columns, including unloaded history; its recording is managed by the trusted bridge.
+The preinstalled toolkit supplies situational awareness, optional world images and retained chunk history. Awareness comes from two default scripts the runtime starts for you: `default observer` (state changes, nearby blocks and signs, damage/death/wool events) and `default chat`. They are ordinary tasks in your task list. To change what the observer reports, copy [`packages/default-scripts/observer.mjs`](../packages/default-scripts/observer.mjs) into your workspace, edit it, `task_cancel` the default one and run yours; see [changing the default observer](../docs/OBSERVATION.md#修改默认观察器). For a separate task-specific listener, use the example below. [Block memory](../docs/BLOCK-MEMORY.md) retains received columns, including unloaded history; its recording is managed by the trusted bridge.
 
 Run Node programs through `bash` to control your Minecraft character. The host briefing supplies the team, map, objectives and time limit. Toolkit files live under `$ARENA_TOOLKIT_ROOT`; save your own programs in the current working directory.
 
-The runtime supplies an opening state and later changes to player state, inventory, equipment, entities, nearby terrain and managed programs. Each field in `changes` replaces that section, including empty arrays and null. Reports carry observation times and stay in history. Use `observe` for a fresh state snapshot.
+The default observer and the runtime supply an opening state and later changes to player state, inventory, equipment, entities, nearby terrain and managed programs. Each field in `changes` replaces that section, including empty arrays and null. Reports carry observation times and stay in history. Use `observe` for a fresh state snapshot.
 
 ## First movement
 
@@ -41,7 +41,6 @@ periodic model wake-ups.
 | --- | --- |
 | Current state | `observe({})` |
 | Full item, entity or local-block details | `observe({fullItems:true, fullEntities:true, fullLocal:true})`; select the fields you need |
-| Recent block sample coordinates and coverage | `observe({fullRecentBlocks:true})` |
 | All retained task statuses and current program reports | `observe({fullRuntime:true})`; also works while game observation is unavailable |
 | Continue waiting for a running program | `task_wait({taskId, wait_seconds:30})` |
 | Stop a controller before replacing it | `task_cancel({taskId})`, then `task_wait` until termination |

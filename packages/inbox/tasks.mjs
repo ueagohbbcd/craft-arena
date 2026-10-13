@@ -47,7 +47,14 @@ export class TaskManager {
       this.releaseAll(`urgent inbox message ${message.id}`);
     inbox.on("urgent", this.onUrgent);
   }
-  start(command, { callId, cwd = this.cwd, env = {}, timeoutMs } = {}) {
+  /**
+   * label names a task for the model; background marks a long-lived helper
+   * (such as a default observer) that does not count as pending model work.
+   */
+  start(
+    command,
+    { callId, cwd = this.cwd, env = {}, timeoutMs, label, background } = {},
+  ) {
     if (this.closed) throw new Error("Task manager is closed");
     if (typeof command !== "string" || !command.trim())
       throw new Error("command is required");
@@ -85,6 +92,8 @@ export class TaskManager {
       id,
       command,
       callId,
+      ...(typeof label === "string" && label ? { label } : {}),
+      ...(background === true ? { background: true } : {}),
       status: "running",
       stdout: Buffer.alloc(0),
       stderr: Buffer.alloc(0),
@@ -175,6 +184,7 @@ export class TaskManager {
   snapshot(task) {
     return {
       taskId: task.id,
+      ...(task.label ? { label: task.label } : {}),
       status: task.status,
       stdout: decodeTail(task.stdout),
       stderr: decodeTail(task.stderr),

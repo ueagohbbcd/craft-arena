@@ -6,7 +6,7 @@
 
 比赛宿主、受限 Minecraft Bot 接口、模型预算、后台任务生命周期与 Inbox 是运行框架；Pi 负责当前框架的 Agent 会话接线。**态势感知、世界视觉、区块记忆都是可复用的预装工具箱能力**，并不因为某项需要自动启动、在可信侧保存数据或需要 Pi 呈递结果，就成为新的框架层。
 
-三项工具箱的默认政策不同：态势感知默认监听并选择性向模型报告，世界视觉只按地图配置提供开局图像、其他时候按需渲染，区块记忆默认收集但通常只在代码主动查询时读出。Skill 介绍调用与修改入口：工作区 `perception.mjs` 经显式 `observe({reload:true})` 接替默认观察逻辑，Pi 保留连接和交付接线；区块记忆由可信 Bridge 初始化，可由宿主替换或关闭。[框架与工具箱分类](../README.md#框架预装工具箱与-skill) · [工作清单](PERCEPTION-TODO.md)。
+三项工具箱的默认政策不同：态势感知默认监听并选择性向模型报告，世界视觉只按地图配置提供开局图像、其他时候按需渲染，区块记忆默认收集但通常只在代码主动查询时读出。Skill 介绍调用与修改入口：默认观察器和聊天监听是开局自动启动的普通脚本（受管后台任务），通过 `InboxClient` 和送达回执交付，可停掉或换成自己的版本；Pi 只负责启动它们，以及平台消息和运行时状态；区块记忆由可信 Bridge 初始化，可由宿主替换或关闭。[框架与工具箱分类](../README.md#框架预装工具箱与-skill) · [工作清单](PERCEPTION-TODO.md)。
 
 ## 四类信息进入上下文的方式
 
@@ -52,7 +52,7 @@
 
 无运行任务时的五秒续跑与模型错误恢复负责维持会话运行，沿既有上下文继续执行。
 
-实现入口：[普通观察交付](../packages/pi-extension/perception-delivery.mjs)、[边界与等待](../packages/pi-extension/index.mjs)、[近距累计](../packages/observation/recent-block-runtime.mjs)、[共享方块记忆](BLOCK-MEMORY.md)。
+实现入口：[默认观察器脚本](../packages/default-scripts/observer.mjs)、[变化报告](../packages/observation/changes.mjs)、[边界与等待](../packages/pi-extension/index.mjs)、[近距累计](../packages/observation/recent-block-runtime.mjs)、[共享方块记忆](BLOCK-MEMORY.md)。
 
 ## 已退役的实验
 
