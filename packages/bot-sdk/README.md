@@ -49,6 +49,10 @@ Current loaded terrain and this facade session's own observed history are separa
 
 Incoming `chat` and `messagestr` retain their normal string argument positions; rich chat objects are null, and the sixth argument contains source/time metadata. Pi separately forwards chat-box messages to the inbox by default. See [chat delivery](../pi-extension/README.md#behavior).
 
+## Fidelity to Mineflayer
+
+Plugins and model code are written against real Mineflayer, so the facade aims to behave like a real `bot`. [sdk-fidelity.test.mjs](../../tests/sdk-fidelity.test.mjs) builds a real Mineflayer 4.39 bot offline and lists every bot method the facade still lacks, in four groups: reads computable from the local mirror (for example `blockAtCursor`, `canSeeBlock`, `recipesFor`, `findPlayer`), Mineflayer names for actions the bridge already performs (`openChest`, `craft`, `toss`, `transfer`), actions that need a new validated bridge action (`activateEntity`, `useOn`, `mount`, `sleep`, `fish`, `updateSign`, `trade`), and host-owned calls (`quit`, `respawn`, resource packs). The test fails when that list changes, so a filled gap is removed from it and a lost method is caught.
+
 ## Pathfinder and PvP adaptation
 
 Load the adapters once with `loadSelectedPlugins(bot)`. Keep native Movements defaults unless the task calls for a change. [plugin-goal.mjs](../../examples/plugin-goal.mjs) demonstrates arrival verification, progress and stall reporting; `--no-dig` opts into preserving blocks.
