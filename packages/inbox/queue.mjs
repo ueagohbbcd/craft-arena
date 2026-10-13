@@ -27,12 +27,26 @@ export class Inbox extends EventEmitter {
     // Latest program facts are independent of delivery history. Reads never drain them.
     this.current = new Map();
     this.currentBytes = 0;
+    // How recently queued messages left the queue, for out-of-process receipts.
+    this.outcomes = new Map();
+    this.maxOutcomes = 4096;
+  }
+  /** delivered | replaced | expired | overflow | removed, or pending/unknown. */
+  outcome(id) {
+    if (this.items.some((item) => item.id === id)) return "pending";
+    return this.outcomes.get(id) ?? "unknown";
+  }
+  settle(id, outcome) {
+    this.outcomes.set(id, outcome);
+    if (this.outcomes.size > this.maxOutcomes)
+      this.outcomes.delete(this.outcomes.keys().next().value);
+    this.emit("settled", { id, outcome });
   }
   prune() {
     const now = this.now();
     for (const item of [...this.items])
       if (item.expiresAt <= now) {
-        this.remove(item.id);
+        this.remove(item.id, "expired");
         this.drop("expired");
       }
   }
@@ -137,12 +151,12 @@ export class Inbox extends EventEmitter {
           old.message.key === key &&
           old.message.source === source
         )
-          this.remove(old.id);
+          this.remove(old.id, "replaced");
     while (
       this.items.length >= this.maxItems ||
       this.bytes + bytes > this.maxBytes
     ) {
-      this.remove(this.items[0].id);
+      this.remove(this.items[0].id, "overflow");
       this.drop("overflow");
     }
     this.items.push({
@@ -180,11 +194,12 @@ export class Inbox extends EventEmitter {
       [...this.current.values()].map(({ message }) => message),
     );
   }
-  remove(id) {
+  remove(id, outcome = "removed") {
     const i = this.items.findIndex((x) => x.id === id);
     if (i < 0) return false;
     this.bytes -= this.items[i].bytes;
     this.items.splice(i, 1);
+    this.settle(id, outcome);
     return true;
   }
   /** Claim and acknowledge only at the final model-visible boundary. */
@@ -198,6 +213,7 @@ export class Inbox extends EventEmitter {
     this.dropped = { overflow: 0, expired: 0 };
     const deliveryErrors = [];
     for (const item of items) {
+      this.settle(item.id, "delivered");
       try {
         item.onDelivered?.();
       } catch (error) {
