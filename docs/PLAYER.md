@@ -30,6 +30,6 @@
 
 ## 预算、比赛状态与队内代码
 
-`arena.clock` 提供比赛状态与时限，程序也可用 `await bot.getMatchState()` 查询。模型排队期间游戏和程序继续运行；程序完成或紧急事件可唤起常驻会话的下一次判断。[预算反馈与等待](PLAYER-REFERENCE.md#模型预算与等待)。
+平台更新（`Arena platform update`）中的 `clock` 提供比赛状态与时限，程序也可用 `await bot.getMatchState()` 查询。模型排队期间游戏和程序继续运行；程序完成或紧急事件可唤起常驻会话的下一次判断。[预算反馈与等待](PLAYER-REFERENCE.md#模型预算与等待)。
 
 `TEAM_GIT_DIR` 是队内共享 Git 目录。[在自己的 clone 和分支中共享代码](PLAYER-REFERENCE.md#队内-git)。

@@ -34,12 +34,15 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
   const handlers = new Map();
   const tools = new Map();
   const sent = [];
+  const platform = [];
   let idle = false;
   let pending = false;
   extension({
     on: (name, fn) => handlers.set(name, fn),
     registerTool: (tool) => tools.set(tool.name, tool),
-    sendMessage: (...args) => sent.push(args),
+    // Passive platform updates are kept apart from messages that start turns.
+    sendMessage: (...args) =>
+      (args[0].customType === "arena-platform" ? platform : sent).push(args),
   });
   const ctx = {
     cwd: process.cwd(),
@@ -69,6 +72,7 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
     handlers,
     tools,
     sent,
+    platform,
     ctx,
     client,
     run,
@@ -384,7 +388,7 @@ test(
   },
 );
 
-test("budget headers become deduplicated host state with explicit reservation semantics", async (t) => {
+test("budget headers become deduplicated platform feedback with explicit reservation semantics", async (t) => {
   const h = await harness(t);
   const event = {
     status: 200,
@@ -396,28 +400,36 @@ test("budget headers become deduplicated host state with explicit reservation se
     },
   };
   await h.handlers.get("after_provider_response")(event, h.ctx);
+  // Platform feedback no longer rides the participant inbox.
   const boundary = await h.handlers.get("tool_result")(
     { content: [{ type: "text", text: "finished" }] },
     h.ctx,
   );
-  const batch = JSON.parse(
-    boundary.content.at(-1).text.split("\n").slice(1).join("\n"),
+  assert.doesNotMatch(JSON.stringify(boundary ?? {}), /arena\.(budget|clock)/);
+  assert.equal(h.platform.length, 0);
+  await await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [], outcome: "completed" },
+    h.ctx,
   );
-  const budget = batch.messages.find((m) => m.key === "arena.budget");
-  assert.equal(budget.source, "host");
-  assert.equal(budget.data.queueDelayMs, 12);
-  assert.equal(budget.data.requestReservedTokens, 2048);
-  assert.match(budget.data.accounting, /final settled usage can differ/);
+  assert.equal(h.platform.length, 1);
+  const [message, options] = h.platform[0];
+  assert.deepEqual(options, { triggerTurn: false });
+  assert.match(message.content, /^Arena platform update/);
+  const { budget, clock } = message.details;
+  assert.equal(budget.type, undefined);
+  assert.equal(budget.queueDelayMs, 12);
+  assert.equal(budget.requestReservedTokens, 2048);
+  assert.match(budget.accounting, /final settled usage can differ/);
+  assert.equal(clock.remainingMs, undefined);
+  assert.match(clock.basis, /match start is unknown/);
   const zero = { status: 200, headers: { "x-arena-queue-delay-ms": "0" } };
   await h.handlers.get("after_provider_response")(zero, h.ctx);
-  assert.equal(
-    await h.handlers.get("tool_result")({ content: [] }, h.ctx),
-    undefined,
+  await await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [], outcome: "completed" },
+    h.ctx,
   );
+  assert.equal(h.platform.length, 1, "unchanged feedback is not repeated");
   assert.equal(h.sent.length, 0);
-  const clock = batch.messages.find((m) => m.key === "arena.clock");
-  assert.equal(clock.data.remainingMs, undefined);
-  assert.match(clock.data.basis, /match start is unknown/);
 });
 
 test("authenticated host match clock preserves ended state and cached frozen elapsed time", async (t) => {
@@ -466,20 +478,22 @@ test("authenticated host match clock preserves ended state and cached frozen ela
       ARENA_BRIDGE_TOKEN: "clock-fixture-token",
     },
   });
-  const result = await h.handlers.get("tool_result")({ content: [] }, h.ctx);
-  const batch = JSON.parse(
-    result.content[0].text.split("\n").slice(1).join("\n"),
+  await await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [], outcome: "completed" },
+    h.ctx,
   );
-  const clock = batch.messages.find((m) => m.key === "arena.clock");
-  assert.equal(clock.source, "host");
-  assert.equal(clock.data.state, "ended");
-  assert.equal(clock.data.elapsedMs, 35000);
-  assert.equal(clock.data.remainingMs, 25000);
-  assert.equal(clock.data.winner, "blue");
-  assert.equal(
-    await h.handlers.get("tool_result")({ content: [] }, h.ctx),
-    undefined,
+  assert.equal(h.platform.length, 1);
+  const { clock } = h.platform[0][0].details;
+  assert.equal(clock.basis, "authenticated host match snapshot");
+  assert.equal(clock.state, "ended");
+  assert.equal(clock.elapsedMs, 35000);
+  assert.equal(clock.remainingMs, 25000);
+  assert.equal(clock.winner, "blue");
+  await await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [], outcome: "completed" },
+    h.ctx,
   );
+  assert.equal(h.platform.length, 1);
   assert.equal(reads, 1);
   assert.equal(h.sent.length, 0);
 });
@@ -813,7 +827,7 @@ test("bootstrap derives capabilities and compaction from the shared model descri
   );
 });
 
-test("cash snapshot refresh is bounded to a natural outer boundary and strips private host fields", async (t) => {
+test("cash snapshot refresh is bounded to the turn boundary and strips private host fields", async (t) => {
   const http = await import("node:http");
   const { once } = await import("node:events");
   let reads = 0;
@@ -898,30 +912,30 @@ test("cash snapshot refresh is bounded to a natural outer boundary and strips pr
     ),
     undefined,
   );
-  assert.equal(reads, 0);
-  const result = await h.handlers.get("tool_result")(
+  await h.handlers.get("tool_result")(
     { content: [{ type: "text", text: "selected output" }] },
+    h.ctx,
+  );
+  assert.equal(reads, 0, "settled usage is read once, at the turn boundary");
+  await await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [], outcome: "completed" },
     h.ctx,
   );
   assert.equal(reads, 1);
   assert.equal(h.sent.length, 0);
-  const rendered = JSON.stringify(result);
+  assert.equal(h.platform.length, 1);
+  const rendered = JSON.stringify(h.platform[0][0]);
   assert.doesNotMatch(
     rendered,
     /HOST_ONLY_AMOUNT|spentToTargetRatio|overrunRatio|\"currency\"|\"price\"|\"amount\"/,
   );
-  const batch = JSON.parse(
-    result.content.at(-1).text.split("\n").slice(1).join("\n"),
-  );
-  const budget = batch.messages.find(
-    (message) => message.key === "arena.budget",
-  ).data;
+  const { budget } = h.platform[0][0].details;
   assert.equal(budget.cash.participant.costShare.output, 0.7);
   assert.equal(budget.cash.participant.quality, "estimated");
   assert.equal(budget.cash.participant.rate.overRateRatioBeforeWait, 0.25);
   assert.equal(budget.participantRemainingTokens, 7500);
   assert.match(budget.accounting, /authenticated budget snapshot/);
-  await h.handlers.get("turn_end")(
+  await await h.handlers.get("turn_end")(
     { entries: [], toolResults: [], outcome: "completed" },
     h.ctx,
   );

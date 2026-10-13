@@ -123,7 +123,8 @@ test("Pi subscribes by default and switches chat ownership with sessions", async
   extension({
     on: (n, f) => handlers.set(n, f),
     registerTool() {},
-    sendMessage: (...a) => sent.push(a),
+    // Count only messages that start turns; passive platform updates are separate.
+    sendMessage: (...a) => a[0].customType === "arena-platform" || sent.push(a),
   });
   t.after(async () => {
     await handlers.get("session_shutdown")();

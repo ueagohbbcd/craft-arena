@@ -750,8 +750,14 @@ test(
     assert.equal(laterReport.dimensions[0].dimension, "overworld");
     assert.equal(laterReport.dimensions[0].counts.chest, 1);
     assert.equal(laterReport.dimensions[0].counts.oak_log, undefined);
+    // The durable platform update (clock/budget) may follow the tool result;
+    // nothing else is appended after it for this request only.
+    const durable = requests[1].messages.filter(
+      (message) =>
+        !JSON.stringify(message.content).includes("Arena platform update"),
+    );
     assert.deepEqual(
-      requests[1].messages.slice(-2).map((message) => message.role),
+      durable.slice(-2).map((message) => message.role),
       ["assistant", "toolResult"],
       "the tool boundary result carries the observation without a request-only tail",
     );

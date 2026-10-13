@@ -1092,24 +1092,16 @@ test(
     const headers = responses[0].headers;
     assert.ok(Number(headers["x-arena-queue-delay-ms"]) > 0);
     assert.ok(Number(headers["x-arena-reserved-tokens"]) > 15);
-    const transcript = JSON.stringify(
+    const toolTranscript = JSON.stringify(
       h.requests[1].messages.filter((m) => m.role === "tool"),
     );
-    assert.match(transcript, /budget/);
-    assert.match(transcript, /reservation|reserved/i);
-    assert.match(transcript, /remaining/i);
-    assert.match(transcript, /queue/i);
-
-    const toolText = h.requests[1].messages.find(
-      (m) => m.role === "tool",
-    ).content;
-    const batch = JSON.parse(
-      toolText.slice(
-        toolText.indexOf("\n", toolText.indexOf("Participant inbox")) + 1,
-      ),
+    assert.doesNotMatch(
+      toolTranscript,
+      /arena\.budget/,
+      "budget is platform feedback, not inbox data",
     );
-    const message = batch.messages.find((m) => m.data.type === "arena.budget");
-    assert.equal(message.source, "host");
+    const message = { data: budgetFromToolRequest(h.requests[1]) };
+    assert.match(JSON.stringify(message.data), /reservation|reserved/i);
     assert.equal(
       message.data.queueDelayMs,
       Number(headers["x-arena-queue-delay-ms"]),
@@ -1142,14 +1134,9 @@ test(
     h.ledger.now = () => 1000;
     await h.session.prompt("Finish without tools.");
     assert.equal(h.requests.length, 1);
-    const boundary = h.session.messages.find(
-      (m) => m.role === "custom" && m.customType === "mc-inbox",
-    );
-    assert.ok(boundary, "passive feedback persists at final boundary");
-    const message = boundary.details.messages.find(
-      (m) => m.data.type === "arena.budget",
-    );
-    assert.equal(message.source, "host");
+    const [update] = platformFromSession(h.session);
+    assert.ok(update, "passive feedback persists at final boundary");
+    const message = { data: update.budget };
     const measuredDelay = Number(
       h.gatewayResponses.find((r) => r.method === "POST").headers[
         "x-arena-queue-delay-ms"
@@ -1187,13 +1174,8 @@ test(
     }
     await h.session.prompt("Complete the clock fixture.");
     assert.equal(h.requests.length, 1);
-    const boundary = h.session.messages.find(
-      (m) => m.role === "custom" && m.customType === "mc-inbox",
-    );
-    const clock = boundary.details.messages.find(
-      (m) => m.data.type === "arena.clock",
-    );
-    assert.equal(clock.source, "host");
+    const [update] = platformFromSession(h.session);
+    const clock = { data: update.clock };
     assert.equal(clock.data.basis, "host-provided match start");
     assert.equal(clock.data.matchStartedAtMs, started);
     assert.equal(clock.data.durationMs, 60000);
@@ -1514,14 +1496,26 @@ const cachedUsageFixture = {
   cost_usd: 12345,
   invoice_amount: 67890,
 };
+/** The platform update (clock/budget) as the model received it in a request. */
+function platformFromRequest(request) {
+  for (const m of request.messages) {
+    const text =
+      typeof m.content === "string"
+        ? m.content
+        : Array.isArray(m.content)
+          ? m.content.map((c) => c.text ?? "").join("")
+          : "";
+    const at = text.indexOf("Arena platform update");
+    if (at >= 0) return JSON.parse(text.slice(text.indexOf("\n", at) + 1));
+  }
+}
+function platformFromSession(session) {
+  return session.messages
+    .filter((m) => m.role === "custom" && m.customType === "arena-platform")
+    .map((m) => m.details);
+}
 function budgetFromToolRequest(request) {
-  const toolText = request.messages.find((m) => m.role === "tool").content;
-  const batch = JSON.parse(
-    toolText.slice(
-      toolText.indexOf("\n", toolText.indexOf("Participant inbox")) + 1,
-    ),
-  );
-  return batch.messages.find((m) => m.data.type === "arena.budget").data;
+  return platformFromRequest(request).budget;
 }
 function assertRatiosOnly(cash) {
   assert.deepEqual(Object.keys(cash).sort(), [
@@ -1747,10 +1741,8 @@ test(
     const header = JSON.parse(admitted.headers["x-arena-cash-ratios"]);
     assert.ok(header.participant.rate.overRateRatioBeforeWait > 0);
     assertRatiosOnly(header.participant);
-    const feedback = h.session.messages
-      .filter((m) => m.role === "custom" && m.customType === "mc-inbox")
-      .flatMap((m) => m.details?.messages ?? [])
-      .find((m) => m.data.type === "arena.budget");
+    const budget = platformFromSession(h.session).find((u) => u.budget)?.budget;
+    const feedback = budget && { data: budget };
     assert.ok(
       feedback,
       JSON.stringify(

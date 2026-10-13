@@ -2,7 +2,11 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Inbox, TaskManager, createInboxServer } from "../inbox/index.mjs";
-import { budgetFromHeaders, budgetFromSnapshot } from "./budget-feedback.mjs";
+import {
+  createMatchReader,
+  createPlatformFeedback,
+  platformText,
+} from "./platform-feedback.mjs";
 import { startChatInbox } from "./chat-inbox.mjs";
 import * as PerceptionRuntime from "./perception-runtime.mjs";
 import * as ObservationTools from "../observation/pi-extension.mjs";
@@ -40,26 +44,6 @@ export default function participantInbox(pi) {
   let runtime;
   let starting;
   let context;
-  const bootAt = Date.now();
-  const configuredDuration = Number(process.env.ARENA_DURATION_MS);
-  const startValue = process.env.ARENA_MATCH_STARTED_AT;
-  const configuredStart =
-    startValue === undefined
-      ? NaN
-      : Number.isFinite(Number(startValue))
-        ? Number(startValue)
-        : Date.parse(startValue);
-  const hostStartKnown =
-    Number.isFinite(configuredStart) && configuredStart > 0;
-  let lastBudget = "";
-  let budgetNeedsSnapshot = false;
-  let budgetRead;
-  const budgetUrl = process.env.OPENAI_BASE_URL;
-  const budgetToken = process.env.OPENAI_API_KEY;
-  let lastClockBucket;
-  let matchReadAt = 0;
-  let matchSnapshot;
-  let matchRead;
   let idleWakeScheduled = false;
   let idleTimer;
   let lastStopReason;
@@ -68,108 +52,25 @@ export default function participantInbox(pi) {
   const bridgeUrl = process.env.ARENA_BRIDGE_URL;
   const bridgeToken = process.env.ARENA_BRIDGE_TOKEN;
   const perceptionProjection = PerceptionRuntime.runtimeProjectionOptions();
-  async function readMatch(fresh = false) {
-    if (!bridgeUrl || !bridgeToken) return undefined;
-    if (matchRead) return matchRead;
-    if (!fresh && Date.now() - matchReadAt < 2000) return matchSnapshot;
-    matchReadAt = Date.now();
-    matchRead = (async () => {
-      try {
-        const response = await fetch(
-          `${bridgeUrl.replace(/\/$/, "")}/v1/match`,
-          {
-            headers: { authorization: `Bearer ${bridgeToken}` },
-            signal: AbortSignal.timeout(300),
-          },
-        );
-        if (!response.ok) return (matchSnapshot = undefined);
-        const body = await response.json();
-        const value = body.result;
-        if (
-          !body.ok ||
-          !value ||
-          typeof value.state !== "string" ||
-          !Number.isFinite(value.now) ||
-          !Number.isFinite(value.durationMs)
-        )
-          return (matchSnapshot = undefined);
-        return (matchSnapshot = value);
-      } catch {
-        return (matchSnapshot = undefined);
-      }
-    })();
-    try {
-      return await matchRead;
-    } finally {
-      matchRead = undefined;
-    }
-  }
-  async function postClock(r) {
-    const host = await readMatch();
-    if (host?.state === "ended") r.matchEnded = true;
-    const now = Date.now();
-    let data;
-    let source;
-    if (host) {
-      const elapsed =
-        host.elapsedMs === null || !Number.isFinite(host.elapsedMs)
-          ? null
-          : Math.max(0, host.elapsedMs);
-      data = {
-        type: "arena.clock",
-        basis: "authenticated host match snapshot",
-        matchId: host.matchId,
-        state: host.state,
-        matchStartedAtMs: host.startedAt,
-        asOfMs: host.now,
-        durationMs: host.durationMs,
-        elapsedMs: elapsed,
-        remainingMs:
-          elapsed === null ? null : Math.max(0, host.durationMs - elapsed),
-        winner: host.winner ?? null,
-      };
-      source = "host";
-    } else {
-      const elapsed = Math.max(
-        0,
-        now - (hostStartKnown ? configuredStart : bootAt),
-      );
-      data = hostStartKnown
-        ? {
-            type: "arena.clock",
-            basis: "host-provided match start",
-            matchStartedAtMs: configuredStart,
-            elapsedMs: elapsed,
-            ...(Number.isFinite(configuredDuration) && configuredDuration > 0
-              ? {
-                  durationMs: configuredDuration,
-                  remainingMs: Math.max(0, configuredDuration - elapsed),
-                }
-              : {}),
-          }
-        : {
-            type: "arena.clock",
-            basis: "participant agent uptime; match start is unknown",
-            agentUptimeMs: elapsed,
-            ...(Number.isFinite(configuredDuration) && configuredDuration > 0
-              ? { configuredMatchDurationMs: configuredDuration }
-              : {}),
-          };
-      source = hostStartKnown ? "host" : "runtime";
-    }
-    const bucket = JSON.stringify([
-      data.basis,
-      data.matchId,
-      data.state,
-      data.winner,
-      data.matchStartedAtMs,
-      Math.floor((data.elapsedMs ?? data.agentUptimeMs ?? 0) / 10000),
-    ]);
-    if (bucket === lastClockBucket) return;
-    lastClockBucket = bucket;
-    r.inbox.post(
-      { sessionId: r.sessionId, kind: "state", key: "arena.clock", data },
-      { source },
+  const readMatch = createMatchReader({ url: bridgeUrl, token: bridgeToken });
+  const platform = createPlatformFeedback({
+    readMatch,
+    budgetUrl: process.env.OPENAI_BASE_URL,
+    budgetToken: process.env.OPENAI_API_KEY,
+  });
+  /** Trusted clock/budget changes ride the next model request as one Pi message. */
+  async function sendPlatformUpdate(r) {
+    const { matchEnded, update } = await platform.collect();
+    if (matchEnded) r.matchEnded = true;
+    if (!update || runtime !== r || r.closed) return;
+    pi.sendMessage(
+      {
+        customType: "arena-platform",
+        content: platformText(update),
+        display: true,
+        details: update,
+      },
+      { triggerTurn: false },
     );
   }
   const idleWake = process.env.MC_INBOX_IDLE_URGENT === "1";
@@ -257,9 +158,7 @@ export default function participantInbox(pi) {
           token: bridgeToken,
           inbox,
         });
-      lastBudget = "";
-      budgetNeedsSnapshot = false;
-      lastClockBucket = undefined;
+      platform.reset();
       inbox.on("message", () => {
         // Busy tools have already been released by TaskManager's listener. No steer abort is needed.
         if (context?.isIdle()) wakeIdle(runtime);
@@ -354,47 +253,9 @@ export default function participantInbox(pi) {
     const r = await ensure(ctx);
     r.tasks.resumeWaits();
   });
-  function postBudget(r, data) {
-    if (!data) return;
-    const signature = JSON.stringify(data);
-    if (signature === lastBudget && !(data.queueDelayMs > 0)) return;
-    lastBudget = signature;
-    r.inbox.post(
-      { sessionId: r.sessionId, kind: "state", key: "arena.budget", data },
-      { source: "host" },
-    );
-  }
-  async function refreshBudget(r) {
-    if (budgetRead) return budgetRead;
-    if (!budgetNeedsSnapshot || !budgetUrl || !budgetToken) return;
-    budgetNeedsSnapshot = false;
-    budgetRead = (async () => {
-      try {
-        const response = await fetch(`${budgetUrl.replace(/\/$/, "")}/budget`, {
-          headers: { authorization: `Bearer ${budgetToken}` },
-          signal: AbortSignal.timeout(300),
-        });
-        if (!response.ok) return;
-        // Explicit projection also protects against a future host response adding private amounts.
-        const data = budgetFromSnapshot(await response.json());
-        if (runtime === r && !r.closed) postBudget(r, data);
-      } catch {
-        /* Keep the admission snapshot when this bounded refresh is unavailable. */
-      }
-    })();
-    try {
-      await budgetRead;
-    } finally {
-      budgetRead = undefined;
-    }
-  }
   pi.on("after_provider_response", async (event, ctx) => {
-    const r = await ensure(ctx);
-    const data = budgetFromHeaders(event.headers);
-    if (data) {
-      budgetNeedsSnapshot = true;
-      postBudget(r, data);
-    }
+    await ensure(ctx);
+    platform.providerResponse(event.headers);
   });
   async function postPerception(r) {
     const snapshot = await r.perception.sample({ automatic: true });
@@ -415,8 +276,6 @@ export default function participantInbox(pi) {
     // A nested tool result can be filtered by codemode; the outer boundary owns delivery.
     if (event.parentToolCallId) return;
     await postPerception(r);
-    await refreshBudget(r);
-    await postClock(r);
     if (!r.inbox.pending) return;
     const batch = r.inbox.drain();
     return {
@@ -439,10 +298,9 @@ export default function participantInbox(pi) {
       event.message?.stopReason === "error" &&
       /^429\b/.test(event.message.errorMessage ?? "")
     ) {
-      budgetNeedsSnapshot = true;
+      platform.rateRejected();
     }
-    await refreshBudget(r);
-    await postClock(r);
+    await sendPlatformUpdate(r);
     if (!r.inbox.pending) return;
     const batch = r.inbox.drain();
     // Boundary entries persist in Pi session history. Passive delivery never requests an extra turn.

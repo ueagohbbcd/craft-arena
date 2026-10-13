@@ -50,7 +50,7 @@ For exact fields or blocks, run a [short SDK query](#query-the-sdk-from-a-short-
 
 ## Automatic reports
 
-The Inbox delivers health/hurt, resource loss, death/respawn, connection and chat events; Race of Wool also reports wool-color acquisition/loss. Critical health and death can release a tool wait while its program keeps running. Host `arena.clock` supplies match state, time and winner; programs can query `await bot.getMatchState()`.
+The Inbox delivers health/hurt, resource loss, death/respawn, connection and chat events; Race of Wool also reports wool-color acquisition/loss. Critical health and death can release a tool wait while its program keeps running. A separate trusted `Arena platform update` message (not part of the Inbox) carries the host `clock` (match state, time, winner) and model `budget` feedback when they change; programs can query `await bot.getMatchState()`.
 
 `recentBlocks` accumulates nearby block-type samples, becoming eligible after 30 seconds and arriving at the next tool/turn boundary. It includes the interval, sampled coverage, block-type counts and a few representative coordinates per type. Nearby sign-text changes arrive separately. For exact positions use block queries; [observation coverage](../docs/OBSERVATION.md) explains the sampling limits and reusable `sampleObservation(bot)` / `entityRadar(bot, options)` functions.
 

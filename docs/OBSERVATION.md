@@ -24,7 +24,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 | 图像 | 开局由启动流程按地图配置交付；需要新视角时用普通脚本渲染 |
 | 开局视觉 | 独立启动流程按地图配置发送开局／入场图像用户消息 |
 | 动作与程序 | 普通 JavaScript 与 SDK／插件；用 `taskId` 等待或取消同一受管程序 |
-| 比赛状态／时限／胜负 | 来自可信 host 简报、`arena.clock` 和终局反馈；程序可用 `await bot.getMatchState()` 查询 |
+| 比赛状态／时限／胜负 | 来自可信 host 简报、平台更新（`Arena platform update` 中的 `clock`）和终局反馈；程序可用 `await bot.getMatchState()` 查询 |
 | 树干／树枝候选 | 按需 `queryTreeCandidate({blockAt, seed})` 返回相连原木、叶子证据和未知／截断边界；控制程序选择采集方块 |
 | 精确查询 | 原始 SDK 字段和方法保留，按需要读取详细物品、实体与方块 |
 
