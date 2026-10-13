@@ -111,7 +111,7 @@ export function createOpeningViews({
       if (initial)
         return {
           message:
-            "Opening image unavailable; use the visual tools when needed.",
+            'Opening image unavailable; when needed run node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs" [minX minY minZ maxX maxY maxZ] and read the printed imagePath.',
         };
     }
   }
