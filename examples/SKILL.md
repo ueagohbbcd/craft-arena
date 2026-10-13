@@ -5,7 +5,7 @@ description: Play the Minecraft arena with ready-made situational awareness, on-
 
 # Play through Mineflayer
 
-The arena provides three reusable toolkit capabilities: default situational awareness (`packages/observation`), on-demand world images (`packages/world-visual` and `examples/observe-and-render.mjs`), and retained native chunk history (`mineflayer-world-memory`, queried through the bridge). Their code can be read and reused; the observation listener is currently started by the Pi session, so modifying your own script does not hot-replace that resident listener. Write a task-specific watcher when you need different observations and send its results through Inbox. For implementation and configuration, read the toolkit source and [observation guide](../docs/OBSERVATION.md); the [memory guide](../docs/BLOCK-MEMORY.md) distinguishes current from historical columns.
+The preinstalled toolkit supplies situational awareness, optional world images and retained chunk history. Default awareness starts automatically. To change its policy, write `perception.mjs` in your workspace exporting `createObserver(context)`, then call `observe({reload:true})`. Start with the small [customization example](../docs/OBSERVATION.md#修改默认观察器) and the [default observer source](../packages/observation/default-observer.mjs). Removing your file and reloading restores the default. For a separate task-specific listener, use the example below. [Block memory](../docs/BLOCK-MEMORY.md) retains received columns, including unloaded history; its recording is managed by the trusted bridge.
 
 Run Node programs through `bash` to control your Minecraft character. The host briefing supplies the team, map, objectives and time limit. Toolkit files live under `$ARENA_TOOLKIT_ROOT`; save your own programs in the current working directory.
 
@@ -82,8 +82,8 @@ The result is `status:"running"` plus the listener's own `taskId`; it keeps runn
 
 Four rules keep this working:
 
-- One bash call, one program, one `taskId`. Do not join the two commands into one call, and do not start a second copy of the listener.
-- `wait_seconds` is only how long *this call* waits. `wait_seconds: 0` returns immediately; it never stops the program. Only `task_cancel` does that.
+- Use separate calls here so each program has its own `taskId`; keep both IDs rather than launching duplicates.
+- `wait_seconds` is only how long *this call* waits. `wait_seconds: 0` returns immediately and leaves the program running; use `task_cancel` to stop it early.
 - Wait on either task later with `task_wait({taskId})`; a wait expiry returns the same task still running.
 - The listener only reads. It installs no goals and never touches the controls, so the navigation keeps moving. Several listeners may run at once, but movement and the main hand still need one coordinator.
 
@@ -102,7 +102,7 @@ const bot = await connectBot({
   token: process.env.ARENA_BRIDGE_TOKEN,
 });
 try {
-  for (const { x, y, z } of [[98, 64, 97], [100, 64, 100]]) {
+  for (const [x, y, z] of [[98, 64, 97], [100, 64, 100]]) {
     console.log({ x, y, z, block: bot.blockAt({ x, y, z })?.name ?? null });
   }
 } finally {
@@ -113,7 +113,7 @@ try {
 Then pick one outcome deliberately, and say which one you picked:
 
 1. **Not worth reacting to.** Keep waiting on the controller; the listener continues by itself and reports the next discovery once.
-2. **A short detour that must not disturb the route.** Leave the controller running and do the small action in your own program, reusing the same `connectBot`. Expect the main-hand conflict described in the [control FAQ](../docs/PLAYER-FAQ.md) when both programs touch the same hand.
+2. **A query or independent action.** Keep the controller running while you inspect the discovery. Actions using movement or the main hand need coordination with the controller; see the [control FAQ](../docs/PLAYER-FAQ.md).
 3. **The plan changes.** `task_cancel({taskId})` the controller, `task_wait` until `completed`/`delivered`, confirm the character actually stopped, and only then start the replacing program. A canceled controller can still have an action in flight.
 4. **The discovery is already handled** (the listener finished, or a controller reached the target). Cancel what is left and continue from the new state.
 

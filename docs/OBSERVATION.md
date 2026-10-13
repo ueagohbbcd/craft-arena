@@ -1,6 +1,6 @@
 # 默认态势感知与观察工具
 
-本模块是**预装工具箱的一项能力**：其采样与事件判断逻辑和模型自写的观察程序同类，区别是目前由 Pi 会话默认启动并连接 Inbox。世界视觉和共享区块记忆是并列的预装库，分别用于按需图像与已接收原生区块历史；Skill 提供调用与改写说明。参赛代码能复用本模块的观察函数、运行自己的监听器，但当前尚没有直接热替换会话内默认观察实例的入口。[工具箱与框架边界](../README.md#框架预装工具箱与-skill) · [后续待办](PERCEPTION-TODO.md)。
+本模块是**预装工具箱的一项能力**：其采样与事件判断逻辑和模型自写的观察程序同类，区别是目前由 Pi 会话默认启动并连接 Inbox。世界视觉和共享区块记忆复用 `mineflayer-world-memory` 等现成库。参赛代码可复用观察函数、运行自己的监听器，也可通过工作区的 `perception.mjs` 接替默认观察逻辑，见下文。[工具箱与框架边界](../README.md#框架预装工具箱与-skill) · [后续待办](PERCEPTION-TODO.md)。
 
 默认采用普通 ReAct 工具结果与收件箱历史：开局提供基础状态与地图配置的图像，随后交付变化部分。按需 `observe` 返回完整快照。后台采集、主动返回、普通 Inbox 与 early 的设计取舍见[上下文交付设计](CONTEXT-DELIVERY.md)。
 
@@ -30,6 +30,30 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 玩家操作见 [玩家指南](PLAYER.md) 和 [编程技能](../examples/SKILL.md)。下面说明开发者需要理解的数据流、范围和实现接口。
 
+## 修改默认观察器
+
+没有自定义文件时，会话自动运行预装观察器。要改变它，在工作目录写 `perception.mjs`，导出同步工厂 `createObserver(context)`，再调用 `observe({reload:true})`。删除文件后再次 reload 可恢复预装实现。入口只在启动和显式 reload 时加载；它导入的辅助模块遵循 Node 的普通缓存。
+
+例如，复用默认实现，只改变危急生命阈值：
+
+```js
+const { createDefaultObserver } = await import(
+  `${process.env.ARENA_TOOLKIT_ROOT}/packages/observation/default-observer.mjs`
+);
+export function createObserver(context) {
+  return createDefaultObserver({
+    ...context,
+    options: { ...context.options, criticalHealth: 8 },
+  });
+}
+```
+
+`context` 提供当前只读镜像的 `getBot()`、`connectionStatus()`、时钟 `now`、报告回调 `post`、`onError` 与默认选项。工厂返回 `sample(options)`、`close()`；有事件监听时用 `attachBot(bot)` 绑定或解除监听。默认工厂已处理这些细节，通常直接复用它。自定义状态字段也会参与变化交付；`recentBlocks`／`nearbySigns` 仍走独立报告，`players`／`entities` 由 `radar` 投影替代。独立发现也可通过 `context.post({kind:"event", priority:"normal", data:{type:"route.discovery", ...facts}})` 进入 Inbox。普通程序也能给核心传入自己的镜像和报告回调，无需 Pi 对象。
+
+工作区 `perception.json` 仍可调整 `radar`；`recentBlocks` 对象可设置 `radius`、`intervalMs`、`maxReads`、`positionLimit` 和 `minReportMs`，修改后 reload。`{"observer":{"enabled":false}}` 关闭自动观察报告；按需 `observe`、程序状态和其他 Inbox 消息仍可使用。选择关闭后，模型自行承担遗漏周围情况的代价。
+
+替换成功后旧观察器停止，其未交付的状态摘要撤下，已经交付的历史和普通事件保留。加载失败会返回错误并保留当前实例。连接、任务管理和 Inbox 交付仍由运行时负责；观察策略与区间累计在 [默认观察核心](../packages/observation/default-observer.mjs)。
+
 ## 第一轮与后续工具循环
 
 1. 启动入口加载 Pi 扩展、工具与编程指南。Pi 会话启动时，运行时建立自己的只读桥连接并安装默认观察监听器；该连接是会话资源。
@@ -56,7 +80,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 | `window` | 当前打开窗口的类型、标题、槽位边界、容器物品数量与鼠标物品 |
 | `radar` | 按距离与中心可见性筛选的实体、较大范围玩家和掉落物群；玩家保留可信队伍关系与已有状态，范围见[雷达说明](#实体雷达与普通历史交付) |
 | `local` | 脚边默认 5×5×5 范围的已知／未知、空气／实体方块统计，最多 16 个相关方块及省略数量 |
-| 方块区间报告 | `observation.recent_blocks` 经普通 Inbox 交付：各维度整体区间、实际已知格 bbox、唯一不透明边界面面积与类型数量 |
+| 方块区间报告 | `observation.recent_blocks` 经普通 Inbox 交付：各维度整体区间、实际已知格 bbox、唯一不透明边界面面积、类型数量与少量代表坐标 |
 | 附近牌变化 | `observation.nearby_signs` 以可替换待交付状态经普通 Inbox 报告：近距连通样本遇到的牌及正反面已知／未知文字 |
 | `tasks` | 默认最多 16 条程序详情，优先运行中程序；额外运行中程序全部保留 `taskId`／状态，附 `detailOmitted` |
 | `programState` | 默认最多 8 条当前程序报告、总计 8 KiB、每条 2 KiB，保留来源、关联任务和有效期；超大正文以 `dataOmitted` 标明 |
@@ -68,7 +92,7 @@ Craft Arena 给普通 coding agent 一个 Minecraft 角色和现成的观察、�
 
 ### 沿途方块区间
 
-`recentBlocks` 在已有只读观察连接上默认每 1000 ms 采样一次，不随每个 physics tick 扫描。以观察到的眼睛所在整数格为起点，在整数格坐标欧氏半径 6 内做六邻接扩展；缺少 `eyeHeight` 时使用已有 `height`，完整结果注明近似来源。`transparent:true` 或没有整格碰撞盒的格允许扩展，全格不透明块只计作边界。玻璃、树叶、水、梯子、半砖等共用该粗规则，闭门和其他部分形状也可能透过；这不是可行走性或精确视线判断。未知格停止扩展。每次最多读取 4096 格，超预算显式标记，默认半径完整空气球为 925 格。
+`recentBlocks` 在已有只读观察连接上默认每 1000 ms 采样一次，不随每个 physics tick 扫描。以观察到的眼睛所在整数格为起点，在整数格坐标欧氏半径 6 内做六邻接扩展；缺少 `eyeHeight` 时使用已有 `height - 0.18`，完整结果注明近似来源。`transparent:true` 或没有整格碰撞盒的格允许扩展，全格不透明块只计作边界。玻璃、树叶、水、梯子、半砖等共用该粗规则，闭门和其他部分形状也可能透过；这不是可行走性或精确视线判断。未知格停止扩展。每次最多读取 4096 格，超预算显式标记，默认半径完整空气球为 925 格。
 
 所有实际采到的非空气类型都进入计数，没有“宝物”白名单。同维度、同类型、同坐标在本区间只计一次；跨报告重新计数。若同坐标变成另一类型，则两种实际见过的类型分别记录。空气和未知覆盖另计。模型紧凑报告给各类型数量、每种类型少量代表坐标（`dimensions[].positions`），以及整体时间段、3D bbox、边界面积和采样／缺口信息；不逐格列出全部位置或逐项时间。`observe({fullRecentBlocks:true})` 可读取仍保留样本的每类型采样帧数、少量位置、时间与覆盖；显式观察结果遵循普通工具历史，读取本身不清空区间。
 
@@ -170,7 +194,7 @@ node "$ARENA_TOOLKIT_ROOT/examples/observe-and-render.mjs" [minX minY minZ maxX 
 | `entityRadar(bot, options)`，`packages/observation/entity-radar.mjs` | 单独复用范围／中心可见性筛选与掉落物分群；`sampleObservation` 另补可信队伍关系和已解码状态 |
 | `watchObservation(bot, {post, ...options})`，同文件 | 安装只读语义事件监听；返回 `sample(overrides)`、`close()` 和 `lastError` |
 | `await observe(bot, options)`，`packages/observation/observe.mjs` | 返回 `{state, metadata}`；`metadata` 带 `epoch`、`sequence` 与本次 `sampledAt` |
-| 原始 SDK | `bot.inventory.slots`／`items()`、`bot.entities`、`bot.blockAt` 和原生事件；`knownBlockAt`／`knownBlocksIn` 读取已观察方块历史（优先当前镜像，返回 `observedAt`／`epoch`，上限 50,000 格，重连与换维度清空） |
+| 原始 SDK | `bot.inventory.slots`／`items()`、`bot.entities`、`bot.blockAt` 和原生事件；卸载区块的历史使用下列共享方块记忆查询 |
 | `createBlockMemoryClient()`，`packages/bot-sdk/index.mjs` | 跨脚本读取角色收到的完整区块记忆；异步精确查询或显式预取后同步查询，见[共享方块记忆](BLOCK-MEMORY.md) |
 
 运行时把可信 host 的公开身份、目标物品和地图范围传入这些函数。高级调用也可显式提供 `teams`、`objectiveItems` 或 `inventoryWatchItems`，供特定用途复用。脚本可用 [实体雷达示例](../examples/entity-radar.mjs) 学习自定义筛选；该示例是可选程序，默认局势已由运行时负责。
@@ -224,4 +248,4 @@ Pi 的 `bash` 子进程得到 `MC_INBOX_TASK_ID`；`InboxClient` 将它加入报
 
 普通历史交付省略未变状态段，忽略采样年龄与任务运行时长的自然增长。自身位置／速度展示到一位小数、朝向两位小数；按需查询保留原精度。雷达的新空列表会清除上次名单。每条报告的 `observedAt` 表示观察时刻，旧坐标始终是历史记录。
 
-早期临时请求尾部的状态见[历史实验记录](CONTEXT-DELIVERY.md#历史实验记录临时请求尾部)。
+早期临时请求尾部见[实验记录](EXPERIMENTS.md#请求尾部观察)。

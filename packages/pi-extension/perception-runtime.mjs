@@ -1,11 +1,9 @@
 import { setTimeout as delay } from "node:timers/promises";
 import * as BotSdk from "../bot-sdk/index.mjs";
 import * as Observation from "../observation/index.mjs";
-import {
-  recentBlockOptions,
-  projectRecentBlocks,
-  startRecentBlockRuntime,
-} from "../observation/recent-block-runtime.mjs";
+import { recentBlockOptions } from "../observation/recent-block-runtime.mjs";
+import { createDefaultObserver } from "../observation/default-observer.mjs";
+import { loadObserver } from "../observation/config.mjs";
 
 const woolItems = [
   "white",
@@ -230,6 +228,7 @@ export function observationOptionsFromMatch(match) {
 export function startPerceptionRuntime({
   url,
   token,
+  cwd,
   inbox,
   tasks,
   now = Date.now,
@@ -247,41 +246,134 @@ export function startPerceptionRuntime({
 } = {}) {
   const controller = new AbortController();
   let bot;
-  let watcher;
+  let observer;
+  let owner;
+  let observerSource = "preinstalled";
+  let observerError = null;
+  let reportsEnabled = true;
+  let reloading;
   let attempt;
   let status = url && token ? "connecting" : "unavailable";
   let failure = url && token ? null : "Bridge URL or token is not configured";
   let warned = false;
   const listeners = [];
-  const recent = startRecentBlockRuntime({
-    getBot: () => bot,
-    connectionStatus: () => status,
-    now,
-    options: recentBlocks,
-    postReport: (data, { onDelivered, minDeliveryDelayMs }) =>
-      inbox.post(
-        {
-          sessionId: inbox.sessionId,
-          kind: "state",
-          key: "observation.recent_blocks",
-          minDeliveryDelayMs,
-          priority: "normal",
-          data: { type: "observation.recent_blocks", ...data },
-        },
-        { source: "runtime", onDelivered },
-      ),
-    postSigns: (data, { key, onDelivered }) =>
-      inbox.post(
-        {
-          sessionId: inbox.sessionId,
-          kind: "state",
-          key,
-          priority: "normal",
-          data: { type: "observation.nearby_signs", ...data },
-        },
-        { source: "runtime", onDelivered },
-      ),
-  });
+  function createOwnedObserver(factory, config = {}) {
+    const generation = { active: false, states: new Map() };
+    const core = factory({
+      getBot: () => bot,
+      connectionStatus: () => status,
+      now,
+      options: config.radar ? { radar: config.radar } : {},
+      recentBlocks: { ...recentBlocks, ...config.recentBlocks },
+      watch,
+      sample,
+      onError: warn,
+      post(message, { onDelivered } = {}) {
+        if (!generation.active || controller.signal.aborted)
+          return { accepted: true };
+        if (!reportsEnabled) {
+          onDelivered?.();
+          return { accepted: true };
+        }
+        const accepted = inbox.post(
+          { ...message, sessionId: inbox.sessionId },
+          {
+            source: "runtime",
+            onDelivered() {
+              if (generation.states.get(message.key) === accepted.id)
+                generation.states.delete(message.key);
+              if (generation.active) onDelivered?.();
+            },
+          },
+        );
+        if (accepted.accepted && message.kind === "state")
+          generation.states.set(message.key, accepted.id);
+        return accepted;
+      },
+    });
+    if (
+      !core ||
+      typeof core.sample !== "function" ||
+      typeof core.close !== "function"
+    ) {
+      core?.close?.();
+      throw new TypeError(
+        "createObserver must return sample(options) and close()",
+      );
+    }
+    return { core, generation };
+  }
+  function retireObserver() {
+    if (!owner) return;
+    owner.active = false;
+    try {
+      observer.close();
+    } catch (error) {
+      report(
+        `Observer cleanup failed: ${error?.message ?? error}. Its reports are disabled.`,
+      );
+    }
+    for (const id of owner.states.values()) inbox.remove(id);
+    owner.states.clear();
+    for (const item of [...inbox.items])
+      if (
+        item.message.source === "runtime" &&
+        item.message.key === "observation.current"
+      )
+        inbox.remove(item.id);
+  }
+  function installObserver(factory, config, source) {
+    const candidate = createOwnedObserver(factory, config);
+    try {
+      candidate.core.attachBot?.(bot);
+    } catch (error) {
+      try {
+        candidate.core.close();
+      } catch {}
+      throw error;
+    }
+    retireObserver();
+    observer = candidate.core;
+    owner = candidate.generation;
+    observerSource = source;
+    reportsEnabled = config.observer?.enabled !== false;
+    owner.active = true;
+    observerError = null;
+  }
+  installObserver(createDefaultObserver, {}, "preinstalled");
+  async function reload() {
+    if (!cwd || controller.signal.aborted) return observerInfo();
+    if (reloading) return reloading;
+    reloading = (async () => {
+      try {
+        const { factory, config, source } = await loadObserver(
+          cwd,
+          createDefaultObserver,
+        );
+        if (!controller.signal.aborted)
+          installObserver(factory, config, source);
+      } catch (error) {
+        observerError = error?.message ?? String(error);
+        report(
+          `Default observer reload failed: ${observerError}. The current observer remains selected.`,
+        );
+      }
+      return observerInfo();
+    })();
+    try {
+      return await reloading;
+    } finally {
+      reloading = undefined;
+    }
+  }
+  function observerInfo() {
+    return {
+      source: observerSource,
+      reportsEnabled,
+      ...(observerError ? { error: observerError } : {}),
+    };
+  }
+  const initialObserver = cwd ? reload() : Promise.resolve();
   function warn(error) {
     failure = error?.message ?? String(error);
     if (warned || controller.signal.aborted) return;
@@ -294,9 +386,13 @@ export function startPerceptionRuntime({
     bot.on(name, fn);
     listeners.push([name, fn]);
   }
-  function disposeBot() {
-    watcher?.close();
-    watcher = undefined;
+  function disposeBot({ detachObserver = true } = {}) {
+    if (detachObserver)
+      try {
+        observer.attachBot?.(null);
+      } catch (error) {
+        warn(error);
+      }
     if (bot) {
       for (const [name, fn] of listeners) bot.off(name, fn);
       listeners.length = 0;
@@ -373,17 +469,7 @@ export function startPerceptionRuntime({
       bot = value;
       status = "connected";
       failure = null;
-      watcher = watch(bot, {
-        now,
-        onError: warn,
-        post(message) {
-          if (controller.signal.aborted) return;
-          inbox.post(
-            { ...message, sessionId: inbox.sessionId },
-            { source: "runtime" },
-          );
-        },
-      });
+      observer.attachBot?.(bot);
       listen("bridgeDisconnected", () => {
         // Losing our observation transport does not prove the Minecraft bot left.
         status = "unavailable";
@@ -399,10 +485,9 @@ export function startPerceptionRuntime({
         status = "disconnected";
       });
       listen("error", (error) => warn(error));
-      recent.sampleNow();
     } catch (error) {
       lifetime.abort();
-      disposeBot();
+      disposeBot({ detachObserver: false });
       status = "unavailable";
       warn(error);
     } finally {
@@ -411,7 +496,8 @@ export function startPerceptionRuntime({
     }
   }
   const done = (async () => {
-    if (!url || !token) return;
+    await initialObserver;
+    if (!url || !token || controller.signal.aborted) return;
     while (!controller.signal.aborted && !bot) {
       attempt = connectOnce();
       await attempt;
@@ -425,6 +511,7 @@ export function startPerceptionRuntime({
     }
   })();
   async function ready() {
+    await initialObserver;
     if (bot || !attempt || controller.signal.aborted) return;
     let timer;
     try {
@@ -449,12 +536,9 @@ export function startPerceptionRuntime({
       }
       return bot;
     },
-    recentBlocks: ({ fullRecentBlocks = false } = {}) =>
-      fullRecentBlocks
-        ? recent.snapshot()
-        : projectRecentBlocks(recent.snapshot(), now()),
-    nearbySigns: () => recent.currentSigns(),
-    async sample() {
+    reload,
+    observerInfo,
+    async sample({ automatic = false, ...overrides } = {}) {
       await ready();
       let defaults = {};
       try {
@@ -467,10 +551,18 @@ export function startPerceptionRuntime({
         now,
         ...runtimeState(tasks, inbox, { now: now(), projection }),
         ...(status === "connected" ? {} : { connectionStatus: status }),
+        ...overrides,
       };
+      if (automatic && !reportsEnabled)
+        return {
+          observedAt: now(),
+          freshness: { status, epoch: bot?.epoch ?? null },
+          ...runtimeState(tasks, inbox, { now: now(), projection }),
+          observer: observerInfo(),
+        };
       let snapshot;
       try {
-        snapshot = watcher ? watcher.sample(options) : sample(null, options);
+        snapshot = await observer.sample(options);
       } catch (error) {
         // Perception must degrade visibly rather than aborting a model request.
         warn(error);
@@ -482,19 +574,17 @@ export function startPerceptionRuntime({
       return {
         ...snapshot,
         ...(failure ? { observationError: failure } : {}),
+        tasks: options.tasks,
         programState: options.programState,
         runtimeProjection: options.runtimeProjection,
-        nearbySigns: recent.currentSigns(),
-        ...(recentBlocks.enabled === false
-          ? {}
-          : {
-              recentBlocks: projectRecentBlocks(recent.snapshot(), now()),
-            }),
+        observer: observerInfo(),
       };
     },
     async close() {
       controller.abort();
-      recent.close();
+      await initialObserver;
+      if (reloading) await reloading;
+      retireObserver();
       status = "unavailable";
       disposeBot();
       await done;

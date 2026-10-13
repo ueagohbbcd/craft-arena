@@ -244,6 +244,7 @@ export default function participantInbox(pi) {
       runtime.perception = PerceptionRuntime.startPerceptionRuntime({
         url: bridgeUrl,
         token: bridgeToken,
+        cwd: ctx.cwd,
         inbox,
         tasks,
         projection: perceptionProjection,
@@ -398,7 +399,8 @@ export default function participantInbox(pi) {
     }
   });
   async function postPerception(r) {
-    const delivery = r.perceptionChanges.prepare(await r.perception.sample());
+    const snapshot = await r.perception.sample({ automatic: true });
+    const delivery = r.perceptionChanges.prepare(snapshot);
     if (delivery)
       r.inbox.post(
         {
@@ -468,7 +470,8 @@ export default function participantInbox(pi) {
   });
   pi.on("before_agent_start", async (_event, ctx) => {
     const r = await ensure(ctx);
-    const initial = r.perceptionChanges.prepare(await r.perception.sample());
+    const snapshot = await r.perception.sample({ automatic: true });
+    const initial = r.perceptionChanges.prepare(snapshot);
     // This baseline is returned directly as a durable opening message.
     initial?.onDelivered();
     return {
@@ -480,21 +483,17 @@ export default function participantInbox(pi) {
     };
   });
   ObservationTools.registerObserveTool(pi, {
-    getBot: async (ctx, params) =>
-      (await ensure(ctx)).perception.getBot({
-        allowUnavailable: params?.fullRuntime === true,
-      }),
-    sampleOptions: async (ctx, params) => {
+    sampleState: async (ctx, params) => {
       const r = await ensure(ctx);
-      return {
-        ...PerceptionRuntime.observationOptionsFromMatch(await readMatch()),
+      if (params.reload) await r.perception.reload();
+      const { reload, ...options } = params;
+      return r.perception.sample({
+        ...options,
         ...PerceptionRuntime.runtimeState(r.tasks, r.inbox, {
-          fullRuntime: params?.fullRuntime === true,
+          fullRuntime: params.fullRuntime === true,
           projection: perceptionProjection,
         }),
-        recentBlocks: r.perception.recentBlocks(params),
-        nearbySigns: r.perception.nearbySigns(),
-      };
+      });
     },
   });
   pi.registerTool({

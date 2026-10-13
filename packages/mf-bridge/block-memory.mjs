@@ -52,6 +52,7 @@ export function createBlockMemory(bot, options = {}, serializeBlock) {
     error: memory.summary().error,
   });
   return {
+    ready: memory.ready,
     async query(url) {
       await memory.ready;
       const query = url.searchParams;

@@ -5,7 +5,10 @@ import { createRequire } from "node:module";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startBridge } from "../packages/mf-bridge/index.mjs";
+import {
+  createBridgeServer,
+  startBridge,
+} from "../packages/mf-bridge/index.mjs";
 import { createBlockMemoryClient } from "../packages/bot-sdk/index.mjs";
 const require = createRequire(import.meta.url);
 const registry = require("prismarine-registry")("1.21.1");
@@ -62,6 +65,170 @@ const scope = {
   runId: "run-a",
   participantId: "player-one",
 };
+
+test("explicitly disabled memory leaves authenticated actions and SSE working", async (t) => {
+  const { bot } = fixture();
+  let authorized = 0;
+  const service = await startBridge({
+    bot,
+    token,
+    blockMemory: false,
+    createBlockMemory: () => {
+      throw new Error("disabled memory must not initialize");
+    },
+    authorizeAction: () => {
+      authorized++;
+      return true;
+    },
+  });
+  const controller = new AbortController();
+  t.after(async () => {
+    controller.abort();
+    await service.close();
+  });
+  const headers = { authorization: `Bearer ${token}` };
+  assert.equal((await fetch(service.url + "/v1/memory/chunks")).status, 401);
+  const reader = createBlockMemoryClient({ url: service.url, token });
+  for (const query of [
+    () => reader.block({ x: 0, y: 0, z: 0 }),
+    () => reader.chunk({ x: 0, z: 0 }),
+    () => reader.chunks(),
+    () =>
+      reader.prefetch({ dimension: "overworld", columns: [{ x: 0, z: 0 }] }),
+  ])
+    await assert.rejects(query(), {
+      status: 503,
+      message: "Block memory is disabled",
+    });
+  const events = await fetch(service.url + "/v1/events", {
+    headers,
+    signal: controller.signal,
+  });
+  const stream = events.body.getReader();
+  assert.match(
+    new TextDecoder().decode((await stream.read()).value),
+    /"type":"reset"/,
+  );
+  bot.emit("chunkColumnLoad", { x: 16, z: 0 });
+  let eventsText = "";
+  while (!eventsText.includes('"name":"chunkColumnLoad"')) {
+    const { value, done } = await stream.read();
+    assert.equal(done, false);
+    eventsText += new TextDecoder().decode(value);
+  }
+  const action = await fetch(service.url + "/v1/action", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      action: "setControlState",
+      args: { control: "forward", state: true },
+    }),
+  });
+  assert.equal(action.status, 200);
+  assert.equal(authorized, 1);
+  assert.deepEqual(bot.calls, [["forward", true]]);
+});
+
+test("trusted memory factory receives the owned bot and fixed scope; readiness gates listening", async (t) => {
+  const { bot } = fixture();
+  let finish;
+  const ready = new Promise((resolve) => {
+    finish = resolve;
+  });
+  let received,
+    closed = false;
+  const bridge = createBridgeServer({
+    bot,
+    token,
+    blockMemory: scope,
+    createBlockMemory: (subject, options, serialize) => {
+      received = { subject, options };
+      return {
+        ready,
+        query(url) {
+          return {
+            scope: options,
+            block: serialize({ name: "custom_received_block" }),
+            path: url.pathname,
+          };
+        },
+        close() {
+          closed = true;
+        },
+      };
+    },
+  });
+  t.after(() => {
+    if (!closed) return bridge.close();
+  });
+  const listening = bridge.listen();
+  assert.equal(bridge.server.listening, false);
+  assert.equal(received.subject, bot);
+  assert.deepEqual(received.options, scope);
+  finish();
+  const { url } = await listening;
+  assert.equal(
+    (await fetch(url + "/v1/memory/block?worldId=untrusted")).status,
+    401,
+  );
+  const result = await createBlockMemoryClient({ url, token }).block({
+    x: 0,
+    y: 0,
+    z: 0,
+  });
+  assert.deepEqual(result.scope, scope);
+  assert.equal(result.block.name, "custom_received_block");
+  assert.equal(result.path, "/v1/memory/block");
+  await bridge.close();
+  assert.equal(closed, true);
+});
+
+test("memory initialization errors abort startup and dispose the failed implementation", async () => {
+  const { bot } = fixture();
+  const originalListeners = bot
+    .eventNames()
+    .map((name) => [name, bot.listenerCount(name)]);
+  let disposed = false;
+  await assert.rejects(
+    startBridge({
+      bot,
+      token,
+      createBlockMemory: () => ({
+        ready: Promise.reject(new Error("memory restore failed")),
+        query() {
+          throw new Error("must not accept queries");
+        },
+        close() {
+          disposed = true;
+        },
+      }),
+    }),
+    /memory restore failed/,
+  );
+  assert.equal(disposed, true);
+  assert.deepEqual(
+    bot.eventNames().map((name) => [name, bot.listenerCount(name)]),
+    originalListeners,
+  );
+  await assert.rejects(
+    startBridge({
+      bot,
+      token,
+      createBlockMemory: () => {
+        throw new Error("factory failed");
+      },
+    }),
+    /factory failed/,
+  );
+  await assert.rejects(
+    startBridge({
+      bot,
+      token,
+      createBlockMemory: () => ({}),
+    }),
+    /must return/,
+  );
+});
 
 test("independent HTTP readers share complete received columns through updates, unload, replacement, dimensions and disconnect", async (t) => {
   const { bot, columns, add, put } = fixture();
