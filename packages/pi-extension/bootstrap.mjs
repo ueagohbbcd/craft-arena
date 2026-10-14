@@ -9,7 +9,7 @@ import {
   lstat,
   realpath,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
@@ -89,15 +89,28 @@ export function openingPromptText(initialPrompt, host) {
   return message;
 }
 
-/** Generate a private Pi profile containing an environment reference, never the bearer token. */
-export async function preparePiProfile({
-  env = process.env,
-  directory,
-  cwd = process.cwd(),
-} = {}) {
-  if (!env.ARENA_MODEL_CONFIG || !env.OPENAI_BASE_URL || !env.OPENAI_API_KEY)
+/**
+ * Model access for Pi. With OPENAI_BASE_URL, write a private Pi profile whose
+ * one provider, `arena`, points at that endpoint (usually the model relay) and
+ * whose model comes from ARENA_MODEL_CONFIG; the key is stored as the reference
+ * `${OPENAI_API_KEY}`, never its value. Without OPENAI_BASE_URL, Pi runs on the
+ * operator's own profile (PI_CODING_AGENT_DIR, else ~/.pi/agent) unchanged:
+ * provider logins, API keys and settings are whatever the operator put there.
+ */
+async function modelProfile({ env, directory, cwd }) {
+  if (!env.OPENAI_BASE_URL) {
+    if (env.ARENA_MODEL_CONFIG)
+      throw new Error(
+        "ARENA_MODEL_CONFIG describes the model behind OPENAI_BASE_URL; set both, or neither to use the Pi profile as configured",
+      );
+    return {
+      agentDir: env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"),
+      generated: false,
+    };
+  }
+  if (!env.ARENA_MODEL_CONFIG)
     throw new Error(
-      "ARENA_MODEL_CONFIG, OPENAI_BASE_URL, and participant-scoped OPENAI_API_KEY are required",
+      "OPENAI_BASE_URL needs ARENA_MODEL_CONFIG, the model served there",
     );
   const base = new URL(env.OPENAI_BASE_URL);
   if (
@@ -108,10 +121,8 @@ export async function preparePiProfile({
     base.hash
   )
     throw new Error(
-      "OPENAI_BASE_URL must be an HTTP(S) gateway URL without embedded credentials",
+      "OPENAI_BASE_URL must be an HTTP(S) URL without embedded credentials, query or fragment",
     );
-  // The gateway and Pi read the same public capability description. Pi validates
-  // its generated model profile; do not duplicate its capability policy here.
   const model = JSON.parse(
     await readFile(resolve(cwd, env.ARENA_MODEL_CONFIG), "utf8"),
   );
@@ -132,7 +143,8 @@ export async function preparePiProfile({
       arena: {
         baseUrl: base.toString().replace(/\/$/, ""),
         api: model.api,
-        apiKey: "${OPENAI_API_KEY}",
+        // A relay that holds the real key ignores this one.
+        apiKey: env.OPENAI_API_KEY ? "${OPENAI_API_KEY}" : "unused",
         models: [
           {
             id: model.id,
@@ -167,6 +179,16 @@ export async function preparePiProfile({
     ),
     { mode: 0o600 },
   );
+  return { agentDir, generated: true, modelId: model.id, models };
+}
+
+/** Model access plus the arena extensions and toolkit links in the workspace. */
+export async function preparePiProfile({
+  env = process.env,
+  directory,
+  cwd = process.cwd(),
+} = {}) {
+  const profile = await modelProfile({ env, directory, cwd });
   const extras = (env.ARENA_EXTRA_EXTENSIONS || "")
     .split(",")
     .map((x) => x.trim())
@@ -182,12 +204,7 @@ export async function preparePiProfile({
         await symlink(join(projectRoot, name), link, "dir");
       }
     }
-  return {
-    agentDir,
-    modelId: model.id,
-    models,
-    extensions: [extensionPath, ...extras],
-  };
+  return { ...profile, extensions: [extensionPath, ...extras] };
 }
 
 export async function launchPi({
@@ -218,10 +235,9 @@ export async function launchPi({
     env.ARENA_PROMPT ||
     "Participate in the Minecraft session using the local bridge and your available tools. Write and run your own programs as useful. Use the participant inbox for observations and urgent judgment. Follow the session briefing and keep going until its goal is complete or the host ends the session.";
   const cliArgs = [
-    "--provider",
-    "arena",
-    "--model",
-    profile.modelId,
+    ...(profile.generated
+      ? ["--provider", "arena", "--model", profile.modelId]
+      : []),
     ...(args.includes("--mode") ? [] : ["--mode", resident ? "rpc" : "json"]),
     ...guidanceArgs,
     "--skill",
@@ -236,7 +252,7 @@ export async function launchPi({
     ...env,
     ARENA_TOOLKIT_ROOT: projectRoot,
     PI_OFFLINE: "1", // Capabilities and extensions are installed locally; skip unrelated startup network.
-    PI_CODING_AGENT_DIR: profile.agentDir,
+    ...(profile.generated ? { PI_CODING_AGENT_DIR: profile.agentDir } : {}),
     PI_CODING_AGENT_SESSION_DIR: sessionDir,
     ...(resident
       ? {
@@ -247,12 +263,7 @@ export async function launchPi({
   };
   const child = spawn(
     process.execPath,
-    [
-      "--import",
-      new URL("./gateway-transport.mjs", import.meta.url).href,
-      join(packageRoot, "dist/bundle/cli.js"),
-      ...cliArgs,
-    ],
+    [join(packageRoot, "dist/bundle/cli.js"), ...cliArgs],
     {
       cwd,
       env: childEnv,
@@ -460,7 +471,8 @@ export async function launchPi({
     clearTimeout(killTimer);
     process.off("SIGTERM", term);
     process.off("SIGINT", interrupt);
-    await rm(profile.agentDir, { recursive: true, force: true });
+    if (profile.generated)
+      await rm(profile.agentDir, { recursive: true, force: true });
   }
 }
 

@@ -1,7 +1,7 @@
 /**
  * The object a bridge serves at GET /v1/session, whatever produced it (an
  * open session, the arena host or the server). One builder keeps the shape
- * the Pi extension, the budget gateway and the SDK read identical.
+ * the Pi extension, outside readers and the SDK read identical.
  */
 export function sessionObject({
   kind = "match",

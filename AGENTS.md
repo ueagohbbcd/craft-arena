@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `packages/arena` | 比赛主控：会话生命周期、经 RCON 读服务器判定、结果 | 可信侧 |
 | `packages/mf-bridge` | 游戏桥：每个参赛者一个真实 Mineflayer 角色，只接受校验过的语义动作 | 可信侧 |
-| `packages/budget-gateway` | 预算网关：OpenAI 兼容的模型调用入口，计量、限速 | 可信侧 |
+| `packages/model-relay` | 模型转发：参赛者没有外网时，把模型请求原样转发到一个配置好的地址；不计量、不限速 | 可信侧 |
 | `packages/pi-extension` | Pi 扩展与启动器：`bash`／`task_wait`／`task_cancel`、收件箱服务、默认脚本启动、平台消息、`observe` 工具、请求恢复 | 参赛容器内的平台代码 |
 | `packages/tasks` | 任务管理：`bash` 启动的进程、等待时长、取消 | 参赛容器内的平台代码 |
 | `packages/inbox` | 收件箱与 `InboxClient`：程序发给模型的消息、送达回执 | 参赛者程序 |
@@ -38,6 +38,6 @@ CI（`.github/workflows/ci.yml`）在 Node 24 上跑前三项，并单独跑 `ve
 
 - 参赛模型和插件都是照着真实 Mineflayer 写的。SDK 与真实 bot 的差距由 `tests/sdk-fidelity.test.mjs` 跟踪；补上一个方法后，从它的 `KNOWN_GAPS` 中删掉对应条目。
 - 观察器、聊天转发是普通脚本（`packages/default-scripts/`）。不要把新的自动报告做进 Pi 扩展进程，写成脚本，通过 `InboxClient` 交付。
-- 会话时钟、预算这类来自可信侧的信息走平台消息（`packages/pi-extension/platform-messages.mjs`），不走收件箱。
+- 会话时钟这类来自可信侧的信息走平台消息（`packages/pi-extension/platform-messages.mjs`），不走收件箱。
 - 改动参赛者能看到的行为时，同步更新 `examples/PROMPT.md`、`examples/SKILL.md` 和对应包的 README。
 - 待办只记在 [docs/ROADMAP.md](docs/ROADMAP.md)。

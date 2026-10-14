@@ -8,5 +8,4 @@
   ],
   "contextWindow": 1047576,
   "maxOutputTokens": 32768,
-  "requestTimeoutMs": 120000
 }

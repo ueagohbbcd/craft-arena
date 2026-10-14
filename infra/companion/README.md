@@ -1,24 +1,23 @@
 # 陪玩部署模板
 
-让一个模型以 bot 身份进入一台**已有的** Minecraft 服务器，和真人一起玩：回答聊天、帮忙、自己找事做。这里没有比赛主控，也没有胜负。游戏桥自己给出一个 `open` 会话（没有时限，只有运营者能结束），参赛容器、预算网关和比赛时完全一样。设计见 [docs/GAME-MODES.md](../../docs/GAME-MODES.md#不用比赛主控独立游戏桥)，通用的部署说明见 [infra/README.md](../README.md)。
+让一个模型以 bot 身份进入一台**已有的** Minecraft 服务器，和真人一起玩：回答聊天、帮忙、自己找事做。这里没有比赛主控，也没有胜负。游戏桥自己给出一个 `open` 会话（没有时限，只有运营者能结束），参赛容器和模型接入方式和比赛时完全一样。设计见 [docs/GAME-MODES.md](../../docs/GAME-MODES.md#不用比赛主控独立游戏桥)，通用的部署说明见 [infra/README.md](../README.md)。
 
 ## 组成
 
-| 服务             | 镜像                                                  | 网络                            | 作用                                                                                                                                                    |
-| ---------------- | ----------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `bridge`         | [`Dockerfile.trusted`](../Dockerfile.trusted)         | `companion`、`minecraft-egress` | 独立游戏桥 `packages/mf-bridge/cli.mjs`，`BRIDGE_SESSION=open`。唯一连接 Minecraft 服务器的服务。启动时读取陪玩提示词 `BRIDGE_PROMPT_FILE`              |
-| `budget-gateway` | 同上                                                  | `companion`、`model-egress`     | 预算网关，只有它拿到上游 key。`requireRunningMatch` 让它只在游戏桥报告会话运行时放行请求                                                                |
-| `participant`    | [`Dockerfile.participant`](../Dockerfile.participant) | `companion`（内部网络）         | Pi 和参赛者程序。`ARENA_WAIT_FOR_MATCH=1` 让开局提示带上会话简报，其中有陪玩提示词；`ARENA_CHAT_WAKE=mention` 让提到 bot 名字的聊天和私聊唤醒空闲的模型 |
+| 服务          | 镜像                                                  | 网络                            | 作用                                                                                                                                                    |
+| ------------- | ----------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `bridge`      | [`Dockerfile.trusted`](../Dockerfile.trusted)         | `companion`、`minecraft-egress` | 独立游戏桥 `packages/mf-bridge/cli.mjs`，`BRIDGE_SESSION=open`。唯一连接 Minecraft 服务器的服务。启动时读取陪玩提示词 `BRIDGE_PROMPT_FILE`              |
+| `model-relay` | 同上                                                  | `companion`、`model-egress`     | [模型转发](../../packages/model-relay/README.md)：把模型请求转发到 `MODEL_UPSTREAM_URL`，只有它拿到上游 key                                             |
+| `participant` | [`Dockerfile.participant`](../Dockerfile.participant) | `companion`（内部网络）         | Pi 和参赛者程序。`ARENA_WAIT_FOR_MATCH=1` 让开局提示带上会话简报，其中有陪玩提示词；`ARENA_CHAT_WAKE=mention` 让提到 bot 名字的聊天和私聊唤醒空闲的模型 |
 
-参赛容器只在内部网络上，访问不到 Minecraft 服务器和外网，只能经游戏桥控制角色、经预算网关调用模型。
+参赛容器只在内部网络上，访问不到 Minecraft 服务器和外网，只能经游戏桥控制角色、经模型转发调用模型。也可以让参赛容器自己访问模型，见 [infra/README.md](../README.md#参赛容器自己访问模型)。
 
-| 文件                           | 内容                                                                                           |
-| ------------------------------ | ---------------------------------------------------------------------------------------------- |
-| [`compose.yaml`](compose.yaml) | 三个服务                                                                                       |
-| [`.env.example`](.env.example) | 需要填的变量：服务器地址和版本、bot 账号、登录方式、三个令牌（游戏桥、只读状态、模型）、上游 key                         |
-| [`budget.json`](budget.json)   | 预算：每分钟 0.20 美元的参考费用上限，不限总 token（陪玩没有时限）。上游是任意 OpenAI 兼容接口 |
-| [`model.json`](model.json)     | 模型描述，网关和参赛容器共用                                                                   |
-| [`PROMPT.md`](PROMPT.md)       | 陪玩提示词（英文，模型读）：陪玩家玩、回答聊天、遵守服务器规则、不搞破坏                       |
+| 文件                           | 内容                                                                           |
+| ------------------------------ | ------------------------------------------------------------------------------ |
+| [`compose.yaml`](compose.yaml) | 三个服务                                                                       |
+| [`.env.example`](.env.example) | 需要填的变量：服务器地址和版本、bot 账号、登录方式、游戏桥令牌、模型地址和 key |
+| [`model.json`](model.json)     | 上游那个模型的描述，参赛容器读它生成 Pi 配置                                   |
+| [`PROMPT.md`](PROMPT.md)       | 陪玩提示词（英文，模型读）：陪玩家玩、回答聊天、遵守服务器规则、不搞破坏       |
 
 ## 服务器前提
 
@@ -40,7 +39,7 @@
 
 ```sh
 cd infra/companion
-cp .env.example .env    # 填好各项，三个令牌用互不相同的随机值
+cp .env.example .env    # 填好各项，游戏桥令牌用随机值
 docker compose build
 docker compose up -d
 docker compose logs -f participant
@@ -65,12 +64,12 @@ docker compose down
 | `ARENA_CHAT_WAKE`                                           | `mention`          | `none`：聊天只进收件箱；`mention`：提到 bot 或私聊时唤醒；`all`：所有聊天都唤醒 |
 | `ARENA_MEMORY_LIMIT`、`ARENA_CPU_LIMIT`、`ARENA_PIDS_LIMIT` | `2g`、`2.0`、`256` | 每个容器的资源上限                                                              |
 
-换上游或模型时，同时改 `budget.json` 的 `upstream`、`referenceCost.models` 和 `model.json`。
+换上游或模型时，同时改 `.env` 的 `MODEL_UPSTREAM_URL`／`MODEL_UPSTREAM_KEY` 和 `model.json`。上游可以是宿主机上的服务（`http://host.docker.internal:PORT/v1`）。
 
 ## 局限
 
-- 一个部署一个 bot。要多个 bot，复制 `bridge` 和 `participant` 两个服务，各用一套令牌，并在 `budget.json` 里各加一个参赛者。
+- 一个部署一个 bot。要多个 bot，复制 `bridge` 和 `participant` 两个服务，各用一套令牌；模型转发可以共用。
 - 没有录像和结果记录：这些归比赛主控，陪玩部署不运行它。
-- 游戏桥和服务器断开后，`bridge` 进程退出（退出码 1），预算网关随即拒绝模型调用；会话不会自动恢复，要重启 `bridge`。
-- 模型调用一直在计费。`cashRateLimit` 只限速度，不限总额；长时间运行前确认上游账户的额度。
+- 游戏桥和服务器断开后，`bridge` 进程退出（退出码 1），模型不再收到新的提示；会话不会自动恢复，要重启 `bridge`。
+- 平台不统计、不限制模型用量，模型调用一直在计费。长时间运行前确认上游账户的额度；需要限速或上限时，在上游那一层做。
 - `allowChat` 打开着，模型能在服务器里说话。服务器若不希望 bot 发言，修改 `compose.yaml` 的 `bridge.environment.BRIDGE_ALLOW_CHAT` 为 `"false"`，在 `.env` 中设置 `ARENA_CHAT_WAKE=none`，然后运行 `docker compose up -d` 重建受影响的服务。`BRIDGE_ALLOW_CHAT` 当前直接写在 Compose 中，在 `.env` 添加同名变量不会覆盖它。

@@ -1,5 +1,3 @@
-import { budgetFromHeaders, budgetFromSnapshot } from "./budget-feedback.mjs";
-
 /** A session snapshot is usable when its clock fields are well formed. */
 export function validSession(value) {
   return (
@@ -121,72 +119,26 @@ export function clockData(host, { now, bootAt, configured }) {
 }
 
 /**
- * Trusted session clock and budget feedback for the model. These come from the
- * platform, not from participant programs, so they travel as their own Pi
- * message rather than through the participant inbox. `collect()` returns only
- * the sections that changed since the last delivered update.
+ * Trusted session clock for the model. It comes from the platform, not from
+ * participant programs, so it travels as its own Pi message rather than through
+ * the participant inbox. `collect()` returns an update only when the clock
+ * changed since the last delivered one.
  */
 export function createPlatformMessages({
   readMatch,
-  budgetUrl,
-  budgetToken,
   env = process.env,
   now = Date.now,
   bootAt = now(),
 }) {
   const configured = configuredClock(env);
   let lastClockBucket;
-  let lastBudget = "";
-  let budget;
-  let needsSnapshot = false;
-  let budgetRead;
-
-  async function refreshBudget() {
-    if (budgetRead) return budgetRead;
-    if (!needsSnapshot || !budgetUrl || !budgetToken) return;
-    needsSnapshot = false;
-    budgetRead = (async () => {
-      try {
-        const response = await fetch(`${budgetUrl.replace(/\/$/, "")}/budget`, {
-          headers: { authorization: `Bearer ${budgetToken}` },
-          signal: AbortSignal.timeout(300),
-        });
-        if (!response.ok) return;
-        // Explicit projection also protects against a future host response adding private amounts.
-        budget = budgetFromSnapshot(await response.json()) ?? budget;
-      } catch {
-        /* Keep the admission snapshot when this bounded refresh is unavailable. */
-      }
-    })();
-    try {
-      await budgetRead;
-    } finally {
-      budgetRead = undefined;
-    }
-  }
-
   return {
     reset() {
       lastClockBucket = undefined;
-      lastBudget = "";
-      budget = undefined;
-      needsSnapshot = false;
-    },
-    /** Admission headers from the gateway response that just arrived. */
-    providerResponse(headers) {
-      const data = budgetFromHeaders(headers);
-      if (!data) return;
-      budget = data;
-      needsSnapshot = true;
-    },
-    /** A rejected rate request carries no headers; read settled state once. */
-    rateRejected() {
-      needsSnapshot = true;
     },
     async collect() {
-      const [, host] = await Promise.all([refreshBudget(), readMatch()]);
+      const host = await readMatch();
       const clock = clockData(host, { now: now(), bootAt, configured });
-      const changes = {};
       const bucket = JSON.stringify([
         clock.basis,
         clock.matchId ?? clock.sessionId,
@@ -195,29 +147,16 @@ export function createPlatformMessages({
         clock.matchStartedAtMs ?? clock.startedAtMs,
         Math.floor((clock.elapsedMs ?? clock.agentUptimeMs ?? 0) / 10000),
       ]);
-      if (bucket !== lastClockBucket) {
-        lastClockBucket = bucket;
-        changes.clock = clock;
-      }
-      if (budget) {
-        const signature = JSON.stringify(budget);
-        if (signature !== lastBudget || budget.queueDelayMs > 0) {
-          lastBudget = signature;
-          const { type: _type, ...section } = budget;
-          changes.budget = section;
-        }
-        budget = undefined;
-      }
+      const changed = bucket !== lastClockBucket;
+      lastClockBucket = bucket;
       return {
         // Kept as matchEnded for callers; true when any session has ended.
         matchEnded: host?.state === "ended",
-        update: Object.keys(changes).length
-          ? { type: "arena.platform", ...changes }
-          : undefined,
+        update: changed ? { type: "arena.platform", clock } : undefined,
       };
     },
   };
 }
 
 export const platformMessageText = (update) =>
-  `Arena platform message (trusted session host and model budget gateway):\n${JSON.stringify(update)}`;
+  `Arena platform message (trusted session host):\n${JSON.stringify(update)}`;

@@ -180,7 +180,7 @@ if (
   service.bot.on("end", (reason) => {
     console.error("Minecraft bot ended:", reason);
     // A session would otherwise keep reporting `running` with no bot; exit
-    // so the gateway refuses model calls until the operator restarts. After
+    // so the participant stops being prompted until the operator restarts. After
     // the session ended the bridge stays up to serve the final state.
     if (options.session && !options.session.ended?.()) process.exit(1);
   });

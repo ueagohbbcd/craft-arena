@@ -32,7 +32,7 @@ You only see new information when a model request is sent. That happens when you
 | Your tool results    | Output of `bash`, `task_wait`, `task_cancel` and `observe`                                                                                                                                        | As the result of the call                                                                                                                                        |
 | Inbox reports        | Messages from programs: the default observer, default chat, your own programs and combat reports. The runtime also adds task status (`runtime.snapshot` / `runtime.changed`) and `task.completed` | With your next request: usually appended to your next tool result. Reports left over when your turn ends are added to your history and read at your next request |
 | Urgent inbox reports | `requestJudgment` from your programs. From the default observer: critical health, a large recent health loss, death and disconnect                                                                | Ends any `bash` / `task_wait` wait right away. The programs keep running. If you are idle, it wakes you                                                          |
-| Platform messages    | One `Arena platform message` at the end of a turn, carrying only what changed: the session `clock` from the session host and `budget` feedback from the budget gateway. It is not inbox data      | Joins your next request. It never wakes you                                                                                                                      |
+| Platform messages    | One `Arena platform message` at the end of a turn when the session `clock` from the session host changed. It is not inbox data                                                                    | Joins your next request. It never wakes you                                                                                                                      |
 | On request           | `observe`, SDK queries in a program, [block memory](../packages/bot-sdk/BLOCK-MEMORY.md), [screenshots](#look-at-the-world), task output                                                          | Only when you ask                                                                                                                                                |
 
 How to read inbox reports:
@@ -90,27 +90,27 @@ After `NoPath` or a stall, compare your position with the terrain. `node "$ARENA
 
 ## Find the right entry
 
-| You want to                                                 | Start from                                                                                                                  |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| Read position, inventory or exact blocks                    | [Query program](#query-program)                                                                                             |
-| Walk to a coordinate                                        | [navigate.mjs](navigate.mjs)                                                                                                |
-| See the terrain as a picture                                | [screenshot.mjs](screenshot.mjs), see [Look at the world](#look-at-the-world)                                               |
-| Check local terrain and connectivity as numbers             | [summarize-terrain.mjs](summarize-terrain.mjs)                                                                              |
-| See which entities are near you                             | `observe` with `fullEntities: true`, or [entity-radar.mjs](entity-radar.mjs)                                                |
-| Find blocks seen earlier, also in unloaded chunks           | [query-block-memory.mjs](query-block-memory.mjs) and [BLOCK-MEMORY.md](../packages/bot-sdk/BLOCK-MEMORY.md)                 |
-| Find the logs of one tree                                   | `queryTreeCandidate` in `packages/observation/queries.mjs`, see the [observation README](../packages/observation/README.md) |
-| Check that no entity blocks a placement                     | [inspect-placement-entities.mjs](inspect-placement-entities.mjs)                                                            |
-| Be told when something specific appears                     | [watch-surroundings.mjs](watch-surroundings.mjs), see [Listener beside a controller](#listener-beside-a-controller)         |
-| Dig, place, equip, craft or chat                            | [Control program](#control-program) and the [SDK README](../packages/bot-sdk/README.md)                                     |
-| Open a chest and decide before taking items                 | [Container in two steps](#container-in-two-steps)                                                                           |
-| Eat while walking                                           | [navigate-with-autoeat.mjs](navigate-with-autoeat.mjs)                                                                      |
-| Defend yourself while walking                               | [navigate-with-defense.mjs](navigate-with-defense.mjs)                                                                      |
-| Fight a chosen entity                                       | [fight-target.mjs](fight-target.mjs)                                                                                        |
-| Build and eat in one program                                | [build-with-autoeat.mjs](build-with-autoeat.mjs)                                                                            |
-| Report progress or ask yourself for a decision              | [Report from your programs](#report-from-your-programs) and the [inbox README](../packages/inbox/README.md)                 |
-| Change what the default observer reports                    | [Change the default observer](#change-the-default-observer)                                                                 |
-| Understand the budget feedback or share code with teammates | [BUDGET-AND-TEAM.md](BUDGET-AND-TEAM.md)                                                                                    |
-| Avoid common control mistakes                               | [FAQ.md](FAQ.md)                                                                                                            |
+| You want to                                              | Start from                                                                                                                  |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| Read position, inventory or exact blocks                 | [Query program](#query-program)                                                                                             |
+| Walk to a coordinate                                     | [navigate.mjs](navigate.mjs)                                                                                                |
+| See the terrain as a picture                             | [screenshot.mjs](screenshot.mjs), see [Look at the world](#look-at-the-world)                                               |
+| Check local terrain and connectivity as numbers          | [summarize-terrain.mjs](summarize-terrain.mjs)                                                                              |
+| See which entities are near you                          | `observe` with `fullEntities: true`, or [entity-radar.mjs](entity-radar.mjs)                                                |
+| Find blocks seen earlier, also in unloaded chunks        | [query-block-memory.mjs](query-block-memory.mjs) and [BLOCK-MEMORY.md](../packages/bot-sdk/BLOCK-MEMORY.md)                 |
+| Find the logs of one tree                                | `queryTreeCandidate` in `packages/observation/queries.mjs`, see the [observation README](../packages/observation/README.md) |
+| Check that no entity blocks a placement                  | [inspect-placement-entities.mjs](inspect-placement-entities.mjs)                                                            |
+| Be told when something specific appears                  | [watch-surroundings.mjs](watch-surroundings.mjs), see [Listener beside a controller](#listener-beside-a-controller)         |
+| Dig, place, equip, craft or chat                         | [Control program](#control-program) and the [SDK README](../packages/bot-sdk/README.md)                                     |
+| Open a chest and decide before taking items              | [Container in two steps](#container-in-two-steps)                                                                           |
+| Eat while walking                                        | [navigate-with-autoeat.mjs](navigate-with-autoeat.mjs)                                                                      |
+| Defend yourself while walking                            | [navigate-with-defense.mjs](navigate-with-defense.mjs)                                                                      |
+| Fight a chosen entity                                    | [fight-target.mjs](fight-target.mjs)                                                                                        |
+| Build and eat in one program                             | [build-with-autoeat.mjs](build-with-autoeat.mjs)                                                                            |
+| Report progress or ask yourself for a decision           | [Report from your programs](#report-from-your-programs) and the [inbox README](../packages/inbox/README.md)                 |
+| Change what the default observer reports                 | [Change the default observer](#change-the-default-observer)                                                                 |
+| Share code with teammates or call a model from a program | [TEAM.md](TEAM.md)                                                                                                          |
+| Avoid common control mistakes                            | [FAQ.md](FAQ.md)                                                                                                            |
 
 ## Program patterns
 
@@ -336,8 +336,8 @@ Without coordinates it frames 25×25 blocks around you, from 8 below to 16 above
 
 An observer you start yourself is an ordinary task, not a background one. While it runs you get no five-second continue prompt; only a finished task or an urgent report wakes you.
 
-## Clock, budget and team
+## Clock, model calls and team
 
 - The session clock comes in platform messages. Programs can call `await bot.getSessionState()`. In an open session there is no time limit, so the clock only reports elapsed time.
-- Model calls are metered and may queue. Your programs keep running while you wait. See [BUDGET-AND-TEAM.md](BUDGET-AND-TEAM.md) for the budget fields, the `/budget` query and team Git.
+- A model request can take a while. Your programs keep running while you wait. See [TEAM.md](TEAM.md) for team Git and for calling a model from your own programs.
 - Common control mistakes are covered in [FAQ.md](FAQ.md).

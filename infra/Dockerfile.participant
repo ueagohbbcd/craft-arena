@@ -10,7 +10,7 @@ ENV ARENA_REFERENCE_ROOT="/opt/mf-reference"
 COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --ignore-scripts && chown -R node:node /opt/arena
 # Only participant-side code and its documentation enter this image: no
-# trusted-side source (arena host, bridge, budget gateway, proxy relay), no
+# trusted-side source (arena host, bridge, model relay), no
 # tests, no developer docs, no operator configuration. The list is checked by
 # tests/deployment.test.mjs.
 COPY --chown=node:node packages/pi-extension ./packages/pi-extension

@@ -5,47 +5,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { preparePiProfile } from "../packages/pi-extension/bootstrap.mjs";
-import {
-  estimateReservation,
-  ReferenceCostLedger,
-} from "../packages/budget-gateway/src/index.mjs";
 
 for (const suffix of [".red", ".blue"]) {
-  const configUrl = new URL(
-    `../infra/windows-local/budget${suffix}.json`,
+  const modelUrl = new URL(
+    `../infra/windows-local/model${suffix}.json`,
     import.meta.url,
   );
-  const config = JSON.parse(await readFile(configUrl));
-  const modelUrl = new URL(config.modelConfig, configUrl);
   const model = JSON.parse(await readFile(modelUrl));
-
-  test(`${model.id}: large history is priced and admitted without a cash-quote ceiling`, async () => {
-    const estimate = estimateReservation(
-      {
-        model: model.id,
-        messages: [{ role: "user", content: "x".repeat(1000000) }],
-      },
-      { ...config.limits, defaultOutputTokens: model.maxOutputTokens },
-    );
-    assert.equal(estimate.output, model.maxOutputTokens);
-    const ledger = new ReferenceCostLedger({
-      config: config.referenceCost,
-      participants: config.participants,
-      teams: config.teams,
-      models: [model.id],
-      autoWake: false,
-    });
-    try {
-      const id = Object.keys(config.participants)[0];
-      const reservation = await ledger.acquire(
-        id,
-        ledger.quote(id, model.id, estimate),
-      );
-      reservation.settle(undefined, { dispatched: false });
-    } finally {
-      ledger.close();
-    }
-  });
 
   test(`${model.id}: Pi takes context and compaction settings from the shared descriptor`, async () => {
     const directory = await mkdtemp(join(tmpdir(), "arena-limits-"));

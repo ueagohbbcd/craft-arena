@@ -73,12 +73,8 @@ export default function arenaExtension(pi) {
     process.env.ARENA_OBSERVE_CONNECT_MS ?? 15000,
   );
   const readMatch = createMatchReader({ url: bridgeUrl, token: bridgeToken });
-  const platform = createPlatformMessages({
-    readMatch,
-    budgetUrl: process.env.OPENAI_BASE_URL,
-    budgetToken: process.env.OPENAI_API_KEY,
-  });
-  /** Trusted clock/budget changes ride the next model request as one Pi message. */
+  const platform = createPlatformMessages({ readMatch });
+  /** Trusted clock changes ride the next model request as one Pi message. */
   async function sendPlatformUpdate(r) {
     const { matchEnded, update } = await platform.collect();
     if (matchEnded) r.matchEnded = true;
@@ -271,10 +267,6 @@ export default function arenaExtension(pi) {
     const r = await ensure(ctx);
     r.tasks.resumeWaits();
   });
-  pi.on("after_provider_response", async (event, ctx) => {
-    await ensure(ctx);
-    platform.providerResponse(event.headers);
-  });
   /** Task and program-state facts belong to the runtime; game state comes from the observer script. */
   const runtimeSnapshot = (r, options = {}) => ({
     observedAt: Date.now(),
@@ -338,16 +330,6 @@ export default function arenaExtension(pi) {
     lastStopReason = event.message?.stopReason ?? event.outcome;
     const r = await ensure(ctx);
     r.tasks.resumeWaits();
-    // Pi 1.1.0's OpenAI adapter skips after_provider_response for HTTP errors.
-    // Refresh a rejected rate request once at its existing boundary; never retry
-    // the model or interpret an aborted request as a quota rejection.
-    if (
-      event.outcome === "error" &&
-      event.message?.stopReason === "error" &&
-      /^429\b/.test(event.message.errorMessage ?? "")
-    ) {
-      platform.rateRejected();
-    }
     await sendPlatformUpdate(r);
     if (!r.inbox.pending) return;
     const batch = r.inbox.drain();

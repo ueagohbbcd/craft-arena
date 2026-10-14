@@ -31,7 +31,6 @@ services:
       BRIDGE_PORT: "8080"
       BRIDGE_ALLOW_CHAT: "true"
       BRIDGE_TOKEN: ${COMPANION_BRIDGE_TOKEN:?Provide unique operator token}
-      BRIDGE_STATUS_TOKEN: ${COMPANION_STATUS_TOKEN:?Provide the read-only status token}
       BRIDGE_SESSION: open
       BRIDGE_SESSION_ID: ${COMPANION_SESSION_ID:-companion}
       BRIDGE_PROMPT_FILE: /config/PROMPT.md
@@ -41,31 +40,28 @@ services:
         "${COMPANION_PROMPT_PATH:-./PROMPT.md}:/config/PROMPT.md:ro",
         "./mf-profiles:/profiles",
       ]
-  budget-gateway:
+  # The participant's only route to a model: forwards to one base URL (an
+  # official API or a service on this host) and adds the key there. To let the
+  # participant reach the model on its own instead, see infra/README.md.
+  model-relay:
     <<: *restricted
     image: craft-arena-trusted:companion
     depends_on: [bridge]
-    command: [node, packages/budget-gateway/src/cli.mjs, /config/budget.json]
+    command: [node, packages/model-relay/cli.mjs]
     environment:
-      UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:?Provide upstream credential only to gateway}
-      COMPANION_MODEL_TOKEN: ${COMPANION_MODEL_TOKEN:?Provide scoped operator token}
-      COMPANION_STATUS_TOKEN: ${COMPANION_STATUS_TOKEN}
+      MODEL_RELAY_UPSTREAM: ${MODEL_UPSTREAM_URL:?Provide the model API base URL}
+      MODEL_RELAY_API_KEY: ${MODEL_UPSTREAM_KEY:-}
+    extra_hosts: ["host.docker.internal:host-gateway"]
     networks: [companion, model-egress]
-    volumes:
-      [
-        "./budget.json:/config/budget.json:ro",
-        "./model.json:/config/model.json:ro",
-      ]
   participant:
     <<: *restricted
     build: { context: "../..", dockerfile: infra/Dockerfile.participant }
     image: craft-arena-participant:companion
-    depends_on: [bridge, budget-gateway]
+    depends_on: [bridge, model-relay]
     environment:
       ARENA_BRIDGE_URL: http://bridge:8080
       ARENA_BRIDGE_TOKEN: ${COMPANION_BRIDGE_TOKEN}
-      OPENAI_BASE_URL: http://budget-gateway:8081/participants/companion/v1
-      OPENAI_API_KEY: ${COMPANION_MODEL_TOKEN}
+      OPENAI_BASE_URL: http://model-relay:8080
       ARENA_MODEL_CONFIG: /config/model.json
       TEAM_GIT_DIR: /team-git
       ARENA_CONTINUOUS_SESSION: "1"

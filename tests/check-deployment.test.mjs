@@ -9,27 +9,15 @@ const load = async (path) => {
   return path.endsWith(".json") ? JSON.parse(text) : parse(text);
 };
 const deployments = {
-  live: [
-    "infra/compose.live.yaml",
-    "infra/match.live.template.json",
-    ["infra/budget.cash.live.example.json"],
-  ],
+  live: ["infra/compose.live.yaml", "infra/match.live.template.json"],
   windows: [
     "infra/windows-local/compose.yaml",
     "infra/windows-local/match.direct-fire.json",
-    [
-      "infra/windows-local/budget.red.json",
-      "infra/windows-local/budget.blue.json",
-    ],
   ],
 };
 async function deployment(name) {
-  const [compose, match, budgets] = deployments[name];
-  return {
-    compose: await load(compose),
-    match: await load(match),
-    budgets: await Promise.all(budgets.map(load)),
-  };
+  const [compose, match] = deployments[name];
+  return { compose: await load(compose), match: await load(match) };
 }
 
 test("shipped deployments have a consistent participant roster", async () => {
@@ -58,19 +46,16 @@ test("roster mismatches and isolation breaks are reported", async () => {
       /arena-host must be on the backend network only/,
     ],
     [
-      (d) => (d.budgets[0].participants.red1.team = "blue"),
-      /red1: budget team blue != match team red/,
+      (d) => d.compose.services["model-relay"].networks.push("backend"),
+      /model-relay: a model endpoint must not join backend/,
     ],
     [
       (d) =>
-        (d.budgets[0].participants.red1.matchStatusUrl =
-          "http://bridge-blue1:8080/v1/session"),
-      /red1: budget matchStatusUrl/,
-    ],
-    [
-      (d) =>
-        (d.budgets[0].participants.red1.matchTokenEnv = "RED1_BRIDGE_TOKEN"),
-      /holds the full bridge token/,
+        (d.compose.services["model-relay"].networks = [
+          "blue1",
+          "model-egress",
+        ]),
+      /model-relay: shares no network with participant-red1/,
     ],
     [
       (d) => delete d.compose.services["participant-blue1"],
