@@ -53,7 +53,7 @@ const report = (inbox) =>
   inbox.items.find((item) => item.message.key === "observation.current")
     ?.message.data;
 
-async function observe(t, bot, inbox) {
+async function observe(t, bot, inbox, overrides = {}) {
   const cwd = await mkdtemp(join(tmpdir(), "observer-"));
   const observer = await startObserver({
     bot,
@@ -64,6 +64,7 @@ async function observe(t, bot, inbox) {
     watch: fakeWatch,
     sample: fakeSample,
     onError: (error) => assert.fail(error),
+    ...overrides,
   });
   t.after(async () => {
     observer.close();
@@ -71,6 +72,159 @@ async function observe(t, bot, inbox) {
   });
   return observer;
 }
+
+for (const outcome of ["overflow", "expired"]) {
+  test(`observer retries unchanged state after ${outcome}`, async (t) => {
+    let time = 0;
+    const inbox = new Inbox({
+      sessionId: `observer-${outcome}`,
+      maxItems: 1,
+      ttlMs: 10,
+      now: () => time,
+    });
+    const observer = await observe(t, fakeBot(), inbox, { intervalMs: 60000 });
+    await until(() => report(inbox));
+    const id = inbox.items[0].id;
+    if (outcome === "overflow") {
+      await localInboxClient(inbox).send({
+        kind: "event",
+        data: { type: "other" },
+      });
+    } else {
+      time = 11;
+      inbox.drain();
+    }
+    await until(() => inbox.outcome(id) === outcome);
+    await delay(0); // Allow the asynchronous delivery receipt to reach the observer.
+    assert.equal(report(inbox), undefined, "loss does not retry immediately");
+    observer.publish();
+    await until(() => report(inbox));
+    assert.equal(report(inbox).changes.self.health, 20);
+    inbox.drain();
+    await delay(0);
+    observer.publish();
+    await delay(0);
+    assert.equal(report(inbox), undefined, "delivered state stays suppressed");
+  });
+}
+
+for (const failure of ["rejected", "throw"]) {
+  test(`observer retries unchanged state after send is ${failure}`, async (t) => {
+    const inbox = new Inbox({ sessionId: `observer-send-${failure}` });
+    const client = localInboxClient(inbox);
+    let sends = 0;
+    const errors = [];
+    const observer = await observe(t, fakeBot(), inbox, {
+      intervalMs: 60000,
+      onError: (error) => errors.push(error),
+      inbox: {
+        ...client,
+        async send(message) {
+          sends++;
+          if (sends === 1) {
+            if (failure === "throw") throw new Error("send unavailable");
+            return { accepted: false };
+          }
+          return client.send(message);
+        },
+      },
+    });
+    await delay(0);
+    assert.equal(sends, 1, "failure does not start an immediate retry loop");
+    observer.publish();
+    await until(() => report(inbox));
+    assert.equal(sends, 2);
+    assert.equal(report(inbox).changes.self.health, 20);
+    assert.equal(errors.length, failure === "throw" ? 1 : 0);
+  });
+}
+
+test("late receipts cannot erase a newer report with the same state", async (t) => {
+  const bot = fakeBot();
+  const sends = [];
+  const receipts = [];
+  const inbox = new Inbox({ sessionId: "observer-late" });
+  const observer = await observe(t, bot, inbox, {
+    intervalMs: 60000,
+    inbox: {
+      async send(message) {
+        sends.push(message);
+        return { accepted: true, id: sends.length };
+      },
+      delivery(id) {
+        return new Promise((resolve) => (receipts[id] = resolve));
+      },
+    },
+  });
+  await until(() => receipts[1]);
+  bot.health = 12;
+  observer.publish();
+  await until(() => receipts[2]);
+  bot.health = 20;
+  observer.publish();
+  await until(() => receipts[3]);
+  receipts[1]({ outcome: "overflow" });
+  await delay(0);
+  observer.publish();
+  assert.equal(
+    sends.length,
+    3,
+    "old loss does not clear the newer same signature",
+  );
+  receipts[3]({ outcome: "delivered" });
+  await delay(0);
+  receipts[2]({ outcome: "delivered" });
+  await delay(0);
+  observer.publish();
+  assert.equal(sends.length, 3, "late delivery does not regress the baseline");
+});
+
+test("a delivered correction commits the sample after an older report was delivered", async (t) => {
+  const bot = fakeBot();
+  const sends = [];
+  const receipts = [];
+  const observer = await observe(
+    t,
+    bot,
+    new Inbox({ sessionId: "correction" }),
+    {
+      intervalMs: 60000,
+      inbox: {
+        async send(message) {
+          sends.push(message);
+          return { accepted: true, id: sends.length };
+        },
+        delivery(id) {
+          return new Promise((resolve) => (receipts[id] = resolve));
+        },
+      },
+    },
+  );
+  await until(() => receipts[1]);
+  receipts[1]({ outcome: "delivered" });
+  await delay(0);
+  bot.health = 12;
+  observer.publish();
+  await until(() => receipts[2]);
+  bot.health = 20;
+  observer.publish();
+  await until(() => receipts[3]);
+  receipts[2]({ outcome: "delivered" });
+  await delay(0);
+  receipts[3]({ outcome: "delivered" });
+  await delay(0);
+  bot.health = 12;
+  observer.publish();
+  await until(() => receipts[4]);
+  assert.deepEqual(
+    sends.map((message) => message.data.changes.self.health),
+    [20, 12, 20, 12],
+  );
+  receipts[4]({ outcome: "delivered" });
+  await delay(0);
+  observer.publish();
+  assert.equal(sends.length, 4);
+});
 
 test("default observer reports state changes only after the previous report was delivered", async (t) => {
   const inbox = new Inbox({ sessionId: "observer" });

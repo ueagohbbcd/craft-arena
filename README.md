@@ -162,7 +162,7 @@ flowchart LR
 
 ## 本地快速开始
 
-需要 Node.js 24。
+需要 Node.js 24。全量自动化测试在 Linux 环境运行，依赖 `/bin/bash`、Unix socket 和 POSIX 信号；Windows 请在 Linux 容器或 WSL 中运行，并在该环境安装依赖。原生 Windows 的 `npm test` 不是完整验收入口。
 
 ```sh
 npm ci

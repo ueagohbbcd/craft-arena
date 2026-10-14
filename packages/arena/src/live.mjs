@@ -344,6 +344,14 @@ export async function createLiveMatch(
           });
           b.bot.on?.("end", () => {
             endedBots.add(b.bot);
+            if (
+              host.kind === "match" &&
+              host.state === "prepared" &&
+              host.transition
+            ) {
+              void host.end("abandoned");
+              return;
+            }
             if (host.state === "running")
               void host
                 .ingest(

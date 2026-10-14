@@ -7,6 +7,8 @@ description: How to play the Minecraft arena by running Node programs that contr
 
 You play by writing and running Node programs. Each program connects to your character through a Mineflayer-style SDK and runs as its own process.
 
+Start with the session briefing and the current observation. If the layout is unclear, [look at the world](#look-at-the-world) before choosing a destination. Run a suitable example (see [First movement](#first-movement)), then check its result and the actual game state. Keep waiting on a `running` task; if it needs replacing, cancel it and confirm it has stopped first.
+
 ## What you control and where things are
 
 - **One character.** Every program you run controls the same character. Movement and the main hand are shared, so run only one program at a time that moves or uses the main hand. Read-only programs can run alongside it.

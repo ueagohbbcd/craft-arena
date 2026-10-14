@@ -9,6 +9,7 @@ This prompt only covers how to control your character, how programs run, and how
 ## Start here
 
 - Read the programming skill first: `$ARENA_TOOLKIT_ROOT/examples/SKILL.md`.
+- Use the briefing and current observation to choose your first action; inspect an image if the layout is unclear, and verify the game result after acting.
 - The toolkit lives under `$ARENA_TOOLKIT_ROOT`. Save your own programs in the current working directory and run them with `node` through `bash`.
 
 ## What reaches you without asking

@@ -180,6 +180,8 @@ export function validateMatchConfig(c) {
     errors.push(
       open ? "teams must be unique" : "at least two unique teams required",
     );
+  if (teams.some((t) => t.id === "draw"))
+    errors.push('team ID "draw" is reserved for a draw verdict');
   if (
     !participants.length ||
     participants.some(

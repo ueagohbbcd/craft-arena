@@ -33,7 +33,7 @@ The first report is `observation.snapshot` and carries every section. Later repo
 }
 ```
 
-The observer samples once a second and compares each sample with what you last received. If a section changes and then changes back before the report is delivered, the pending report is corrected so it never describes a state that no longer holds.
+The observer samples once a second and compares each sample with what you last received. If a section changes and then changes back before the report is delivered, the pending report is corrected. A failed send or a dropped or expired state report is retried on the next sample, even if the state has not changed.
 
 | Section              | Contents                                                                                                                                                                                             |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |

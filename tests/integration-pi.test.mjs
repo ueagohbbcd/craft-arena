@@ -22,6 +22,7 @@ import { ReferenceCostLedger } from "../packages/budget-gateway/src/reference-co
 import { startBridge } from "../packages/mf-bridge/index.mjs";
 import { Vector } from "../packages/bot-sdk/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
+import { encodePNG } from "mineflayer-world-memory/live.mjs";
 import inboxExtension from "../packages/pi-extension/index.mjs";
 process.env.PI_OFFLINE = "1";
 process.env.MC_INBOX_TRANSPORT = "http";
@@ -649,10 +650,7 @@ for (const nested of [false, true])
           const path = join(dir, "fixture.png");
           await writeFile(
             path,
-            Buffer.from(
-              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
-              "base64",
-            ),
+            encodePNG(1, 1, new Uint8Array([0, 0, 0, 255])),
           );
           return nested
             ? [
@@ -660,7 +658,7 @@ for (const nested of [false, true])
                   id: "outer-image",
                   name: "codemode",
                   args: {
-                    code: `const r=await tools.read(${JSON.stringify({ path })});for(const block of r.content){if(block.type==='image')image(block);else if(block.type==='text')text(block.text);}`,
+                    code: `image(await tools.read(${JSON.stringify({ path })}));`,
                   },
                 },
               ]

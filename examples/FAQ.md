@@ -60,7 +60,7 @@ Blank cells are blocks the character has not received. They are unknown, not air
 
 ### My copy of the default observer fails with `ERR_MODULE_NOT_FOUND`.
 
-The original uses relative imports (`../bot-sdk/index.mjs` and others) that only work inside the toolkit. In your copy, replace them with dynamic imports from the toolkit, for example ``const { connectBot } = await import(`${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/index.mjs`);``. A static `import` cannot read environment variables.
+The shipped script supports copying: it resolves imports through `ARENA_TOOLKIT_ROOT`. Check that this variable points to the toolkit in the process running your copy, and that the referenced files exist. Without it, the script falls back to its original location inside the toolkit.
 
 ## Clock and budget
 

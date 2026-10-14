@@ -129,6 +129,42 @@ test("invalid goal coordinates and unverified reset fail closed", async () => {
   await assert.rejects(match.prepare(), /Reset verification/);
   assert.equal(match.host.state, "created");
 });
+
+test("referee end or error during release aborts match start", async () => {
+  for (const event of ["end", "error"]) {
+    const observer = new EventEmitter();
+    Object.assign(observer, {
+      entity: {},
+      blockAt: () => ({ name: "air" }),
+      quit() {
+        this.emit("end");
+      },
+    });
+    const match = await createLiveMatch(config, {
+      env: { R_TOKEN: "r", B_TOKEN: "b", RCON: "x" },
+      createBot: () => observer,
+      startLiveBridge: async () => ({
+        bot: { entity: {} },
+        close: async () => {},
+      }),
+      rconFactory: () => ({
+        connect: async () => {},
+        close() {},
+        command: async (command) => {
+          if (command === "start")
+            observer.emit(event, new Error("referee lost"));
+          return "OK";
+        },
+      }),
+    });
+    await match.prepare();
+    await assert.rejects(match.start(), /Start cancelled/);
+    await match.host.ending;
+    assert.equal(match.host.result().reason, "map-fault");
+    assert.equal(match.host.startedAt, undefined);
+    await match.close();
+  }
+});
 const packet = (id, type, text) => {
   const b = Buffer.from(text),
     p = Buffer.alloc(b.length + 14);

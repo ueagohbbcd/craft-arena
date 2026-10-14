@@ -87,10 +87,18 @@ function monumentBlocksJudge(
       await spawned(observer, timeoutMs);
       observer.on?.("end", () => {
         endedBots.add(observer);
-        if (host().state === "running") void host().end("map-fault");
+        if (
+          host().state === "running" ||
+          (host().state === "prepared" && host().transition)
+        )
+          void host().end("map-fault");
       });
       observer.on?.("error", () => {
-        if (host().state === "running") void host().end("map-fault");
+        if (
+          host().state === "running" ||
+          (host().state === "prepared" && host().transition)
+        )
+          void host().end("map-fault");
       });
       await runCommands("observer", observerConfig.commands ?? []);
       if (
@@ -221,7 +229,7 @@ function datapackJudge(config, { rcon, host }) {
     const session = readServerSession(
       await rcon.command("data get storage arena:session"),
     );
-    if (session.public) published = session.public;
+    published = session.public;
     return session;
   };
   return {

@@ -38,6 +38,21 @@ const connector = {
   stop: async () => {},
 };
 
+test('team ID "draw" is reserved across session and judge kinds', () => {
+  for (const config of [
+    match,
+    legacy,
+    { ...open, teams: base.teams, participants: base.participants },
+  ]) {
+    const c = structuredClone(config);
+    const previous = c.teams[0].id;
+    c.teams[0].id = "draw";
+    for (const participant of c.participants)
+      if (participant.team === previous) participant.team = "draw";
+    assert.ok(validateMatchConfig(c).some((e) => /reserved/.test(e)));
+  }
+});
+
 test("legacy race-of-wool configs normalize to a monument-blocks match", () => {
   assert.equal(isLegacyConfig(legacy), true);
   const c = normalizeConfig({

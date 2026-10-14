@@ -28,7 +28,7 @@ Readers: developers and operators. Step-by-step deployment (start marker, superv
 | `judge`        | `{type, pollMs?, ...}`, see [Judges](#judges)                                                                       |
 | `briefing`     | optional `{text?, promptFile?, public?}`, see [Briefing](#briefing)                                                 |
 | `map`          | `{id, version, sha256}`; `sha256` is 64 hex characters. Optional for `open`                                         |
-| `teams`        | `match`: at least two, unique `id`s, each with at least one participant. `open`: optional, any number               |
+| `teams`        | `match`: at least two, unique `id`s, each with at least one participant. `open`: optional, any number. `draw` is reserved and cannot be a team ID |
 | `participants` | `[{id, team, ...}]`, at least one, unique `id`s, known `team`; in an `open` session without teams, leave `team` out |
 | `versions`     | `{participantImage, bridge}`                                                                                        |
 | `live`         | live runner settings, see [Live runner](#live-runner)                                                               |
@@ -70,6 +70,8 @@ A legacy config may already carry a `briefing` block (for example `promptFile`);
 | `public`     | public data the operator publishes (objectives, positions, hints); merged with the server's latest `public` (server keys win)                                   |
 
 The race-of-wool instructions are in [infra/maps/race-of-wool/PROMPT.md](../../infra/maps/race-of-wool/PROMPT.md).
+
+A successful server reading without `public` withdraws the previous server data; configured `briefing.public` remains. A failed reading retains the last successful value.
 
 ## MatchHost
 
