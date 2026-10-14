@@ -6,7 +6,7 @@
       "tokens": null,
       "tpm": 131072,
       "concurrency": 2,
-      "matchStatusUrl": "http://arena-host:8080/v1/session",
+      "matchStatusUrl": "http://bridge-red1:8080/v1/session",
       "matchTokenEnv": "RED1_BRIDGE_TOKEN"
     },
     "blue1": {
@@ -15,7 +15,7 @@
       "tokens": null,
       "tpm": 131072,
       "concurrency": 2,
-      "matchStatusUrl": "http://arena-host:8082/v1/session",
+      "matchStatusUrl": "http://bridge-blue1:8080/v1/session",
       "matchTokenEnv": "BLUE1_BRIDGE_TOKEN"
     }
   },

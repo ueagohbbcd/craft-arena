@@ -341,3 +341,79 @@ test("recording is confirmed before running and saved after game cleanup", async
   assert.equal(match.host.result().replay.status, "saved");
   assert.equal(match.host.result().stopConfirmed, true);
 });
+
+test("external bridges: host waits for players, serves sessions, detects disconnects and counts deaths", async (t) => {
+  const local = structuredClone(config);
+  local.live.bridges = "external";
+  local.live.sessionServer = {
+    host: "127.0.0.1",
+    port: 0,
+    tokenEnv: "HOST_TOKEN",
+  };
+  for (const p of local.participants) delete p.bridge;
+  assert.doesNotThrow(() => validateLive(local));
+  assert.throws(
+    () =>
+      validateLive({ ...local, live: { ...local.live, sessionServer: {} } }),
+    /sessionServer/,
+  );
+  const commands = [];
+  const players = new Set();
+  const server = datapackServer(commands);
+  const base = server.rcon;
+  server.rcon = () => {
+    const r = base();
+    const command = r.command;
+    r.command = async (c) => {
+      if (c === "list")
+        return `There are ${players.size} of a max of 20 players online: ${[...players].join(", ")}`;
+      if (c.startsWith("scoreboard players get r1 arena_deaths"))
+        return "r1 has 2 [arena_deaths]";
+      return command(c);
+    };
+    return r;
+  };
+  const match = await createLiveMatch(local, {
+    env: { RCON: "x", HOST_TOKEN: "host-session-token-123" },
+    rconFactory: server.rcon,
+    startLiveBridge: async () => {
+      throw new Error("external mode starts no bridges");
+    },
+  });
+  t.after(() => match.close());
+  const preparing = match.prepare();
+  await new Promise((r) => setTimeout(r, 300));
+  assert.equal(match.host.state, "created");
+  players.add("r1");
+  players.add("b1");
+  await preparing;
+  assert.ok(
+    commands.includes("scoreboard objectives add arena_deaths deathCount"),
+  );
+  // The bridge-facing session route.
+  const { port } = match.sessionServer.address();
+  const url = `http://127.0.0.1:${port}/v1/participants/r1/session`;
+  assert.equal((await fetch(url)).status, 401);
+  const res = await fetch(url, {
+    headers: { authorization: "Bearer host-session-token-123" },
+  });
+  const view = (await res.json()).result;
+  assert.equal(view.state, "prepared");
+  assert.equal(view.teamId, "r");
+  assert.equal(
+    (
+      await fetch(url.replace("r1", "nobody"), {
+        headers: { authorization: "Bearer host-session-token-123" },
+      })
+    ).status,
+    404,
+  );
+  await match.start();
+  players.delete("b1");
+  await match.poll();
+  await match.host.ending;
+  const result = match.host.result();
+  assert.equal(result.reason, "abandoned");
+  assert.deepEqual(result.metrics.disconnects, { b1: 1 });
+  assert.deepEqual(result.metrics.deaths, { r1: 2 });
+});

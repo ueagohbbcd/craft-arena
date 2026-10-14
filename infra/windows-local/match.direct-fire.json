@@ -29,24 +29,12 @@
     {
       "id": "red1",
       "team": "red",
-      "username": "arena_red1",
-      "bridge": {
-        "host": "0.0.0.0",
-        "port": 8080,
-        "tokenEnv": "RED1_BRIDGE_TOKEN",
-        "allowChat": true
-      }
+      "username": "arena_red1"
     },
     {
       "id": "blue1",
       "team": "blue",
-      "username": "arena_blue1",
-      "bridge": {
-        "host": "0.0.0.0",
-        "port": 8082,
-        "tokenEnv": "BLUE1_BRIDGE_TOKEN",
-        "allowChat": true
-      }
+      "username": "arena_blue1"
     }
   ],
   "versions": {
@@ -113,6 +101,11 @@
     "startSignalFile": "/control/start",
     "replay": {
       "enabled": true
+    },
+    "bridges": "external",
+    "sessionServer": {
+      "port": 9000,
+      "tokenEnv": "ARENA_HOST_TOKEN"
     }
   }
 }

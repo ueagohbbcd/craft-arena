@@ -20,6 +20,44 @@ services:
       - ./results:/results
       - ./replay-config:/data/config/ServerReplay
     stop_grace_period: 180s
+  bridge-red1:
+    # One participant's game bridge, reachable only from its team network.
+    <<: *common
+    image: craft-arena-trusted:local
+    command: [node, packages/mf-bridge/cli.mjs]
+    depends_on: [minecraft]
+    environment:
+      MF_HOST: minecraft
+      MF_VERSION: '1.21.1'
+      MF_USERNAME: arena_red1
+      BRIDGE_HOST: 0.0.0.0
+      BRIDGE_PORT: '8080'
+      BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
+      BRIDGE_SESSION: host
+      BRIDGE_HOST_URL: http://arena-host:9000/v1/participants/red1/session
+      BRIDGE_HOST_TOKEN: ${ARENA_HOST_TOKEN}
+      BRIDGE_WORLD_ID: direct-fire
+      BRIDGE_PARTICIPANT_ID: red1
+    networks: [backend, red1]
+  bridge-blue1:
+    # One participant's game bridge, reachable only from its team network.
+    <<: *common
+    image: craft-arena-trusted:local
+    command: [node, packages/mf-bridge/cli.mjs]
+    depends_on: [minecraft]
+    environment:
+      MF_HOST: minecraft
+      MF_VERSION: '1.21.1'
+      MF_USERNAME: arena_blue1
+      BRIDGE_HOST: 0.0.0.0
+      BRIDGE_PORT: '8080'
+      BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+      BRIDGE_SESSION: host
+      BRIDGE_HOST_URL: http://arena-host:9000/v1/participants/blue1/session
+      BRIDGE_HOST_TOKEN: ${ARENA_HOST_TOKEN}
+      BRIDGE_WORLD_ID: direct-fire
+      BRIDGE_PARTICIPANT_ID: blue1
+    networks: [backend, blue1]
   arena-host:
     <<: *common
     build:
@@ -31,9 +69,10 @@ services:
     environment:
       MC_RCON_PASSWORD: ${MC_RCON_PASSWORD}
       ARENA_RUNTIME_FAULT_FILE: /control/runtime-fault.json
-      RED1_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
-      BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
-    networks: [backend, red1, blue1]
+      ARENA_HOST_TOKEN: ${ARENA_HOST_TOKEN}
+    depends_on: [bridge-red1, bridge-blue1]
+    # Backend only: participants reach their own bridge, never the host.
+    networks: [backend]
     volumes:
       - ./match.live.json:/config/match.live.json:ro
       - ./results:/results
@@ -54,7 +93,7 @@ services:
       NODE_USE_ENV_PROXY: '1'
       HTTP_PROXY: ${ARENA_OPENAI_PROXY:-}
       HTTPS_PROXY: ${ARENA_OPENAI_PROXY:-}
-      NO_PROXY: localhost,127.0.0.1,::1,arena-host
+      NO_PROXY: localhost,127.0.0.1,::1,bridge-red1,bridge-blue1
     networks: [red1, model-egress]
     volumes: [./budget.red.json:/config/budget.json:ro, ./model.red.json:/config/model.red.json:ro]
   budget-blue:
@@ -69,7 +108,7 @@ services:
       NODE_USE_ENV_PROXY: '1'
       HTTP_PROXY: ${ARENA_OPENAI_PROXY:-}
       HTTPS_PROXY: ${ARENA_OPENAI_PROXY:-}
-      NO_PROXY: localhost,127.0.0.1,::1,arena-host
+      NO_PROXY: localhost,127.0.0.1,::1,bridge-red1,bridge-blue1
     networks: [blue1, model-egress]
     volumes: [./budget.blue.json:/config/budget.json:ro, ./model.blue.json:/config/model.blue.json:ro]
   participant-red1:
@@ -80,7 +119,7 @@ services:
       dockerfile: infra/Dockerfile.participant
     image: craft-arena-participant:local
     environment:
-      ARENA_BRIDGE_URL: http://arena-host:8080
+      ARENA_BRIDGE_URL: http://bridge-red1:8080
       ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://budget-red:8081/participants/red1/v1
       OPENAI_API_KEY: ${RED1_MODEL_TOKEN}
@@ -96,7 +135,7 @@ services:
     profiles: [agents]
     image: craft-arena-participant:local
     environment:
-      ARENA_BRIDGE_URL: http://arena-host:8082
+      ARENA_BRIDGE_URL: http://bridge-blue1:8080
       ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://budget-blue:8081/participants/blue1/v1
       OPENAI_API_KEY: ${BLUE1_MODEL_TOKEN}

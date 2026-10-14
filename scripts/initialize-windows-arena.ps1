@@ -80,7 +80,7 @@ try {
     function Quote-DotEnv([string]$value) { return "'" + $value.Replace("'", "\'") + "'" }
     $envLines.Add('ARENA_SOURCE_DIR=' + (Quote-DotEnv $repo.Replace('\','/')))
     $rcon = ''
-    foreach ($name in @('MC_RCON_PASSWORD','RED1_BRIDGE_TOKEN','BLUE1_BRIDGE_TOKEN','RED1_MODEL_TOKEN','BLUE1_MODEL_TOKEN')) {
+    foreach ($name in @('MC_RCON_PASSWORD','RED1_BRIDGE_TOKEN','BLUE1_BRIDGE_TOKEN','RED1_MODEL_TOKEN','BLUE1_MODEL_TOKEN','ARENA_HOST_TOKEN')) {
         $token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
         $envLines.Add("$name=$token")
         if ($name -eq 'MC_RCON_PASSWORD') { $rcon = $token }

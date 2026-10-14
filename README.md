@@ -8,10 +8,10 @@ Craft Arena 给一个通用 coding AI 一个 Minecraft 角色。每个参赛者�
 flowchart LR
   subgraph trusted["可信侧（参赛者不能访问或修改）"]
     host["比赛主控 arena-host<br/>会话生命周期、结果"]
-    bridge["游戏桥（每个参赛者一个）<br/>真实 Mineflayer bot"]
+    bridge["游戏桥（每个参赛者一个独立服务）<br/>真实 Mineflayer bot"]
     gateway["预算网关 budget-gateway<br/>计量、限速、排队"]
     mc["Minecraft 服务器<br/>规则数据包：计分、判胜"]
-    host --- bridge
+    bridge -- "读会话状态" --> host
     bridge --- mc
     host -. "RCON：#arena:* 函数、读 arena:session" .- mc
   end
@@ -30,6 +30,7 @@ flowchart LR
   progs -- "InboxClient" --> pi
 ```
 
+- 每个参赛者的游戏桥是独立服务，只接在后端网络和本队网络上；参赛容器访问不到别队的游戏桥和比赛主控。游戏桥从比赛主控读会话状态，也可以不要比赛主控、直接从服务器读（手动开局的小游戏、陪玩）。
 - 只有游戏桥连接 Minecraft。它只接受经过校验的语义动作（移动、挖、放、攻击、交互等），不转发自定义数据包。比赛开始前和结束后，所有动作都被拒绝。
 - 只有预算网关持有模型凭证。它只开放 `/chat/completions` 和 `/budget` 两个入口。
 - Pathfinder、PvP 等 Mineflayer 插件在参赛者自己的程序里运行，基于本地镜像（`connectBot()` 在程序里保存的 bot 状态副本）计算，算出的动作再发给游戏桥。

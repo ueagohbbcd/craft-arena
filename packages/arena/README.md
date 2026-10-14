@@ -1,6 +1,6 @@
 # Arena host
 
-The arena host (`packages/arena`) runs a session on the trusted side: it resets the Minecraft server, starts one game bridge per participant, releases the start, asks a judge for the outcome, ends the session and writes the result. A session is either a `match` (time limit, winner or draw) or an `open` session (no clock, no judging, ends only when the operator stops it); see [docs/GAME-MODES.md](../../docs/GAME-MODES.md) for the design. In Compose it is the `arena-host` service running `live-cli.mjs`.
+The arena host (`packages/arena`) runs a session on the trusted side: it resets the Minecraft server, starts one game bridge per participant (or, with external bridges, serves them their session), releases the start, asks a judge for the outcome, ends the session and writes the result. A session is either a `match` (time limit, winner or draw) or an `open` session (no clock, no judging, ends only when the operator stops it); see [docs/GAME-MODES.md](../../docs/GAME-MODES.md) for the design. In Compose it is the `arena-host` service running `live-cli.mjs`.
 
 Readers: developers and operators. Step-by-step deployment (start marker, supervisor, replay storage) is in [infra/README.md](../../infra/README.md); this page describes what the code does.
 
@@ -112,30 +112,41 @@ Start from [infra/match.live.template.json](../../infra/match.live.template.json
 
 `live` keys:
 
-| Key                                  | Meaning                                                                                                               |
-| ------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `minecraft`                          | `{host, port?, version, auth?}` for every bot                                                                         |
-| `rcon`                               | `{host, port? (25575), passwordEnv}`; the password is read from that environment variable                             |
-| `commands.prepare` / `start` / `end` | lists of `{command, expect}`; each RCON reply must match the `expect` regex. Optional, run before the `#arena:*` tags |
-| `startSignalFile`                    | wait for this file before starting (template: `/control/start`)                                                       |
-| `runtimeFaultSignalFile`             | runtime-fault marker path                                                                                             |
-| `readyTimeoutMs` / `stopTimeoutMs`   | 30000 / 5000 (the poll interval is `judge.pollMs`)                                                                    |
-| `openingViews`                       | see [Opening images](#opening-images)                                                                                 |
-| `replay`                             | see [Replay](#replay)                                                                                                 |
-| `eventTokenEnv`                      | environment variable holding the `ingest` token                                                                       |
+| Key                                  | Meaning                                                                                                                |
+| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| `minecraft`                          | `{host, port?, version, auth?}` for every bot                                                                          |
+| `rcon`                               | `{host, port? (25575), passwordEnv}`; the password is read from that environment variable                              |
+| `commands.prepare` / `start` / `end` | lists of `{command, expect}`; each RCON reply must match the `expect` regex. Optional, run before the `#arena:*` tags  |
+| `startSignalFile`                    | wait for this file before starting (template: `/control/start`)                                                        |
+| `runtimeFaultSignalFile`             | runtime-fault marker path                                                                                              |
+| `readyTimeoutMs` / `stopTimeoutMs`   | 30000 / 5000 (the poll interval is `judge.pollMs`)                                                                     |
+| `openingViews`                       | see [Opening images](#opening-images)                                                                                  |
+| `replay`                             | see [Replay](#replay)                                                                                                  |
+| `eventTokenEnv`                      | environment variable holding the `ingest` token                                                                        |
+| `bridges`                            | `internal` (default): bridges run in this process; `external`: each participant's bridge is its own service, see below |
+| `sessionServer`                      | external bridges: `{port, tokenEnv, host? ("0.0.0.0")}` of the HTTP server the bridges read their session from         |
 
-Each participant also needs `username` and `bridge: {port, tokenEnv, host? ("0.0.0.0"), allowChat?, ...}`. Other [bridge options](../mf-bridge/README.md#policy-and-limits) such as `maxActionsPerSecond` pass through.
+Each participant also needs `username` and, with internal bridges, `bridge: {port, tokenEnv, host? ("0.0.0.0"), allowChat?, ...}`. Other [bridge options](../mf-bridge/README.md#policy-and-limits) such as `maxActionsPerSecond` pass through.
+
+**External bridges** (`live.bridges: "external"`, used by both shipped Compose deployments). Each participant's bridge is its own container on its own team network, started with `BRIDGE_SESSION=host` ([bridge CLI](../mf-bridge/README.md#standalone-cli)); the host sits only on the backend network. The host then:
+
+- serves `GET /v1/participants/{id}/session` (bearer `sessionServer.tokenEnv`) with the same session object an internal bridge serves; bridges poll it, allow actions only while it is `running`, and stop their bot when it changes to `ended`;
+- waits in prepare until every participant's username is online (`list` over RCON, up to `readyTimeoutMs`) instead of starting bots;
+- counts deaths with a `deathCount` scoreboard objective `arena_deaths`, read when the session ends;
+- treats a participant missing from `list` while a `match` runs as a disconnect and ends it `abandoned`.
+
+A crashed host no longer takes the bots down, and a participant's network reaches only its own bridge.
 
 What the runner does:
 
-1. **Prepare.** Connects RCON, prepares replay, runs `commands.prepare`. Starts one bridge per participant with `startLiveBridge`, inside this process, and waits for each bot to spawn. Then the judge's late step (for `datapack`: write `arena:config`, run `#arena:prepare`, read `arena:session` once for public data).
+1. **Prepare.** Connects RCON, prepares replay, runs `commands.prepare`. Internal bridges: starts one bridge per participant with `startLiveBridge`, inside this process, and waits for each bot to spawn. External bridges: starts the session server and waits for every participant to be online. Then the judge's late step (for `datapack`: write `arena:config`, run `#arena:prepare`, read `arena:session` once for public data).
 2. **Wait for start.** With `startSignalFile`, refuses to run if the file already exists (remove stale markers before each match), then polls for it while checking for runtime faults. Without it, the session starts as soon as the bots have joined, even if the participants' models are not ready.
 3. **Start.** Starts replay recording, runs `commands.start`, then the judge's start (`#arena:start`), starts the clock and polls the judge every `judge.pollMs`.
 4. **Run.** Each poll asks the judge; a judge failure ends the session `map-fault` with `judgeError`. A bridge bot's `death` is counted; its disconnect is counted and, in a `match`, ends it `abandoned`. An `open` session keeps running.
 5. **End.** Clears controls, digging and item use on every bridge bot; runs `commands.end`; lets the judge freeze and read the final state (`#arena:stop`); stops replay recording; calls `stopGame()` on every bridge (Minecraft disconnects, HTTP stays up); closes RCON; waits for replay files. Every step is tried even if an earlier one fails; failures show as `stopConfirmed:false` and `stopError`.
 6. **Serve final status.** The process stays up, so participants can still read the final state from `/v1/session`, until `SIGINT`/`SIGTERM`, which closes the bridges' HTTP servers.
 
-Action gating: every bridge is started with `authorizeAction: () => host.state === "running"`, so game actions are refused until the start and from the moment the session ends. Block memory and the session route stay readable.
+Action gating: every internal bridge is started with `authorizeAction: () => host.state === "running"`, so game actions are refused until the start and from the moment the session ends; external bridges gate on the state they last read (every 250 ms). Block memory and the session route stay readable.
 
 What participants read: each bridge's `GET /v1/session` returns the session object:
 

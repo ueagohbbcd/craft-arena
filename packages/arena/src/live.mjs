@@ -33,13 +33,24 @@ function validateLive(config) {
         `Explicit ${phase} command/expected-response pairs required`,
       );
   }
+  if (![undefined, "internal", "external"].includes(c.live.bridges))
+    throw new Error("live.bridges must be internal or external");
+  const external = c.live.bridges === "external";
   for (const p of c.participants)
     if (
-      !p.username ||
-      !p.bridge?.tokenEnv ||
-      !Number.isSafeInteger(p.bridge.port)
+      !/^[A-Za-z0-9_]{1,16}$/.test(p.username ?? "") ||
+      (!external &&
+        (!p.bridge?.tokenEnv || !Number.isSafeInteger(p.bridge.port)))
     )
       throw new Error(`Live username/bridge config required for ${p.id}`);
+  if (
+    external &&
+    (!c.live.sessionServer?.tokenEnv ||
+      !Number.isSafeInteger(c.live.sessionServer.port))
+  )
+    throw new Error(
+      "External bridges need live.sessionServer {port, tokenEnv, host?}",
+    );
   validateReplay(c);
   for (const [team, views] of Object.entries(c.live.openingViews ?? {})) {
     if (!c.teams.some((t) => t.id === team))
@@ -117,6 +128,83 @@ export async function createLiveMatch(
     eventCounter = 0,
     replay;
   const timeout = config.live.readyTimeoutMs ?? 30000;
+  // External bridges run as their own services and poll the session object
+  // from this host's session server; the host sees players only over RCON.
+  const external = config.live.bridges === "external";
+  let sessionServer;
+  const online = async () => {
+    const reply = String(await rcon.command("list"));
+    const names = reply.match(/players online:(.*)$/s)?.[1] ?? "";
+    return new Set(
+      names
+        .split(",")
+        .map((n) => n.trim())
+        .filter(Boolean),
+    );
+  };
+  const missing = async () => {
+    const players = await online();
+    return config.participants.filter((p) => !players.has(p.username));
+  };
+  const waitOnline = async () => {
+    const deadline = now() + timeout;
+    for (;;) {
+      const absent = await missing();
+      if (!absent.length) return;
+      if (now() >= deadline)
+        throw new Error(
+          `Participants not online: ${absent.map((p) => p.username).join(", ")}`,
+        );
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  };
+  const recordDeaths = async () => {
+    for (const p of config.participants) {
+      const reply = String(
+        await rcon.command(`scoreboard players get ${p.username} arena_deaths`),
+      );
+      const n = Number(reply.match(/ has (\d+) /)?.[1] ?? 0);
+      if (n) host.metrics.deaths[p.id] = n;
+    }
+  };
+  const startSessionServer = async () => {
+    const { createServer } = await import("node:http");
+    const { timingSafeEqual } = await import("node:crypto");
+    const {
+      port,
+      host: address = "0.0.0.0",
+      tokenEnv,
+    } = config.live.sessionServer;
+    const token = env[tokenEnv];
+    if (!token || token.length < 16)
+      throw new Error(`${tokenEnv} must hold a 16+ character token`);
+    const expected = Buffer.from(`Bearer ${token}`);
+    sessionServer = createServer((req, res) => {
+      const supplied = Buffer.from(req.headers.authorization ?? "");
+      if (
+        supplied.length !== expected.length ||
+        !timingSafeEqual(supplied, expected)
+      ) {
+        res.writeHead(401);
+        return res.end();
+      }
+      const id = req.url.match(/^\/v1\/participants\/([^/]+)\/session$/)?.[1];
+      const p = config.participants.find((x) => x.id === id);
+      if (req.method !== "GET" || !p) {
+        res.writeHead(404);
+        return res.end();
+      }
+      res.writeHead(200, {
+        "content-type": "application/json",
+        "cache-control": "no-store",
+      });
+      res.end(JSON.stringify({ ok: true, result: sessionView(p) }));
+    });
+    await new Promise((resolve, reject) => {
+      sessionServer.once("error", reject);
+      sessionServer.listen(port, address, resolve);
+    });
+  };
   const runCommands = async (phase, list = []) => {
     for (const { command, expect } of list) {
       const response = await rcon.command(command);
@@ -171,7 +259,14 @@ export async function createLiveMatch(
         }
       }
     }
-    if (!preserveStatus) bridges.clear();
+    if (!preserveStatus) {
+      bridges.clear();
+      if (sessionServer) {
+        sessionServer.closeAllConnections?.();
+        await new Promise((r) => sessionServer.close(r));
+        sessionServer = null;
+      }
+    }
     rcon.close();
     if (failures.length)
       throw new Error(`Stop failures: ${failures.join("; ")}`);
@@ -229,7 +324,15 @@ export async function createLiveMatch(
         await rcon.connect();
         await replay.prepare();
         await execute("prepare");
-        for (const p of config.participants) {
+        if (external) {
+          await startSessionServer();
+          await waitOnline();
+          await rcon.command("scoreboard objectives remove arena_deaths");
+          await rcon.command(
+            "scoreboard objectives add arena_deaths deathCount",
+          );
+        }
+        for (const p of external ? [] : config.participants) {
           const token = env[p.bridge.tokenEnv];
           if (!token) throw new Error(`Missing bridge token for ${p.id}`);
           const b = await startLiveBridge({
@@ -292,7 +395,10 @@ export async function createLiveMatch(
       }
     },
     start: async () => {
-      if ([...bridges.values()].some((b) => endedBots.has(b.bot)))
+      if (
+        [...bridges.values()].some((b) => endedBots.has(b.bot)) ||
+        (external && (await missing()).length)
+      )
         throw new Error("Game connection ended before match start");
       await replay.start();
       await execute("start");
@@ -322,6 +428,12 @@ export async function createLiveMatch(
       } catch (e) {
         error = e;
       }
+      if (external)
+        try {
+          await recordDeaths();
+        } catch (e) {
+          fail(e);
+        }
       try {
         await judge.stop(reason);
       } catch (e) {
@@ -351,6 +463,23 @@ export async function createLiveMatch(
     if (polling || host.state !== "running") return;
     polling = true;
     try {
+      if (external && host.kind === "match") {
+        const absent = await missing();
+        if (absent.length) {
+          for (const p of absent)
+            await host.ingest(
+              {
+                runId: host.runId,
+                id: `disconnect:${p.id}:${eventCounter++}`,
+                type: "disconnect",
+                participant: p.id,
+              },
+              host.eventToken,
+            );
+          await host.end("abandoned");
+          return;
+        }
+      }
       await judge.poll();
     } catch (e) {
       host.judgeError = e.message;
@@ -363,6 +492,9 @@ export async function createLiveMatch(
     host,
     bridges,
     judge,
+    get sessionServer() {
+      return sessionServer;
+    },
     async prepare() {
       await host.prepare();
     },

@@ -85,7 +85,7 @@ test("cliOptions without BRIDGE_SESSION has no session route and offline auth", 
 test("cliOptions rejects unknown BRIDGE_SESSION and MF_AUTH values", () => {
   assert.throws(
     () => cliOptions({ ...baseEnv, BRIDGE_SESSION: "match" }),
-    /BRIDGE_SESSION must be open/,
+    /BRIDGE_SESSION must be open, host or server/,
   );
   assert.throws(
     () => cliOptions({ ...baseEnv, MF_AUTH: "mojang" }),

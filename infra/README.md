@@ -54,7 +54,11 @@
 | `datapack`   | 服务器上的数据包或插件，按服务器协议 v1 通过 RCON 交换 `arena:config` 和 `arena:session`。羊毛竞速见 [datapacks/race-of-wool](datapacks/race-of-wool/README.md)，最小示例见 [datapacks/arena-example](datapacks/arena-example/README.md) |
 | `none`       | 不判定，只用于 `open` 会话                                                                                                                                                                                                               |
 
-不比赛、只想让模型在普通服务器上陪玩时，不需要比赛主控：游戏桥自己提供一个 `open` 会话，部署模板见 [companion/README.md](companion/README.md)。
+不比赛、只想让模型在普通服务器上陪玩时，不需要比赛主控：游戏桥自己提供一个 `open` 会话，部署模板见 [companion/README.md](companion/README.md)。手动开局的小游戏也不需要比赛主控：游戏桥用 `BRIDGE_SESSION=server` 直接从服务器读 `arena:session`，管理员在游戏里执行 `function #arena:prepare`／`#arena:start`／`#arena:stop` 即可，见[游戏桥 README](../packages/mf-bridge/README.md#standalone-cli)。
+
+### 游戏桥是独立服务
+
+两个 Compose 部署里，每个参赛者的游戏桥是单独的服务（`bridge-red1`、`bridge-blue1`），只接在后端网络和本队网络上；参赛容器只能访问本队的游戏桥，访问不到别队的游戏桥和比赛主控。游戏桥从比赛主控的会话服务器（`arena-host:9000`，令牌 `ARENA_HOST_TOKEN`）读取会话状态；比赛主控只在后端网络上，崩溃时 bot 不会跟着掉线。比赛配置里对应 `live.bridges: "external"` 和 `live.sessionServer`，见[比赛主控 README](../packages/arena/README.md#live-runner)。
 
 ## 模型与预算配置
 

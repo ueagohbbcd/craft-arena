@@ -50,7 +50,7 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.participant
     environment:
-      ARENA_BRIDGE_URL: http://arena-host:8080
+      ARENA_BRIDGE_URL: http://bridge-red1:8080
       ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://budget-gateway:8081/participants/red1/v1
       OPENAI_API_KEY: ${RED1_MODEL_TOKEN}
@@ -73,7 +73,7 @@ services:
       context: ..
       dockerfile: infra/Dockerfile.participant
     environment:
-      ARENA_BRIDGE_URL: http://arena-host:8082
+      ARENA_BRIDGE_URL: http://bridge-blue1:8080
       ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://budget-gateway:8081/participants/blue1/v1
       OPENAI_API_KEY: ${BLUE1_MODEL_TOKEN}
@@ -90,6 +90,58 @@ services:
     - /tmp:rw,nosuid,size=256m
     stdin_open: true
     tty: true
+  bridge-red1:
+    # One participant's game bridge: its own container, reachable only from
+    # its team network; polls the session from the arena host.
+    <<: *restricted
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.trusted
+    command:
+    - node
+    - packages/mf-bridge/cli.mjs
+    depends_on: [minecraft]
+    environment:
+      MF_HOST: minecraft
+      MF_VERSION: ${MC_VERSION:-1.21.1}
+      MF_USERNAME: arena_red1
+      BRIDGE_HOST: 0.0.0.0
+      BRIDGE_PORT: '8080'
+      BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN:?Provide scoped operator token}
+      BRIDGE_SESSION: host
+      BRIDGE_HOST_URL: http://arena-host:9000/v1/participants/red1/session
+      BRIDGE_HOST_TOKEN: ${ARENA_HOST_TOKEN:?Provide the host session token}
+      BRIDGE_WORLD_ID: ${ARENA_WORLD_ID:-arena-world}
+      BRIDGE_PARTICIPANT_ID: red1
+    networks:
+    - backend
+    - red1
+  bridge-blue1:
+    # One participant's game bridge: its own container, reachable only from
+    # its team network; polls the session from the arena host.
+    <<: *restricted
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile.trusted
+    command:
+    - node
+    - packages/mf-bridge/cli.mjs
+    depends_on: [minecraft]
+    environment:
+      MF_HOST: minecraft
+      MF_VERSION: ${MC_VERSION:-1.21.1}
+      MF_USERNAME: arena_blue1
+      BRIDGE_HOST: 0.0.0.0
+      BRIDGE_PORT: '8080'
+      BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN:?Provide scoped operator token}
+      BRIDGE_SESSION: host
+      BRIDGE_HOST_URL: http://arena-host:9000/v1/participants/blue1/session
+      BRIDGE_HOST_TOKEN: ${ARENA_HOST_TOKEN:?Provide the host session token}
+      BRIDGE_WORLD_ID: ${ARENA_WORLD_ID:-arena-world}
+      BRIDGE_PARTICIPANT_ID: blue1
+    networks:
+    - backend
+    - blue1
   arena-host:
     stop_grace_period: ${ARENA_HOST_STOP_GRACE_PERIOD:-180s}
     <<: *restricted
@@ -104,12 +156,11 @@ services:
     environment:
       MC_RCON_PASSWORD: ${MC_RCON_PASSWORD:?Provide operator RCON credential}
       ARENA_RUNTIME_FAULT_FILE: /control/runtime-fault.json
-      RED1_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
-      BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+      ARENA_HOST_TOKEN: ${ARENA_HOST_TOKEN:?Provide the host session token}
+    depends_on: [bridge-red1, bridge-blue1]
+    # Backend only: participants reach their own bridge, never the host.
     networks:
     - backend
-    - red1
-    - blue1
     volumes:
     - ./match.live.json:/config/match.live.json:ro
     # Mode prompts: briefing.promptFile resolves relative to the config file.
