@@ -15,7 +15,7 @@
 | 文件                           | 内容                                                                                           |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
 | [`compose.yaml`](compose.yaml) | 三个服务                                                                                       |
-| [`.env.example`](.env.example) | 需要填的变量：服务器地址和版本、bot 账号、登录方式、两个令牌、上游 key                         |
+| [`.env.example`](.env.example) | 需要填的变量：服务器地址和版本、bot 账号、登录方式、三个令牌（游戏桥、只读状态、模型）、上游 key                         |
 | [`budget.json`](budget.json)   | 预算：每分钟 0.20 美元的参考费用上限，不限总 token（陪玩没有时限）。上游是任意 OpenAI 兼容接口 |
 | [`model.json`](model.json)     | 模型描述，网关和参赛容器共用                                                                   |
 | [`PROMPT.md`](PROMPT.md)       | 陪玩提示词（英文，模型读）：陪玩家玩、回答聊天、遵守服务器规则、不搞破坏                       |
@@ -40,7 +40,7 @@
 
 ```sh
 cd infra/companion
-cp .env.example .env    # 填好各项，两个令牌用随机值
+cp .env.example .env    # 填好各项，三个令牌用互不相同的随机值
 docker compose build
 docker compose up -d
 docker compose logs -f participant
@@ -73,4 +73,4 @@ docker compose down
 - 没有录像和结果记录：这些归比赛主控，陪玩部署不运行它。
 - 游戏桥和服务器断开后，`bridge` 进程退出（退出码 1），预算网关随即拒绝模型调用；会话不会自动恢复，要重启 `bridge`。
 - 模型调用一直在计费。`cashRateLimit` 只限速度，不限总额；长时间运行前确认上游账户的额度。
-- `allowChat` 打开着，模型能在服务器里说话。服务器若不希望 bot 发言，把 `BRIDGE_ALLOW_CHAT` 改为 `false`，同时把 `ARENA_CHAT_WAKE` 设为 `none`。
+- `allowChat` 打开着，模型能在服务器里说话。服务器若不希望 bot 发言，修改 `compose.yaml` 的 `bridge.environment.BRIDGE_ALLOW_CHAT` 为 `"false"`，在 `.env` 中设置 `ARENA_CHAT_WAKE=none`，然后运行 `docker compose up -d` 重建受影响的服务。`BRIDGE_ALLOW_CHAT` 当前直接写在 Compose 中，在 `.env` 添加同名变量不会覆盖它。

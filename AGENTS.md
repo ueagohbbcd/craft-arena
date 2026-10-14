@@ -6,7 +6,7 @@
 
 | 位置 | 内容 | 谁会读 |
 | --- | --- | --- |
-| `packages/arena` | 比赛主控：比赛生命周期、裁判、结果 | 可信侧 |
+| `packages/arena` | 比赛主控：会话生命周期、经 RCON 读服务器判定、结果 | 可信侧 |
 | `packages/mf-bridge` | 游戏桥：每个参赛者一个真实 Mineflayer 角色，只接受校验过的语义动作 | 可信侧 |
 | `packages/budget-gateway` | 预算网关：OpenAI 兼容的模型调用入口，计量、限速 | 可信侧 |
 | `packages/pi-extension` | Pi 扩展与启动器：`bash`／`task_wait`／`task_cancel`、收件箱服务、默认脚本启动、平台消息、`observe` 工具、请求恢复 | 参赛容器内的平台代码 |
@@ -17,19 +17,22 @@
 | `packages/default-scripts` | 开局自动启动的默认脚本：观察器、聊天转发 | 参赛者程序 |
 | `packages/world-visual` | 开局图像与按需截图 | 参赛者程序 |
 | `examples/` | 参赛提示、Skill、FAQ、示例程序 | 参赛模型 |
-| `infra/` | 部署模板与运营指南 | 运营者 |
+| `infra/` | 部署模板、运营指南、规则数据包（`infra/datapacks/`） | 运营者 |
 | `docs/` | 设计、验证、路线图；`docs/history/` 是按日期保存的记录 | 开发者 |
 
 ## 常用命令
 
-需要 Node.js 24。
+需要 Node.js 24。全量测试使用 Linux（含 `/bin/bash`、Unix socket 和 POSIX 信号）；Windows 使用 Linux 容器或 WSL，并在其中安装依赖。测试复现见 [docs/VALIDATION.md](docs/VALIDATION.md#如何复现)。
 
 ```sh
 npm ci
 npm run check         # 语法检查
 npm run format:check  # prettier
 npm test              # 全部测试
+npm run verify:server # 真实 Minecraft 1.21.1 服务器上的协议、规则数据包与一局实战（需要 Java 21，会下载 server.jar）
 ```
+
+CI（`.github/workflows/ci.yml`）在 Node 24 上跑前三项，并单独跑 `verify:server`。改动服务器协议、`infra/datapacks/` 下的数据包、比赛主控或游戏桥时，本地先跑 `verify:server`。
 
 ## 修改代码时
 

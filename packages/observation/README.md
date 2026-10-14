@@ -33,7 +33,7 @@ The first report is `observation.snapshot` and carries every section. Later repo
 }
 ```
 
-The observer samples once a second and compares each sample with what you last received. If a section changes and then changes back before the report is delivered, the pending report is corrected so it never describes a state that no longer holds.
+The observer samples once a second and compares each sample with what you last received. If a section changes and then changes back before the report is delivered, the pending report is corrected. A failed send or a dropped or expired state report is retried on the next sample, even if the state has not changed.
 
 | Section              | Contents                                                                                                                                                                                             |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -87,20 +87,20 @@ The same scan reads the signs it reaches. When the set of signs or their text ch
 
 Events are inbox events with `type` `observation.<name>`. Each carries `observedAt`, `sampledAt`, `epoch` and `sequence`.
 
-| Event                  | When                                                                                                       | Priority                                            |
-| ---------------------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
-| `health_loss`          | health dropped; drops within 250 ms are merged, with any `hurtEvents` and their source                     | normal; **urgent** when the damage is heavy (below) |
-| `hurt`                 | the game reported a hit with no measurable health drop                                                     | normal                                              |
-| `critical_health`      | health entered 0 < health ≤ 6; fires again only after health reaches 8                                     | **urgent**                                          |
-| `death`                | your character died                                                                                        | **urgent**                                          |
-| `spawn` / `respawn`    | your character spawned (`initial` marks the first spawn)                                                   | normal                                              |
-| `disconnected`         | the Minecraft bot ended or was kicked                                                                      | **urgent**                                          |
-| `lost`                 | the connection to the game bridge dropped; game state is unknown until restored                            | normal                                              |
-| `reset` / `restored`   | your program's copy of the game state (the local mirror) was rebuilt, or came back after `lost` or `stale` | normal                                              |
-| `stale`                | the newest data became older than 5 seconds; `restored` follows when fresh data resumes                    | normal                                              |
-| `inventory_transition` | you ran out of food, ammunition or solid block items, or lost an equipped or held item                     | normal                                              |
-| `objective_inventory`  | your count of a public objective item went from 0 to positive or back                                      | normal                                              |
-| `wool_inventory`       | in `race-of-wool`, your count of a wool color went from 0 to positive or back                              | normal                                              |
+| Event                  | When                                                                                                          | Priority                                            |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `health_loss`          | health dropped; drops within 250 ms are merged, with any `hurtEvents` and their source                        | normal; **urgent** when the damage is heavy (below) |
+| `hurt`                 | the game reported a hit with no measurable health drop                                                        | normal                                              |
+| `critical_health`      | health entered 0 < health ≤ 6; fires again only after health reaches 8                                        | **urgent**                                          |
+| `death`                | your character died                                                                                           | **urgent**                                          |
+| `spawn` / `respawn`    | your character spawned (`initial` marks the first spawn)                                                      | normal                                              |
+| `disconnected`         | the Minecraft bot ended or was kicked                                                                         | **urgent**                                          |
+| `lost`                 | the connection to the game bridge dropped; game state is unknown until restored                               | normal                                              |
+| `reset` / `restored`   | your program's copy of the game state (the local mirror) was rebuilt, or came back after `lost` or `stale`    | normal                                              |
+| `stale`                | the newest data became older than 5 seconds; `restored` follows when fresh data resumes                       | normal                                              |
+| `inventory_transition` | you ran out of food, ammunition or solid block items, or lost an equipped or held item                        | normal                                              |
+| `objective_inventory`  | your count of one of your team's public goal blocks (`briefing.public.goals`) went from 0 to positive or back | normal                                              |
+| `inventory_watch`      | your count of an item the server listed in `briefing.public.watchItems` went from 0 to positive or back       | normal                                              |
 
 `health_loss` becomes urgent when, within 2 seconds, you lose at least 4 health, or at least 3 separate drops add up to at least 3. Its `urgency` field gives the reason and numbers. Continuous damage sends one urgent report. The next one can come only after 5 seconds and after either 2 seconds without damage or 2 health regained. When critical health or death already sent an urgent report, the damage report stays normal.
 
@@ -280,7 +280,7 @@ All data comes from what the character has received from the server. Areas it ha
 | `section-diff.mjs`            | `createSectionDiff` (snapshot, then changed sections; also used for `runtime.*`) and `compactObservation`                        |
 | `observer.mjs`                | `createDefaultObserver` and `startObserver`                                                                                      |
 | `observer-config.mjs`         | reads `observer.json` / `perception.json` / `ARENA_OBSERVER_CONFIG`                                                              |
-| `match-options.mjs`           | turns the public match state into `teams`, `objectiveItems`, wool watching                                                       |
+| `match-options.mjs`           | turns the public session state into `teams`, `objectiveItems`, `inventoryWatchItems`                                             |
 | `observe.mjs`, `queries.mjs`  | on-demand sample; spatial queries                                                                                                |
 
 `startObserver` reads the config, calls `bot.getMatchState()` for teams and objective items, and posts through `InboxClient.send`. The state report uses the replaceable key `observation.current`; the section diff advances only when `InboxClient.delivery(id)` reports `delivered`, so changes in a replaced or dropped report are sent again. Recent blocks and signs are retired the same way. Events are posted as they happen. The Pi extension registers the `observe` tool (`packages/pi-extension/observe-tool.mjs`) and adds the runtime sections to its result.

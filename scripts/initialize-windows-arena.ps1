@@ -7,6 +7,8 @@ param(
     [switch]$AcceptEula,
     [string]$ServerJar,
     [string]$ServerDownload = (Join-Path $PSScriptRoot '../infra/minecraft-download.json'),
+    # Datapacks installed into the world; the default judges the race-of-wool monuments.
+    [string[]]$Datapacks = @(Join-Path $PSScriptRoot '../infra/datapacks/race-of-wool'),
     [string]$DeepSeekApiKeyEnv = 'DEEPSEEK_API_KEY',
     [string]$RedUpstreamApiKeyEnv = 'RED_UPSTREAM_API_KEY'
 )
@@ -57,18 +59,31 @@ try {
     foreach ($file in @('compose.yaml','budget.red.json','budget.blue.json','model.red.json','model.blue.json')) { Copy-Item -LiteralPath (Join-Path $template $file) -Destination $stage }
     $matchDocument.live | Add-Member -NotePropertyName runtimeFaultSignalFile -NotePropertyValue '/control/runtime-fault.json' -Force
     $matchDocument | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $stage 'match.live.json') -Encoding utf8
+    # The operator's match config must agree with the Compose and budget templates.
+    & $node (Join-Path $repo 'scripts/check-deployment.mjs') --compose (Join-Path $stage 'compose.yaml') --match (Join-Path $stage 'match.live.json') --budget (Join-Path $stage 'budget.red.json') --budget (Join-Path $stage 'budget.blue.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Participant roster differs between match config, Compose and budget files (see above).' }
     $prepareArgs = @((Join-Path $repo 'scripts/prepare-minecraft-server.mjs'), (Join-Path $stage 'server'), '--manifest', $ServerDownload)
     if ($ServerJar) { $prepareArgs += @('--server-jar', $ServerJar) }
     & $node @prepareArgs
     if ($LASTEXITCODE -ne 0) { throw 'Checked Minecraft server preparation failed.' }
     Copy-Item -LiteralPath $world -Destination (Join-Path $stage 'map-original/world') -Recurse
+    # Into the original world so every reset keeps the rules.
+    $packDir = Join-Path $stage 'map-original/world/datapacks'
+    New-Item -ItemType Directory -Force -Path $packDir | Out-Null
+    foreach ($pack in $Datapacks) {
+        $source = (Resolve-Path -LiteralPath $pack).Path
+        if (-not (Test-Path -LiteralPath (Join-Path $source 'pack.mcmeta') -PathType Leaf)) { throw "Datapack $source has no pack.mcmeta." }
+        $target = Join-Path $packDir (Split-Path -Leaf $source)
+        if (Test-Path -LiteralPath $target) { throw "World already contains datapack $(Split-Path -Leaf $source)." }
+        Copy-Item -LiteralPath $source -Destination $target -Recurse
+    }
     Copy-Item -LiteralPath (Join-Path $stage 'map-original/world') -Destination (Join-Path $stage 'minecraft-data/world') -Recurse
     $envLines = [Collections.Generic.List[string]]::new()
     # Compose dotenv single quotes preserve dollar signs and backslashes literally.
     function Quote-DotEnv([string]$value) { return "'" + $value.Replace("'", "\'") + "'" }
     $envLines.Add('ARENA_SOURCE_DIR=' + (Quote-DotEnv $repo.Replace('\','/')))
     $rcon = ''
-    foreach ($name in @('MC_RCON_PASSWORD','RED1_BRIDGE_TOKEN','BLUE1_BRIDGE_TOKEN','RED1_MODEL_TOKEN','BLUE1_MODEL_TOKEN')) {
+    foreach ($name in @('MC_RCON_PASSWORD','RED1_BRIDGE_TOKEN','BLUE1_BRIDGE_TOKEN','RED1_MODEL_TOKEN','BLUE1_MODEL_TOKEN','ARENA_HOST_TOKEN','RED1_STATUS_TOKEN','BLUE1_STATUS_TOKEN')) {
         $token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
         $envLines.Add("$name=$token")
         if ($name -eq 'MC_RCON_PASSWORD') { $rcon = $token }

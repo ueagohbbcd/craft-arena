@@ -4,9 +4,10 @@ This is a team match. Your team and the other teams race to complete the same se
 
 ## How to win
 
-- Each objective is a block the map requires, placed at your team's monument. The briefing's `objectives` lists the objective IDs; when the host publishes them, `publicGoalPositions` gives your team's monument positions and the exact block for each.
+- Each objective is a block the map requires, placed at your team's monument. The briefing's `objectives` lists the objective IDs; when the server publishes them, `briefing.public.goals` gives every team's monument positions (`team`, `objective`, `x`, `y`, `z`) and the exact block for each.
 - Your team wins the moment it holds every objective at the same time. All objectives are required; a goal block that is removed again stops counting.
-- The host checks the monuments at short, regular intervals. If two teams complete everything within the same check, the match is a draw.
+- The server checks the monuments every game tick. If two teams complete everything in the same tick, the match is a draw.
+- The session's `scores` give the number of objectives each team holds now.
 - When the time limit runs out, the result follows the match's timeout rule: usually a draw.
 
 ## What else to know

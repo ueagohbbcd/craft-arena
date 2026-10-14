@@ -13,8 +13,7 @@ export function validSession(value) {
 
 /**
  * Authenticated host session snapshot, cached briefly; undefined when
- * unavailable. Reads /v1/session and falls back to the legacy /v1/match route
- * on 404. `kind` defaults to "match" for hosts that predate open sessions.
+ * unavailable. Reads the bridge's /v1/session.
  */
 export function createMatchReader({
   url,
@@ -26,8 +25,8 @@ export function createMatchReader({
   let readAt = 0;
   let snapshot;
   let reading;
-  const get = (path) =>
-    fetch(`${url.replace(/\/$/, "")}${path}`, {
+  const get = () =>
+    fetch(`${url.replace(/\/$/, "")}/v1/session`, {
       headers: { authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(timeoutMs),
     });
@@ -38,16 +37,12 @@ export function createMatchReader({
     readAt = now();
     reading = (async () => {
       try {
-        let response = await get("/v1/session");
-        if (response.status === 404) {
-          await response.body?.cancel();
-          response = await get("/v1/match");
-        }
+        const response = await get();
         if (!response.ok) return (snapshot = undefined);
         const body = await response.json();
         const value = body.result;
         if (!body.ok || !validSession(value)) return (snapshot = undefined);
-        return (snapshot = { ...value, kind: value.kind ?? "match" });
+        return (snapshot = value);
       } catch {
         return (snapshot = undefined);
       }

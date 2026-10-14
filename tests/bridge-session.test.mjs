@@ -85,7 +85,7 @@ test("cliOptions without BRIDGE_SESSION has no session route and offline auth", 
 test("cliOptions rejects unknown BRIDGE_SESSION and MF_AUTH values", () => {
   assert.throws(
     () => cliOptions({ ...baseEnv, BRIDGE_SESSION: "match" }),
-    /BRIDGE_SESSION must be open/,
+    /BRIDGE_SESSION must be open, host or server/,
   );
   assert.throws(
     () => cliOptions({ ...baseEnv, MF_AUTH: "mojang" }),
@@ -258,7 +258,7 @@ async function getJson(url) {
   return { status: res.status, text: await res.text() };
 }
 
-test("bridge serves /v1/session and /v1/match with the same body", async (t) => {
+test("bridge serves /v1/session and no legacy /v1/match alias", async (t) => {
   const getMatchState = openSession({
     sessionId: "solo",
     username: "test",
@@ -275,8 +275,7 @@ test("bridge serves /v1/session and /v1/match with the same body", async (t) => 
   const session = await getJson(service.url + "/v1/session");
   const match = await getJson(service.url + "/v1/match");
   assert.equal(session.status, 200);
-  assert.equal(match.status, 200);
-  assert.equal(session.text, match.text);
+  assert.equal(match.status, 404);
   assert.deepEqual(JSON.parse(session.text), {
     ok: true,
     result: getMatchState(),
@@ -348,23 +347,13 @@ test("getSessionState reads /v1/session", async () => {
   assert.ok(calls.every((c) => c.auth === `Bearer ${token}`));
 });
 
-test("getSessionState falls back to /v1/match on an older bridge", async () => {
-  const { impl, calls } = fakeFetch({ "/v1/match": { kind: "match" } });
-  const bot = new BotFacade({ url: "http://bridge", token, fetchImpl: impl });
-  assert.deepEqual(await bot.getSessionState(), { kind: "match" });
-  assert.deepEqual(
-    calls.map((c) => c.path),
-    ["/v1/session", "/v1/match"],
-  );
-});
-
-test("getSessionState throws when neither route exists", async () => {
+test("getSessionState throws when the route is missing", async () => {
   const { impl } = fakeFetch({});
   const bot = new BotFacade({ url: "http://bridge", token, fetchImpl: impl });
   await assert.rejects(bot.getSessionState(), /Session state HTTP 404/);
 });
 
-test("getSessionState falls back only on 404", async () => {
+test("getSessionState reports a failing route", async () => {
   const calls = [];
   const impl = async (url) => {
     calls.push(new URL(url).pathname);

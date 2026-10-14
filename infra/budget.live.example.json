@@ -6,8 +6,8 @@
       "tokens": null,
       "tpm": 131072,
       "concurrency": 2,
-      "matchStatusUrl": "http://arena-host:8080/v1/session",
-      "matchTokenEnv": "RED1_BRIDGE_TOKEN"
+      "matchStatusUrl": "http://bridge-red1:8080/v1/session",
+      "matchTokenEnv": "RED1_STATUS_TOKEN"
     },
     "blue1": {
       "team": "blue",
@@ -15,8 +15,8 @@
       "tokens": null,
       "tpm": 131072,
       "concurrency": 2,
-      "matchStatusUrl": "http://arena-host:8082/v1/session",
-      "matchTokenEnv": "BLUE1_BRIDGE_TOKEN"
+      "matchStatusUrl": "http://bridge-blue1:8080/v1/session",
+      "matchTokenEnv": "BLUE1_STATUS_TOKEN"
     }
   },
   "teams": {

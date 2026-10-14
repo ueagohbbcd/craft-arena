@@ -2,14 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import {
-  LEGACY_BRIEFING,
   MatchHost,
-  isLegacyConfig,
   normalizeConfig,
   validateMatchConfig,
 } from "../packages/arena/src/index.mjs";
 import { validateLive } from "../packages/arena/src/live.mjs";
-import { config as legacy } from "./arena-lifecycle.test.mjs";
 
 const base = {
   id: "s1",
@@ -38,40 +35,33 @@ const connector = {
   stop: async () => {},
 };
 
-test("legacy race-of-wool configs normalize to a monument-blocks match", () => {
-  assert.equal(isLegacyConfig(legacy), true);
-  const c = normalizeConfig({
-    ...legacy,
-    live: {
-      pollMs: 250,
-      goals: [{ team: "red" }],
-      observer: { username: "ref" },
-      publishGoalPositions: true,
-    },
-  });
-  assert.deepEqual(c.session, {
-    kind: "match",
+test('team ID "draw" is reserved across session kinds', () => {
+  for (const config of [
+    match,
+    { ...open, teams: base.teams, participants: base.participants },
+  ]) {
+    const c = structuredClone(config);
+    const previous = c.teams[0].id;
+    c.teams[0].id = "draw";
+    for (const participant of c.participants)
+      if (participant.team === previous) participant.team = "draw";
+    assert.ok(validateMatchConfig(c).some((e) => /reserved/.test(e)));
+  }
+});
+
+test("pre-datapack race-of-wool configs are rejected with a pointer", () => {
+  const legacy = {
+    ...base,
+    game: "race-of-wool",
     durationMs: 1000,
-    onTimeout: "draw",
-  });
-  assert.equal(c.judge.type, "monument-blocks");
-  assert.equal(c.judge.pollMs, 250);
-  assert.deepEqual(c.judge.objectives, ["wool1", "wool2"]);
-  assert.deepEqual(c.judge.goals, [{ team: "red" }]);
-  assert.deepEqual(c.judge.observer, { username: "ref" });
-  assert.equal(c.judge.publishGoalPositions, true);
-  assert.deepEqual(c.briefing, {
-    text: LEGACY_BRIEFING,
-    promptFile: null,
-    public: null,
-  });
-  assert.equal(c.game, "race-of-wool");
-  assert.deepEqual(normalizeConfig(c), c);
-  assert.equal(
-    normalizeConfig({ ...legacy, live: { briefing: "Lanes!" } }).briefing.text,
-    "Lanes!",
+    rules: { objectives: ["wool1"], onTimeout: "draw" },
+  };
+  assert.ok(validateMatchConfig(legacy).some((e) => /server datapack/.test(e)));
+  assert.ok(
+    validateMatchConfig({ ...match, live: { goals: [] } }).some((e) =>
+      /live.goals/.test(e),
+    ),
   );
-  assert.deepEqual(validateMatchConfig(c), []);
 });
 
 test("new-style match and open sessions validate without game", () => {
@@ -102,8 +92,8 @@ test("new-style match and open sessions validate without game", () => {
   bad({ ...match, session: { kind: "match" } }, /durationMs/);
   bad({ ...match, session: { kind: "duel", durationMs: 1 } }, /session.kind/);
   bad({ ...match, teams: [{ id: "red" }] }, /two unique teams/);
-  bad({ ...match, judge: { type: "none" } }, /datapack or monument-blocks/);
-  bad({ ...match, judge: { type: "monument-blocks" } }, /judge.objectives/);
+  bad({ ...match, judge: { type: "none" } }, /judge datapack/);
+  bad({ ...match, judge: { type: "monument-blocks" } }, /judge datapack/);
   bad(
     { ...match, session: { ...match.session, onTimeout: "most-objectives" } },
     /onTimeout/,
@@ -115,7 +105,6 @@ test("new-style match and open sessions validate without game", () => {
   bad({ ...open, judge: { type: "monument-blocks" } }, /none or datapack/);
   bad({ ...open, participants: [] }, /participants/);
   bad({ ...open, participants: [{ id: "p", team: "ghost" }] }, /participants/);
-  bad({ ...legacy, game: "other" }, /race-of-wool/);
 });
 
 test("judge verdicts, scores and most-score timeouts reach the result", async () => {
@@ -128,7 +117,6 @@ test("judge verdicts, scores and most-score timeouts reach the result", async ()
   });
   await host.prepare();
   await host.start();
-  await assert.rejects(host.observe({}), /monument-blocks/);
   host.report({ scores: { red: 3, blue: 1 }, message: "red leads" });
   await assert.rejects(host.verdict({ winner: "green" }), /unknown winner/);
   now = 1000;
@@ -204,7 +192,6 @@ test("shipped match templates validate in the new shape", async () => {
     const c = JSON.parse(
       await readFile(new URL(path, import.meta.url), "utf8"),
     );
-    assert.equal(isLegacyConfig(c), false, path);
     assert.deepEqual(validateMatchConfig(c), [], path);
   }
   const direct = JSON.parse(

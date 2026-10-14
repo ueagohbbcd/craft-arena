@@ -6,8 +6,8 @@
       "tokens": null,
       "tpm": null,
       "concurrency": 2,
-      "matchStatusUrl": "http://arena-host:8080/v1/session",
-      "matchTokenEnv": "RED1_BRIDGE_TOKEN",
+      "matchStatusUrl": "http://bridge-red1:8080/v1/session",
+      "matchTokenEnv": "RED1_STATUS_TOKEN",
       "cashRateLimit": "0.50"
     }
   },

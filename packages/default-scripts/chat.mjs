@@ -43,28 +43,21 @@ export function chatWakes(text, { mode = "none", username } = {}) {
 
 /** Username of this bot from the session, or undefined when unavailable. */
 async function sessionUsername(url, token, signal) {
-  for (const path of ["/v1/session", "/v1/match"]) {
-    const response = await fetch(`${url.replace(/\/$/, "")}${path}`, {
-      headers: { authorization: `Bearer ${token}` },
-      signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]),
-    });
-    if (response.status === 404) {
-      await response.body?.cancel();
-      continue;
-    }
-    if (!response.ok) {
-      await response.body?.cancel();
-      return undefined;
-    }
-    const { result } = await response.json();
-    if (typeof result?.username === "string" && result.username)
-      return result.username;
-    const self = Array.isArray(result?.participants)
-      ? result.participants.find((p) => p?.id === result.participantId)
-      : undefined;
-    return typeof self?.username === "string" ? self.username : undefined;
+  const response = await fetch(`${url.replace(/\/$/, "")}/v1/session`, {
+    headers: { authorization: `Bearer ${token}` },
+    signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]),
+  });
+  if (!response.ok) {
+    await response.body?.cancel();
+    return undefined;
   }
-  return undefined;
+  const { result } = await response.json();
+  if (typeof result?.username === "string" && result.username)
+    return result.username;
+  const self = Array.isArray(result?.participants)
+    ? result.participants.find((p) => p?.id === result.participantId)
+    : undefined;
+  return typeof self?.username === "string" ? self.username : undefined;
 }
 
 /** Chat only: no world mirror or action calls; wakes the model only when asked. */

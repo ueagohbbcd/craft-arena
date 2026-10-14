@@ -99,19 +99,15 @@ test("createMatchReader prefers /v1/session and sends the bearer token", async (
   assert.deepEqual(requests, ["/v1/session"]);
 });
 
-test("createMatchReader falls back to /v1/match on 404 and defaults kind to match", async (t) => {
-  const { url, requests } = await serve(t, (req, res) => {
-    if (req.url === "/v1/session") return json(res, 404, { ok: false });
-    json(res, 200, {
-      ok: true,
-      result: { matchId: "m1", state: "running", now: 7, durationMs: 60000 },
-    });
-  });
-  const snapshot = await createMatchReader({ url, token, timeoutMs: 2000 })();
-  assert.deepEqual(requests, ["/v1/session", "/v1/match"]);
-  assert.equal(snapshot.kind, "match");
-  assert.equal(snapshot.matchId, "m1");
-  assert.equal(snapshot.durationMs, 60000);
+test("createMatchReader does not fall back to a legacy route", async (t) => {
+  const { url, requests } = await serve(t, (req, res) =>
+    json(res, 404, { ok: false }),
+  );
+  assert.equal(
+    await createMatchReader({ url, token, timeoutMs: 2000 })(),
+    undefined,
+  );
+  assert.deepEqual(requests, ["/v1/session"]);
 });
 
 test("createMatchReader returns undefined for invalid bodies and errors", async (t) => {
@@ -252,19 +248,11 @@ test("openingPromptText includes the briefing object sections", () => {
   );
 });
 
-test("openingPromptText accepts a legacy string briefing and a missing one", () => {
-  const legacy = openingPromptText("Base", {
-    matchId: "m1",
-    briefing: "Capture the flag.",
-  });
-  assert.ok(
-    legacy.endsWith(
-      "Session briefing text (from the trusted session host):\nCapture the flag.",
-    ),
+test("openingPromptText ignores a non-object briefing and a missing one", () => {
+  assert.equal(
+    openingPromptText("Base", { matchId: "m1", briefing: "Capture the flag." }),
+    `Base\n\nTrusted host session briefing (configuration data):\n{"matchId":"m1"}`,
   );
-  assert.equal(legacy.includes("Mode instructions"), false);
-  assert.equal(legacy.includes("Public session data"), false);
-
   const none = openingPromptText("Base", { matchId: "m1" });
   assert.equal(
     none,
@@ -396,13 +384,8 @@ test("startChatForwarder posts matching chat as urgent and others as normal", as
   await chat.close();
 });
 
-test("startChatForwarder reads the username from /v1/match when /v1/session is missing", async (t) => {
+test("startChatForwarder keeps the configured username without a session route", async (t) => {
   const { url, requests } = await serve(t, (req, res) => {
-    if (req.url === "/v1/match")
-      return json(res, 200, {
-        ok: true,
-        result: { state: "running", now: 1, username: "Bot" },
-      });
     if (req.url !== "/v1/chat") return json(res, 404, {});
     res.writeHead(200, { "content-type": "text/event-stream" });
     for (const text of ["<Steve> hi Bot", "<Steve> hi Someone"])
@@ -420,16 +403,12 @@ test("startChatForwarder reads the username from /v1/match when /v1/session is m
   });
   t.after(() => chat.close());
   await until(() => inbox.items.length === 2);
-  assert.deepEqual(requests.slice(0, 3), [
-    "/v1/session",
-    "/v1/match",
-    "/v1/chat",
-  ]);
+  assert.deepEqual(requests.slice(0, 2), ["/v1/session", "/v1/chat"]);
   assert.deepEqual(
     inbox.drain().messages.map((m) => [m.data.text, m.priority]),
     [
-      ["<Steve> hi Bot", "urgent"],
-      ["<Steve> hi Someone", "normal"],
+      ["<Steve> hi Bot", "normal"],
+      ["<Steve> hi Someone", "urgent"],
     ],
   );
   await chat.close();

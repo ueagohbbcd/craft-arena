@@ -8,7 +8,7 @@
 
 - PowerShell 7、Node.js 24 或更高、Docker Desktop（Linux 容器）。
 - 在仓库根目录执行过 `npm ci`。
-- 一个解压好的 Minecraft 世界目录（含 `level.dat`），以及这张地图的比赛配置。Direct Fire 地图的示例是 [`match.direct-fire.json`](match.direct-fire.json)；别的地图要自己写目标、出生点、准备／开赛／结束命令和比赛简报。比赛配置的 `live.minecraft.version` 必须是 1.21.1（与 [`minecraft-download.json`](../minecraft-download.json) 一致）。
+- 一个解压好的 Minecraft 世界目录（含 `level.dat`），以及这张地图的比赛配置。Direct Fire 地图的示例是 [`match.direct-fire.json`](match.direct-fire.json)，纪念碑由 [`race-of-wool` 数据包](../datapacks/race-of-wool/README.md)判定；初始化脚本把它复制进世界（`-Datapacks` 可换成别的数据包目录）。别的地图要改数据包的 `map.mcfunction`，并自己写出生点、准备／开赛／结束命令和比赛简报。比赛配置的 `live.minecraft.version` 必须是 1.21.1（与 [`minecraft-download.json`](../minecraft-download.json) 一致）。
 - 比赛配置保留 `red1` / `blue1`、游戏桥端口 8080 / 8082 和令牌变量名 `RED1_BRIDGE_TOKEN` / `BLUE1_BRIDGE_TOKEN`，否则要同时改 Compose 和预算文件。
 - 已阅读并接受 [Minecraft EULA](https://www.minecraft.net/eula)。
 
@@ -28,6 +28,7 @@ $env:DEEPSEEK_API_KEY = '蓝队 DeepSeek 的 key'
 | `-DeploymentDir`        | `runtime/deploy`                | 部署目录。必须不存在，脚本不会覆盖已有部署                        |
 | `-ServerDownload`       | `infra/minecraft-download.json` | 服务器下载清单                                                    |
 | `-ServerJar`            | 无                              | 本地已校验的 Mojang 服务器 JAR，省去下载它；Fabric 和模组仍要下载 |
+| `-Datapacks`            | `infra/datapacks/race-of-wool`  | 复制进原始世界 `datapacks/` 的数据包目录，可传多个                |
 | `-RedUpstreamApiKeyEnv` | `RED_UPSTREAM_API_KEY`          | 从哪个环境变量读红队上游 key                                      |
 | `-DeepSeekApiKeyEnv`    | `DEEPSEEK_API_KEY`              | 从哪个环境变量读蓝队 DeepSeek key                                 |
 

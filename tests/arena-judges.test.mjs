@@ -9,6 +9,8 @@ import {
   MAX_PROMPT_BYTES,
 } from "../packages/arena/src/live.mjs";
 import { parseSnbt } from "../packages/arena/src/snbt.mjs";
+import { fakeServer } from "./helpers/fake-server.mjs";
+import { EventEmitter } from "node:events";
 
 const base = {
   id: "dp",
@@ -38,43 +40,13 @@ const base = {
     rcon: { host: "mc", passwordEnv: "RCON" },
   },
 };
-const storage = (snbt) =>
-  `Storage arena:session has the following contents: ${snbt}`;
+const server = () => fakeServer();
 
-/** A fake server: records commands and answers storage reads from `session`. */
-function server() {
-  const s = {
-    commands: [],
-    session: '{version:1,state:"waiting",winner:""}',
-    replies: {},
-  };
-  s.rcon = () => ({
-    connect: async () => {},
-    close() {},
-    command: async (c) => {
-      s.commands.push(c);
-      if (c in s.replies) return s.replies[c];
-      if (c === "data remove storage arena:config durationMs")
-        return "Found no elements matching durationMs";
-      if (c.startsWith("data merge storage arena:config "))
-        return "Modified storage arena:config";
-      if (c === "data get storage arena:session")
-        return s.session === null ? "Connection reset" : storage(s.session);
-      if (c.startsWith("function #arena:"))
-        return `Running 1 functions from tag ${c.slice(9)}`;
-      return "OK";
-    },
-  });
-  return s;
-}
 async function live(config, s, extra = {}) {
   let now = 0;
   const states = [];
   const match = await createLiveMatch(config, {
     env: { R: "r", B: "b", RCON: "x" },
-    createBot: () => {
-      throw new Error("datapack needs no referee bot");
-    },
     rconFactory: s.rcon,
     now: () => now,
     startLiveBridge: async (options) => {
@@ -85,6 +57,58 @@ async function live(config, s, extra = {}) {
   });
   return { match, states, clock: (t) => (now = t) };
 }
+
+test("participant disconnection during start cannot enter running", async () => {
+  for (const phase of ["release", "function #arena:start"]) {
+    const s = server();
+    const bots = [];
+    const c = structuredClone(base);
+    c.live.commands = { start: [{ command: "release", expect: "OK" }] };
+    const { match } = await live(c, s, {
+      rconFactory: () => {
+        const rcon = s.rcon();
+        const command = rcon.command;
+        rcon.command = async (c) => {
+          if (c === phase) bots[0].emit("end");
+          return command(c);
+        };
+        return rcon;
+      },
+      startLiveBridge: async () => {
+        const bot = new EventEmitter();
+        bot.entity = {};
+        bot.quit = () => bot.emit("end");
+        bots.push(bot);
+        return { bot, close: async () => {} };
+      },
+    });
+    await match.prepare();
+    await assert.rejects(match.start(), /Start cancelled/);
+    await match.host.ending;
+    assert.equal(match.host.state, "ended");
+    assert.equal(match.host.result().reason, "abandoned");
+    assert.equal(match.host.startedAt, undefined);
+    await match.close();
+  }
+});
+
+test("successful server reads retract public data while failed reads preserve it", async () => {
+  const s = server();
+  const { match, states } = await live(base, s);
+  await match.prepare();
+  s.session =
+    '{version:1,state:"running",public:{objectives:["flag"],hint:"old"}}';
+  await match.start();
+  assert.deepEqual(states[0]().objectives, ["flag"]);
+  s.session = null;
+  await match.poll();
+  assert.deepEqual(states[0]().objectives, ["flag"]);
+  s.session = '{version:1,state:"running"}';
+  await match.poll();
+  assert.equal(states[0]().objectives, undefined);
+  assert.deepEqual(states[0]().briefing.public, { hint: "north" });
+  await match.close();
+});
 
 test("datapack judge writes arena:config, runs tags and ends on the server verdict", async () => {
   const s = server();
@@ -174,8 +198,9 @@ test("datapack timeout runs #arena:stop and falls back to most-score", async () 
 
 test("datapack faults: unknown function at prepare, unreadable polls, unknown winner", async () => {
   const missing = server();
+  // Real 1.21.1 reply when no datapack provides the tag.
   missing.replies["function #arena:prepare"] =
-    "Unknown function tag '#arena:prepare'";
+    "Can't find any functions for name arena:prepare";
   const a = await live(base, missing);
   await assert.rejects(a.match.prepare(), /no #arena:prepare function tag/);
   assert.equal(a.match.host.state, "created");
@@ -191,7 +216,7 @@ test("datapack faults: unknown function at prepare, unreadable polls, unknown wi
   flaky.session = "{version:1,state:"; // malformed SNBT counts as unreadable
   await b.match.poll();
   assert.equal(b.match.host.result().reason, "map-fault");
-  assert.match(b.match.host.result().observerError, /unreadable/);
+  assert.match(b.match.host.result().judgeError, /unreadable/);
 
   const recovers = server();
   const c = await live(base, recovers);

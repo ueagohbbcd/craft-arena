@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { readFile } from "node:fs/promises";
-import { MatchHost, isLegacyConfig, validateMatchConfig } from "./index.mjs";
+import { MatchHost, validateMatchConfig } from "./index.mjs";
 const [command, path] = process.argv.slice(2);
 try {
   if (!["validate", "simulate"].includes(command) || !path)
@@ -11,10 +11,6 @@ try {
   if (command === "validate") {
     const errors = validateMatchConfig(config);
     if (errors.length) throw new Error(errors.join("\n"));
-    if (isLegacyConfig(config))
-      console.error(
-        "Deprecated config: game/rules are converted to session/judge (monument-blocks)",
-      );
     console.log(JSON.stringify({ valid: true, matchId: config.id }));
   } else {
     let clock = 0;
@@ -32,21 +28,7 @@ try {
     await host.prepare();
     await host.start();
     const { judge, teams } = host.config;
-    if (judge.type === "monument-blocks")
-      for (const [i, objective] of judge.objectives.entries()) {
-        clock += 100;
-        await host.ingest(
-          {
-            id: `sim-${i}`,
-            runId: host.runId,
-            type: "objective",
-            team: teams[0].id,
-            objective,
-          },
-          "simulation-only",
-        );
-      }
-    else if (judge.type === "datapack") {
+    if (judge.type === "datapack") {
       clock += 100;
       await host.verdict({
         winner: teams[0]?.id ?? "draw",

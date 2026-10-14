@@ -1,6 +1,7 @@
 import { createBlockMemory } from "./block-memory.mjs";
 import http from "node:http";
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { bearerMatches } from "./bearer.mjs";
 const wireStringify = (value) =>
   JSON.stringify(value, (_key, v) =>
     typeof v === "bigint" ? { $arenaBigInt: v.toString() } : v,
@@ -480,6 +481,7 @@ export function createAuthority(
 export function createBridgeServer({
   bot,
   token,
+  statusToken,
   snapshotRadius = 8,
   allowChat = true,
   maxReach = Infinity,
@@ -487,11 +489,19 @@ export function createBridgeServer({
   maxConcurrentActions = Infinity,
   authorizeAction,
   getMatchState,
+  controlReleaseMs = 1000,
   blockMemory = {},
   createBlockMemory: memoryFactory = createBlockMemory,
 } = {}) {
   if (!bot || typeof token !== "string" || token.length < 16)
     throw new Error("Bot and token (16+ characters) required");
+  if (
+    statusToken !== undefined &&
+    (typeof statusToken !== "string" ||
+      statusToken.length < 16 ||
+      statusToken === token)
+  )
+    throw new Error("statusToken must be a distinct 16+ character token");
   let nativeConnection = {
     status: bot.entity ? "connected" : "connecting",
     reason: null,
@@ -547,6 +557,42 @@ export function createBridgeServer({
   let sequence = 0;
   const clients = new Set();
   const chatClients = new Set();
+  // Control leases: a client that pressed a control and then lost every event
+  // stream (crash, kill, closeBridge) has it released after controlReleaseMs.
+  const streamsByClient = new Map();
+  const controlOwners = new Map();
+  const releaseTimers = new Map();
+  const clientId = (req) => {
+    const id = req.headers["x-arena-client"];
+    return typeof id === "string" && /^[A-Za-z0-9-]{1,64}$/.test(id)
+      ? id
+      : null;
+  };
+  function scheduleRelease(id) {
+    if (!Number.isFinite(controlReleaseMs) || releaseTimers.has(id)) return;
+    const timer = setTimeout(() => {
+      releaseTimers.delete(id);
+      if (streamsByClient.get(id)) return;
+      for (const [control, owner] of controlOwners)
+        if (owner === id) {
+          controlOwners.delete(control);
+          try {
+            bot.setControlState(control, false);
+          } catch {}
+        }
+    }, controlReleaseMs);
+    timer.unref?.();
+    releaseTimers.set(id, timer);
+  }
+  function recordControl(id, request) {
+    const { action, args } = request;
+    if (action === "clearControlStates" || action === "stop")
+      return controlOwners.clear();
+    if (action !== "setControlState") return;
+    if (args.state !== true || !id) return controlOwners.delete(args.control);
+    controlOwners.set(args.control, id);
+    if (!streamsByClient.get(id)) scheduleRelease(id);
+  }
   const writers = new WeakMap();
   const listeners = [];
   let tokens = maxActionsPerSecond,
@@ -773,12 +819,14 @@ export function createBridgeServer({
   }, 50);
   timer.unref();
   const server = http.createServer(async (req, res) => {
-    const supplied = Buffer.from(req.headers.authorization ?? ""),
-      expected = Buffer.from(`Bearer ${token}`);
-    if (
-      supplied.length !== expected.length ||
-      !timingSafeEqual(supplied, expected)
-    ) {
+    const auth = req.headers.authorization;
+    // The status token (for the budget gateway) may only read the session.
+    const statusOnly =
+      statusToken !== undefined &&
+      req.method === "GET" &&
+      req.url === "/v1/session" &&
+      bearerMatches(auth, statusToken);
+    if (!statusOnly && !bearerMatches(auth, token)) {
       res.writeHead(401);
       return res.end();
     }
@@ -805,11 +853,7 @@ export function createBridgeServer({
       }
       return;
     }
-    // /v1/session is the session route; /v1/match is its legacy alias.
-    if (
-      req.method === "GET" &&
-      (req.url === "/v1/session" || req.url === "/v1/match")
-    ) {
+    if (req.method === "GET" && req.url === "/v1/session") {
       if (typeof getMatchState !== "function") {
         res.writeHead(404);
         return res.end();
@@ -853,7 +897,20 @@ export function createBridgeServer({
         data: authority.snapshot(),
       });
       clients.add(res);
-      req.on("close", () => clients.delete(res));
+      const id = clientId(req);
+      if (id) {
+        streamsByClient.set(id, (streamsByClient.get(id) ?? 0) + 1);
+        clearTimeout(releaseTimers.get(id));
+        releaseTimers.delete(id);
+      }
+      req.on("close", () => {
+        clients.delete(res);
+        if (!id) return;
+        const open = streamsByClient.get(id) - 1;
+        if (open > 0) return streamsByClient.set(id, open);
+        streamsByClient.delete(id);
+        scheduleRelease(id);
+      });
       return;
     }
     const chunkRequest =
@@ -895,6 +952,7 @@ export function createBridgeServer({
       active++;
       try {
         const result = await authority.dispatch(request);
+        recordControl(clientId(req), request);
         res.writeHead(200, { "content-type": "application/json" });
         res.end(JSON.stringify({ ok: true, result }));
       } finally {
@@ -935,6 +993,8 @@ export function createBridgeServer({
     async close() {
       pendingSlotSnapshot = false;
       clearInterval(timer);
+      for (const t of releaseTimers.values()) clearTimeout(t);
+      releaseTimers.clear();
       bot.inventory?.off?.("updateSlot", onSlotUpdate);
       watchWindow(null);
       for (const [n, f] of listeners) bot.off(n, f);

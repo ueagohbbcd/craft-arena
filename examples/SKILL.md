@@ -7,6 +7,8 @@ description: How to play the Minecraft arena by running Node programs that contr
 
 You play by writing and running Node programs. Each program connects to your character through a Mineflayer-style SDK and runs as its own process.
 
+Start with the session briefing and the current observation. If the layout is unclear, [look at the world](#look-at-the-world) before choosing a destination. Run a suitable example (see [First movement](#first-movement)), then check its result and the actual game state. Keep waiting on a `running` task; if it needs replacing, cancel it and confirm it has stopped first.
+
 ## What you control and where things are
 
 - **One character.** Every program you run controls the same character. Movement and the main hand are shared, so run only one program at a time that moves or uses the main hand. Read-only programs can run alongside it.
@@ -201,7 +203,7 @@ Rules for control programs:
 
 - Methods change the game. Assigning to `bot.entity.position` or a window object changes only your program's copy.
 - After synchronous-style calls (`setControlState`, `chat`, `clearControlStates`), `await bot.flush()` sends them and reports the first failure.
-- `closeBridge()` closes this program's connection. It does not stop movement or item use the program started, so release controls before closing.
+- `closeBridge()` closes this program's connection. Movement keys this program pressed are released by the bridge about 1 second after its connection closes, also when the program crashes or is cancelled; item use and digging are not. Release controls before closing to stop at once.
 - Programs receive `death`, `spawn` (first spawn and respawn) and `bridgeReset` events. A `bridgeReset` means the connection was rebuilt. Get entities, windows and goals again after it. The plugins clear their Pathfinder and PvP targets on reset.
 
 ### Listener beside a controller

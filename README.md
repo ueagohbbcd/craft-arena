@@ -7,13 +7,13 @@ Craft Arena 给一个通用 coding AI 一个 Minecraft 角色。每个参赛者�
 ```mermaid
 flowchart LR
   subgraph trusted["可信侧（参赛者不能访问或修改）"]
-    host["比赛主控 arena-host<br/>生命周期、裁判、结果"]
-    bridge["游戏桥（每个参赛者一个）<br/>真实 Mineflayer bot"]
+    host["比赛主控 arena-host<br/>会话生命周期、结果"]
+    bridge["游戏桥（每个参赛者一个独立服务）<br/>真实 Mineflayer bot"]
     gateway["预算网关 budget-gateway<br/>计量、限速、排队"]
-    mc["Minecraft 服务器"]
-    host --- bridge
+    mc["Minecraft 服务器<br/>规则数据包：计分、判胜"]
+    bridge -- "读会话状态" --> host
     bridge --- mc
-    host -. "裁判 bot 读纪念碑" .- mc
+    host -. "RCON：#arena:* 函数、读 arena:session" .- mc
   end
   subgraph box["参赛容器（每个参赛者一个）"]
     pi["Pi + Pi 扩展<br/>bash / task_wait / task_cancel / observe<br/>收件箱、平台消息"]
@@ -30,6 +30,7 @@ flowchart LR
   progs -- "InboxClient" --> pi
 ```
 
+- 每个参赛者的游戏桥是独立服务，只接在后端网络和本队网络上；参赛容器访问不到别队的游戏桥和比赛主控。游戏桥从比赛主控读会话状态，也可以不要比赛主控、直接从服务器读（手动开局的小游戏、陪玩）。
 - 只有游戏桥连接 Minecraft。它只接受经过校验的语义动作（移动、挖、放、攻击、交互等），不转发自定义数据包。比赛开始前和结束后，所有动作都被拒绝。
 - 只有预算网关持有模型凭证。它只开放 `/chat/completions` 和 `/budget` 两个入口。
 - Pathfinder、PvP 等 Mineflayer 插件在参赛者自己的程序里运行，基于本地镜像（`connectBot()` 在程序里保存的 bot 状态副本）计算，算出的动作再发给游戏桥。
@@ -51,7 +52,7 @@ flowchart LR
 1. **准备。** 运营者选定地图、规则和时限，配置队伍、模型价格和速率上限，启动服务器和可信侧服务。比赛主控重置地图，为每个参赛者连上一个游戏桥，此时动作仍被拒绝。
 2. **开局。** 启动器在容器里启动 Pi，等比赛主控报告比赛开始，然后发出一次开局提示：[examples/PROMPT.md](examples/PROMPT.md)、比赛简报（队伍、地图、目标、时限等公开事实），地图配置了开局图时附上图像。Pi 会话一开始，Pi 扩展就把默认观察器和默认聊天转发作为后台任务启动；第一个请求最多等观察器 5 秒，带上它的第一份状态报告。
 3. **比赛。** 模型在普通的工具调用循环里工作：调用工具、写程序、启动任务。`bash` 和 `task_wait` 默认最多等 30 秒，等满时返回 `running` 和 `taskId`，程序继续运行。模型思考和排队时，游戏照常进行。Pi 在模型回答结束后也不退出（持续会话）。模型停下、比赛仍在进行、又没有非后台任务在运行时，5 秒后 Pi 扩展会提醒它继续（空闲提醒）。
-4. **结束。** 比赛主控的裁判 bot 轮询纪念碑方块；某队完成全部目标或时间到，比赛结束。游戏桥停止接受动作，比赛主控保存结果（默认还有服务端录像）。启动器读到结束状态后关闭 Pi，Pi 扩展随之停止所有任务。
+4. **结束。** 服务器上的规则数据包判定胜负（羊毛竞速：每刻检查纪念碑方块），比赛主控通过 RCON 轮询 `arena:session`；服务器宣布结束或时间到，比赛结束。游戏桥停止接受动作，比赛主控保存结果（默认还有服务端录像）。启动器读到结束状态后关闭 Pi，Pi 扩展随之停止所有任务。
 
 ## 模型看到的信息：三条通道
 
@@ -82,6 +83,7 @@ flowchart LR
 | 完整自主对局（开局到判胜，全程无人干预）                                                                | **未验证**，还没有这样的记录                                                                                                                 |
 | 默认观察器（改为默认脚本之后）                                                                          | 有单元测试（`tests/default-observer.test.mjs`）和真实 Pi 会话测试（`tests/runtime-state.test.mjs`）；**没有在真实 Minecraft 服务器上运行过** |
 | 2026-10-11 实服观察检查（Minecraft 1.21.1，9 项）                                                       | 当时全部通过，但测的是之后已删除的会话内观察实现                                                                                             |
+| 服务器协议 v1 与羊毛竞速数据包                                                                          | 2026-10-14 实服验证：比赛主控 + 两个真实 Mineflayer bot，bot 通过 SDK 放羊毛，数据包判胜；Direct Fire 地图本身没有装进去跑                   |
 | Pi 接入与收件箱送达（普通、紧急、晚到结果只送一次、结束时退出）                                         | 真实 Pi 1.1.0 会话 + 固定模型响应，自动化测试通过                                                                                            |
 | 可信侧：比赛主控、预算网关、游戏桥动作校验                                                              | 自动化测试；模拟比赛可离线复现                                                                                                               |
 | 目标主机上的部署隔离（含 Windows 本机部署的当前版本）、真实 Chromium 截图、实战寻路与 PvP、模型读图效果 | 未验收                                                                                                                                       |
@@ -93,7 +95,7 @@ flowchart LR
 | 术语     | 含义                                                                                                                                                                                     |
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 可信侧   | 比赛主控、游戏桥、预算网关和 Minecraft 服务器；参赛者不能访问或修改                                                                                                                      |
-| 比赛主控 | `packages/arena`：会话生命周期、判定器、结果（compose 服务 `arena-host`）                                                                                                                |
+| 比赛主控 | `packages/arena`：会话生命周期、通过 RCON 读服务器判定、结果（compose 服务 `arena-host`）                                                                                                |
 | 游戏桥   | `packages/mf-bridge`：每个参赛者一个真实 Mineflayer bot，只执行校验过的语义动作                                                                                                          |
 | 预算网关 | `packages/budget-gateway`：OpenAI 兼容的模型调用入口，计量每次调用，超出速率时排队                                                                                                       |
 | 参赛者   | 一个参赛单位：一个容器、一个角色、一个模型会话、一个网关 key                                                                                                                             |
@@ -127,7 +129,8 @@ flowchart LR
 - [infra/README.md](infra/README.md)：Docker Compose 部署、比赛回放
 - [infra/windows-local/README.md](infra/windows-local/README.md)：Windows 本机两队部署
 - [infra/companion/README.md](infra/companion/README.md)：陪玩部署：独立游戏桥 + 一个参赛容器，接入普通服务器
-- [infra/datapacks/arena-example/README.md](infra/datapacks/arena-example/README.md)：示例数据包，演示服务器协议 v1
+- [infra/datapacks/race-of-wool/README.md](infra/datapacks/race-of-wool/README.md)：羊毛竞速规则数据包
+- [infra/datapacks/arena-example/README.md](infra/datapacks/arena-example/README.md)：最小示例数据包，演示服务器协议 v1
 - [packages/arena/README.md](packages/arena/README.md)：比赛配置与实服运行器
 - [packages/budget-gateway/README.md](packages/budget-gateway/README.md)：价格、限速与预算配置
 - [tools/replay-myopia/README.md](tools/replay-myopia/README.md)：赛后回放的近距视野滤镜（客户端工具）
@@ -162,7 +165,7 @@ flowchart LR
 
 ## 本地快速开始
 
-需要 Node.js 24。
+需要 Node.js 24。全量自动化测试在 Linux 环境运行，依赖 `/bin/bash`、Unix socket 和 POSIX 信号；Windows 请在 Linux 容器或 WSL 中运行，并在该环境安装依赖。原生 Windows 的 `npm test` 不是完整验收入口。
 
 ```sh
 npm ci

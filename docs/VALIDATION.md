@@ -2,7 +2,9 @@
 
 写给开发者和运营者：每项能力现在验证到哪一级、比赛前还缺哪些验收、怎样复现。这里只写当前状态；按日期的运行记录在 [history/VALIDATION-LOG.md](history/VALIDATION-LOG.md)。术语（收件箱、紧急消息、平台消息、持续会话等）见 [README 术语表](../README.md#术语表)。
 
-更新：2026-10-13，代码 `3a89277`。
+更新：2026-10-14（服务器协议与羊毛竞速数据包实服验证）。
+
+2026-10-15 修复复验（`codex/fix-review-findings`，合并进本分支前）：当前源码在隔离 Linux 容器、Node.js 24.21.0 下运行 `npm test`，595 项中 592 通过、0 失败、3 跳过（Chromium 需显式启用、Windows 初始化仅限 Windows、容器未安装 Docker Compose CLI）。依赖锁文件与镜像一致，源码复制到空目录后核对文件清单和摘要。覆盖观察报告丢失与延迟回执、开赛期间掉线、公开数据撤回、保留队伍名；同时修正 PNG 及 codemode 的旧测试夹具。语法和格式检查通过；本轮未运行实服或真实模型。
 
 ## 验证等级
 
@@ -36,7 +38,13 @@
 | PvP 适配、战斗报告 | 夹具测试 | `tests/sdk-plugins.test.mjs`、`tests/combat-report.test.mjs` | 没有实战 |
 | 游戏桥：动作校验、背压、错误 | 夹具测试 | `tests/bridge*.test.mjs` | 2026-10-11 的实服检查经过游戏桥；之后有改动 |
 | 预算网关：计量、限速、排队、只给比例 | 真实 Pi 测试 | `tests/budget-*.test.mjs`、`tests/integration-pi.test.mjs` | 2026-10-11 部署时连过真实模型，当时走的是已删除的 OAuth 适配器 |
-| 比赛主控：生命周期、RCON、判定 | 夹具测试 | `tests/arena-*.test.mjs`（含本地 TCP RCON） | 2026-10-11 Windows 部署做过生命周期与计分冒烟 |
+| 比赛主控：生命周期、RCON、判定 | 实服验证 | `tests/arena-*.test.mjs`（含本地 TCP RCON）；2026-10-14 实服运行，见下方[服务器协议实服运行](#服务器协议实服运行) | `live-cli.mjs` 带两个真实 Mineflayer bot 跑完准备、开赛、数据包判胜、结束；没有参赛模型 |
+| 服务器协议 v1、`race-of-wool`／`arena-example` 数据包 | 实服验证 | `tests/datapack-*.test.mjs`（静态）；2026-10-14 实服运行 | 胜、平、时限停止、拆除目标回落、区块强制加载与释放；Direct Fire 地图本身没有装进去跑 |
+| 游戏桥独立服务（`BRIDGE_SESSION=host`）与无主控模式（`BRIDGE_SESSION=server`） | 实服验证 | `tests/bridge-session-source.test.mjs`、`tests/arena-live.test.mjs`；`npm run verify:server`（CI 每次推送） | 外部游戏桥跑完一局并在结束时停掉 bot；无主控模式手动开关一轮，动作按状态放行 |
+| 程序断开后自动松开按键 | 实服验证 | `tests/bridge-control-lease.test.mjs`；2026-10-14 实服复现与复验 | 修复前程序退出后 bot 一直走（约 30 格），修复后约 1 秒后停下 |
+| 预算网关只读状态令牌 | 夹具测试 | `tests/bridge-status-token.test.mjs`、`tests/check-deployment.test.mjs` | |
+| 参赛镜像只含参赛侧代码 | 夹具测试 | `tests/deployment.test.mjs`；按清单复制的目录能加载全部参赛侧模块 | 没有在这个环境里构建镜像（没有 Docker 守护进程） |
+| 部署配置一致性检查 | 夹具测试 | `tests/check-deployment.test.mjs` | Windows 初始化时自动运行，PowerShell 部分没有在 Windows 上跑过 |
 | 服务端录像 | 夹具测试 | `tests/server-replay.test.mjs` | 真实服务器录像输出与回放播放都没验收 |
 | 开局图像、截图脚本 | 夹具测试 | `tests/opening-delivery.test.mjs`、`tests/visual-*.test.mjs` | 真实 Chromium 测试需 `MC_TEST_CHROMIUM=1`；上次跑通是 2026-10-11 的 Windows 部署，在删除 Pi 里的图像工具之前 |
 | Unix socket 收件箱 | 夹具测试 | `tests/inbox.test.mjs` | 运行环境拒绝绑定（`EPERM`）时这项跳过，只剩 loopback HTTP |
@@ -56,6 +64,18 @@
 7. **服务端录像**：实服录像输出、保存，以及 [近视回放客户端](../tools/replay-myopia/README.md) 播放。
 8. **模型读图与策略效果**：图像能送到模型已验证；模型据此做出更好决策没有评估。
 
+## 服务器协议实服运行
+
+这些检查已做成 `npm run verify:server`（`scripts/verify-server-protocol.mjs`），CI 每次推送都跑。下面是 2026-10-14 首次手工运行的记录：Linux 上的 Minecraft 1.21.1 原版服务器（平坦世界，离线模式，开启 RCON），Java 21，Node 22。
+
+1. 下载 `infra/minecraft-download.json` 里固定的 `server.jar`（SHA-1 一致），`server.properties` 开 RCON，把数据包复制进 `world/datapacks/`。
+2. 用仓库的 `RconClient`、`serverConfig`、`serializeSnbt`、`readServerSession` 直接走协议：
+   - `arena-example`：写 `arena:config`、`#arena:prepare`（分数 0、`waiting`）、`#arena:start`（`running`）、`scoreboard players add red arena_points 3` 后服务器写出 `winner:"red"`、`state:"ended"`。缺少标签时 1.21.1 回复 `Can't find any functions for name arena:<阶段>`，判定器据此报"未安装数据包"。
+   - `race-of-wool`（纪念碑坐标即 Direct Fire 的）：准备时清空已放好的目标并强制加载区块；`setblock` 放羊毛后分数 1→2，拆掉一块回落，集齐判胜；开赛前双方都放满，开赛第一刻判平局；`#arena:stop` 记录持有数（`most-score` 可用）并释放强制加载。
+3. 完整比赛主控：`live-cli.mjs` 读取由 `infra/windows-local/match.direct-fire.json` 改主机地址、关录像、改开赛传送命令得到的配置，两个参赛者的游戏桥各连一个真实 Mineflayer bot。等待开赛标记期间 `arena:config` 的队伍和玩家名正确；开赛后用 bot SDK（`connectBot`、`getSessionState`、`equip`、`placeBlock`）从红方游戏桥读取 `briefing.public.goals` 并放下三块羊毛，会话 `scores` 依次为 1、2、3，随后数据包判红方胜。结果：`reason: "judge-decision"`、`winner: "red"`、`scores: {red:3, blue:0}`、`stopConfirmed: true`。
+
+没有覆盖：Direct Fire 地图本身、参赛模型、服务端录像、默认观察器读新公开数据的实服运行、Windows 部署脚本里新增的 `-Datapacks` 复制（只在 Windows 上运行）。
+
 ## 持续限制
 
 - 预算账本只在网关进程内存里，重启即清零，不能多副本。持久化在路线图上。
@@ -64,7 +84,7 @@
 
 ## 如何复现
 
-需要 Node.js 24。
+需要 Node.js 24 和 Linux 环境（`/bin/bash`、Unix socket、POSIX 信号，以及用例使用的 `git`、`unzip`）。Windows 使用 Linux 容器或 WSL，在该环境执行 `npm ci`；不要直接复用 Windows 的 `node_modules`。原生 Windows 的路径、进程和 socket 行为会使部分用例失败，不能据此判定 Linux 参赛运行时的状态。
 
 ```sh
 npm ci

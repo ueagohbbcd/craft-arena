@@ -210,7 +210,7 @@ test(
     assert.equal(errors[0].code, "ERR_BRIDGE_BACKPRESSURE");
     assert.equal(serverResponse.listenerCount("drain"), 0);
     response.destroy();
-    const healthy = await fetch(`${bridge.url}/v1/match`, {
+    const healthy = await fetch(`${bridge.url}/v1/session`, {
       headers: { authorization: `Bearer ${token}` },
     });
     assert.deepEqual(await healthy.json(), {

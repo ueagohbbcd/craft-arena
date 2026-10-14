@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
@@ -83,6 +84,8 @@ export class BotFacade extends EventEmitter {
       );
     this.url = url.replace(/\/$/, "");
     this.token = token;
+    // Lets the bridge release this client's controls if it dies holding them.
+    this.clientId = randomUUID();
     this.fetch = fetchImpl;
     this.reconnectDelay = reconnectDelay;
     this.loadRegistry = loadRegistry;
@@ -132,6 +135,7 @@ export class BotFacade extends EventEmitter {
         headers: {
           authorization: `Bearer ${this.token}`,
           "content-type": "application/json",
+          "x-arena-client": this.clientId,
         },
         body: wireStringify({ action, args }),
       });
@@ -153,14 +157,11 @@ export class BotFacade extends EventEmitter {
       this._requests.delete(request);
     }
   }
-  /** Session state from /v1/session; older bridges only serve /v1/match. */
+  /** Session state from /v1/session. */
   async getSessionState() {
-    const headers = { authorization: `Bearer ${this.token}` };
-    let res = await this.fetch(`${this.url}/v1/session`, { headers });
-    if (res.status === 404) {
-      await res.body?.cancel?.();
-      res = await this.fetch(`${this.url}/v1/match`, { headers });
-    }
+    const res = await this.fetch(`${this.url}/v1/session`, {
+      headers: { authorization: `Bearer ${this.token}` },
+    });
     if (!res.ok) throw new Error(`Session state HTTP ${res.status}`);
     const body = await res.json();
     return body.result;
@@ -893,8 +894,9 @@ export class BotFacade extends EventEmitter {
   closeBridge() {
     this.closed = true;
     this.abort?.abort();
-    // End local HTTP waits too. This does not cancel an authority-side action;
-    // controllers must release their item/movement controls before closing.
+    // End local HTTP waits too. This does not cancel an authority-side action.
+    // Movement controls this client pressed are released by the bridge about
+    // 1 s after its event stream closes; release them first to stop at once.
     for (const request of this._requests) request.abort();
     this.emit("end", "bridge closed");
   }
@@ -912,7 +914,10 @@ export async function connectBot(options = {}) {
       bot.abort = new AbortController();
       try {
         const response = await bot.fetch(`${bot.url}/v1/events`, {
-          headers: { authorization: `Bearer ${bot.token}` },
+          headers: {
+            authorization: `Bearer ${bot.token}`,
+            "x-arena-client": bot.clientId,
+          },
           signal: bot.abort.signal,
         });
         if (!response.ok)

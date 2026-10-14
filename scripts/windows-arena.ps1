@@ -104,7 +104,7 @@ function Stop-ProxyRelay {
   }
 }
 function Read-MatchState {
-  $script = "const r=await fetch('http://127.0.0.1:8080/v1/session',{headers:{authorization:'Bearer '+process.env.RED1_BRIDGE_TOKEN}});if(!r.ok)process.exit(1);console.log((await r.json()).result.state)"
+  $script = "const r=await fetch('http://127.0.0.1:9000/v1/participants/red1/session',{headers:{authorization:'Bearer '+process.env.ARENA_HOST_TOKEN}});if(!r.ok)process.exit(1);console.log((await r.json()).result.state)"
   $state = & $docker @compose exec -T arena-host node --input-type=module -e $script 2>$null
   if ($LASTEXITCODE -eq 0) { return ($state -join '').Trim() }
   return ''
@@ -184,7 +184,7 @@ switch ($Action) {
     # Remove containers, not volumes: fresh host/ledgers, retained code and run archives.
     $services = & $docker @compose config --services
     if ($LASTEXITCODE -ne 0) { throw 'Cannot discover Compose services.' }
-    Invoke-Compose (@('rm','-f','arena-host') + @($services | Where-Object { $_ -like 'participant-*' -or $_ -like 'budget-*' }))
+    Invoke-Compose (@('rm','-f','arena-host') + @($services | Where-Object { $_ -like 'participant-*' -or $_ -like 'budget-*' -or $_ -like 'bridge-*' }))
     Write-Output "World reset; previous world/result/start marker are in $archive. Participant sessions and match-artifacts moved to .arena-history/$archiveId in each work volume. Code and team Git are retained. Run up next."
   }
 }

@@ -31,6 +31,7 @@ services:
       BRIDGE_PORT: "8080"
       BRIDGE_ALLOW_CHAT: "true"
       BRIDGE_TOKEN: ${COMPANION_BRIDGE_TOKEN:?Provide unique operator token}
+      BRIDGE_STATUS_TOKEN: ${COMPANION_STATUS_TOKEN:?Provide the read-only status token}
       BRIDGE_SESSION: open
       BRIDGE_SESSION_ID: ${COMPANION_SESSION_ID:-companion}
       BRIDGE_PROMPT_FILE: /config/PROMPT.md
@@ -48,7 +49,7 @@ services:
     environment:
       UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:?Provide upstream credential only to gateway}
       COMPANION_MODEL_TOKEN: ${COMPANION_MODEL_TOKEN:?Provide scoped operator token}
-      COMPANION_BRIDGE_TOKEN: ${COMPANION_BRIDGE_TOKEN}
+      COMPANION_STATUS_TOKEN: ${COMPANION_STATUS_TOKEN}
     networks: [companion, model-egress]
     volumes:
       [

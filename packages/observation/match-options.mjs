@@ -1,23 +1,18 @@
-const woolItems = [
-  "white",
-  "orange",
-  "magenta",
-  "light_blue",
-  "yellow",
-  "lime",
-  "pink",
-  "gray",
-  "light_gray",
-  "cyan",
-  "purple",
-  "blue",
-  "brown",
-  "green",
-  "red",
-  "black",
-].map((color) => `${color}_wool`);
+const itemName = (value) =>
+  typeof value === "string" && /^(?:minecraft:)?[a-z0-9_]+$/.test(value)
+    ? value.replace(/^minecraft:/, "")
+    : null;
+const names = (values) => [
+  ...new Set(
+    (Array.isArray(values) ? values : []).map(itemName).filter(Boolean),
+  ),
+];
 
-/** Project only public host facts; never infer team identity or hidden objectives. */
+/**
+ * Project only public host facts; never infer team identity or hidden
+ * objectives. Goal items and watched items come from the server's public
+ * session data (`briefing.public.goals` and `briefing.public.watchItems`).
+ */
 export function observationOptionsFromMatch(match) {
   if (!match) return {};
   const byUsername = Object.fromEntries(
@@ -29,30 +24,25 @@ export function observationOptionsFromMatch(match) {
       )
       .map((player) => [player.username, player.teamId]),
   );
-  const objectiveItems = [
-    ...new Set(
-      (Array.isArray(match.publicGoalPositions)
-        ? match.publicGoalPositions
-        : []
-      )
-        .map((goal) => goal.block)
-        .filter(
-          (block) =>
-            typeof block === "string" &&
-            /^(?:minecraft:)?[a-z0-9_]+$/.test(block),
-        )
-        .map((block) => block.replace(/^minecraft:/, "")),
-    ),
-  ];
+  const published =
+    match.briefing && typeof match.briefing === "object"
+      ? (match.briefing.public ?? {})
+      : {};
+  const goals = (Array.isArray(published.goals) ? published.goals : []).filter(
+    (goal) =>
+      goal &&
+      (typeof match.teamId !== "string" ||
+        goal.team === undefined ||
+        goal.team === match.teamId),
+  );
+  const watchItems = names(published.watchItems);
   return {
     teams: {
       byUsername,
       ...(typeof match.teamId === "string" ? { selfTeam: match.teamId } : {}),
     },
-    objectiveItems,
-    ...(match.game === "race-of-wool"
-      ? { inventoryWatchItems: woolItems, inventoryWatchType: "wool_inventory" }
-      : {}),
+    objectiveItems: names(goals.map((goal) => goal.block)),
+    ...(watchItems.length ? { inventoryWatchItems: watchItems } : {}),
     ...(match.openingViews?.course?.bounds
       ? { publicMapBounds: match.openingViews.course.bounds }
       : {}),

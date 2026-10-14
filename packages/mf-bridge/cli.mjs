@@ -2,6 +2,8 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { startLiveBridge } from "./live.mjs";
+import { sessionObject } from "./session-object.mjs";
+import { hostSession, serverSession } from "./session-source.mjs";
 
 export const MAX_SESSION_PROMPT_BYTES = 32 * 1024;
 
@@ -19,28 +21,18 @@ export function openSession({
   now = Date.now,
 }) {
   return () => {
-    const at = now();
     const name = typeof username === "function" ? username() : username;
-    return {
+    return sessionObject({
       kind: "open",
       state: "running",
       sessionId,
-      matchId: sessionId,
-      runId: sessionId,
       participantId: name,
-      teamId: null,
       username: name,
-      teams: [],
       participants: [{ id: name, username: name, teamId: null }],
-      map: null,
-      now: at,
+      now: now(),
       startedAt,
-      durationMs: null,
-      elapsedMs: Math.max(0, at - startedAt),
-      winner: null,
-      scores: null,
-      briefing: { text: briefing, prompt, public: null },
-    };
+      briefing: { text: briefing, prompt },
+    });
   };
 }
 
@@ -56,6 +48,12 @@ export function cliOptions(
     now = Date.now,
     readPrompt = (path) => readFileSync(path),
     cwd = process.cwd(),
+    // After its match is over and the host has shut down, a host-mode bridge
+    // exits so `docker compose up` starts it fresh for the next match.
+    onHostGone = () => {
+      console.error("Arena host gone after the session ended; exiting");
+      process.exit(0);
+    },
   } = {},
 ) {
   const required = (name) => {
@@ -87,28 +85,39 @@ export function cliOptions(
     host: env.BRIDGE_HOST ?? "127.0.0.1",
     port: port("BRIDGE_PORT", 8080),
     token: required("BRIDGE_TOKEN"),
+    ...(env.BRIDGE_STATUS_TOKEN
+      ? { statusToken: env.BRIDGE_STATUS_TOKEN }
+      : {}),
     allowChat: env.BRIDGE_ALLOW_CHAT !== "false",
     blockMemory: env.BRIDGE_BLOCK_MEMORY === "false" ? false : {},
   };
   const kind = env.BRIDGE_SESSION;
-  if (kind !== undefined && kind !== "" && kind !== "open")
-    throw new Error("BRIDGE_SESSION must be open when set");
-  if (kind === "open") {
-    let prompt = null;
-    if (env.BRIDGE_PROMPT_FILE) {
-      const bytes = readPrompt(resolve(cwd, env.BRIDGE_PROMPT_FILE));
-      const size =
-        typeof bytes === "string" ? Buffer.byteLength(bytes) : bytes.length;
-      if (size > MAX_SESSION_PROMPT_BYTES)
-        throw new Error(
-          `BRIDGE_PROMPT_FILE exceeds ${MAX_SESSION_PROMPT_BYTES} bytes`,
-        );
-      prompt = String(
-        typeof bytes === "string" ? bytes : bytes.toString("utf8"),
+  if (![undefined, "", "open", "host", "server"].includes(kind))
+    throw new Error("BRIDGE_SESSION must be open, host or server when set");
+  if (env.BRIDGE_WORLD_ID || env.BRIDGE_PARTICIPANT_ID)
+    bridge.blockMemory = {
+      ...(env.BRIDGE_WORLD_ID ? { worldId: env.BRIDGE_WORLD_ID } : {}),
+      ...(env.BRIDGE_PARTICIPANT_ID
+        ? { participantId: env.BRIDGE_PARTICIPANT_ID }
+        : {}),
+    };
+  let prompt = null;
+  if (env.BRIDGE_PROMPT_FILE) {
+    const bytes = readPrompt(resolve(cwd, env.BRIDGE_PROMPT_FILE));
+    const size =
+      typeof bytes === "string" ? Buffer.byteLength(bytes) : bytes.length;
+    if (size > MAX_SESSION_PROMPT_BYTES)
+      throw new Error(
+        `BRIDGE_PROMPT_FILE exceeds ${MAX_SESSION_PROMPT_BYTES} bytes`,
       );
-    }
+    prompt = String(typeof bytes === "string" ? bytes : bytes.toString("utf8"));
+  }
+  let sessionUsername = username;
+  const setUsername = (name) => {
+    if (typeof name === "string" && name) sessionUsername = name;
+  };
+  if (kind === "open") {
     const startedAt = now();
-    let sessionUsername = username;
     bridge.getMatchState = openSession({
       sessionId: env.BRIDGE_SESSION_ID || `open-${startedAt}`,
       username: () => sessionUsername,
@@ -117,15 +126,36 @@ export function cliOptions(
       prompt,
       now,
     });
-    return {
-      minecraft,
-      bridge,
-      session: {
-        setUsername(name) {
-          if (typeof name === "string" && name) sessionUsername = name;
-        },
-      },
-    };
+    return { minecraft, bridge, session: { kind, setUsername } };
+  }
+  if (kind === "host" || kind === "server") {
+    const intervalMs = Number(env.BRIDGE_SESSION_POLL_MS ?? 250);
+    if (!Number.isSafeInteger(intervalMs) || intervalMs < 50)
+      throw new Error("BRIDGE_SESSION_POLL_MS must be an integer >= 50");
+    const session =
+      kind === "host"
+        ? hostSession({
+            url: required("BRIDGE_HOST_URL"),
+            token: required("BRIDGE_HOST_TOKEN"),
+            intervalMs,
+            onGone: onHostGone,
+          })
+        : serverSession({
+            rcon: {
+              host: required("BRIDGE_RCON_HOST"),
+              port: port("BRIDGE_RCON_PORT", 25575),
+              password: required("BRIDGE_RCON_PASSWORD"),
+            },
+            intervalMs,
+            username: () => sessionUsername,
+            sessionId: env.BRIDGE_SESSION_ID || `server-${now()}`,
+            briefing: env.BRIDGE_BRIEFING || null,
+            prompt,
+            now,
+          });
+    bridge.getMatchState = session.getMatchState;
+    bridge.authorizeAction = session.authorizeAction;
+    return { minecraft, bridge, session: { ...session, kind, setUsername } };
   }
   return { minecraft, bridge };
 }
@@ -136,16 +166,23 @@ if (
 ) {
   const options = cliOptions();
   const service = await startLiveBridge(options);
-  options.session?.setUsername(service.bot.username);
+  // With MF_AUTH=microsoft the in-game name is only known after login.
+  const refreshUsername = () =>
+    options.session?.setUsername(service.bot.username);
+  refreshUsername();
+  service.bot.once?.("login", refreshUsername);
+  service.bot.once?.("spawn", refreshUsername);
+  await options.session?.start?.(service);
   console.log(`Capability bridge listening at ${service.url}`);
   service.bot.on("error", (error) =>
     console.error("Minecraft bot error:", error.message),
   );
   service.bot.on("end", (reason) => {
     console.error("Minecraft bot ended:", reason);
-    // An open session would otherwise keep reporting `running` with no bot;
-    // exit so the gateway refuses model calls until the operator restarts.
-    if (options.session) process.exit(1);
+    // A session would otherwise keep reporting `running` with no bot; exit
+    // so the gateway refuses model calls until the operator restarts. After
+    // the session ended the bridge stays up to serve the final state.
+    if (options.session && !options.session.ended?.()) process.exit(1);
   });
   let closing = false;
   for (const signal of ["SIGINT", "SIGTERM"])
@@ -153,6 +190,7 @@ if (
       if (closing) return;
       closing = true;
       try {
+        options.session?.close?.();
         await service.close();
         process.exit(0);
       } catch (error) {
