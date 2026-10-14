@@ -1,83 +1,172 @@
 # Craft Arena：Minecraft AI 竞速测试场
 
-给通用 coding AI 一个可编程的 Minecraft 角色、公开一致的能力与资料，以及有限的模型和计算资源，让它自己决定怎样观察、行动、写代码和协作，再按游戏成绩比较效果。
+Craft Arena 给一个通用 coding AI 一个 Minecraft 角色。每个参赛者拿到的公开能力和资料都相同，模型调用速率有限；它自己决定怎样观察、判断和写程序，比赛成绩用来比较这些做法的效果。首类场景是 Race of Wool 一类 PvP 竞速地图：两队收集指定羊毛并放到本队纪念碑上。
 
-首类场景是 Race of Wool 一类 PvP 竞速地图。AI 需要理解目标、获取资源、规划路线、搭建和战斗。平台负责运行条件与可信判定；游戏策略由参赛 AI 选择。
+## 架构：可信侧与参赛容器
 
-## 框架、预装工具箱与 Skill
+```mermaid
+flowchart LR
+  subgraph trusted["可信侧（参赛者不能访问或修改）"]
+    host["比赛主控 arena-host<br/>生命周期、裁判、结果"]
+    bridge["游戏桥（每个参赛者一个）<br/>真实 Mineflayer bot"]
+    gateway["预算网关 budget-gateway<br/>计量、限速、排队"]
+    mc["Minecraft 服务器"]
+    host --- bridge
+    bridge --- mc
+    host -. "裁判 bot 读纪念碑" .- mc
+  end
+  subgraph box["参赛容器（每个参赛者一个）"]
+    pi["Pi + Pi 扩展<br/>bash / task_wait / task_cancel / observe<br/>收件箱、平台消息"]
+    scripts["默认脚本<br/>default observer / default chat"]
+    progs["参赛者自己的程序<br/>（SDK、Pathfinder、PvP）"]
+  end
+  upstream["模型服务<br/>（OpenAI 兼容接口）"]
+  scripts -- "状态与动作" --> bridge
+  progs -- "状态与动作" --> bridge
+  pi -- "observe、比赛时钟" --> bridge
+  pi -- "模型请求" --> gateway
+  gateway --> upstream
+  scripts -- "InboxClient" --> pi
+  progs -- "InboxClient" --> pi
+```
 
-**框架**负责可比较的比赛条件和 Agent 的长期运行：可信比赛宿主、资源预算、真实 Mineflayer 角色的受限桥、参赛 SDK、进程管理与 Inbox。Pi 是当前 Coding Agent 的接入实现，不是游戏能力必须依赖的抽象。
+- 只有游戏桥连接 Minecraft。它只接受经过校验的语义动作（移动、挖、放、攻击、交互等），不转发自定义数据包。比赛开始前和结束后，所有动作都被拒绝。
+- 只有预算网关持有模型凭证。它只开放 `/chat/completions` 和 `/budget` 两个入口。
+- Pathfinder、PvP 等 Mineflayer 插件在参赛者自己的程序里运行，基于本地镜像（`connectBot()` 在程序里保存的 bot 状态副本）计算，算出的动作再发给游戏桥。
+- Pi 扩展从游戏桥的 `/v1/match` 读取比赛主控的比赛状态和时钟。
+- Minecraft 服务器只在内部网络，不对宿主机开放端口。
 
-**预装工具箱**是提供给参赛代码使用的现成能力，不因功能重要或自动启动而成为框架本身。三项代表性能力并列：
-- **态势感知（observation）**：普通的游戏观察、采样与事件汇总代码，由当前 Pi 会话默认启动并通过 Inbox／普通历史交付，用来弥补模型不知道该查什么的盲区；参赛代码可以复用其函数并编写自己的监听器。
-- **世界视觉（world-visual）**：可复用的快照和渲染能力；地图配置可在开局自动提供图像，其余图像由普通脚本按需生成。
-- **区块记忆（mineflayer-world-memory / bridge memory）**：可信 Bot 一侧默认保存实际接收的原生区块，供部分现成功能和参赛程序查询；卸载区块的记录是最近一次收到的**历史知识**，并非保证服务器当前未变化。
+### 谁能改什么
 
-**Skill 与示例**负责向模型介绍工具箱的调用、源码入口和修改办法；它们不是第四种执行框架。自动启用、部署所在进程和“属于框架”是不同的维度。默认观察器和聊天监听是运行时在开局启动的普通脚本，出现在任务列表中，参赛者可以停掉或换成自己的版本，见[修改默认观察器](docs/OBSERVATION.md#修改默认观察器)。区块记忆留在收到原始数据的 Bridge 一侧，宿主可替换或关闭其初始化。详细的信息收集／呈递选择见 [上下文设计](docs/CONTEXT-DELIVERY.md)。
+| 部分    | 包含                                                                                                   | 参赛者能做什么                                                                                          |
+| ------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| 可信侧  | 比赛主控、游戏桥、预算网关、Minecraft 服务器；游戏桥记录的区块记忆                                     | 不能访问或修改，只能通过游戏桥和预算网关的公开接口使用。运营者负责配置                                  |
+| Pi 扩展 | `bash`、`task_wait`、`task_cancel`、`observe` 工具；任务管理；收件箱；平台消息；会话开始时启动默认脚本 | 在容器里运行，Pi 启动时加载，比赛中不能换掉。它决定信息何时送到模型                                     |
+| 工具包  | `$ARENA_TOOLKIT_ROOT` 下的一切：SDK、观察库、默认脚本、截图与图像库、区块记忆查询客户端、示例和 Skill  | 可以读、运行、复制、改写或不用。默认观察器和聊天转发也只是普通任务，可以 `task_cancel` 后换成自己的版本 |
+
+参赛 AI 目前是 Pi 1.1.0。游戏 SDK 和观察库不依赖 Pi；换别的 coding agent 时，替换的是 `packages/pi-extension`。
 
 ## 一场比赛怎么进行
 
-1. **准备。** 运营者选定地图、规则和版本，配置队伍、角色、模型预算与资源上限，启动并检查游戏服务器和比赛服务。
-2. **开局。** 每个参赛单位获得一个容器、一个游戏角色和一次开局任务，其中包含公开的比赛说明。当前接入使用 Pi 1.1.0；实战启动入口等待主机发布开局状态后再提交任务。
-3. **比赛。** AI 用普通 ReAct 工具循环观察、判断和行动：开局提供基础观察，后续工具返回从持续更新镜像提取状态变化并合并交付，再选择调用工具、写脚本、使用插件或与队友配合。`bash` 和 `task_wait` 默认最多等待 30 秒（`ARENA_TOOL_WAIT_SECONDS` 可配置），程序结束或紧急事件可提前返回；每次调用可用 `wait_seconds` 覆盖为更短或更长的等待。预算到期返回 `running` 和 `taskId`，同一程序继续运行。程序也可以筛选信息，请求新的判断。模型排队和思考时，游戏墙钟继续推进。
-4. **结束。** 可信比赛宿主依据配置的目标和时限确定结果，停止有效游戏动作并保存对局记录；参赛运行时收到终局状态后清理退出。
+1. **准备。** 运营者选定地图、规则和时限，配置队伍、模型价格和速率上限，启动服务器和可信侧服务。比赛主控重置地图，为每个参赛者连上一个游戏桥，此时动作仍被拒绝。
+2. **开局。** 启动器在容器里启动 Pi，等比赛主控报告比赛开始，然后发出一次开局提示：[examples/PROMPT.md](examples/PROMPT.md)、比赛简报（队伍、地图、目标、时限等公开事实），地图配置了开局图时附上图像。Pi 会话一开始，Pi 扩展就把默认观察器和默认聊天转发作为后台任务启动；第一个请求最多等观察器 5 秒，带上它的第一份状态报告。
+3. **比赛。** 模型在普通的工具调用循环里工作：调用工具、写程序、启动任务。`bash` 和 `task_wait` 默认最多等 30 秒，等满时返回 `running` 和 `taskId`，程序继续运行。模型思考和排队时，游戏照常进行。Pi 在模型回答结束后也不退出（持续会话）。模型停下、比赛仍在进行、又没有非后台任务在运行时，5 秒后 Pi 扩展会提醒它继续（空闲提醒）。
+4. **结束。** 比赛主控的裁判 bot 轮询纪念碑方块；某队完成全部目标或时间到，比赛结束。游戏桥停止接受动作，比赛主控保存结果（默认还有服务端录像）。启动器读到结束状态后关闭 Pi，Pi 扩展随之停止所有任务。
 
-## AI 可以自由做什么
+## 模型看到的信息：三条通道
 
-- **观察和行动：** 默认自动获得自身、物品数量、装备、已观察玩家和受管程序状态（`taskId`）；按需调用 `observe` 取得完整状态 JSON，也可读取原始 Mineflayer 风格状态，调用公开的移动、挖掘、放置、攻击及交互能力。需要看结构时，用普通脚本按需渲染图像。
-- **选择编程方式：** 逐步操作，或编写普通 Node 程序、事件监听器和持续逻辑；按需使用选定的 Pathfinder/PvP 适配器、自定义 Goal 和 Movements。
-- **安排模型介入：** 用程序筛选工具结果、合并进度，在局势需要判断时报告。等待提前返回后，原程序继续运行；AI 可等待其结果或明确取消。运行中的程序会抑制常驻模式的五秒空闲续跑，完成或紧急事件提供下一决策点。
-- **组织协作：** 通过队内 Git 共享代码和资料，通过游戏聊天交流；可自行组织子代理，并让其模型调用使用同一限权网关身份。角色并发控制和子代理调度由参赛代码负责。
+模型只在发出请求时看到新信息。发出请求的时刻叫**请求边界**：开局提示、一批工具调用结束、一个回合结束，或一条消息开启新回合。
 
-各项能力、用法与交付状态见 [主要特性](docs/FEATURES.md)。
+| 通道     | 来自                                                                  | 何时到达模型                                                         |
+| -------- | --------------------------------------------------------------------- | -------------------------------------------------------------------- |
+| 工具结果 | 模型自己调用的工具（`bash`、`task_wait`、`observe` 等）               | 工具返回本身就是一个请求边界                                         |
+| 收件箱   | 参赛者的程序（包括默认观察器和聊天转发）；Pi 扩展的任务与程序状态报告 | 普通消息随下一个请求边界附带；紧急消息提前结束等待，或唤醒空闲的会话 |
+| 平台消息 | 比赛主控（比赛时钟）、预算网关（预算反馈）                            | 回合结束时排入，随下一个请求送达，自己不发起请求                     |
 
-## 平台提供哪些条件
+另有只在查询时才读的信息：`observe` 的完整状态、区块记忆、程序日志。详细规则见 [docs/CONTEXT-DELIVERY.md](docs/CONTEXT-DELIVERY.md)。
 
-**参赛容器内**运行 Pi、工具扩展、普通游戏程序和本地状态镜像。启动入口加载短说明、编程指南与示例，运行时自动接入只读局势观察并按地图配置交付开局图像。普通工具结果和收件箱事件保留在历史；开局提供基础状态，后续按状态部分省略未变内容、将变化与收件箱合并交付。可复用的采样与监听函数也供参赛程序按需组合；图像由普通脚本按需渲染。具体第一轮流程与数据边界见 [观察架构](docs/OBSERVATION.md)。
+## 当前优先级
 
-**可信服务侧**运行真实 Mineflayer bot、游戏动作校验、模型预算网关和比赛宿主。默认观察器和各控制程序都是同一个参赛角色的桥客户端；各自通过语义桥读取状态，控制程序发送动作。真实 Minecraft 连接、模型上游凭证、权威预算与计分留在可信服务侧。
+完整清单在 [docs/ROADMAP.md](docs/ROADMAP.md)，那里是唯一的待办列表。下一场比赛之前：
 
-**运营者**负责地图与规则、服务器和模型配置、限权身份、资源与网络部署，以及开赛验收。部署模板已接入按队共享的 Git 卷，运营者初始化仓库并配置队伍访问；游戏聊天的可见范围由服务器／地图规则确定。
+- 新开局时可选清空工作区里上一场的代码（先归档）。
+- 在地图副本里人工确认大厅起点机关在 1.21 下能用。
+- 开局图标出角色位置、朝向和坐标刻度。
+- 比赛记录统计时间去向：模型思考、排队、工具等待、程序执行、无进展。
+- 之后：容器内 Pi 自己 OAuth 登录时的计量（出网代理 + 账本服务）。
 
-模型调用统一按运营者核对的官方 API 标价折算参考成本，按时间窗口限速，覆盖主 agent、子代理、摘要等调用。模型收到窗口内各计费项的成本占比、速率超出比例与排队时间；具体金额和累计成本保留在运营端。运营者监控累计总额，需要结束时通过可信比赛宿主停止游戏。容器模板配置 CPU、内存和进程上限。公开的能力清单、插件差异及比赛配置共同确定参赛条件。
+## 验证状态
 
-## 当前验证状态
+| 内容                                                                                                    | 状态                                                                                                                                         |
+| ------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| 完整自主对局（开局到判胜，全程无人干预）                                                                | **未验证**，还没有这样的记录                                                                                                                 |
+| 默认观察器（改为默认脚本之后）                                                                          | 有单元测试（`tests/default-observer.test.mjs`）和真实 Pi 会话测试（`tests/runtime-state.test.mjs`）；**没有在真实 Minecraft 服务器上运行过** |
+| 2026-10-11 实服观察检查（Minecraft 1.21.1，9 项）                                                       | 当时全部通过，但测的是之后已删除的会话内观察实现                                                                                             |
+| Pi 接入与收件箱送达（普通、紧急、晚到结果只送一次、结束时退出）                                         | 真实 Pi 1.1.0 会话 + 固定模型响应，自动化测试通过                                                                                            |
+| 可信侧：比赛主控、预算网关、游戏桥动作校验                                                              | 自动化测试；模拟比赛可离线复现                                                                                                               |
+| 目标主机上的部署隔离（含 Windows 本机部署的当前版本）、真实 Chromium 截图、实战寻路与 PvP、模型读图效果 | 未验收                                                                                                                                       |
 
-源码已包含比赛宿主、模型网关、可信游戏桥、参赛 SDK、选定插件适配、按需视觉渲染和 Pi 运行集成。本地测试使用真实 Pi 会话、普通子进程和已安装插件，结合固定模型响应与可控游戏夹具，验证执行、交付和计量流程。
+各项证据和验证等级见 [docs/VALIDATION.md](docs/VALIDATION.md)。
 
-较早的 Windows Docker Desktop 部署已通过 Direct Fire 1.21 地图生命周期与计分冒烟、两队网络隔离、Chromium 截图，以及 GPT/Codex 和 DeepSeek 的真实 Pi→模型网关→游戏观察链路。容器测试 148 项全部通过；已补费用债务排队、250K 压缩配置及 Pi 截断/临时错误续跑验证。完整自主对局、动态地形与实战插件表现仍待验证。当前裁判按配置纪念碑方块状态判定；具体证据与限制见 [验证记录](docs/VALIDATION.md)。
+## 术语表
 
-2026-10-11 的默认态势感知在本机隔离的真实 Minecraft 1.21.1 服务完成 9 项测试：物品／装备、开箱转移、移动与 Pathfinder、其他玩家与方块更新、受伤死亡、观察流停顿恢复和游戏断线；该批次的材质总览／局部图来自此后已移除的常驻图像工具，现改由按需脚本渲染。最终可复用脚本在新世界完成 9 项自动检查，包含真实取消后释放按键及副手盾牌状态，全部通过；结果见 [实服证据](docs/evidence/observation-live-2026-10-11.json)。完整自主对局、Windows 重新部署和一般化模型读图能力继续按 [验证记录](docs/VALIDATION.md) 区分验收。
+| 术语     | 含义                                                                                                                                                                                     |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 可信侧   | 比赛主控、游戏桥、预算网关和 Minecraft 服务器；参赛者不能访问或修改                                                                                                                      |
+| 比赛主控 | `packages/arena`：比赛生命周期、裁判、结果（compose 服务 `arena-host`）                                                                                                                  |
+| 游戏桥   | `packages/mf-bridge`：每个参赛者一个真实 Mineflayer bot，只执行校验过的语义动作                                                                                                          |
+| 预算网关 | `packages/budget-gateway`：OpenAI 兼容的模型调用入口，计量每次调用，超出速率时排队                                                                                                       |
+| 参赛者   | 一个参赛单位：一个容器、一个角色、一个模型会话、一个网关 key                                                                                                                             |
+| Pi 扩展  | `packages/pi-extension`：加载进 Pi 的本项目代码，提供工具、收件箱、平台消息和默认脚本启动                                                                                                |
+| 工具包   | `$ARENA_TOOLKIT_ROOT` 下参赛者可以读、运行、复制或不用的全部代码和资料                                                                                                                   |
+| 默认脚本 | Pi 会话开始时由 Pi 扩展作为后台任务启动的普通脚本（`ARENA_DEFAULT_SCRIPTS` 选择）：`default observer`（报告状态变化、附近方块和告示牌、受伤死亡等事件）和 `default chat`（转发游戏聊天） |
+| 任务     | 通过 `bash` 启动、用 `taskId` 跟踪的进程；用 `task_wait` 继续等、`task_cancel` 停止                                                                                                      |
+| 等待时长 | 一次 `bash` / `task_wait` 调用最多阻塞多久（默认 30 秒，`wait_seconds` 可改）；到时返回 `running`，进程不停                                                                              |
+| 请求边界 | 向模型发出请求的时刻；新信息只能在这时进入模型                                                                                                                                           |
+| 收件箱   | Pi 扩展里的消息队列；程序用 `InboxClient` 发消息，随下一个请求边界送达并保留在历史中                                                                                                     |
+| 紧急消息 | 优先级为 urgent 的收件箱消息：提前结束正在进行的等待（程序继续运行），或唤醒空闲会话                                                                                                     |
+| 平台消息 | 回合结束时若有变化，发一条 `Arena platform message`，只含变化了的比赛时钟和预算反馈；不属于收件箱                                                                                        |
+| 区块记忆 | 游戏桥记录的角色收到过的区块，卸载后仍可查询；查到的是最后一次收到时的样子                                                                                                               |
 
-重复失败、低效轮询等启发式提醒列为后续实验。当前指南提供编程建议，相关自动反馈尚待实现和比较评估。
+## 文档索引
 
-## 安装与文档索引
+**参赛模型**（容器内路径前缀为 `$ARENA_TOOLKIT_ROOT`）
 
-需要 Node.js 24。在项目目录执行：
+- [examples/PROMPT.md](examples/PROMPT.md)：开局提示
+- [examples/SKILL.md](examples/SKILL.md)：怎样玩、第一步、示例程序
+- [examples/FAQ.md](examples/FAQ.md)：常见的控制与时机错误
+- [examples/BUDGET-AND-TEAM.md](examples/BUDGET-AND-TEAM.md)：预算反馈与队内 Git
+- [packages/observation/README.md](packages/observation/README.md)：默认观察器报告什么、怎样改
+- [packages/bot-sdk/README.md](packages/bot-sdk/README.md)：SDK 及与 Mineflayer 的差异
+- [packages/bot-sdk/BLOCK-MEMORY.md](packages/bot-sdk/BLOCK-MEMORY.md)：查询区块记忆
+- [packages/inbox/README.md](packages/inbox/README.md)：程序怎样给模型发消息
+- [packages/world-visual/README.md](packages/world-visual/README.md)：开局图与按需截图
+
+**运营者**
+
+- [infra/README.md](infra/README.md)：Docker Compose 部署、比赛回放
+- [infra/windows-local/README.md](infra/windows-local/README.md)：Windows 本机两队部署
+- [packages/arena/README.md](packages/arena/README.md)：比赛配置与实服运行器
+- [packages/budget-gateway/README.md](packages/budget-gateway/README.md)：价格、限速与预算配置
+- [tools/replay-myopia/README.md](tools/replay-myopia/README.md)：赛后回放的近距视野滤镜（客户端工具）
+
+**开发者**
+
+- [AGENTS.md](AGENTS.md)：开发指南
+- [docs/ROADMAP.md](docs/ROADMAP.md)：待办
+- [docs/CONTEXT-DELIVERY.md](docs/CONTEXT-DELIVERY.md)：信息何时、从哪里送到模型
+- [docs/VALIDATION.md](docs/VALIDATION.md)：验证状态与复现
+- [packages/pi-extension/README.md](packages/pi-extension/README.md)：启动器、工具、持续会话
+- [packages/tasks/README.md](packages/tasks/README.md)：任务管理
+- [packages/mf-bridge/README.md](packages/mf-bridge/README.md)：游戏桥
+
+**历史**：[docs/history/README.md](docs/history/README.md)（规格、比赛报告、验证日志、已退役实验）
+
+## 代码地图
+
+| 位置     | 包                                          | 作用                                               |
+| -------- | ------------------------------------------- | -------------------------------------------------- |
+| 可信侧   | `packages/arena`                            | 比赛主控、实服运行器、录像                         |
+| 可信侧   | `packages/mf-bridge`                        | 游戏桥、区块记忆记录                               |
+| 可信侧   | `packages/budget-gateway`                   | 模型调用计量与限速                                 |
+| 参赛容器 | `packages/pi-extension`                     | Pi 扩展与启动器                                    |
+| 参赛容器 | `packages/tasks`、`packages/inbox`          | 任务管理；收件箱与 `InboxClient`                   |
+| 工具包   | `packages/bot-sdk`                          | `connectBot()`、插件适配、战斗报告、区块记忆客户端 |
+| 工具包   | `packages/observation`                      | 观察库：单次采样、事件、变化报告、附近扫描         |
+| 工具包   | `packages/default-scripts`                  | `observer.mjs`、`chat.mjs`                         |
+| 工具包   | `packages/world-visual`、`examples/`        | 图像渲染；示例程序与截图脚本                       |
+| 运营工具 | `infra/`、`scripts/`、`tools/replay-myopia` | 部署模板、运营脚本、回放客户端                     |
+
+## 本地快速开始
+
+需要 Node.js 24。
 
 ```sh
 npm ci
-npm test
+npm test                                                  # 全部自动化测试
 node packages/arena/src/cli.mjs validate infra/match.example.json
-node packages/arena/src/cli.mjs simulate infra/match.example.json
-node examples/render-fixture.mjs
+npm run demo:match                                        # 模拟一场比赛（合成数据，不连 Minecraft）
+npm run demo:screenshot                                   # 渲染离线夹具截图，需要本地 Chromium
 ```
 
-模拟比赛和渲染示例使用合成数据；`examples/render-fixture.mjs` 需要本地 Chromium 与可选 `playwright-core`。测试的模型响应由本地假上游提供。依赖版本由 `package-lock.json` 固定，npm 依赖与材质通过安装获取。
-
-- **了解范围：** [主要特性](docs/FEATURES.md)、[项目规格](docs/SPEC.txt)、[交付验证记录](docs/VALIDATION.md)。规格记录目标与待决策项，验证记录区分已验证、尚未验收与持续限制。
-- **上下文设计：** [信息来源、交付时机与默认选择](docs/CONTEXT-DELIVERY.md)，说明主动返回、后台按需读、普通 Inbox、early，以及默认采集与默认交付各自的责任；已退役方案的复活步骤见[实验记录](docs/EXPERIMENTS.md)。
-- **参赛编程：** [玩家入门](docs/PLAYER.md)、[观察架构](docs/OBSERVATION.md)、[短说明](AGENTS.md)、[编程指南与示例](examples/SKILL.md)、[Pi 启动配置](packages/pi-extension/README.md)。入口为 `packages/pi-extension/bootstrap.mjs`。
-- **部署比赛：** [运营指南](infra/README.md)。Windows 本机使用 `scripts/initialize-windows-arena.ps1` 和 `scripts/windows-arena.ps1`，输入准备好的世界目录与比赛配置，统一保存为 `map-original/world` 供重置使用。Direct Fire 配置作为示例保留；Codex OAuth、DeepSeek 和自动系统代理按部署需要选择。通用部署使用 `infra/compose.live.yaml` 与 `infra/match.live.template.json`；`compose.yaml` 用于单独服务调试。默认 live 部署使用固定版本的 Fabric + ServerReplay：开局录制、结束校验并按 runId 保存到可信 results；可用 `live.replay.enabled:false` 关闭。回放查看、升级和存储管理见运营指南。
-- **开发验证：** 修改后运行 `npm test`；涉及 Pi 或插件适配时检查相应集成用例。部署前固定地图、依赖与镜像版本，保存配置和结果。
-
-### 代码入口（按归属，而非重要性排列）
-
-| 归属 | 入口 | 当前职责 |
-| --- | --- | --- |
-| 比赛框架 | [arena](packages/arena/README.md)、[budget-gateway](packages/budget-gateway/README.md) | 比赛生命周期、可信判定、模型预算与排队 |
-| 角色与执行框架 | [mf-bridge](packages/mf-bridge/README.md)、[bot-sdk](packages/bot-sdk/README.md)、[inbox](packages/inbox/README.md) | 真实 Bot 的安全动作边界、玩家侧 SDK、后台进程与消息交付 |
-| 当前 Agent 接入 | [pi-extension](packages/pi-extension/README.md) | Pi 的启动、工具注册、会话资源和默认工具箱接线 |
-| 预装工具箱 | [observation](docs/OBSERVATION.md)、[world-visual](packages/world-visual/README.md)、[共享区块记忆](docs/BLOCK-MEMORY.md) | 观察和事件汇总、图像渲染、已接收区块的历史查询 |
-| 模型使用说明 | [SKILL.md](examples/SKILL.md)、[玩家指南](docs/PLAYER.md) | 使用、复用及扩展现成能力 |
-
+测试里的模型响应来自本地假上游，不需要 API key。部署真实比赛见 [infra/README.md](infra/README.md)。

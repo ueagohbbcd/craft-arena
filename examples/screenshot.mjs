@@ -55,7 +55,7 @@ async function main() {
       bounds: metadata.bounds,
       knownFraction: metadata.knownFraction,
       notes:
-        "Missing cells are unobserved, not air. metadata.json sits beside the image.",
+        "Missing cells are unobserved, not air. Metadata is in out/world.json.",
     }),
   );
 }

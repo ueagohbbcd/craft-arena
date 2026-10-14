@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
- * Optional workspace observer.json: { radar?, recentBlocks? } for the default
+ * Optional workspace observer.json: { radar?, recentBlocks?, events? } for the default
  * observer. ARENA_OBSERVER_CONFIG names another file. perception.json, the
  * previous name, is still read when observer.json is absent.
  */

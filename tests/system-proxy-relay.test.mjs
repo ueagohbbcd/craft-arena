@@ -12,7 +12,7 @@ async function listen(server) {
   await once(server, "listening");
   return server.address().port;
 }
-function tunnel(port, authorization = auth, target = "chatgpt.com:443") {
+function tunnel(port, authorization = auth, target = "api.openai.com:443") {
   return new Promise((resolve, reject) => {
     const req = http.request({
       host: "127.0.0.1",
@@ -41,7 +41,7 @@ test("fresh resolution follows direct/proxy A/proxy B/direct while existing tunn
     const proxy = http.createServer();
     proxy.on("connect", (req, socket, head) => {
       seen[index]++;
-      assert.equal(req.url, "chatgpt.com:443");
+      assert.equal(req.url, "api.openai.com:443");
       const upstream = net.connect(echoPort, "127.0.0.1", () => {
         socket.write("HTTP/1.1 200 Connection Established\r\n\r\n");
         if (head.length) upstream.write(head);
@@ -87,7 +87,7 @@ test("fresh resolution follows direct/proxy A/proxy B/direct while existing tunn
     const forbidden = await tunnel(port, auth, "example.com:443");
     assert.equal(forbidden.status, 403);
     forbidden.socket.destroy();
-    const wrongPort = await tunnel(port, auth, "chatgpt.com:80");
+    const wrongPort = await tunnel(port, auth, "api.openai.com:80");
     assert.equal(wrongPort.status, 403);
     wrongPort.socket.destroy();
     assert.equal(resolutions, 4);
@@ -169,7 +169,7 @@ test("health requires the independent secret and disconnect cancels resolution",
     const client = net.connect(port, "127.0.0.1");
     await once(client, "connect");
     client.write(
-      `CONNECT chatgpt.com:443 HTTP/1.1\r\nHost: chatgpt.com:443\r\nProxy-Authorization: ${auth}\r\n\r\n`,
+      `CONNECT api.openai.com:443 HTTP/1.1\r\nHost: api.openai.com:443\r\nProxy-Authorization: ${auth}\r\n\r\n`,
     );
     // Wait for delivery, then disconnect during the pending resolver.
     await new Promise((resolve) => setTimeout(resolve, 20));

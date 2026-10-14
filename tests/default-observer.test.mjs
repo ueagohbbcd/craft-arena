@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -174,4 +174,30 @@ test("default scripts are configurable by name and refuse unknown names", () => 
     /Unknown default script: x/,
   );
   assert.match(defaultScripts({})[0].command, /default-scripts\/observer\.mjs/);
+});
+
+test("observer.json events and the events option reach the event watcher", async (t) => {
+  const cwd = await mkdtemp(join(tmpdir(), "observer-events-"));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
+  await writeFile(
+    join(cwd, "observer.json"),
+    JSON.stringify({ events: { urgentDamageLoss: 3, criticalHealth: 8 } }),
+  );
+  let seen;
+  const observer = await startObserver({
+    bot: fakeBot(),
+    inbox: localInboxClient(new Inbox({ sessionId: "observer-events" })),
+    cwd,
+    env: { ARENA_OBSERVER_RECENT_BLOCKS: "0" },
+    events: { urgentDamageLoss: 2 },
+    watch: (bot, options) => {
+      seen = options;
+      return fakeWatch(bot, options);
+    },
+    sample: fakeSample,
+  });
+  t.after(() => observer.close());
+  await until(() => seen);
+  assert.equal(seen.urgentDamageLoss, 2, "the option overrides the file");
+  assert.equal(seen.criticalHealth, 8);
 });

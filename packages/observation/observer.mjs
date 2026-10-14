@@ -99,6 +99,9 @@ export async function startObserver({
   env = process.env,
   intervalMs = Number(env.ARENA_OBSERVER_INTERVAL_MS) || 1000,
   now = Date.now,
+  // Event thresholds for watchObservation, e.g. { urgentDamageLoss: 2 };
+  // they override the "events" object of observer.json.
+  events = {},
   // Test seams for the sampling functions; defaults are the toolkit's own.
   watch,
   sample,
@@ -115,6 +118,8 @@ export async function startObserver({
   const options = {
     ...observationOptionsFromMatch(match),
     ...(config.radar ? { radar: config.radar } : {}),
+    ...config.events,
+    ...events,
   };
   let closed = false;
   let status = "connected";

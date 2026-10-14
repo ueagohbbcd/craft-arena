@@ -4,7 +4,13 @@
 // run your own copy to filter or summarize chat differently.
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
-import { InboxClient } from "../inbox/index.mjs";
+// Resolve the toolkit from ARENA_TOOLKIT_ROOT so a copy saved in your working
+// directory still runs; fall back to this file's own location.
+const toolkit = (path) =>
+  process.env.ARENA_TOOLKIT_ROOT
+    ? pathToFileURL(`${process.env.ARENA_TOOLKIT_ROOT}/${path}`).href
+    : new URL(`../../${path}`, import.meta.url).href;
+const { InboxClient } = await import(toolkit("packages/inbox/index.mjs"));
 
 /** Passive chat only: no world mirror, action calls, or model wakeups. */
 export function startChatForwarder({

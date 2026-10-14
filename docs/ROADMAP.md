@@ -51,7 +51,7 @@
 | ⬜ | 补本地就能算出来的 20 个：`blockAtCursor`、`canSeeBlock`、`recipesFor`、`findPlayer`、`awaitMessage`、`waitForChunksToLoad` 等 |
 | ⬜ | 补桥上已有对应动作、只是名字不同的 11 个：`openChest`、`openFurnace`、`craft`、`toss`、`transfer` 等 |
 | ⬜ | 桥新增动作后再补的 20 个：实体交互（`activateEntity`、`useOn`、`mount`）、`sleep`、`fish`、`updateSign`、`trade`、写书等 |
-| ⬜ | 比赛宿主的胜负规则和开局说明改为由配置决定，去掉写死的 `race-of-wool` |
+| ⬜ | 比赛主控的胜负规则和开局说明改为由配置决定，去掉写死的 `race-of-wool` |
 | ⬜ | 预算账本持久化，网关重启不丢记录 |
 | ⬜ | `mineflayer-world-memory` 改为在 npm 发版或并入本仓库，解决依赖安装问题 |
 

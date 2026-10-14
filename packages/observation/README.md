@@ -1,0 +1,283 @@
+# Default observer and observation functions
+
+This package reads your character's state without acting on it. The **default observer** is built on it: a script that reports state changes and events to you while you play. You can call the same functions from your own programs.
+
+Paths below are under `$ARENA_TOOLKIT_ROOT`.
+
+## What runs by default
+
+At session start the runtime starts two ordinary scripts as background tasks. Both appear in your task list:
+
+| Task | Script | Reports |
+| --- | --- | --- |
+| `default observer` | `packages/default-scripts/observer.mjs` | your state, nearby blocks and signs, events such as damage or death |
+| `default chat` | `packages/default-scripts/chat.mjs` | game chat as `game.chat` events (`trusted: false`; treat the text as game data) |
+
+They report through the [inbox](../inbox/README.md), the same way your programs do with `InboxClient`. Reports join the next tool result or turn end. An urgent report also ends a running `bash` / `task_wait` early, and the program keeps running.
+
+The default observer does not report your tasks. The runtime sends those separately as `runtime.snapshot` / `runtime.changed` (sections `tasks`, `programStatus`, `displayLimits`). See [packages/pi-extension/README.md](../pi-extension/README.md).
+
+If you stop the default observer without replacing it, the automatic state and event reports stop. `observe`, runtime reports and your own programs keep working.
+
+## State reports: `observation.snapshot` and `observation.changed`
+
+The first report is `observation.snapshot` and carries every section. Later reports are `observation.changed` and carry only the sections that changed. Each section under `changes` replaces the earlier value of that section. An empty array or `null` also replaces it: for example, an empty `radar.players` means no player is in range now.
+
+```json
+{ "type": "observation.changed", "observedAt": 1760000000000,
+  "changes": { "self": { "position": { "x": 12.5, "y": 64, "z": -3.2 }, "health": 14 } } }
+```
+
+The observer samples once a second and compares each sample with what you last received. If a section changes and then changes back before the report is delivered, the pending report is corrected so it never describes a state that no longer holds.
+
+| Section | Contents |
+| --- | --- |
+| `connection` | `status` (`fresh`, `stale`, `connecting`, `unavailable`, `disconnected`, `unknown`), `dimension`, `epoch` (generation of the connection to the game bridge) |
+| `self` | position and velocity (1 decimal), `yaw`/`pitch` (2 decimals), health, food, oxygen, effects, dimension, `controlFlags`, `media` (water, lava, web), `support` (on ground, block below), `collision` |
+| `inventory` | main inventory and hotbar: items grouped by type and exact component variant, counts, slots, `totalItems`, `emptySlots` |
+| `equipment` | armor slots and offhand |
+| `heldItem`, `cursor` | item in hand, item on the mouse cursor |
+| `window` | the open window (container, crafting table…): type, title, slot ranges, container items; `null` when none is open |
+| `radar` | nearby entities, players and grouped item drops (see [Radar](#radar)) |
+| `local` | the 5×5×5 cube around your feet: counts of `unknown` / `air` / `solid` / `nonColliding` cells and up to 16 notable blocks |
+| `playersKnown` | whether the entity list is available at all |
+
+`null` or `known: false` means there is no data. It does not mean empty or absent. `unknown` block cells are not air.
+
+### Radar
+
+`radar` lists what you could plausibly see now:
+
+- Non-player entities within 48 blocks whose center is visible from your eyes (a straight line through known, transparent cells). An entity partly hidden behind a block can be missed.
+- Players within 64 blocks. A player known not to be sneaking is always listed with coordinates; a sneaking player (or one whose sneaking state is unknown) is listed only when visible.
+- Item drops grouped within 3 blocks of a seed drop: `center`, `items` (name → count), `count`, `entities`, `unknownStacks`.
+- `excluded` counts what was left out: `outsideRadius`, `blocked`, `unknownVisibility`.
+
+Players carry `team` and `relation` (`ally`, `opponent` or `unknown`) from the match's public participant list. Entities carry a decoded `state` where the game sends it: TNT fuse, creeper swelling or charge, item use, a guardian's or wither's target.
+
+## Recent blocks: `observation.recent_blocks`
+
+Every second the observer scans the open space around your head, up to 6 blocks away, and records every non-air block type it touches. The scan spreads through transparent cells and cells without a full collision box (glass, leaves, water, ladders, slabs) and may go around corners. It is not a line-of-sight or walkability test. Unknown cells stop it.
+
+The report covers all samples since the last delivered one. It is ready 30 seconds after the first pending sample and then joins the next tool result or turn end; it never wakes you. A report that is replaced or not delivered loses nothing: the next one still covers those samples.
+
+| Field | Meaning |
+| --- | --- |
+| `interval` | `[firstSampleAt, lastSampleAt]` |
+| `samples`, `everyMs`, `radius` | samples in this report, sampling period, scan radius |
+| `status` | last scan result: `sampled`, `partial`, `seed_blocked`, `stale`, `unavailable`, `unchanged_source`, `error`… |
+| `unknownReads`, `truncatedSamples`, `maxGapMs` | coverage gaps: unknown cells read, scans cut off at the read limit, longest gap between samples |
+| `dimensions[].counts` | block name → distinct positions seen in this interval |
+| `dimensions[].positions` | block name → up to 3 most recent `[x, y, z]` |
+| `dimensions[].bbox` | `[[minX, minY, minZ], [maxX, maxY, maxZ]]` of the cells actually reached; it may contain holes |
+| `dimensions[].opaqueBoundaryArea` | number of distinct opaque block faces facing the scanned space: roughly the visible wall and floor area. It is not precise geometry. |
+
+For exact positions, query blocks in a program or use [block memory](../bot-sdk/BLOCK-MEMORY.md).
+
+## Nearby signs: `observation.nearby_signs`
+
+The same scan reads the signs it reaches. When the set of signs or their text changes, the observer sends an `observation.nearby_signs` report: `observedAt`, `dimension`, `unknownCells` and `signs[]` with `position`, `name`, and `front` / `back` as `{known, text}`. Text is cut at 240 characters per side and marked `textTruncated`. Signs blank on both sides are left out. Walking away produces a report with an empty `signs` list. Each distinct set is kept until delivered, so a sign you walked past is still reported.
+
+## Events
+
+Events are inbox events with `type` `observation.<name>`. Each carries `observedAt`, `sampledAt`, `epoch` and `sequence`.
+
+| Event | When | Priority |
+| --- | --- | --- |
+| `health_loss` | health dropped; drops within 250 ms are merged, with any `hurtEvents` and their source | normal; **urgent** when the damage is heavy (below) |
+| `hurt` | the game reported a hit with no measurable health drop | normal |
+| `critical_health` | health entered 0 < health ≤ 6; fires again only after health reaches 8 | **urgent** |
+| `death` | your character died | **urgent** |
+| `spawn` / `respawn` | your character spawned (`initial` marks the first spawn) | normal |
+| `disconnected` | the Minecraft bot ended or was kicked | **urgent** |
+| `lost` | the connection to the game bridge dropped; game state is unknown until restored | normal |
+| `reset` / `restored` | your program's copy of the game state (the local mirror) was rebuilt, or came back after `lost` or `stale` | normal |
+| `stale` | the newest data became older than 5 seconds; `restored` follows when fresh data resumes | normal |
+| `inventory_transition` | you ran out of food, ammunition or solid block items, or lost an equipped or held item | normal |
+| `objective_inventory` | your count of a public objective item went from 0 to positive or back | normal |
+| `wool_inventory` | in `race-of-wool`, your count of a wool color went from 0 to positive or back | normal |
+
+`health_loss` becomes urgent when, within 2 seconds, you lose at least 4 health, or at least 3 separate drops add up to at least 3. Its `urgency` field gives the reason and numbers. Continuous damage sends one urgent report. The next one can come only after 5 seconds and after either 2 seconds without damage or 2 health regained. When critical health or death already sent an urgent report, the damage report stays normal.
+
+Item events state what was observed. They do not mean an objective is complete; the arena host judges that.
+
+Events only signal; they never stop or change your programs.
+
+## The `observe` tool
+
+`observe` returns one full sample now, as JSON `{state, metadata}`. It uses its own bridge connection, not the observer's, so it works even when the observer is stopped.
+
+| Option | Effect |
+| --- | --- |
+| `radar: {radius, playerRadius, dropGroupRadius}` | radar ranges for this call (defaults 48, 64, 3) |
+| `fullItems` | full NBT / components for items |
+| `fullEntities` | all observed non-player entities and their raw metadata, instead of the 12-entry summary |
+| `fullLocal` | every sampled local block and every loaded sign, instead of the first 16 |
+| `fullRuntime` | every task and program status record without display limits; works even when the game connection is down |
+
+`state` has the report sections above plus:
+
+- `freshness`: `sampledAt`, `ageMs`, `stale`, `status`, `epoch`, `sequence`, disconnect details;
+- `players`: every player in the local mirror, with no distance limit;
+- `entities`: total and per-name counts and up to 12 entries; entities within 16 blocks with risk signs come first (lit TNT, a swelling creeper, a moving projectile, something targeting you), then potentially hostile ones, then the rest by distance;
+- `local.signs`: signs in already-loaded chunks, nearest 16;
+- `tasks`, `programStatus`, `displayLimits` from the runtime.
+
+`observe` does not include recent blocks or nearby signs; those live inside the observer process. A program can get them from its own observer with `startObserver(...).sample()`.
+
+For a picture, run `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ]`. See [packages/world-visual/README.md](../world-visual/README.md).
+
+## Change or replace the observer
+
+**Tune it with `observer.json`.** Put this file in your working directory. The observer reads it once, at start, so restart the observer after editing it. The `observe` tool reads `radar` from it on every call. If `observer.json` is missing, `perception.json` (the old name) is read instead.
+
+```json
+{
+  "radar": { "radius": 32, "playerRadius": 64, "dropGroupRadius": 3 },
+  "recentBlocks": { "radius": 4, "intervalMs": 2000, "minReportMs": 60000 },
+  "events": { "urgentDamageLoss": 2 }
+}
+```
+
+`recentBlocks` accepts `enabled` (`false` turns the report off), `radius`, `intervalMs`, `maxReads`, `positionLimit` and `minReportMs`. `events` takes the [event thresholds](#reusable-functions) of `watchObservation`.
+
+**Replace it with your own script.** Write a script, stop the `default observer` task with `task_cancel`, then run yours with `bash` and `wait_seconds: 0`. Copying `packages/default-scripts/observer.mjs` into your working directory also works; it loads the toolkit from `$ARENA_TOOLKIT_ROOT`. This replacement keeps the default reports and only lowers the urgent-damage threshold (the same as `"events"` in `observer.json`):
+
+```js
+// my-observer.mjs
+const root = process.env.ARENA_TOOLKIT_ROOT;
+const { connectBot } = await import(`${root}/packages/bot-sdk/index.mjs`);
+const { InboxClient } = await import(`${root}/packages/inbox/index.mjs`);
+const { startObserver } = await import(`${root}/packages/observation/observer.mjs`);
+
+const bot = await connectBot();
+const observer = await startObserver({
+  bot,
+  inbox: new InboxClient(),
+  events: { urgentDamageLoss: 2 },
+});
+process.once("SIGTERM", () => { observer.close(); bot.closeBridge(); process.exit(0); });
+```
+
+## Reusable functions
+
+All are read-only. Import them from `$ARENA_TOOLKIT_ROOT/packages/observation/`. Each example assumes `const bot = await connectBot();`.
+
+| Function | File | Use |
+| --- | --- | --- |
+| `sampleObservation(bot, options)` | `index.mjs` | one synchronous sample, the same shape as `observe`'s `state` |
+| `observe(bot, options)` | `observe.mjs` | `{state, metadata}`, what the `observe` tool returns |
+| `entityRadar(bot, {radius, playerRadius, dropGroupRadius})` | `index.mjs` | the `radar` section alone |
+| `watchObservation(bot, {post, ...thresholds})` | `index.mjs` | the event listeners; returns `sample()`, `close()`, `lastError` |
+| `startObserver({bot, inbox, intervalMs})` | `observer.mjs` | the full default observer, reporting through an `InboxClient` |
+| `createDefaultObserver({getBot, connectionStatus, post})` | `observer.mjs` | the observer's sampling and event logic without the inbox wiring |
+| `queryTreeCandidate({blockAt, seed})` | `queries.mjs` | connected logs, leaf evidence and unknown edges of the tree containing `seed` |
+| `queryEntitiesIntersecting({entities, bounds})` | `queries.mjs` | entities whose box overlaps `bounds`, for example before placing a block |
+
+`sampleObservation` options: `fullItems`, `fullEntities`, `fullLocal`, `radar`, `localRadius` (2), `blockLimit` (16), `signLimit` (16), `entityLimit` (12), `entityRadius`, `entityAttentionRadius` (16), `staleAfterMs` (5000), `teams`.
+
+```js
+const state = sampleObservation(bot, { localRadius: 4, fullLocal: true });
+console.log(state.self.health, state.local.counts);
+```
+
+```js
+const { players, drops } = entityRadar(bot, { radius: 24 });
+```
+
+`watchObservation` calls `post({kind, priority, data})` for every event. Thresholds: `healthBurstMs` (250), `criticalHealth` (6), `criticalHysteresis` (2), `damageWindowMs` (2000), `urgentDamageLoss` (4), `sustainedDamageEvents` (3), `sustainedDamageLoss` (3), `damageCooldownMs` (5000), `damageRecovery` (2); also `objectiveItems` and `inventoryWatchItems`.
+
+```js
+const inbox = new InboxClient();
+const watcher = watchObservation(bot, {
+  criticalHealth: 10,
+  post: (message) => inbox.send(message),
+});
+setInterval(() => watcher.sample(), 1000); // stale/restored are only checked on sample()
+```
+
+`startObserver` posts state, events, recent blocks and signs exactly like the default observer. Its `sample()` returns one full sample including `recentBlocks` and `nearbySigns`.
+
+```js
+const observer = await startObserver({ bot, inbox: new InboxClient(), intervalMs: 2000 });
+console.log(observer.sample().recentBlocks);
+```
+
+`createDefaultObserver` is for a program that wants the same sampling and events but its own delivery. `post(message, {onDelivered})` receives events, recent-blocks and signs reports, and must return `{accepted: true}`; call `onDelivered` once the reader has seen a recent-blocks or signs report so those samples are dropped. It does not post state reports: call `sample()` and compare yourself (`createSectionDiff` in `section-diff.mjs` does this for `startObserver`).
+
+```js
+const core = createDefaultObserver({
+  getBot: () => bot,
+  connectionStatus: () => "connected",
+  post: (message) => { console.log(message.data.type); return { accepted: true }; },
+});
+core.attachBot(bot);
+const now = core.sample(); // full sample with recentBlocks and nearbySigns
+```
+
+```js
+const tree = queryTreeCandidate({ blockAt: (p) => bot.blockAt(p), seed: { x: 12, y: 64, z: -8 } });
+console.log(tree.logs, tree.leafEvidence, tree.uncertainty);
+```
+
+```js
+const hit = queryEntitiesIntersecting({
+  entities: bot.entities,
+  bounds: { min: { x: 10, y: 64, z: 5 }, max: { x: 11, y: 65, z: 6 } },
+});
+```
+
+Pass the full `bot.entities`, not an observation summary. An empty result does not prove the space is clear.
+
+More examples: `examples/watch-surroundings.mjs` (a listener that calls `requestJudgment`), `examples/entity-radar.mjs`, `examples/inspect-placement-entities.mjs`.
+
+## Limits
+
+| What | Limit |
+| --- | --- |
+| state reports | sampled every 1 s; a change shorter than that can be missed |
+| events | only while the observer runs; events missed while it is stopped are not replayed |
+| stale data | marked `stale` after 5 s without new data |
+| radar | 48 blocks (entities), 64 blocks (players); center-line visibility only |
+| local | 5×5×5 around your feet, 16 notable blocks in reports |
+| recent blocks | radius 6, at most 4096 cells per scan, 3 positions per type, delivered at most every 30 s |
+| sign text | 240 characters per side |
+| `observe` entities | 12 entries unless `fullEntities` |
+
+All data comes from what the character has received from the server. Areas it has not loaded are `unknown`.
+
+## How it works (developers)
+
+| File | Role |
+| --- | --- |
+| `snapshot.mjs` | `sampleObservation` and the section builders |
+| `entity-radar.mjs` | radar, center visibility, drop grouping |
+| `events.mjs` | `watchObservation` |
+| `nearby-connected-blocks.mjs` | the 6-neighbor scan from the head cell, and sign reading |
+| `recent-blocks.mjs` | interval accumulator for the scan; drops samples up to a delivered point |
+| `nearby-scan.mjs` | runs the scan on a timer, posts `observation.recent_blocks` and `observation.nearby_signs`; reads `ARENA_OBSERVER_RECENT_BLOCK*` |
+| `section-diff.mjs` | `createSectionDiff` (snapshot, then changed sections; also used for `runtime.*`) and `compactObservation` |
+| `observer.mjs` | `createDefaultObserver` and `startObserver` |
+| `observer-config.mjs` | reads `observer.json` / `perception.json` / `ARENA_OBSERVER_CONFIG` |
+| `match-options.mjs` | turns the public match state into `teams`, `objectiveItems`, wool watching |
+| `observe.mjs`, `queries.mjs` | on-demand sample; spatial queries |
+
+`startObserver` reads the config, calls `bot.getMatchState()` for teams and objective items, and posts through `InboxClient.send`. The state report uses the replaceable key `observation.current`; the section diff advances only when `InboxClient.delivery(id)` reports `delivered`, so changes in a replaced or dropped report are sent again. Recent blocks and signs are retired the same way. Events are posted as they happen. The Pi extension registers the `observe` tool (`packages/pi-extension/observe-tool.mjs`) and adds the runtime sections to its result.
+
+Environment variables:
+
+| Variable | Default | Read by |
+| --- | --- | --- |
+| `ARENA_OBSERVER_INTERVAL_MS` | 1000 | observer: state sampling period |
+| `ARENA_OBSERVER_CONFIG` | `observer.json`, then `perception.json`, in the working directory | observer and `observe` |
+| `ARENA_OBSERVER_RECENT_BLOCKS` | on (`0` turns it off) | observer |
+| `ARENA_OBSERVER_RECENT_BLOCK_RADIUS` | 6 | observer |
+| `ARENA_OBSERVER_RECENT_BLOCK_INTERVAL_MS` | 1000 | observer |
+| `ARENA_OBSERVER_RECENT_BLOCK_MAX_READS` | 4096 | observer |
+| `ARENA_OBSERVER_RECENT_BLOCK_POSITIONS` | 3 | observer |
+| `ARENA_OBSERVER_RECENT_BLOCK_MIN_REPORT_MS` | 30000 | observer |
+| `ARENA_OBSERVER_READY_MS` | 5000 | Pi extension: how long the opening request waits for the observer's first report |
+| `ARENA_OBSERVE_CONNECT_MS` | 15000 | Pi extension: connection timeout of the `observe` tool |
+| `ARENA_DEFAULT_SCRIPTS` | `observer,chat` | Pi extension: which default scripts start (empty starts none) |
+
+`observer.json` values override the `ARENA_OBSERVER_RECENT_BLOCK*` variables. Default scripts start only when `ARENA_BRIDGE_URL` and `ARENA_BRIDGE_TOKEN` are both set. How reports reach the model is described in [docs/CONTEXT-DELIVERY.md](../../docs/CONTEXT-DELIVERY.md); test coverage is in [docs/VALIDATION.md](../../docs/VALIDATION.md).

@@ -1,136 +1,175 @@
-# Participant inbox and process lifetime
+# Inbox: reporting from your programs
 
-Node 24 ESM, using Node built-ins. Pi automatically supplies the default read-only observation suite. Programs use this module to add action-specific facts, current progress or a request for judgment. It supplies message transport and process lifetime; ordinary participant code defines robot control and planning.
+Your programs send messages to the model through `InboxClient`. The default observer, default chat and the SDK's combat report use the same client. Messages wait in the inbox (a queue inside the Pi extension) and reach the model at the next request boundary.
 
-## SDK
+Starting, waiting for and cancelling programs belongs to [packages/tasks](../tasks/README.md), not to this package.
+
+## InboxClient
 
 ```js
-import { InboxClient } from "/opt/arena/packages/inbox/index.mjs";
+const { InboxClient } = await import(
+  `${process.env.ARENA_TOOLKIT_ROOT}/packages/inbox/index.mjs`
+);
 const inbox = new InboxClient();
+
 await inbox.post({
-  kind: "observation",
-  target: "ore",
+  type: "ore.found",
+  block: "iron_ore",
   position: [12, 64, -8],
 });
-await inbox.upsert("route-progress", { waypoint: 2, position: [12, 64, -8] });
-await inbox.publishCurrent("build-progress", { step: 3, activity: "placing blocks" }, { ttlMs: 10000 });
-await inbox.requestJudgment({
-  question: "Continue mining or retreat?",
+await inbox.upsert("route", { waypoint: 2, of: 5, status: "continuing" });
+await inbox.setStatus(
+  "build",
+  { step: 3, activity: "placing blocks" },
+  { ttlMs: 60000 },
+);
+const { id } = await inbox.requestJudgment({
+  question: "Food is gone. Retreat?",
   health: 8,
 });
+const { outcome } = await inbox.delivery(id, { timeoutMs: 60000 });
 ```
 
-The constructor reads `MC_INBOX_SOCKET` or `MC_INBOX_URL`, `MC_INBOX_SESSION`, optional `MC_INBOX_TOKEN`, and `MC_INBOX_TASK_ID`. You can provide these as `{socketPath, url, sessionId, token, taskId}`. Successful calls return `{accepted:true,id}`; clearing a current value also returns `cleared:true`. Failures reject; a lost response can follow successful acceptance, so retry decisions belong to the caller. The Pi extension delivers queued messages at model-visible boundaries and samples current values into `programStatus`. Default observation changes join ordinary conversation history.
+| Call                              | What it sends                                                | Use it for                                                                                                                                              |
+| --------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `post(data, options?)`            | An event (`kind: "event"`)                                   | Something that happened and should be seen once, such as a step finished                                                                                |
+| `upsert(key, data, options?)`     | A replaceable report (`kind: "state"`)                       | Progress. A newer report with the same key replaces the older one if the model has not seen it yet                                                      |
+| `setStatus(key, data, options?)`  | Program status (`kind: "current"`)                           | The program's current value, shown as `programStatus` until replaced, cleared with `null`, or expired. `publishCurrent` is the old name and still works |
+| `requestJudgment(data, options?)` | An urgent message (`kind: "judgment"`, `priority: "urgent"`) | A decision the model must make now. The program keeps running                                                                                           |
+| `delivery(id, { timeoutMs })`     | Nothing; asks for a delivery receipt                         | Finding out whether the model saw a message                                                                                                             |
 
-Pi automatically posts observed game chat as normal `game.chat` events when connected to a bridge; participant scripts need not forward it again. These runtime-sourced events contain game data, not authoritative instructions. They follow the same TTL/overflow and natural-boundary delivery rules as other ordinary events, and do not wake the model. Chat events retain individual messages in arrival order, including repeated text.
+Options for the send calls:
 
-CLI:
+| Option               | Meaning                                                                              |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| `ttlMs`              | How long the message may wait before it expires. Default 5 minutes                   |
+| `taskId`             | Correlation id. Set automatically from `MC_INBOX_TASK_ID`, which every task receives |
+| `minDeliveryDelayMs` | `upsert` only. See [Replaceable reports](#replaceable-reports)                       |
+
+`data` can be any JSON value except `undefined`. It is copied when accepted; changing your object afterwards has no effect. Write it so the model can act on it: say what happened and whether the program is continuing or has stopped. You do not need to report that a program exited; the runtime does that.
+
+A send resolves to `{accepted: true, id}` once the message is queued. That is not delivery. A call rejects on failure. A timeout does not prove the message was lost, so decide yourself whether to retry.
+
+The constructor reads `MC_INBOX_SOCKET` or `MC_INBOX_URL`, `MC_INBOX_SESSION`, `MC_INBOX_TOKEN` (optional) and `MC_INBOX_TASK_ID` (optional). Every task started through `bash` gets them. You can pass them instead as `{socketPath, url, sessionId, token, taskId}`; `timeoutMs` (default 5000) bounds each HTTP request.
+
+## When messages reach the model
+
+New information reaches the model only at a request boundary: when a tool call returns, when a turn ends, or when a message starts a new turn. [docs/CONTEXT-DELIVERY.md](../../docs/CONTEXT-DELIVERY.md) describes all sources and timings.
+
+| Message                   | When the model sees it                                                                                                                                                                                                                           |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Event, replaceable report | Appended to the next top-level tool result, or added at turn end or at the start of the next model run. It does not wake the model                                                                                                               |
+| Urgent message            | Ends every active `bash` / `task_wait` wait at once (the result says `urgent inbox message ...`). If the session is idle, it wakes the model. The launcher sets `ARENA_WAKE_ON_URGENT=1`; with any other value, an idle session leaves it queued |
+| Program status            | Read at each top-level tool result and at the start of each model run; a change appears in the runtime report delivered at that moment                                                                                                           |
+
+Delivered messages stay in the model's history, so an old report describes the past. Each delivered batch is one JSON object: `{sessionId, messages, dropped, totalDropped}`. Each message carries `source`, `kind`, `key` (if any), `data`, `priority`, `createdAt`, `expiresAt` and `taskId` (if any).
+
+`source` is set by the receiver; a value you send is ignored:
+
+| `source`  | Who                                                                                                                                                                    |
+| --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `program` | Anything posted over the socket: your programs, the default scripts, combat reports. Chat forwarded by the default chat script is `program` data with `trusted: false` |
+| `runtime` | The Pi extension: `task.completed` events and the runtime report (`runtime.snapshot` / `runtime.changed`, key `runtime.current`)                                       |
+
+Messages from different sources never replace each other, even with the same key.
+
+## Delivery receipts
+
+`await inbox.delivery(id, { timeoutMs })` waits until the message leaves the queue and resolves `{id, outcome}`. `timeoutMs` defaults to 30000; `Infinity` waits indefinitely.
+
+| `outcome`   | Meaning                                                                                            |
+| ----------- | -------------------------------------------------------------------------------------------------- |
+| `delivered` | Included in a request the model received                                                           |
+| `replaced`  | A newer `upsert` with the same key took its place                                                  |
+| `expired`   | Its `ttlMs` ran out first                                                                          |
+| `overflow`  | Evicted because the queue was full                                                                 |
+| `removed`   | Removed for another reason                                                                         |
+| `pending`   | Still queued when `timeoutMs` passed                                                               |
+| `unknown`   | The inbox never queued this id, or has forgotten it. Program status values always return `unknown` |
+
+Use it when a program accumulates data until the model has seen it. Keep the data until `delivered`; on any other outcome, carry it into the next report. The default observer does this for its recent blocks report ([packages/observation/observer.mjs](../observation/observer.mjs)).
+
+## Replaceable reports
+
+`upsert(key, data)` replaces any undelivered report with the same key and the same `source`. All programs share the source `program`, so two programs using the same key replace each other's reports; give each program its own keys. Each delivered version stays in history. Send the complete current state each time, not a difference.
+
+`upsert(key, data, { minDeliveryDelayMs: 30000 })` holds the report for at least 30 s after the first undelivered version was created. Updates in that window replace it but do not reset the timer. After the window, it joins the next request boundary; it never creates one. Once delivered, the next `upsert` starts a new window. Only `upsert` accepts a positive delay; events, urgent messages and status reject it.
+
+Choose a `ttlMs` longer than the delay, or the report can expire before it is eligible.
+
+## Program status
+
+`setStatus(key, data, options?)` stores one current value per key. It is not queued and never wakes the model. The Pi extension reads all status values at each top-level tool result and at the start of each model run, and shows them in the runtime report's `programStatus` section. That section appears in `runtime.snapshot` and, when it changes, in `runtime.changed`.
+
+- The value stays until you replace it, clear it with `setStatus(key, null)` (returns `cleared: true`), or it expires (`ttlMs`, default 5 minutes).
+- A value that changes and changes back between two reads may never be seen. Use `post` if every change matters.
+- A finished program's status stays until it expires or is cleared. The runtime report's `tasks` section gives the real process state.
+- Several copies of one program should use distinct keys, for example `` `${process.env.MC_INBOX_TASK_ID}:route` ``.
+- The runtime report shows at most 8 entries, 8 KiB in total and 2 KiB per entry, newest first. `displayLimits` in the report says what was left out. `observe({fullRuntime: true})` returns every stored value in full. Operators change the limits with `ARENA_RUNTIME_STATUS_LIMIT`, `ARENA_RUNTIME_STATUS_BYTES` and `ARENA_RUNTIME_STATUS_ENTRY_BYTES`.
+
+## Command line
 
 ```sh
-node /opt/arena/packages/inbox/cli.mjs post '{"observation":"path clear"}'
-node /opt/arena/packages/inbox/cli.mjs upsert health '{"value":8}'
-node /opt/arena/packages/inbox/cli.mjs current build-progress '{"step":3}'
-node /opt/arena/packages/inbox/cli.mjs current build-progress 'null'
-node /opt/arena/packages/inbox/cli.mjs urgent '{"question":"Retreat?"}'
+inbox="$ARENA_TOOLKIT_ROOT/packages/inbox/cli.mjs"
+node "$inbox" post '{"type":"path.clear"}'
+node "$inbox" upsert health '{"value":8}'
+node "$inbox" status build '{"step":3}'
+node "$inbox" status build null
+node "$inbox" urgent '{"question":"Retreat?"}'
 ```
 
-The Pi extension starts and owns the session’s `/messages` service; participant scripts are clients. It passes connection settings to children started by its bash tool. Any language can POST JSON using HTTP over the Unix socket:
+`current` is accepted as an old name for `status`. The CLI prints the JSON result and exits with 1 on failure. It has no options for `ttlMs`, delays or receipts; use `InboxClient` for those.
+
+## Raw HTTP
+
+Any language can talk to the inbox. By default it listens on a Unix socket (`MC_INBOX_SOCKET`):
 
 ```sh
 curl --unix-socket "$MC_INBOX_SOCKET" -H 'Content-Type: application/json' \
-  --data "{\"sessionId\":\"$MC_INBOX_SESSION\",\"kind\":\"event\",\"data\":{\"observation\":\"ready\"}}" \
+  --data "{\"sessionId\":\"$MC_INBOX_SESSION\",\"kind\":\"event\",\"data\":{\"type\":\"ready\"}}" \
   http://localhost/messages
 ```
 
-For configured HTTP, use `$MC_INBOX_URL/messages` and `Authorization: Bearer $MC_INBOX_TOKEN`. Session IDs are required and validated. HTTP binds loopback only and requires a token of at least 16 characters. Unix sockets are mode 0600 in a private directory. Startup preserves existing socket files; use a unique path or clean up a confirmed stale socket manually. This endpoint is scoped to programs inside the same participant container.
+| Request                                                                                                | Response                                                                                                                |
+| ------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| `POST /messages` with `{sessionId, kind, key?, data, priority?, ttlMs?, taskId?, minDeliveryDelayMs?}` | `202 {accepted: true, id}`; `413` if too large; `400` if invalid                                                        |
+| `GET /messages/{id}/delivery?waitMs=N`                                                                 | `200 {id, outcome}` or `404 {id, outcome: "unknown"}`. Waits up to `N` ms (at most 4000) while the outcome is `pending` |
 
-## Event history and replaceable current values
+`kind` is `event`, `state`, `judgment` or `current`; `state` and `current` need a non-empty string `key`. `priority` is `normal` (default) or `urgent`; `current` must be `normal`. Raw callers choose priority themselves: a `judgment` sent without `priority: "urgent"` is not urgent.
 
-| SDK call | Delivery and lifetime |
-| --- | --- |
-| `post(data, options?)` | Queued event, normally delivered at the next natural boundary and then retained in session history |
-| `upsert(key, data, options?)` | Replaces an older pending keyed state from the same source; each delivered report remains in history |
-| `requestJudgment(data, options?)` | Urgent event that releases managed waits; its delivered report remains in history |
-| `publishCurrent(key, data, options?)` | Replaces a value from the same source/key for later `programStatus` observations; delivered observations remain history |
+When the operator sets `MC_INBOX_TRANSPORT=http`, the inbox listens on loopback TCP instead (`MC_INBOX_URL`, port from `MC_INBOX_PORT`). Every request then needs `Authorization: Bearer $MC_INBOX_TOKEN`, and the token must be at least 16 characters.
 
-Normal `upsert` reports may specify `{minDeliveryDelayMs:30000}`. The first pending creation fixes `eligibleAt = createdAt + minDeliveryDelayMs`; replacing that source/key with a complete updated report keeps the same deadline. Once eligible, it is delivered only at an ordinary model-visible boundary. It does not schedule a wake. After drain, the next creation starts a fresh delay. `pending` excludes not-yet-eligible items; `drain()` leaves them queued. This is a throttle from pending creation, not a debounce from the most recent update. Events and urgent messages remain immediate; positive delays are accepted only for normal `state` messages. The option is supported through `InboxClient.upsert` and HTTP JSON as well as same-process `Inbox.post`.
+## Limits
 
-Same-process producers can use `Inbox.post(input, {onDelivered})` to retire the exact cumulative watermark that was delivered. Acceptance alone is not delivery; a producer must retain its unique sets until this callback. HTTP clients currently have acceptance responses only, with no cross-process delivery receipt. One callback exception does not discard the claimed batch or prevent remaining callbacks: `drain()` includes `deliveryErrors`, and the queue emits a non-special `deliveryError` event. Queue expiry/overflow still apply; choose a TTL longer than the intended delay and keep source data until confirmed delivery when needed.
+| Limit                      | Value                                                                                                  |
+| -------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Queue                      | 256 messages and 256 KiB of serialized messages. When full, the oldest message is evicted (`overflow`) |
+| Default `ttlMs`            | 5 minutes. Expired messages are removed (`expired`)                                                    |
+| One message                | Must fit in the queue's byte limit; larger ones are rejected                                           |
+| HTTP request body          | 64 KiB                                                                                                 |
+| Connections / request time | 64 at once; 5 s per request                                                                            |
+| Program status store       | 256 values and 256 KiB; the oldest value is evicted when full                                          |
+| Remembered receipts        | The most recent 4096 outcomes                                                                          |
 
-`publishCurrent` writes a separate latest-value store without queuing an event or waking the model. Reading `currentSnapshot()` and draining events leave those values available until replacement, expiry or clearing. By default, Pi samples them at agent-start and top-level tool-result boundaries; changed `programStatus` sections enter ordinary history. Expiry or clearing appears in a later observation update. A value that comes and goes between samples may never be displayed; use `post` to retain the event's own report.
+Every delivered batch reports `dropped.overflow` and `dropped.expired` since the last delivery, and `totalDropped` since the session started.
 
-See [observation delivery](../../docs/OBSERVATION.md#历史与本次请求状态) for state projection and the [context design](../../docs/CONTEXT-DELIVERY.md) for collection and delivery choices.
+The inbox lives in memory in the Pi extension. Undelivered messages and status values are lost if that process stops. Delivered messages persist in Pi's session history.
 
-Clear one current value by keeping its key and sending `null` as the data:
+## Internals
 
-```js
-await inbox.publishCurrent("build-progress", null);
-```
+For developers working on the runtime.
 
-Both keyed APIs require a nonempty string key. Current identity is `(source, key)`; `taskId` is correlation metadata, not another key dimension. When several programs publish the same kind of progress independently, choose a distinct key, for example `${process.env.MC_INBOX_TASK_ID}:route`. The current envelope retains creation/expiry timestamps, source and optional task ID. Completion of a process leaves its current report until normal expiry or explicit clearing; the observation's separate task list gives the actual process status.
+| File                   | Contents                                                                                                                                                                                                        |
+| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [queue.mjs](queue.mjs) | `Inbox`: the queue, the status store, receipts (`outcome`, `settled` event) and `drain()`. Also `localInboxClient(inbox)`, the `InboxClient` interface (without `setStatus`) over an in-process queue for tests |
+| [ipc.mjs](ipc.mjs)     | `createInboxServer` (HTTP over a Unix socket, mode 0600 in a private directory, or authenticated loopback TCP) and `InboxClient`                                                                                |
+| [cli.mjs](cli.mjs)     | The command line above                                                                                                                                                                                          |
+| [index.mjs](index.mjs) | Re-exports the above, plus `TaskManager` from [packages/tasks](../tasks/README.md) for existing importers                                                                                                       |
 
-`TaskManager.start` supplies `MC_INBOX_TASK_ID` to each managed child, and `InboxClient` includes it in every report. An explicit `taskId` option can correlate a report when the caller already knows that ID. Reports stay `source:"program"`; the runtime separately provides authoritative task status. Describe your current goal/activity in the data when useful, so the model can connect intent with actual process lifetime.
+- One process owns the queue. `drain()` is synchronous, so two tool results finishing together cannot claim the same batch. Messages whose `minDeliveryDelayMs` window is still open stay queued.
+- `Inbox.post(input, { source, onDelivered })` is the in-process API. `onDelivered` runs when the message is drained, the in-process equivalent of `delivery(id)`. An exception in one callback does not affect the others; it is listed in the batch's `deliveryErrors` and emitted as `deliveryError`.
+- `Inbox` emits `message` for every queued message (not for status values) and `urgent` for urgent ones. `TaskManager` listens for `urgent` to end waits; the Pi extension listens for `message` to wake an idle session.
+- The Pi extension ([packages/pi-extension/index.mjs](../pi-extension/index.mjs)) creates one `Inbox` and server per Pi session, passes the `MC_INBOX_*` variables to tasks, posts the runtime report, and drains the queue at top-level tool results, at turn end, before each model run starts, and when it wakes an idle session. Nested tool results (codemode) are skipped so the outer boundary owns delivery.
+- Startup never deletes an existing socket file, because it may belong to a running session. Use a unique path or remove a confirmed stale socket by hand.
 
-## Short actions during a longer program
-
-[build-with-autoeat.mjs](../../examples/build-with-autoeat.mjs) is a complete
-example of a program that handles a short interruption and returns to its
-original work. Health events trigger independent auto-eating; a shared hand
-Promise serializes equip/place/use-item with construction. For each eating
-attempt it posts one normal `food.action` event with an attempt number, trigger,
-start/end times and observed before/after health, food and item count. Resume is
-explicitly pending at that moment. The final result updates it only after build
-hand control actually resumes and the material is re-equipped; it does not claim
-the next placement succeeded. Failed/cancelled attempts and failures to resume
-are explicit; holding use-item without an observed change is unconfirmed.
-
-These are `post` events, not repeated `upsert("food", ...)` values: separate
-actions cannot overwrite each other under one key. They do not request an early
-model turn. At the original tool's normal return, pending events join its result.
-A task-local summary in the program's final JSON also contains cumulative outcome
-and resume counts plus the latest 16 attempt records (and an omitted count).
-That summary preserves the overall history if a long wait outlives queued
-messages' TTL or queue capacity. It is bounded diagnostic output, not a durable
-queue; a killed process may never produce its final output. The example reserves
-`requestJudgment` for a real decision such as unavailable food.
-
-The same pattern applies to travel interrupted by participant-authored combat:
-serialize ownership of movement/hand controls, retain the original goal, record
-why combat began, its observed outcome and whether travel actually resumed, and
-post the short action's result normally. Entity disappearance alone does not
-prove a kill. Use an urgent judgment only when the program genuinely needs a new
-decision. The inbox transports these reports; it does not provide a combat
-controller or automatically restore the travel goal.
-
-## Protocol and bounds
-
-Message: `{sessionId, kind: "event"|"state"|"judgment"|"current", key?, data, priority?: "normal"|"urgent", ttlMs?, taskId?, minDeliveryDelayMs?}`. `state` and `current` require a nonempty string key. A newer `state` replaces its queued predecessor within the same source; a newer `current` replaces the separate stored current value. Current values accept normal priority; use a judgment event when a new decision is needed. Envelope source is assigned by the receiver (`program` for IPC, `runtime` for task completions, `host` for trusted budget data); sender-supplied source is ignored. `requestJudgment` selects kind judgment and priority urgent; raw callers choose priority themselves. The returned Promise resolves with acceptance, not with a model answer. The program continues according to its own control flow while the model independently decides how to proceed; [plugin-goal](../../examples/navigate.mjs) demonstrates an active action and a separate stall report.
-
-### Delivery receipts
-
-`post`, `upsert` and `requestJudgment` resolve with the queued message's `id`. `await inbox.delivery(id, { timeoutMs })` waits until that message leaves the queue and resolves `{id, outcome}`: `delivered` (included in a model-visible boundary), `replaced` (a newer `state` with the same key took its place), `expired`, `overflow` or `removed`. It returns `pending` if the timeout passes first and `unknown` for ids the inbox never queued, such as `publishCurrent` values. Over IPC this is `GET /messages/{id}/delivery?waitMs=N`, a long-poll capped at 4 seconds per request; the client repeats it until its own timeout. The inbox remembers the most recent 4096 outcomes. A producer that accumulates data until the model has seen it (for example an interval summary) retires that data on `delivered`, keeps it on any other outcome, and carries it into its next report.
-
-Defaults: 256 queued messages, 256 KiB serialized envelope bytes, five-minute TTL, 64 KiB HTTP request body, 64 simultaneous connections. Programs may choose a shorter or longer per-message TTL; the queue TTL is only the default. Oversized messages are rejected, overflow evicts oldest messages, and expired messages are removed on queue operations. Each delivered batch reports `dropped.overflow`, `dropped.expired`, and cumulative `totalDropped`; counters survive an empty queue and are reset only for the claimed reporting interval. Message state is snapshotted at acceptance.
-
-The current-value store has its own 256-entry / 256 KiB budget and the same default five-minute TTL. `ttlMs` may override that default. Expired current entries disappear when the store is read or updated; capacity pressure evicts the oldest current entry. These operations leave the event queue and its drop counters unchanged. Current values are JSON-snapshotted at acceptance and returned as detached copies. Pi's default observation projection uses a separate compact budget (8 records, 8 KiB total, 2 KiB per record) and explicitly reports omitted records/data. `observe({fullRuntime:true})` reads every still-retained current record in full, including while game observation is unavailable; display limits leave the stored values intact.
-
-A single owning process handles acceptance and synchronous drain atomically. Simultaneous tool completions cannot claim the same batch. Queues are session scoped and in memory. Pi's delivered tool results and custom messages are persisted in its session history. Undelivered messages, stored current values and active tasks do not survive owner-process failure; use an external supervisor/container restart policy when needed.
-
-## Core process API
-
-`new TaskManager({inbox,cwd,env,maxTasks,maxOutputBytes,...})`, `start(command,{callId,timeoutMs?})`, `wait(taskId,{timeoutMs?,signal?})`, `cancel(taskId)`, `resumeWaits()`, `close()`.
-
-`start` launches `/bin/bash -c` in its own process group and injects its actual task ID as `MC_INBOX_TASK_ID`. The start timeout is an explicit execution deadline that terminates the group. A wait timeout only releases that caller. Core `TaskManager.wait` defaults to waiting indefinitely; the [Pi tools](../pi-extension/README.md#behavior) supply a separate configurable 30-second default wait budget. Aborting a wait detaches the caller while the process continues. Urgent acceptance releases all active waits and all new waits in that same batch until `resumeWaits()`. Unrelated blocking operations retain their own waiting behavior.
-
-Running results contain `taskId`, `status:"running"`, `reason`, stdout/stderr snapshots, and dropped-output bytes. Final results use `status:"completed"`, `exitCode`, `signal`, optional `error`, optional `timedOut`, and final stdout/stderr. Check exitCode and signal; completed means the process exited, not that it succeeded.
-
-Completion has one logical delivery: an explicit waiting caller claims it and removes its queued completion event, or a final-boundary inbox drain claims `data.type:"task.completed"`. Further waits return `status:"delivered"` and the delivery channel, without replaying output. Running snapshots may overlap the one final result; each stream is bounded to 64 KiB. The Pi extension claims synchronous results normally, including nested codemode calls, so scripts can read and deliberately filter that output. Independently posted inbox messages are reserved for the outer model-visible boundary. Genuine later completion after an early-return still arrives as an inbox event.
-
-If a completion notification expires or is evicted, its unclaimed result remains in the task record and can be recovered by explicit `task_wait`. It is never silently discarded to make room. There are at most 128 task records; delivered records recycle oldest-first under capacity pressure and expire after five minutes on subsequent starts. Unclaimed records/active processes at capacity cause new commands to fail before spawning. Call-ID tombstones are bounded to 4,096 and retained for at least an hour after start until their task record is evicted. Within that retention window the same call ID cannot rerun its command, including after a failed spawn or lost caller. Outside that bounded window idempotency is not promised.
-
-`cancel` sends TERM to the process group and returns `status:"cancelling"`; it escalates to KILL after 500 ms. Use `task_wait` until `completed`/`delivered` to establish process completion. The program's SIGTERM/SIGINT handler owns game-control cleanup; forced KILL or a disconnected bridge can prevent it. Check actual bot control state before starting a replacement controller. `close` cancels active groups and waits for process cleanup. A process deliberately escaping its group or accessing host resources must be constrained by the participant container; the participant container supplies that security boundary.
-
-## Verification
-
-`node --test tests/inbox.test.mjs tests/pi-extension.test.mjs` uses real subprocesses and local HTTP, with no game or model-provider calls. Unix socket testing is skipped only when the host reports EPERM for socket binding; the full transport semantics are also tested on authenticated loopback HTTP. Production Linux container Unix-socket verification remains necessary on such a host.
-
+Tests: `node --test tests/inbox.test.mjs tests/inbox-current.test.mjs tests/inbox-delay.test.mjs tests/pi-extension.test.mjs`. They use real subprocesses and local HTTP, with no game or model calls. Unix socket tests are skipped where the host refuses socket binding (`EPERM`); loopback HTTP covers the same behaviour.

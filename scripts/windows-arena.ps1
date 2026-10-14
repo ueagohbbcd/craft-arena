@@ -79,7 +79,9 @@ function Start-ProxyRelay {
     $node = Find-Node
     $cli = Join-Path $repo 'packages/system-proxy-relay/cli.mjs'
     # Start-Process joins ArgumentList; quote paths, never put the secret in argv.
-    $arguments = @('"'+$cli+'"','--secret-file','"'+$secretFile+'"','--port',"$ProxyPort")
+    # Allow exactly the upstream hosts the gateways are configured to call.
+    $hosts = foreach ($team in 'red','blue') { ([uri](Get-Content -LiteralPath (Join-Path $deployment "budget.$team.json") -Raw | ConvertFrom-Json).upstream.url).Host }
+    $arguments = @('"'+$cli+'"','--secret-file','"'+$secretFile+'"','--port',"$ProxyPort",'--allow',(($hosts | Sort-Object -Unique) -join ','))
     $process = Start-Process -FilePath $node -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput "$deployment/proxy-relay.log" -RedirectStandardError "$deployment/proxy-relay.err.log"
     @{pid=$process.Id;startedAt=$process.StartTime.ToUniversalTime().Ticks} | ConvertTo-Json | Set-Content -LiteralPath "$deployment/proxy-process.json" -Encoding utf8
     for ($i=0; $i -lt 20; $i++) {

@@ -1,93 +1,123 @@
-# Local world visualization
+# World images
 
-This package turns participant-side world snapshots into PNGs plus observation
-metadata. Generic snapshot capture, rasterization and PNG encoding live upstream
-in the MIT `mineflayer-world-memory` package; this package adds the arena opening
-composite ([index.mjs](index.mjs)) and the optional real Prismarine renderer
-([prismarine.mjs](prismarine.mjs)).
+This package draws pictures of the blocks your character has loaded. There are two ways to get one:
 
-## Two paths to an image
+- **Opening images.** If the map configures them, the launcher sends a picture with the opening prompt and, when the first one showed the lobby, a second when the character first reaches the course. You do nothing.
+- **Screenshot script.** Run [examples/screenshot.mjs](../../examples/screenshot.mjs) when a decision depends on shape: a doorway, a wall, stacked levels.
 
-1. **Opening composite (automatic).** With map-configured `live.openingViews`, the
-   runtime captures one composite from the participant's loaded world and delivers
-   it as a bootstrap user message; `packages/pi-extension/opening-views.mjs` owns
-   the timing and transport. `renderOpeningComposite(snapshot,{layout:"lobby"|"course",width,height,gap,position})`
-   from [index.mjs](index.mjs) returns `{png,metadata,rgba}`: one top-down
-   `renderMinimap` panel plus two oblique `renderOblique` panels.
-   `captureOpeningComposite` from [prismarine.mjs](prismarine.mjs) renders that
-   layout and then replaces both oblique panels with real Prismarine captures
-   taken through one shared browser session, keeping the top-down panel as
-   coverage. Panel rectangles, cameras, bounds, coverage and the observed player
-   position are in the metadata.
-2. **On-demand script screenshot.** A program acquires a snapshot and captures it
-   itself:
+There is no built-in image tool, and `observe` returns text only. If Chromium is missing, images fail but text reports keep working.
 
-   ```js
-   import { connectBot } from "../bot-sdk/index.mjs";
-   import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
-   import { capturePrismarineSnapshot } from "./prismarine.mjs";
-   const bot = await connectBot({ url, token });
-   const snapshot = snapshotFromBot(bot, { bounds });
-   await capturePrismarineSnapshot(snapshot, { outputPath: "out/world.png" });
-   ```
+## Take a screenshot
 
-   [observe-and-render.mjs](../../examples/screenshot.mjs) is the
-   ready-made example. Without arguments it frames the player by 12 blocks
-   horizontally and from 8 below to 16 above vertically, bounded by the dimension
-   height; cells outside loaded columns stay unknown. Six inclusive coordinates
-   (`minX minY minZ maxX maxY maxZ`) override that box. It writes
-   `out/world.snapshot.json` and `out/world.png`, with a `.json` metadata file
-   beside the PNG, and prints `imagePath`, `bounds`, `knownFraction` and `notes`.
-   [render-fixture.mjs](../../examples/render-fixture.mjs) screenshots the
-   synthetic fixture with no game connection. The Pi runtime registers no
-   resident world tool, so image production and its timing are a program choice,
-   and a missing Chromium only breaks the render, not text observation.
+```sh
+node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                       # around your feet
+node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20   # minX minY minZ maxX maxY maxZ
+```
 
-## Input contract
+|             |                                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Default box | 12 blocks each way horizontally, 8 below to 16 above your feet, clipped to the dimension's height                                     |
+| Custom box  | Six integer coordinates, inclusive                                                                                                    |
+| Writes      | `out/world.snapshot.json` (the input), `out/world.png` (768 x 512) and `out/world.json` (metadata), relative to the current directory |
+| Prints      | One JSON line: `imagePath`, `bounds`, `knownFraction` (share of cells in the box that were loaded), `notes`                           |
+
+Then open `imagePath` with the `read` tool. The script reads your bot object once, closes its bridge connection and renders offline, so it does not move or hold the character. It takes a few seconds because it starts a headless Chromium.
+
+To render in your own program, take a snapshot and pass it to `capturePrismarineSnapshot`:
+
+```js
+const root = process.env.ARENA_TOOLKIT_ROOT;
+const { connectBot } = await import(`${root}/packages/bot-sdk/index.mjs`);
+const { snapshotFromBot } = await import(
+  `${root}/node_modules/mineflayer-world-memory/live.mjs`
+);
+const { capturePrismarineSnapshot } = await import(
+  `${root}/packages/world-visual/prismarine.mjs`
+);
+
+const bot = await connectBot();
+const snapshot = snapshotFromBot(bot, {
+  bounds: { min: { x: -10, y: 60, z: -10 }, max: { x: 10, y: 75, z: 10 } },
+});
+bot.closeBridge();
+const { imagePath, metadata } = await capturePrismarineSnapshot(snapshot, {
+  outputPath: "out/area.png",
+});
+```
+
+`capturePrismarineSnapshot(snapshot, options)` also takes `width`, `height`, `viewDirection` (`"+x+z"` by default, `"-x+z"`, `"-x-z"` or `"+x-z"`: the corner the camera looks from), `center` (camera position) and `timeoutMs` (30000). [examples/render-fixture.mjs](../../examples/render-fixture.mjs) renders a synthetic world with no game connection.
+
+## Read the image
+
+**Only loaded cells are drawn.** Empty-looking space in a textured view can be unknown, not air: the character never received it. Do not plan a path through space you have not confirmed.
+
+The screenshot is one textured view from above at an angle (Minecraft models and textures). Its metadata gives `knownFraction`, `bounds`, `camera` and `defaultedStates` (blocks drawn in their default orientation because the snapshot had no state id).
+
+The opening images also have a top-down panel (`renderMinimap`) that marks what is known:
+
+| Colour                            | Meaning                                                                                                                                         |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| Purple                            | Never seen (unknown)                                                                                                                            |
+| Purple stripes on a coloured cell | The surface is known; the space above it was not seen                                                                                           |
+| Dark blue-grey                    | Seen, and clear air through the whole height of the box                                                                                         |
+| Amber stripes                     | Only in snapshots from `snapshotFromExplored` (below): a remembered block that may have changed since it was seen. Opening images never show it |
+| Other colours                     | Known blocks, shaded by height                                                                                                                  |
+
+The top-down panel shows the highest known block in each column inside the box's Y range.
+
+## Opening images
+
+The map configuration sets `live.openingViews` per team (see [packages/arena/README.md](../arena/README.md)). [packages/pi-extension/opening-views.mjs](../pi-extension/opening-views.mjs) captures them from this participant's own loaded world, and the [launcher](../pi-extension/bootstrap.mjs) sends them:
+
+| Image                                                                                                            | When                                                     | How it arrives                                   |
+| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- | ------------------------------------------------ |
+| Lobby, if the map has one and the character is in the lobby box but not at the course entrance; otherwise course | Prepared when the match is prepared, or at start         | Attached to the opening prompt with its metadata |
+| Course, if no course image has been sent yet (the first image was the lobby, or failed)                          | The first time the character enters `course.entryBounds` | A separate message during the match              |
+
+Each image is one PNG with three panels: the top-down panel (`renderMinimap`) and two angled textured views from opposite corners. The lobby layout puts the map on the left; the course layout puts a wide strip on top so a long course stays horizontal. Each stage is tried at most three times. If the first image fails, the opening prompt instead tells the model to run `examples/screenshot.mjs`.
+
+## Snapshot input
+
+Both renderers take this object (`snapshotFromBot(bot, {bounds})` builds it from the bot object's local mirror):
 
 ```js
 {
-  version: '1.20.4', // required only for the textured viewer
-  bounds: { min:{x:0,y:0,z:0}, max:{x:15,y:8,z:15} }, // inclusive
-  blocks: [{x:0,y:0,z:0,name:'grass_block'}], // optional stateId from the same version
-  sampledAt: '2026-10-10T00:00:00Z', sequence: 123,
-  source: 'participant local mirror'
+  version: "1.20.4",                                  // required for textured rendering
+  bounds: { min: {x:0,y:0,z:0}, max: {x:15,y:8,z:15} }, // inclusive, min <= max
+  blocks: [{ x:0, y:0, z:0, name: "grass_block", stateId: 9 }], // stateId optional
+  sampledAt: "2026-10-10T00:00:00Z", sequence: 123, source: "participant local mirror",
 }
 ```
 
-Use the exact stateId from the same Minecraft version; do not guess a numerical
-ID. Omit stateId if unavailable: textured rendering then uses the registered
-default state and reports how many cells were defaulted. A mismatched
-name/stateId is rejected.
+- A block listed as air is known air. **A cell missing from `blocks` is unknown.**
+- `stateId` must come from the same Minecraft version. Do not guess one. Without it, the version's default state is used and counted in `defaultedStates`. A `stateId` that does not match `name` is rejected.
+- `snapshotFromExplored(bot, {bounds, maxAgeMs})` from `mineflayer-world-memory` builds a snapshot from blocks the SDK remembers seeing. Each keeps its observation time, and one that is no longer loaded or has changed is marked stale (amber stripes in the top-down panel).
 
-Every explicit air cell is known air. **An absent cell is unknown**, including
-cells absent above an observed surface. The top-down panel uses:
+## Limits
 
-- Purple: missing observations; purple diagonal marks over a material mean missing observations above that surface.
-- Dark blue-gray: fully observed, clear air column in the selected Y slice.
-- Amber diagonal marks: a stale explored-memory surface observation.
-- Other colors: known material with height shading; metadata carries palette, bounds, scale, orientation and coverage.
-
-Bounds define a **slice**; surface height is the highest observed block within it.
-The textured viewer omits unobserved cells, so blank regions may be unknown. Pair
-it with the top-down coverage panel to separate observed air from missing data.
-Unknown cells are never turned into solid barriers.
-
-## Resource limits
-
-- At most 4,000,000 voxels per snapshot selection (`normalizeSnapshot`); the bounds are inclusive and must be ordered.
-- `snapshotFromBot(bot,{bounds,maxVoxels})` defaults to at most 1,000,000 queried voxels. `snapshotFromExplored(bot,{bounds,maxAgeMs})` retains observation time and staleness.
-- Images may use any positive integer dimensions totaling at most 16,777,216 pixels; the textured capture checks the same budget before starting Chromium.
-- An oblique panel refuses more than 150,000 non-air voxels.
+| Limit                  | Value                                                                                                |
+| ---------------------- | ---------------------------------------------------------------------------------------------------- |
+| Box size               | At most 4,000,000 cells                                                                              |
+| `snapshotFromBot`      | At most 1,000,000 cells by default (`maxVoxels`); map opening boxes are limited to one million cells |
+| Image size             | Width x height at most 16,777,216 pixels                                                             |
+| Angled schematic panel | At most 150,000 non-air blocks                                                                       |
 
 ## Dependencies
 
-- Schematic/minimap rendering needs only Node built-ins and `mineflayer-world-memory` (MIT); it draws the top-down coverage panel and the two oblique panels that the textured capture then replaces.
-- The real viewer needs the optional `prismarine-viewer` (pinned in the root `package.json`), `prismarine-chunk`, `minecraft-data`, `express` and `socket.io`; screenshots additionally need `playwright-core` and a local Chromium executable (`CHROMIUM_PATH`, default `/usr/bin/chromium`). Missing packages throw one explicit install error; the opening composite then reports the failure and text play continues, because the arena no longer has a separate schematic image path.
-- `servePrismarineSnapshot` serves the viewer assets on **127.0.0.1 only** and never connects to Minecraft. State IDs are remapped onto the viewer's nearest supported patch. Blocks without a stateId use the version default state, so orientation details may differ.
-- Minecraft artwork is supplied through the viewer's own distribution and keeps Mojang/Microsoft licensing; this repository vendors neither `node_modules` nor texture assets.
+| Part                                        | Needs                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Top-down and schematic panels               | Node built-ins and `mineflayer-world-memory`                                                                                                                                                                                                                                                                |
+| Textured views (screenshot, opening images) | Optional dependencies `prismarine-viewer` and `playwright` in the root `package.json` (with their dependencies `prismarine-chunk`, `minecraft-data`, `express`, `socket.io`, `playwright-core`), and a Chromium binary at `CHROMIUM_PATH` (default `/usr/bin/chromium`; installed in the participant image) |
 
-## Validation
+A missing package throws an error that says what to install. The viewer server (`servePrismarineSnapshot`) listens on 127.0.0.1 only and never connects to Minecraft. Block states are remapped to the patch release the viewer supports for the same minor version (1.20.4 renders as 1.20.1). Textures come from the installed `prismarine-viewer` package; this repository ships no texture files.
 
-- `node --test tests/visual-opening.test.mjs` checks panel pixels and geometry, layout/gap rejection, fitted perspective cameras and cross-version state-ID remapping.
-- `node --test tests/visual-prismarine.test.mjs` serves the real viewer assets, decodes a real chunk over Socket.IO and rejects invalid IDs or missing versions. `MC_TEST_CHROMIUM=1` adds a real Chromium PNG capture; capture success in the delivery environment remains a deployment check.
+## Files and tests
+
+| File                             | Contents                                                                                                                                                                    |
+| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [index.mjs](index.mjs)           | `renderOpeningComposite(snapshot, {layout: "lobby" \| "course", width, height, gap, position})`: the schematic three-panel layout, returning `{png, metadata, rgba}`        |
+| [prismarine.mjs](prismarine.mjs) | `servePrismarineSnapshot`, `capturePrismarineSnapshot`, and `captureOpeningComposite`, which replaces the two angled panels with textured captures from one browser session |
+
+- `node --test tests/visual-opening.test.mjs`: panel pixels and geometry, layout checks, camera fitting, state-id remapping.
+- `node --test tests/visual-prismarine.test.mjs`: serves the real viewer and decodes a real chunk. `MC_TEST_CHROMIUM=1` adds a real Chromium capture.
+- `node --test tests/visual-example.test.mjs`: the screenshot script's default box.
