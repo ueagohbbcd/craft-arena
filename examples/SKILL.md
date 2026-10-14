@@ -201,7 +201,7 @@ Rules for control programs:
 
 - Methods change the game. Assigning to `bot.entity.position` or a window object changes only your program's copy.
 - After synchronous-style calls (`setControlState`, `chat`, `clearControlStates`), `await bot.flush()` sends them and reports the first failure.
-- `closeBridge()` closes this program's connection. It does not stop movement or item use the program started, so release controls before closing.
+- `closeBridge()` closes this program's connection. Movement keys this program pressed are released by the bridge about 1 second after its connection closes, also when the program crashes or is cancelled; item use and digging are not. Release controls before closing to stop at once.
 - Programs receive `death`, `spawn` (first spawn and respawn) and `bridgeReset` events. A `bridgeReset` means the connection was rebuilt. Get entities, windows and goals again after it. The plugins clear their Pathfinder and PvP targets on reset.
 
 ### Listener beside a controller

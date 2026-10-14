@@ -33,17 +33,18 @@ Any other route returns `404`. Large integers travel as `{"$arenaBigInt":"<digit
 
 `createBridgeServer` / `startBridge` options set by the trusted host:
 
-| Option                              | Default         | Effect                                                                                                   |
-| ----------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------- |
-| `token`                             | required        | at least 16 characters; generate a random high-entropy value                                             |
-| `allowChat`                         | `true`          | `false` makes the `chat` action fail                                                                     |
-| `maxReach`                          | `Infinity`      | extra distance check (block centre or entity position to the bot) on top of the server's own reach rules |
-| `maxActionsPerSecond`               | `Infinity`      | token bucket shared by `/v1/action` and `/v1/chunk`; excess gets `429`                                   |
-| `maxConcurrentActions`              | `Infinity`      | actions in flight at once; excess actions, and chunk requests while it is full, get `429`                |
-| `authorizeAction(request)`          | none            | awaited before each action; anything but `true` gives `403` and nothing runs                             |
-| `getMatchState()`                   | none            | backs `GET /v1/session`                                                                                  |
-| `snapshotRadius`                    | `8`             | horizontal radius of the `blocks` sample                                                                 |
-| `blockMemory` / `createBlockMemory` | `{}` / built-in | see [Block memory](#block-memory-trusted-side)                                                           |
+| Option                              | Default         | Effect                                                                                                                                                   |
+| ----------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `token`                             | required        | at least 16 characters; generate a random high-entropy value                                                                                             |
+| `allowChat`                         | `true`          | `false` makes the `chat` action fail                                                                                                                     |
+| `maxReach`                          | `Infinity`      | extra distance check (block centre or entity position to the bot) on top of the server's own reach rules                                                 |
+| `maxActionsPerSecond`               | `Infinity`      | token bucket shared by `/v1/action` and `/v1/chunk`; excess gets `429`                                                                                   |
+| `maxConcurrentActions`              | `Infinity`      | actions in flight at once; excess actions, and chunk requests while it is full, get `429`                                                                |
+| `authorizeAction(request)`          | none            | awaited before each action; anything but `true` gives `403` and nothing runs                                                                             |
+| `getMatchState()`                   | none            | backs `GET /v1/session`                                                                                                                                  |
+| `snapshotRadius`                    | `8`             | horizontal radius of the `blocks` sample                                                                                                                 |
+| `controlReleaseMs`                  | `1000`          | a client (SDK `x-arena-client` header) whose event streams all closed has the movement controls it pressed released after this long; `Infinity` disables |
+| `blockMemory` / `createBlockMemory` | `{}` / built-in | see [Block memory](#block-memory-trusted-side)                                                                                                           |
 
 Fixed limits: action body 16 KiB, one chunk reply 8 MiB. A slow SSE reader is disconnected once more than 4 MiB beyond its largest queued frame is waiting; the SDK reconnects and gets a fresh `reset`. Chat events are not filtered or rate-limited.
 

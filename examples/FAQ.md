@@ -14,7 +14,7 @@ Look in your next `task_wait` result for that `taskId`, or in a `task.completed`
 
 ### I cancelled a controller, but the character is still moving.
 
-`task_cancel` returns `cancelling` and asks the program to stop. Call `task_wait` until it shows `completed` or `delivered`, then check the position before you start a new controller. A program that exits without releasing its controls can leave them pressed. Closing the connection (`closeBridge()`) does not release them, so a controller should call `bot.clearControlStates()` and `await bot.flush()` first, as [navigate.mjs](navigate.mjs) does.
+`task_cancel` returns `cancelling` and asks the program to stop. Call `task_wait` until it shows `completed` or `delivered`, then check the position before you start a new controller. A program that exits without releasing its controls leaves them pressed for about 1 more second: the bridge releases the movement keys a program pressed once its connection has been closed that long (crash and `task_cancel` included). The character keeps moving during that second, so a controller should still call `bot.clearControlStates()` and `await bot.flush()` before it exits, as [navigate.mjs](navigate.mjs) does.
 
 ### I want something watched all the time. Will the example programs do that?
 
