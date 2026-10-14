@@ -452,7 +452,7 @@ test("out-of-process producers receive delivery receipts for queued messages", a
   assert.equal((await client.delivery(removed.id)).outcome, "removed");
 });
 
-test("running results carry only new output; full_output and the final result carry the retained tail", async (t) => {
+test("running results carry only new output; the final result carries the retained tail", async (t) => {
   const inbox = new Inbox();
   const tasks = new TaskManager({ inbox });
   t.after(() => tasks.close());
@@ -484,9 +484,6 @@ test("running results carry only new output; full_output and the final result ca
   assert.deepEqual(second.previouslyReturnedBytes, { stdout: 6, stderr: 6 });
   const nothing = await tasks.wait(id, { timeoutMs: 0 });
   assert.equal(nothing.stdout, "");
-  const full = await tasks.wait(id, { timeoutMs: 0, fullOutput: true });
-  assert.equal(full.stdout, "line0\nline1\n");
-  assert.equal(full.previouslyReturnedBytes, undefined);
   await writeFile(step, "3");
   const done = await tasks.wait(id);
   assert.equal(done.status, "completed");

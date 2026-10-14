@@ -226,18 +226,16 @@ export class TaskManager {
   }
   /**
    * A running result shows only output not shown by an earlier running
-   * result (unless `fullOutput`), so repeated waits on a chatty program do
+   * result, so repeated waits on a chatty program do
    * not repeat it. `previouslyReturnedBytes` counts what was left out.
    */
-  running(task, reason, fullOutput = false) {
+  running(task, reason) {
     const result = { ...this.snapshot(task), reason };
     const previously = {};
     for (const channel of ["stdout", "stderr"]) {
       const total = task.written[channel];
       const retainedFrom = total - task[channel].length;
-      const from = fullOutput
-        ? retainedFrom
-        : Math.max(task.returned[channel], retainedFrom);
+      const from = Math.max(task.returned[channel], retainedFrom);
       result[channel] = decodeTail(task[channel].subarray(from - retainedFrom));
       if (from > retainedFrom) previously[channel] = from - retainedFrom;
       task.returned[channel] = total;
@@ -246,7 +244,7 @@ export class TaskManager {
       result.previouslyReturnedBytes = previously;
     return result;
   }
-  async wait(id, { timeoutMs = Infinity, signal, fullOutput = false } = {}) {
+  async wait(id, { timeoutMs = Infinity, signal } = {}) {
     if (
       timeoutMs !== Infinity &&
       (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 2147483647)
@@ -260,7 +258,6 @@ export class TaskManager {
         task,
         this.urgentReason ||
           (signal?.aborted ? "caller detached" : "wait timeout"),
-        fullOutput,
       );
     const reason = await new Promise((resolve) => {
       let timer;
@@ -276,9 +273,7 @@ export class TaskManager {
       if (timeoutMs !== Infinity)
         timer = setTimeout(() => wake("wait timeout"), timeoutMs);
     });
-    return task.status === "completed"
-      ? finish()
-      : this.running(task, reason, fullOutput);
+    return task.status === "completed" ? finish() : this.running(task, reason);
   }
   releaseAll(reason = "urgent inbox message") {
     this.urgentReason = reason;

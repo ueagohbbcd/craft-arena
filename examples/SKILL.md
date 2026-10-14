@@ -49,14 +49,14 @@ How to read inbox reports:
 
 The `bash` tool here is not Pi's usual `bash`:
 
-|                          | Pi's usual `bash`                | `bash` in this arena                                                                                                                                         |
-| ------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| How long the call blocks | Until the command exits          | Up to the wait time: 30 seconds by default, or `wait_seconds` (`0` returns at once)                                                                          |
-| When that time is up     | `timeout` kills the command      | Returns `status: "running"` with a `taskId`. **The process keeps running**                                                                                   |
-| `timeout`                | Kill deadline                    | Still an optional kill deadline in seconds. Leave it unset for long programs                                                                                 |
-| Continue waiting         | Not possible                     | `task_wait({taskId, wait_seconds})`. A `running` result shows only output since the previous `running` result; `full_output: true` shows all retained output |
-| Stop it                  | Not possible                     | `task_cancel({taskId})`                                                                                                                                      |
-| Several programs         | Each needs its own blocking call | Each call starts its own task with its own `taskId`                                                                                                          |
+|                          | Pi's usual `bash`                | `bash` in this arena                                                                                          |
+| ------------------------ | -------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| How long the call blocks | Until the command exits          | Up to the wait time: 30 seconds by default, or `wait_seconds` (`0` returns at once)                           |
+| When that time is up     | `timeout` kills the command      | Returns `status: "running"` with a `taskId`. **The process keeps running**                                    |
+| `timeout`                | Kill deadline                    | Still an optional kill deadline in seconds. Leave it unset for long programs                                  |
+| Continue waiting         | Not possible                     | `task_wait({taskId, wait_seconds})`. A `running` result shows only output since the previous `running` result |
+| Stop it                  | Not possible                     | `task_cancel({taskId})`                                                                                       |
+| Several programs         | Each needs its own blocking call | Each call starts its own task with its own `taskId`                                                           |
 
 Other details:
 

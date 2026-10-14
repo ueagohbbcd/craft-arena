@@ -514,12 +514,11 @@ export default function arenaExtension(pi) {
   pi.registerTool({
     name: "task_wait",
     label: "Wait for process",
-    description: `Wait on an existing taskId without restarting it. wait_seconds defaults to ${waitSeconds} seconds; 0 polls. Wait expiry or urgent release returns running and leaves the process alive; its stdout/stderr hold only output not returned by an earlier running result (previouslyReturnedBytes counts the rest; full_output: true returns all retained output). Final output (the full retained tail) is delivered once here or by a task.completed inbox event; later waits return a delivered receipt with exitCode/signal.`,
+    description: `Wait on an existing taskId without restarting it. wait_seconds defaults to ${waitSeconds} seconds; 0 polls. Wait expiry or urgent release returns running and leaves the process alive; its stdout/stderr hold only output not returned by an earlier running result (previouslyReturnedBytes counts the rest). Final output (the full retained tail) is delivered once here or by a task.completed inbox event; later waits return a delivered receipt with exitCode/signal.`,
     parameters: {
       ...object({
         taskId: string,
         wait_seconds: seconds,
-        full_output: { type: "boolean" },
       }),
       required: ["taskId"],
     },
@@ -530,7 +529,6 @@ export default function arenaExtension(pi) {
       const result = await r.tasks.wait(params.taskId, {
         timeoutMs: (params.wait_seconds ?? waitSeconds) * 1000,
         signal,
-        fullOutput: params.full_output === true,
       });
       return {
         content: [text(result)],
