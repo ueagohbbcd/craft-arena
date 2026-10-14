@@ -135,6 +135,7 @@ flowchart LR
 - [AGENTS.md](AGENTS.md)：开发指南
 - [docs/ROADMAP.md](docs/ROADMAP.md)：待办
 - [docs/CONTEXT-DELIVERY.md](docs/CONTEXT-DELIVERY.md)：信息何时、从哪里送到模型
+- [docs/GAME-MODES.md](docs/GAME-MODES.md)：玩法、会话类型与服务器协议（设计稿）
 - [docs/VALIDATION.md](docs/VALIDATION.md)：验证状态与复现
 - [packages/pi-extension/README.md](packages/pi-extension/README.md)：启动器、工具、持续会话
 - [packages/tasks/README.md](packages/tasks/README.md)：任务管理
