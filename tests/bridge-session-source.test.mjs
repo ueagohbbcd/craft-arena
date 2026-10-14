@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { cliOptions } from "../packages/mf-bridge/cli.mjs";
 import { fakeServer } from "./helpers/fake-server.mjs";
 import {
+  hostSession,
   hostSessionReader,
   polledSession,
   serverSessionReader,
@@ -228,3 +229,100 @@ test("server mode keeps the bot across rounds; host mode stops it on an observed
 async function pollOnce(options) {
   await options.session.poll();
 }
+
+test("host sessions stop the bot when ending begins and exit once the host is gone", async () => {
+  const states = ["running", "ending", "ended"];
+  let fail = false,
+    gone = 0,
+    stops = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    if (fail) throw new Error("connection refused");
+    return new Response(
+      JSON.stringify({ ok: true, result: { state: states[0] } }),
+    );
+  };
+  try {
+    const session = hostSession({
+      url: "http://host.invalid/v1/participants/red1/session",
+      token: "host-token",
+      intervalMs: 60000,
+      onGone: () => gone++,
+    });
+    await session.start({ stopGame: async () => void stops++ });
+    assert.equal(session.ended(), false);
+    states.shift();
+    await session.poll();
+    // Controls and the bot stop at `ending`, before the host's final reads.
+    assert.equal(stops, 1);
+    assert.equal(session.ended(), true);
+    assert.equal(session.authorizeAction(), false);
+    states.shift();
+    await session.poll();
+    assert.equal(stops, 1);
+    // The host shuts down after serving the final state.
+    fail = true;
+    for (let i = 0; i < 4; i++) await session.poll();
+    assert.equal(gone, 1);
+    assert.equal(session.getMatchState().state, "ended");
+    session.close();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("host sessions never exit on failed reads before their match ends", async () => {
+  let gone = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    throw new Error("host not up yet");
+  };
+  try {
+    const session = hostSession({
+      url: "http://host.invalid/v1/participants/red1/session",
+      token: "host-token",
+      intervalMs: 60000,
+      onGone: () => gone++,
+    });
+    await session.start({ stopGame: async () => {} });
+    for (let i = 0; i < 5; i++) await session.poll();
+    assert.equal(gone, 0);
+    session.close();
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
+
+test("server sessions give every round its own clock", async () => {
+  let t = 0;
+  const state = { session: '{version:1,state:"running",winner:""}' };
+  const read = serverSessionReader({
+    rcon: fakeRcon(state),
+    username: () => "arena_red1",
+    sessionId: "s",
+    now: () => t,
+  });
+  t = 1000;
+  assert.equal((await read()).startedAt, 1000);
+  state.session = '{version:1,state:"ended",winner:"red"}';
+  t = 4000;
+  assert.equal((await read()).elapsedMs, 3000);
+  // Round two: prepared again, then started.
+  state.session = '{version:1,state:"waiting",winner:""}';
+  t = 10000;
+  let s = await read();
+  assert.equal(s.startedAt, null);
+  assert.equal(s.elapsedMs, null);
+  state.session = '{version:1,state:"running",winner:""}';
+  t = 12000;
+  s = await read();
+  assert.equal(s.startedAt, 12000);
+  t = 13000;
+  assert.equal((await read()).elapsedMs, 1000);
+  // Restarted straight from ended, without a prepare.
+  state.session = '{version:1,state:"ended",winner:""}';
+  await read();
+  state.session = '{version:1,state:"running",winner:""}';
+  t = 20000;
+  assert.equal((await read()).startedAt, 20000);
+});

@@ -11,6 +11,13 @@ services:
   minecraft:
     <<: *restricted
     mem_limit: ${MC_MEMORY_LIMIT:-3g}
+    # Bridges connect only once the server accepts players (cold start).
+    healthcheck:
+      test: [CMD, bash, -c, 'echo > /dev/tcp/127.0.0.1/25565']
+      interval: 5s
+      timeout: 3s
+      retries: 60
+      start_period: 20s
     image: ${MC_SERVER_IMAGE:-craft-arena-minecraft:local}
     build:
       context: ${MC_SERVER_BUILD_CONTEXT:-../runtime/server}
@@ -101,7 +108,9 @@ services:
     command:
     - node
     - packages/mf-bridge/cli.mjs
-    depends_on: [minecraft]
+    depends_on:
+      minecraft:
+        condition: service_healthy
     environment:
       MF_HOST: minecraft
       MF_VERSION: ${MC_VERSION:-1.21.1}
@@ -128,7 +137,9 @@ services:
     command:
     - node
     - packages/mf-bridge/cli.mjs
-    depends_on: [minecraft]
+    depends_on:
+      minecraft:
+        condition: service_healthy
     environment:
       MF_HOST: minecraft
       MF_VERSION: ${MC_VERSION:-1.21.1}

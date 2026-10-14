@@ -48,6 +48,12 @@ export function cliOptions(
     now = Date.now,
     readPrompt = (path) => readFileSync(path),
     cwd = process.cwd(),
+    // After its match is over and the host has shut down, a host-mode bridge
+    // exits so `docker compose up` starts it fresh for the next match.
+    onHostGone = () => {
+      console.error("Arena host gone after the session ended; exiting");
+      process.exit(0);
+    },
   } = {},
 ) {
   const required = (name) => {
@@ -132,6 +138,7 @@ export function cliOptions(
             url: required("BRIDGE_HOST_URL"),
             token: required("BRIDGE_HOST_TOKEN"),
             intervalMs,
+            onGone: onHostGone,
           })
         : serverSession({
             rcon: {
@@ -159,7 +166,12 @@ if (
 ) {
   const options = cliOptions();
   const service = await startLiveBridge(options);
-  options.session?.setUsername(service.bot.username);
+  // With MF_AUTH=microsoft the in-game name is only known after login.
+  const refreshUsername = () =>
+    options.session?.setUsername(service.bot.username);
+  refreshUsername();
+  service.bot.once?.("login", refreshUsername);
+  service.bot.once?.("spawn", refreshUsername);
   await options.session?.start?.(service);
   console.log(`Capability bridge listening at ${service.url}`);
   service.bot.on("error", (error) =>

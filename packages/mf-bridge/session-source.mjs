@@ -8,7 +8,12 @@ import { sessionObject } from "./session-object.mjs";
  * reading at /v1/session, allows actions only while it is `running`, and
  * calls `onChange(next, previous)` when the state changes.
  */
-export function polledSession({ read, intervalMs = 250, onChange = () => {} }) {
+export function polledSession({
+  read,
+  intervalMs = 250,
+  onChange = () => {},
+  onError = () => {},
+}) {
   let current,
     timer,
     polling,
@@ -25,6 +30,7 @@ export function polledSession({ read, intervalMs = 250, onChange = () => {} }) {
       if (previous?.state !== next.state) await onChange(next, previous);
     } catch {
       failures++;
+      onError(failures);
     } finally {
       polling = false;
     }
@@ -92,6 +98,13 @@ export function serverSessionReader({
     configState;
   return async () => {
     const session = await readSession(rcon);
+    // A new round (prepared again, or restarted after an end) gets its own
+    // clock; the bot and bridge stay from round to round.
+    if (
+      session.state === "waiting" ||
+      (configState === "ended" && session.state !== "ended")
+    )
+      startedAt = endedAt = null;
     if (session.state !== configState) {
       config = await readConfig(rcon).catch(() => null);
       configState = session.state;
@@ -129,25 +142,42 @@ export function serverSessionReader({
   };
 }
 
+// The host publishes `ending` while it stops the game and saves results.
+const FINISHED = new Set(["ending", "ended"]);
+// Consecutive failed reads after the end that mean the host has shut down.
+const HOST_GONE_FAILURES = 3;
+
 /**
  * A bridge session polled from the arena host. A host session is one match:
- * when the bridge sees it change to ended it stops the game but keeps
- * serving the final state. A stale "ended" read at startup is not an end.
+ * as soon as the bridge sees it ending it stops the game (releases controls,
+ * quits the bot) but keeps serving the final state. A stale end read at
+ * startup is not an end. Once the match is over and the host has shut down,
+ * `onGone` runs so the bridge can exit and be started fresh for the next one.
  */
-export function hostSession({ url, token, intervalMs }) {
-  let service;
+export function hostSession({ url, token, intervalMs, onGone = () => {} }) {
+  let service,
+    finished = false;
   const polled = polledSession({
     intervalMs,
     read: hostSessionReader({ url, token }),
     onChange: async (next, previous) => {
-      if (next.state === "ended" && previous && previous.state !== "ended")
+      if (
+        FINISHED.has(next.state) &&
+        previous &&
+        !FINISHED.has(previous.state)
+      ) {
+        finished = true;
         await service?.stopGame().catch(() => {});
+      }
+    },
+    onError: (failures) => {
+      if (finished && failures === HOST_GONE_FAILURES) onGone();
     },
   });
   return {
     getMatchState: () => polled.getMatchState(),
     authorizeAction: () => polled.authorizeAction(),
-    ended: () => polled.state === "ended",
+    ended: () => FINISHED.has(polled.state),
     poll: () => polled.poll(),
     async start(started) {
       service = started;

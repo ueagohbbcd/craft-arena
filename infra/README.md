@@ -156,6 +156,8 @@ C stop minecraft                               # 最后停，且只在录像已�
 
 - 删掉 `/control/start`，否则主控拒绝准备。
 - 重启预算网关。它的账本只在内存里，不重启会带着上一场的计数。
+- 游戏桥不用手动处理：比赛结束时它们停掉 bot，比赛主控停止后它们自己退出，下一次 `docker compose up` 会重新启动并连上新的 bot。如果某个游戏桥没退出（例如手动停过主控又立刻重启），用 `docker compose up -d --force-recreate bridge-red1 bridge-blue1` 重建。
+- 冷启动时，游戏桥等 Minecraft 的健康检查通过（端口 25565 能连上）才启动。
 - 按需要恢复地图。通用部署没有重置脚本；Windows 的 `reset` 做了什么见 [windows-local/README.md](windows-local/README.md)。
 - 参赛者工作区里上一场的代码会保留下来。新开局时清空工作区还在[路线图](../docs/ROADMAP.md)上。
 

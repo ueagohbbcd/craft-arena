@@ -131,7 +131,7 @@ Each participant also needs `username` and, with internal bridges, `bridge: {por
 
 **External bridges** (`live.bridges: "external"`, used by both shipped Compose deployments). Each participant's bridge is its own container on its own team network, started with `BRIDGE_SESSION=host` ([bridge CLI](../mf-bridge/README.md#standalone-cli)); the host sits only on the backend network. The host then:
 
-- serves `GET /v1/participants/{id}/session` (bearer `sessionServer.tokenEnv`) with the same session object an internal bridge serves; bridges poll it, allow actions only while it is `running`, and stop their bot when it changes to `ended`;
+- serves `GET /v1/participants/{id}/session` (bearer `sessionServer.tokenEnv`) with the same session object an internal bridge serves; bridges poll it, allow actions only while it is `running`, and stop their bot as soon as it changes to `ending` (controls released before the final `#arena:stop` read); after the match, once this host stops, they exit so the next `docker compose up` starts them fresh;
 - waits in prepare until every participant's username is online (`list` over RCON, up to `readyTimeoutMs`) instead of starting bots;
 - counts deaths with a `deathCount` scoreboard objective `arena_deaths`, read when the session ends;
 - treats a participant missing from `list` while a `match` runs as a disconnect and ends it `abandoned`.

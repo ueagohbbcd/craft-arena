@@ -117,12 +117,18 @@ export function checkDeployment({ compose, match, budgets = [] }) {
         fail(`${bridgeName}: BRIDGE_PORT ${benv.BRIDGE_PORT} != ${url.port}`);
       if (benv.BRIDGE_SESSION !== "host")
         fail(`${bridgeName}: BRIDGE_SESSION must be host`);
+      let hostUrl;
+      try {
+        hostUrl = new URL(benv.BRIDGE_HOST_URL);
+      } catch {}
       if (
-        !String(benv.BRIDGE_HOST_URL ?? "").endsWith(
-          `/v1/participants/${p.id}/session`,
-        )
+        hostUrl?.hostname !== "arena-host" ||
+        hostUrl.port !== String(match.live.sessionServer?.port) ||
+        hostUrl.pathname !== `/v1/participants/${p.id}/session`
       )
-        fail(`${bridgeName}: BRIDGE_HOST_URL is not ${p.id}'s session`);
+        fail(
+          `${bridgeName}: BRIDGE_HOST_URL is not http://arena-host:${match.live.sessionServer?.port}/v1/participants/${p.id}/session`,
+        );
       if (
         variable(benv.BRIDGE_HOST_TOKEN) !== match.live.sessionServer?.tokenEnv
       )

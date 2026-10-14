@@ -80,7 +80,11 @@ test("roster mismatches and isolation breaks are reported", async () => {
       (d) =>
         (d.compose.services["bridge-red1"].environment.BRIDGE_HOST_URL =
           "http://arena-host:9000/v1/participants/blue1/session"),
-      /BRIDGE_HOST_URL is not red1's session/,
+      /BRIDGE_HOST_URL is not http:\/\/arena-host:9000\/v1\/participants\/red1\/session/,
+    ],
+    [
+      (d) => (d.match.live.sessionServer.port = 9100),
+      /bridge-red1: BRIDGE_HOST_URL is not http:\/\/arena-host:9100/,
     ],
   ];
   for (const [mutate, expected] of cases) {
