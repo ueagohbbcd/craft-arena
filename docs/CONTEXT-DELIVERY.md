@@ -9,7 +9,7 @@
 代理不会每来一行输出就调用一次模型：每次调用都要花预算、排队，还会把上下文塞满。所以工具调用会先等待，有结果再返回。本项目的 `bash` 和 `task_wait` 在两种情况下返回：
 
 - 进程结束：返回 `completed` 和输出。
-- 等待时长用完（默认 30 秒，`wait_seconds` 或 `ARENA_TOOL_WAIT_SECONDS` 可改）：返回 `running` 和 `taskId`，**进程继续运行**。模型之后用 `task_wait` 接着等，或用 `task_cancel` 停掉。
+- 等待时长用完（默认 30 秒，`wait_seconds` 或 `ARENA_TOOL_WAIT_SECONDS` 可改）：返回 `running` 和 `taskId`，**进程继续运行**，并带上程序到目前为止的输出。之后每次返回 `running` 只带上次返回之后的新输出（`previouslyReturnedBytes` 说明省掉了多少），持续打日志的程序不会把同样的输出一遍遍塞进上下文；`task_wait` 的 `full_output: true` 取回全部保留的输出。程序结束时的结果仍带完整的保留输出。模型之后用 `task_wait` 接着等，或用 `task_cancel` 停掉。
 
 Pi 原生的 `bash` 不是这样：它一直阻塞到命令结束，超时或中止时杀掉进程。本项目把“这次等多久”和“进程活多久”分开：`timeout` 是单独的终止期限，中止一次工具调用只让它不再等待，不会结束进程。
 

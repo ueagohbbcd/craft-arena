@@ -6,7 +6,7 @@ Short answers to mistakes that keep coming up. The full manual is [SKILL.md](SKI
 
 ### My `bash` call returned `running`. Did the program fail?
 
-No. The wait time ran out, or an urgent report ended the wait. The program is still running. Call `task_wait` with the same `taskId`, or `task_cancel` it. Do not start it again, or two copies will fight over the character.
+No. The wait time ran out, or an urgent report ended the wait. The program is still running. Call `task_wait` with the same `taskId`, or `task_cancel` it. Do not start it again, or two copies will fight over the character. Each `running` result shows only the output printed since the previous `running` result for that task; pass `full_output: true` to `task_wait` to see all retained output again.
 
 ### A program finished while I was thinking. Where is its output?
 

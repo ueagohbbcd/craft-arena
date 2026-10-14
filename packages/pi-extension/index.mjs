@@ -485,7 +485,7 @@ export default function arenaExtension(pi) {
   pi.registerTool({
     name: "bash",
     label: "bash",
-    description: `Run command once in the workspace. Returns JSON taskId, status and retained stdout/stderr; completed adds exitCode/signal. wait_seconds defaults to ${waitSeconds} seconds; 0 returns immediately. Wait expiry or urgent input returns running without stopping the process. timeout is a separate kill deadline in seconds. Resume with task_wait; stop with task_cancel.`,
+    description: `Run command once in the workspace. Returns JSON taskId, status and retained stdout/stderr; completed adds exitCode/signal. Later running results from task_wait carry only new output. wait_seconds defaults to ${waitSeconds} seconds; 0 returns immediately. Wait expiry or urgent input returns running without stopping the process. timeout is a separate kill deadline in seconds. Resume with task_wait; stop with task_cancel.`,
     parameters: {
       ...object({ command: string, timeout: seconds, wait_seconds: seconds }),
       required: ["command"],
@@ -514,9 +514,13 @@ export default function arenaExtension(pi) {
   pi.registerTool({
     name: "task_wait",
     label: "Wait for process",
-    description: `Wait on an existing taskId without restarting it. wait_seconds defaults to ${waitSeconds} seconds; 0 polls. Wait expiry or urgent release returns running with retained stdout/stderr and leaves the process alive. Final output is delivered once here or by a task.completed inbox event; later waits return a delivered receipt with exitCode/signal.`,
+    description: `Wait on an existing taskId without restarting it. wait_seconds defaults to ${waitSeconds} seconds; 0 polls. Wait expiry or urgent release returns running and leaves the process alive; its stdout/stderr hold only output not returned by an earlier running result (previouslyReturnedBytes counts the rest; full_output: true returns all retained output). Final output (the full retained tail) is delivered once here or by a task.completed inbox event; later waits return a delivered receipt with exitCode/signal.`,
     parameters: {
-      ...object({ taskId: string, wait_seconds: seconds }),
+      ...object({
+        taskId: string,
+        wait_seconds: seconds,
+        full_output: { type: "boolean" },
+      }),
       required: ["taskId"],
     },
     executionMode: "parallel",
@@ -526,6 +530,7 @@ export default function arenaExtension(pi) {
       const result = await r.tasks.wait(params.taskId, {
         timeoutMs: (params.wait_seconds ?? waitSeconds) * 1000,
         signal,
+        fullOutput: params.full_output === true,
       });
       return {
         content: [text(result)],
