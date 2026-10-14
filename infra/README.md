@@ -42,7 +42,7 @@
    - `live.minecraft.version` 必须与下载清单的 `minecraftVersion` 一致。
    - 纪念碑坐标是否公开由数据包决定（`map.mcfunction` 里的 `publishGoals`）。不要把秘密写进 `briefing`。
    - 游戏内聊天默认开启（包括 `/tell`、`/teammsg` 这类普通命令）。要关掉，在参赛者的 `bridge` 里设 `allowChat: false`。
-   - 参赛者 ID、游戏桥端口和令牌必须和 Compose 文件、预算文件一致。
+   - 参赛者 ID、用户名、游戏桥地址和令牌变量必须和 Compose 文件、预算文件一致。用 `node scripts/check-deployment.mjs --compose infra/compose.live.yaml --match infra/match.live.json --budget infra/budget.cash.live.example.json` 检查（也检查参赛容器只能访问本队游戏桥、预算网关只拿只读令牌）；Windows 初始化脚本会自动运行它。
    - 旧格式的配置（顶层 `game`、`rules`、`durationMs` 或 `live.goals`）不再支持，主控会拒绝并提示改用数据包。
 
 ### 玩法与判定器

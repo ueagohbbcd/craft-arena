@@ -59,6 +59,9 @@ try {
     foreach ($file in @('compose.yaml','budget.red.json','budget.blue.json','model.red.json','model.blue.json')) { Copy-Item -LiteralPath (Join-Path $template $file) -Destination $stage }
     $matchDocument.live | Add-Member -NotePropertyName runtimeFaultSignalFile -NotePropertyValue '/control/runtime-fault.json' -Force
     $matchDocument | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $stage 'match.live.json') -Encoding utf8
+    # The operator's match config must agree with the Compose and budget templates.
+    & $node (Join-Path $repo 'scripts/check-deployment.mjs') --compose (Join-Path $stage 'compose.yaml') --match (Join-Path $stage 'match.live.json') --budget (Join-Path $stage 'budget.red.json') --budget (Join-Path $stage 'budget.blue.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Participant roster differs between match config, Compose and budget files (see above).' }
     $prepareArgs = @((Join-Path $repo 'scripts/prepare-minecraft-server.mjs'), (Join-Path $stage 'server'), '--manifest', $ServerDownload)
     if ($ServerJar) { $prepareArgs += @('--server-jar', $ServerJar) }
     & $node @prepareArgs

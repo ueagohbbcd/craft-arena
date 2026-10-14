@@ -42,6 +42,7 @@
     "prismarine-viewer": "1.33.0"
   },
   "devDependencies": {
-    "prettier": "3.9.9"
+    "prettier": "3.9.9",
+    "yaml": "2.9.0"
   }
 }

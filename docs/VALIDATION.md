@@ -38,6 +38,11 @@
 | 预算网关：计量、限速、排队、只给比例 | 真实 Pi 测试 | `tests/budget-*.test.mjs`、`tests/integration-pi.test.mjs` | 2026-10-11 部署时连过真实模型，当时走的是已删除的 OAuth 适配器 |
 | 比赛主控：生命周期、RCON、判定 | 实服验证 | `tests/arena-*.test.mjs`（含本地 TCP RCON）；2026-10-14 实服运行，见下方[服务器协议实服运行](#服务器协议实服运行) | `live-cli.mjs` 带两个真实 Mineflayer bot 跑完准备、开赛、数据包判胜、结束；没有参赛模型 |
 | 服务器协议 v1、`race-of-wool`／`arena-example` 数据包 | 实服验证 | `tests/datapack-*.test.mjs`（静态）；2026-10-14 实服运行 | 胜、平、时限停止、拆除目标回落、区块强制加载与释放；Direct Fire 地图本身没有装进去跑 |
+| 游戏桥独立服务（`BRIDGE_SESSION=host`）与无主控模式（`BRIDGE_SESSION=server`） | 实服验证 | `tests/bridge-session-source.test.mjs`、`tests/arena-live.test.mjs`；`npm run verify:server`（CI 每次推送） | 外部游戏桥跑完一局并在结束时停掉 bot；无主控模式手动开关一轮，动作按状态放行 |
+| 程序断开后自动松开按键 | 实服验证 | `tests/bridge-control-lease.test.mjs`；2026-10-14 实服复现与复验 | 修复前程序退出后 bot 一直走（约 30 格），修复后约 1 秒后停下 |
+| 预算网关只读状态令牌 | 夹具测试 | `tests/bridge-status-token.test.mjs`、`tests/check-deployment.test.mjs` | |
+| 参赛镜像只含参赛侧代码 | 夹具测试 | `tests/deployment.test.mjs`；按清单复制的目录能加载全部参赛侧模块 | 没有在这个环境里构建镜像（没有 Docker 守护进程） |
+| 部署配置一致性检查 | 夹具测试 | `tests/check-deployment.test.mjs` | Windows 初始化时自动运行，PowerShell 部分没有在 Windows 上跑过 |
 | 服务端录像 | 夹具测试 | `tests/server-replay.test.mjs` | 真实服务器录像输出与回放播放都没验收 |
 | 开局图像、截图脚本 | 夹具测试 | `tests/opening-delivery.test.mjs`、`tests/visual-*.test.mjs` | 真实 Chromium 测试需 `MC_TEST_CHROMIUM=1`；上次跑通是 2026-10-11 的 Windows 部署，在删除 Pi 里的图像工具之前 |
 | Unix socket 收件箱 | 夹具测试 | `tests/inbox.test.mjs` | 运行环境拒绝绑定（`EPERM`）时这项跳过，只剩 loopback HTTP |
