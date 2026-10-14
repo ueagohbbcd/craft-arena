@@ -83,6 +83,7 @@ This is the participant image's `CMD` ([infra/Dockerfile.participant](../../infr
 In a continuous session the launcher polls the bridge's `/v1/session` every 2 s, through the same validated reader as the clock:
 
 - **Opening prompt.** `ARENA_PROMPT`, or a generic instruction. With `ARENA_WAIT_FOR_MATCH=1` (requires the bridge settings) the launcher waits until the session host reports `running`, then adds the session briefing. The briefing is the public session fields as JSON (kind, session ID, teams, map, objectives, start time and duration), then `briefing.text`, then `briefing.public`, then `briefing.prompt` labelled "Mode instructions (from the trusted session host)". Without the wait, a match prompt is sent at once with no briefing; an open session that answers within 1 s gets its briefing. If no running session is seen within `ARENA_START_TIMEOUT_MS` (600000) the launcher exits with status 1.
+- **Session files.** With a session known, before the opening prompt the launcher writes copies of the briefing to `ARENA_SESSION_DIR` ([session-files.mjs](session-files.mjs)): `session.json` (the public session fields), `briefing.md` (`briefing.text` and the mode instructions, when either is set) and `public.json` (`briefing.public`, rewritten whenever the 2 s poll sees it change). The opening prompt lists these paths and, after them, the top-level files in `ARENA_RULES_DIR` (an operator's read-only rule files). After context compaction the model can re-read the exact text. The files are a copy for the model; nothing reads them back as trusted input.
 - **No opening images.** The opening prompt is text only. The model takes screenshots itself with `examples/screenshot.mjs` ([world-visual README](../world-visual/README.md)).
 - **Session end.** When the session host reports `ended`, the launcher closes Pi's input, then sends SIGTERM after 5 s and SIGKILL 1 s later. The task manager stops all tasks on session shutdown.
 
@@ -109,21 +110,23 @@ Pi compacts when the context reaches `contextWindow − reserveTokens`. The summ
 
 Launcher (read by [bootstrap.mjs](bootstrap.mjs)):
 
-| Variable                                 | Default              | Meaning                                                                                                                    |
-| ---------------------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `ARENA_MODEL_CONFIG`                     | required             | Path to the model descriptor JSON (relative to the working directory).                                                     |
-| `OPENAI_BASE_URL`                        | required             | Budget gateway URL, `http(s)`, no credentials, query or fragment.                                                          |
-| `OPENAI_API_KEY`                         | required             | This participant's gateway key.                                                                                            |
-| `ARENA_BRIDGE_URL`, `ARENA_BRIDGE_TOKEN` | unset                | This participant's bridge. Needed for session polling, request recovery, default scripts, `observe` and the idle reminder. |
-| `ARENA_WAIT_FOR_MATCH`                   | unset                | `1`: send the opening prompt only once the session is `running` (continuous session only).                                 |
-| `ARENA_START_TIMEOUT_MS`                 | `600000`             | How long to wait for a running session before exiting with status 1.                                                       |
-| `ARENA_PROMPT`                           | built-in text        | Opening prompt text.                                                                                                       |
-| `ARENA_EXTRA_EXTENSIONS`                 | empty                | Comma-separated extra Pi extension paths.                                                                                  |
-| `ARENA_RETRY_DELAY_MS`                   | `2000`               | First request-recovery delay.                                                                                              |
-| `ARENA_RETRY_MAX_DELAY_MS`               | `60000`              | Request-recovery delay ceiling.                                                                                            |
-| `PI_CODING_AGENT_SESSION_DIR`            | `<cwd>/.pi/sessions` | Where Pi keeps session records.                                                                                            |
+| Variable                                 | Default               | Meaning                                                                                                                                                       |
+| ---------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ARENA_MODEL_CONFIG`                     | required              | Path to the model descriptor JSON (relative to the working directory).                                                                                        |
+| `OPENAI_BASE_URL`                        | required              | Budget gateway URL, `http(s)`, no credentials, query or fragment.                                                                                             |
+| `OPENAI_API_KEY`                         | required              | This participant's gateway key.                                                                                                                               |
+| `ARENA_BRIDGE_URL`, `ARENA_BRIDGE_TOKEN` | unset                 | This participant's bridge. Needed for session polling, request recovery, default scripts, `observe` and the idle reminder.                                    |
+| `ARENA_WAIT_FOR_MATCH`                   | unset                 | `1`: send the opening prompt only once the session is `running` (continuous session only).                                                                    |
+| `ARENA_START_TIMEOUT_MS`                 | `600000`              | How long to wait for a running session before exiting with status 1.                                                                                          |
+| `ARENA_PROMPT`                           | built-in text         | Opening prompt text.                                                                                                                                          |
+| `ARENA_SESSION_DIR`                      | a temporary directory | Where the launcher writes the session files (continuous session only). The participant image sets `/arena/session`. A temporary directory is removed on exit. |
+| `ARENA_RULES_DIR`                        | unset                 | Read-only directory of rule files listed in the opening prompt. The participant image sets `/arena/rules`; a missing directory lists nothing.                 |
+| `ARENA_EXTRA_EXTENSIONS`                 | empty                 | Comma-separated extra Pi extension paths.                                                                                                                     |
+| `ARENA_RETRY_DELAY_MS`                   | `2000`                | First request-recovery delay.                                                                                                                                 |
+| `ARENA_RETRY_MAX_DELAY_MS`               | `60000`               | Request-recovery delay ceiling.                                                                                                                               |
+| `PI_CODING_AGENT_SESSION_DIR`            | `<cwd>/.pi/sessions`  | Where Pi keeps session records.                                                                                                                               |
 
-Set by the launcher for Pi: `ARENA_TOOLKIT_ROOT`, `PI_OFFLINE=1`, `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`, and in a continuous session `ARENA_CONTINUOUS_SESSION=1` and `ARENA_WAKE_ON_URGENT` (default `1`).
+Set by the launcher for Pi: `ARENA_TOOLKIT_ROOT`, `ARENA_SESSION_DIR` (continuous session), `PI_OFFLINE=1`, `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`, and in a continuous session `ARENA_CONTINUOUS_SESSION=1` and `ARENA_WAKE_ON_URGENT` (default `1`).
 
 Extension (read by [index.mjs](index.mjs) and its modules):
 

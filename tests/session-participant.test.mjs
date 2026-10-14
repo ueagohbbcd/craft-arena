@@ -426,3 +426,65 @@ test("startChatForwarder rejects an unknown wake mode", () => {
     /ARENA_CHAT_WAKE/,
   );
 });
+
+test("openingPromptText lists session and rule files after the briefing", () => {
+  const text = openingPromptText(
+    "Base",
+    { sessionId: "s1" },
+    {
+      sessionFiles: ["/s/session.json", "/s/public.json"],
+      ruleFiles: ["/rules/RULES.md"],
+    },
+  );
+  assert.ok(text.indexOf("/s/session.json") > text.indexOf("s1"));
+  assert.match(
+    text,
+    /Rule files from the operator \(read-only\):\n\/rules\/RULES\.md/,
+  );
+  assert.match(
+    openingPromptText("Base", undefined, { ruleFiles: ["/r/a.md"] }),
+    /\/r\/a\.md/,
+  );
+});
+
+test("session files copy public fields, skip an empty briefing and rewrite public data only on change", async (t) => {
+  const { mkdtemp, mkdir, readFile, rm, writeFile, access } =
+    await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { createSessionFiles, listRuleFiles } =
+    await import("../packages/pi-extension/session-files.mjs");
+  const dir = await mkdtemp(join(tmpdir(), "session-files-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const files = createSessionFiles({ directory: join(dir, "session") });
+  const host = {
+    sessionId: "s1",
+    secret: "no",
+    briefing: { public: { a: 1 } },
+  };
+  const written = await files.write(host);
+  assert.deepEqual(written, [files.files.session, files.files.public]);
+  assert.deepEqual(JSON.parse(await readFile(files.files.session, "utf8")), {
+    sessionId: "s1",
+  });
+  await assert.rejects(access(files.files.briefing));
+  assert.equal(await files.updatePublic(host), false);
+  assert.equal(
+    await files.updatePublic({ briefing: { public: { a: 2 } } }),
+    true,
+  );
+  assert.deepEqual(JSON.parse(await readFile(files.files.public, "utf8")), {
+    a: 2,
+  });
+  const rules = join(dir, "rules");
+  assert.deepEqual(await listRuleFiles(rules), []);
+  assert.deepEqual(await listRuleFiles(undefined), []);
+  await mkdir(join(rules, "nested"), { recursive: true });
+  await writeFile(join(rules, "b.md"), "");
+  await writeFile(join(rules, "a.md"), "");
+  await writeFile(join(rules, ".hidden"), "");
+  assert.deepEqual(await listRuleFiles(rules), [
+    join(rules, "a.md"),
+    join(rules, "b.md"),
+  ]);
+});

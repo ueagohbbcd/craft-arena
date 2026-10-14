@@ -46,6 +46,7 @@
 | ✅   | 把羊毛竞速地图移植成数据包（`infra/datapacks/race-of-wool`），删除 `monument-blocks`、旧配置转换和 `/v1/match` 别名；实服验证         |
 | ⬜   | 补测试：游戏桥 CLI（`cliOptions`、提示词大小上限、`MF_AUTH`）、`open` 会话的时钟、开局提示里的简报、启动器的 `open` 会话、`chatWakes` |
 | ⬜   | 协议 v1 给没有队伍的 `open` 会话传玩家名单（现在 `arena:config` 的 `teams` 为空，数据包看不到 bot）                                   |
+| ✅   | 会话目录：启动器把简报复制到 `ARENA_SESSION_DIR`（`session.json`、`briefing.md`、`public.json`，`public` 变化时更新），开局提示列出这些文件和 `ARENA_RULES_DIR` 下的规则书 |
 | ⬜   | `briefing.public` 的大小上限；比赛中 `public` 变化时发平台消息                                                                        |
 | ✅   | 观察器的目标物品和关注物品改读 `briefing.public.goals`／`watchItems`（不再写死羊毛）                                                  |
 

@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readFile, writeFile, lstat } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  rm,
+  readFile,
+  writeFile,
+  lstat,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import extension, {
@@ -684,13 +691,14 @@ test("urgent at a final boundary continues exactly once; late settled urgent is 
 
 test(
   "live resident waits for running, sends one public briefing, then exits on host end",
-  { timeout: 15000 },
+  { timeout: 20000 },
   async (t) => {
     const http = await import("node:http");
     const { once } = await import("node:events");
     const { spawn } = await import("node:child_process");
     const dir = await mkdtemp(join(tmpdir(), "pi-start-guard-"));
     let state = "prepared";
+    let published = { goal: "first" };
     const requests = [];
     let child;
     let stderr = "";
@@ -708,7 +716,11 @@ test(
               teams: [{ id: "blue" }, { id: "red" }],
               map: { id: "public-map", version: "v1" },
               objectives: ["wool"],
-              briefing: { text: "public fixture briefing" },
+              briefing: {
+                text: "public fixture briefing",
+                prompt: "fixture mode rules",
+                public: published,
+              },
               privateSecret: "never forward",
               state,
               startedAt: state === "prepared" ? null : Date.now() - 1000,
@@ -737,6 +749,10 @@ test(
       await rm(dir, { recursive: true, force: true });
     });
     const url = `http://127.0.0.1:${server.address().port}`;
+    const sessionDir = join(dir, "session");
+    const rulesDir = join(dir, "rules");
+    await mkdir(rulesDir);
+    await writeFile(join(rulesDir, "RULES.md"), "fixture rulebook");
     child = spawn(
       process.execPath,
       [
@@ -756,6 +772,8 @@ test(
           ARENA_DEFAULT_SCRIPTS: "",
           ARENA_WAIT_FOR_MATCH: "1",
           ARENA_START_TIMEOUT_MS: "10000",
+          ARENA_SESSION_DIR: sessionDir,
+          ARENA_RULES_DIR: rulesDir,
           MC_INBOX_TRANSPORT: "http",
           MC_INBOX_TOKEN: "guard-loopback-fixture-token",
         },
@@ -779,6 +797,29 @@ test(
     assert.match(context, /blue-one/);
     assert.match(context, /teamId/);
     assert.doesNotMatch(context, /never forward/);
+    assert.ok(context.includes(join(sessionDir, "session.json")));
+    assert.ok(context.includes(join(rulesDir, "RULES.md")));
+    const session = JSON.parse(
+      await readFile(join(sessionDir, "session.json"), "utf8"),
+    );
+    assert.equal(session.participantId, "blue-one");
+    assert.equal(session.privateSecret, undefined);
+    assert.match(
+      await readFile(join(sessionDir, "briefing.md"), "utf8"),
+      /public fixture briefing[\s\S]*fixture mode rules/,
+    );
+    const publicFile = join(sessionDir, "public.json");
+    assert.deepEqual(JSON.parse(await readFile(publicFile, "utf8")), {
+      goal: "first",
+    });
+    published = { goal: "second" };
+    const publicDeadline = Date.now() + 5000;
+    while (
+      JSON.parse(await readFile(publicFile, "utf8")).goal !== "second" &&
+      Date.now() < publicDeadline
+    )
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(JSON.parse(await readFile(publicFile, "utf8")).goal, "second");
     state = "ended";
     const [code] = await once(child, "exit");
     assert.equal(code, 0, stderr);

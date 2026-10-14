@@ -81,6 +81,12 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
 
 不比赛、只想让模型在普通服务器上陪玩时，不需要比赛主控：游戏桥自己提供一个 `open` 会话，部署模板见 [companion/README.md](companion/README.md)。手动开局的小游戏也不需要比赛主控：游戏桥用 `BRIDGE_SESSION=server` 直接从服务器读 `arena:session`，管理员在游戏里执行 `function #arena:prepare`／`#arena:start`／`#arena:stop` 即可，见[游戏桥 README](../packages/mf-bridge/README.md#standalone-cli)。
 
+### 规则书和会话文件
+
+参赛容器启动时，启动器把会话简报复制到 `/arena/session`（`session.json`、`briefing.md`、`public.json`），开局提示里列出这些路径；`public.json` 在服务器改公开数据时更新。上下文压缩后，模型可以重新读原文。
+
+要给模型一份规则书，把文件放进 `infra/rules/`（两个 Compose 部署都把它只读挂到 `/arena/rules`），开局提示会列出其中的顶层文件。以 `.` 开头的文件不列出。不要放只给运营者看的内容：参赛容器能读到这个目录。
+
 ### 游戏桥是独立服务
 
 两个 Compose 部署里，每个参赛者的游戏桥是单独的服务（`bridge-red1`、`bridge-blue1`），只接在后端网络和本队网络上；参赛容器只能访问本队的游戏桥，访问不到别队的游戏桥和比赛主控。游戏桥从比赛主控的会话服务器（`arena-host:9000`，令牌 `ARENA_HOST_TOKEN`）读取会话状态；比赛主控只在后端网络上，崩溃时 bot 不会跟着掉线。比赛配置里对应 `live.bridges: "external"` 和 `live.sessionServer`，见[比赛主控 README](../packages/arena/README.md#live-runner)。
