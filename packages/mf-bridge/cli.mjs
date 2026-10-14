@@ -93,6 +93,9 @@ export function cliOptions(
     host: env.BRIDGE_HOST ?? "127.0.0.1",
     port: port("BRIDGE_PORT", 8080),
     token: required("BRIDGE_TOKEN"),
+    ...(env.BRIDGE_STATUS_TOKEN
+      ? { statusToken: env.BRIDGE_STATUS_TOKEN }
+      : {}),
     allowChat: env.BRIDGE_ALLOW_CHAT !== "false",
     blockMemory: env.BRIDGE_BLOCK_MEMORY === "false" ? false : {},
   };

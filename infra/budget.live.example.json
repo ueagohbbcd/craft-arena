@@ -7,7 +7,7 @@
       "tpm": 131072,
       "concurrency": 2,
       "matchStatusUrl": "http://bridge-red1:8080/v1/session",
-      "matchTokenEnv": "RED1_BRIDGE_TOKEN"
+      "matchTokenEnv": "RED1_STATUS_TOKEN"
     },
     "blue1": {
       "team": "blue",
@@ -16,7 +16,7 @@
       "tpm": 131072,
       "concurrency": 2,
       "matchStatusUrl": "http://bridge-blue1:8080/v1/session",
-      "matchTokenEnv": "BLUE1_BRIDGE_TOKEN"
+      "matchTokenEnv": "BLUE1_STATUS_TOKEN"
     }
   },
   "teams": {

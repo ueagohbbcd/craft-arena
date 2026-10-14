@@ -33,6 +33,7 @@ services:
       BRIDGE_HOST: 0.0.0.0
       BRIDGE_PORT: '8080'
       BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
+      BRIDGE_STATUS_TOKEN: ${RED1_STATUS_TOKEN}
       BRIDGE_SESSION: host
       BRIDGE_HOST_URL: http://arena-host:9000/v1/participants/red1/session
       BRIDGE_HOST_TOKEN: ${ARENA_HOST_TOKEN}
@@ -52,6 +53,7 @@ services:
       BRIDGE_HOST: 0.0.0.0
       BRIDGE_PORT: '8080'
       BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+      BRIDGE_STATUS_TOKEN: ${BLUE1_STATUS_TOKEN}
       BRIDGE_SESSION: host
       BRIDGE_HOST_URL: http://arena-host:9000/v1/participants/blue1/session
       BRIDGE_HOST_TOKEN: ${ARENA_HOST_TOKEN}
@@ -88,7 +90,7 @@ services:
     command: [node, packages/budget-gateway/src/cli.mjs, /config/budget.json]
     environment:
       RED1_MODEL_TOKEN: ${RED1_MODEL_TOKEN}
-      RED1_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
+      RED1_STATUS_TOKEN: ${RED1_STATUS_TOKEN}
       RED_UPSTREAM_API_KEY: ${RED_UPSTREAM_API_KEY:-}
       NODE_USE_ENV_PROXY: '1'
       HTTP_PROXY: ${ARENA_OPENAI_PROXY:-}
@@ -103,7 +105,7 @@ services:
     command: [node, packages/budget-gateway/src/cli.mjs, /config/budget.json]
     environment:
       BLUE1_MODEL_TOKEN: ${BLUE1_MODEL_TOKEN}
-      BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+      BLUE1_STATUS_TOKEN: ${BLUE1_STATUS_TOKEN}
       DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
       NODE_USE_ENV_PROXY: '1'
       HTTP_PROXY: ${ARENA_OPENAI_PROXY:-}

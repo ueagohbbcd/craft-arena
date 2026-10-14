@@ -43,6 +43,7 @@ Any other route returns `404`. Large integers travel as `{"$arenaBigInt":"<digit
 | `authorizeAction(request)`          | none            | awaited before each action; anything but `true` gives `403` and nothing runs                                                                             |
 | `getMatchState()`                   | none            | backs `GET /v1/session`                                                                                                                                  |
 | `snapshotRadius`                    | `8`             | horizontal radius of the `blocks` sample                                                                                                                 |
+| `statusToken`                       | none            | a second, distinct token (16+ characters) accepted only for `GET /v1/session`; give it to the budget gateway instead of `token`                          |
 | `controlReleaseMs`                  | `1000`          | a client (SDK `x-arena-client` header) whose event streams all closed has the movement controls it pressed released after this long; `Infinity` disables |
 | `blockMemory` / `createBlockMemory` | `{}` / built-in | see [Block memory](#block-memory-trusted-side)                                                                                                           |
 
@@ -177,6 +178,7 @@ With persistence, use a new `runId` after every map reset, keep the directory on
 | `BRIDGE_HOST`                                                  | `127.0.0.1`                                                                                           |
 | `BRIDGE_PORT`                                                  | `8080`                                                                                                |
 | `BRIDGE_TOKEN`                                                 | required                                                                                              |
+| `BRIDGE_STATUS_TOKEN`                                          | none; the read-only `statusToken`                                                                     |
 | `BRIDGE_ALLOW_CHAT`                                            | chat on unless `false`                                                                                |
 | `BRIDGE_BLOCK_MEMORY`                                          | memory on unless `false`                                                                              |
 | `MF_AUTH`                                                      | `offline`; `microsoft` logs in with a Microsoft account for online-mode servers                       |

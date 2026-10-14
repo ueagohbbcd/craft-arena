@@ -480,6 +480,7 @@ export function createAuthority(
 export function createBridgeServer({
   bot,
   token,
+  statusToken,
   snapshotRadius = 8,
   allowChat = true,
   maxReach = Infinity,
@@ -493,6 +494,13 @@ export function createBridgeServer({
 } = {}) {
   if (!bot || typeof token !== "string" || token.length < 16)
     throw new Error("Bot and token (16+ characters) required");
+  if (
+    statusToken !== undefined &&
+    (typeof statusToken !== "string" ||
+      statusToken.length < 16 ||
+      statusToken === token)
+  )
+    throw new Error("statusToken must be a distinct 16+ character token");
   let nativeConnection = {
     status: bot.entity ? "connected" : "connecting",
     reason: null,
@@ -810,12 +818,21 @@ export function createBridgeServer({
   }, 50);
   timer.unref();
   const server = http.createServer(async (req, res) => {
-    const supplied = Buffer.from(req.headers.authorization ?? ""),
-      expected = Buffer.from(`Bearer ${token}`);
-    if (
-      supplied.length !== expected.length ||
-      !timingSafeEqual(supplied, expected)
-    ) {
+    const supplied = Buffer.from(req.headers.authorization ?? "");
+    const matches = (value) => {
+      const expected = Buffer.from(`Bearer ${value}`);
+      return (
+        supplied.length === expected.length &&
+        timingSafeEqual(supplied, expected)
+      );
+    };
+    // The status token (for the budget gateway) may only read the session.
+    const statusOnly =
+      statusToken !== undefined &&
+      matches(statusToken) &&
+      req.method === "GET" &&
+      req.url === "/v1/session";
+    if (!statusOnly && !matches(token)) {
       res.writeHead(401);
       return res.end();
     }

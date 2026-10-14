@@ -15,7 +15,7 @@
 | 文件                           | 内容                                                                                           |
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
 | [`compose.yaml`](compose.yaml) | 三个服务                                                                                       |
-| [`.env.example`](.env.example) | 需要填的变量：服务器地址和版本、bot 账号、登录方式、两个令牌、上游 key                         |
+| [`.env.example`](.env.example) | 需要填的变量：服务器地址和版本、bot 账号、登录方式、三个令牌（游戏桥、只读状态、模型）、上游 key                         |
 | [`budget.json`](budget.json)   | 预算：每分钟 0.20 美元的参考费用上限，不限总 token（陪玩没有时限）。上游是任意 OpenAI 兼容接口 |
 | [`model.json`](model.json)     | 模型描述，网关和参赛容器共用                                                                   |
 | [`PROMPT.md`](PROMPT.md)       | 陪玩提示词（英文，模型读）：陪玩家玩、回答聊天、遵守服务器规则、不搞破坏                       |
@@ -40,7 +40,7 @@
 
 ```sh
 cd infra/companion
-cp .env.example .env    # 填好各项，两个令牌用随机值
+cp .env.example .env    # 填好各项，三个令牌用互不相同的随机值
 docker compose build
 docker compose up -d
 docker compose logs -f participant

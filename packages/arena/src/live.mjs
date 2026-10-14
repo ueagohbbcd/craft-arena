@@ -340,6 +340,9 @@ export async function createLiveMatch(
             bridge: {
               ...p.bridge,
               token,
+              ...(p.bridge.statusTokenEnv
+                ? { statusToken: env[p.bridge.statusTokenEnv] }
+                : {}),
               blockMemory: {
                 worldId: config.map
                   ? `${config.map.id}@${config.map.version}`
