@@ -2,35 +2,61 @@ import { RconClient } from "../arena/src/rcon.mjs";
 import { readConfig, readSession } from "../arena/src/server-protocol.mjs";
 import { sessionObject } from "./session-object.mjs";
 
+// A reading older than this cannot vouch that the session still runs.
+export const STALE_AFTER_MS = 3000;
+
+/** Releases what a bot holds without leaving the game. */
+export function releaseHeld(bot) {
+  for (const method of ["clearControlStates", "stopDigging", "deactivateItem"])
+    try {
+      bot?.[method]?.();
+    } catch {}
+}
+
 /**
  * A session read from somewhere else (the arena host or the Minecraft
  * server) and polled every `intervalMs`. The bridge serves the latest good
- * reading at /v1/session, allows actions only while it is `running`, and
- * calls `onChange(next, previous)` when the state changes.
+ * reading at /v1/session and allows actions only while it is `running` and
+ * fresh: after `staleAfterMs` without a successful read, actions are refused
+ * and `onStale` runs once (release held controls; the bot stays, so a short
+ * outage of the host or RCON does not drop it). `onChange(next, previous)`
+ * runs when the state changes.
  */
 export function polledSession({
   read,
   intervalMs = 250,
+  staleAfterMs = STALE_AFTER_MS,
+  now = Date.now,
   onChange = () => {},
   onError = () => {},
+  onStale = () => {},
 }) {
   let current,
     timer,
     polling,
+    readAt = -Infinity,
+    staleReported = false,
     stopped = false,
     failures = 0;
+  const fresh = () => now() - readAt <= staleAfterMs;
   const poll = async () => {
     if (polling || stopped) return;
     polling = true;
     try {
       const next = await read();
       failures = 0;
+      readAt = now();
+      staleReported = false;
       const previous = current;
       current = next;
       if (previous?.state !== next.state) await onChange(next, previous);
     } catch {
       failures++;
       onError(failures);
+      if (current?.state === "running" && !fresh() && !staleReported) {
+        staleReported = true;
+        onStale();
+      }
     } finally {
       polling = false;
     }
@@ -46,7 +72,7 @@ export function polledSession({
       if (!current) throw new Error("Session state not read yet");
       return current;
     },
-    authorizeAction: () => current?.state === "running",
+    authorizeAction: () => current?.state === "running" && fresh(),
     get state() {
       return current?.state;
     },
@@ -105,9 +131,12 @@ export function serverSessionReader({
       (configState === "ended" && session.state !== "ended")
     )
       startedAt = endedAt = null;
+    // Re-read on a state change, and keep retrying until a read succeeds.
     if (session.state !== configState) {
-      config = await readConfig(rcon).catch(() => null);
-      configState = session.state;
+      try {
+        config = await readConfig(rcon);
+        configState = session.state;
+      } catch {}
     }
     const name = username();
     const teams = Array.isArray(config?.teams) ? config.teams : [];
@@ -154,11 +183,20 @@ const HOST_GONE_FAILURES = 3;
  * startup is not an end. Once the match is over and the host has shut down,
  * `onGone` runs so the bridge can exit and be started fresh for the next one.
  */
-export function hostSession({ url, token, intervalMs, onGone = () => {} }) {
+export function hostSession({
+  url,
+  token,
+  intervalMs,
+  staleAfterMs,
+  now,
+  onGone = () => {},
+}) {
   let service,
     finished = false;
   const polled = polledSession({
     intervalMs,
+    staleAfterMs,
+    now,
     read: hostSessionReader({ url, token }),
     onChange: async (next, previous) => {
       if (
@@ -173,6 +211,7 @@ export function hostSession({ url, token, intervalMs, onGone = () => {} }) {
     onError: (failures) => {
       if (finished && failures === HOST_GONE_FAILURES) onGone();
     },
+    onStale: () => releaseHeld(service?.bot),
   });
   return {
     getMatchState: () => polled.getMatchState(),
@@ -189,18 +228,28 @@ export function hostSession({ url, token, intervalMs, onGone = () => {} }) {
 
 /**
  * A bridge session read from the server over RCON, no arena host. Rounds can
- * follow each other, so the bot stays and only actions are refused between
- * rounds.
+ * follow each other, so the bot stays between rounds: actions are refused
+ * and whatever it still holds is released when a round stops running.
  */
-export function serverSession({ rcon, intervalMs, ...reader }) {
-  let client, read;
-  const polled = polledSession({ intervalMs, read: () => read() });
+export function serverSession({ rcon, intervalMs, staleAfterMs, ...reader }) {
+  let client, read, service;
+  const polled = polledSession({
+    intervalMs,
+    staleAfterMs,
+    now: reader.now,
+    read: () => read(),
+    onChange: (next, previous) => {
+      if (previous?.state === "running") releaseHeld(service?.bot);
+    },
+    onStale: () => releaseHeld(service?.bot),
+  });
   return {
     getMatchState: () => polled.getMatchState(),
     authorizeAction: () => polled.authorizeAction(),
     ended: () => false,
     poll: () => polled.poll(),
-    async start(_service, { createRcon = (o) => new RconClient(o) } = {}) {
+    async start(started, { createRcon = (o) => new RconClient(o) } = {}) {
+      service = started;
       client = createRcon(rcon);
       await client.connect();
       read = serverSessionReader({ rcon: client, ...reader });

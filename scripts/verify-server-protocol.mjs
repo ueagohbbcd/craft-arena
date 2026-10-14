@@ -469,13 +469,34 @@ async function hostless(rcon) {
     s = await state();
     assert.equal(s.session.state, "running");
     assert.equal(s.action, 200);
+    // Hold forward without a client id (no disconnect lease), then end the
+    // round: the bridge must release it while the bot stays online.
+    const press = await fetch(`${url}/v1/action`, {
+      method: "POST",
+      headers: { ...headers, "content-type": "application/json" },
+      body: JSON.stringify({
+        action: "setControlState",
+        args: { control: "forward", state: true },
+      }),
+    });
+    assert.equal(press.status, 200);
     await rcon.command("function #arena:stop");
     s = await state();
     assert.equal(s.session.state, "ended");
     assert.equal(s.action, 403);
+    const position = async () =>
+      (await rcon.command("data get entity arena_red1 Pos")).replace(
+        /^.*?: /,
+        "",
+      );
+    const before = await position();
+    await delay(1000);
+    assert.equal(await position(), before, "bot stopped when the round ended");
     // The bot stays for the next round.
     assert.match(await rcon.command("list"), /arena_red1/);
-    log("ok host-less bridge: server session gates actions across a round");
+    log(
+      "ok host-less bridge: server session gates actions and releases held keys across a round",
+    );
   } finally {
     bridge.kill("SIGTERM");
     await delay(1000);

@@ -326,3 +326,101 @@ test("server sessions give every round its own clock", async () => {
   t = 20000;
   assert.equal((await read()).startedAt, 20000);
 });
+
+test("a session that cannot be read refuses actions once stale and releases held controls once", async () => {
+  let t = 0,
+    fail = false,
+    stale = 0;
+  const session = polledSession({
+    read: async () => {
+      if (fail) throw new Error("host or RCON unreachable");
+      return { state: "running" };
+    },
+    intervalMs: 60000,
+    staleAfterMs: 3000,
+    now: () => t,
+    onStale: () => stale++,
+  });
+  await session.start();
+  assert.equal(session.authorizeAction(), true);
+  fail = true;
+  // A short outage keeps the last reading usable.
+  t = 2000;
+  await session.poll();
+  assert.equal(session.authorizeAction(), true);
+  assert.equal(stale, 0);
+  t = 3500;
+  await session.poll();
+  assert.equal(session.authorizeAction(), false);
+  assert.equal(stale, 1);
+  t = 5000;
+  await session.poll();
+  assert.equal(stale, 1, "reported once per outage");
+  // The last state is still served; actions resume with a fresh reading.
+  assert.equal(session.getMatchState().state, "running");
+  fail = false;
+  await session.poll();
+  assert.equal(session.authorizeAction(), true);
+  session.close();
+});
+
+test("server sessions release held controls when a round stops running, without quitting", async () => {
+  const state = { session: '{version:1,state:"running",winner:""}' };
+  const calls = [];
+  const bot = {
+    clearControlStates: () => calls.push("clear"),
+    stopDigging: () => calls.push("dig"),
+    deactivateItem: () => calls.push("item"),
+    quit: () => calls.push("quit"),
+  };
+  const options = cliOptions({
+    ...baseEnv,
+    BRIDGE_SESSION: "server",
+    BRIDGE_RCON_HOST: "mc",
+    BRIDGE_RCON_PASSWORD: "x",
+    BRIDGE_SESSION_POLL_MS: "60000",
+  });
+  let stops = 0;
+  await options.session.start(
+    { bot, stopGame: async () => void stops++ },
+    { createRcon: () => fakeRcon(state) },
+  );
+  assert.equal(options.bridge.authorizeAction(), true);
+  state.session = '{version:1,state:"ended",winner:"red"}';
+  await options.session.poll();
+  assert.deepEqual(calls, ["clear", "dig", "item"]);
+  assert.equal(stops, 0);
+  // Waiting -> running -> waiting releases again; waiting -> running does not.
+  state.session = '{version:1,state:"waiting",winner:""}';
+  await options.session.poll();
+  state.session = '{version:1,state:"running",winner:""}';
+  await options.session.poll();
+  assert.equal(calls.length, 3);
+  state.session = '{version:1,state:"waiting",winner:""}';
+  await options.session.poll();
+  assert.equal(calls.length, 6);
+  assert.ok(!calls.includes("quit"));
+  options.session.close();
+});
+
+test("a failed arena:config read is retried on the next poll", async () => {
+  const state = {
+    session: '{version:1,state:"running",winner:""}',
+    config: '{version:1,teams:[{id:"red",players:["arena_red1"]}]}',
+  };
+  const rcon = fakeRcon(state);
+  let broken = true;
+  const command = rcon.command;
+  rcon.command = (c) =>
+    broken && c === "data get storage arena:config"
+      ? Promise.resolve("Connection reset")
+      : command(c);
+  const read = serverSessionReader({
+    rcon,
+    username: () => "arena_red1",
+    sessionId: "s",
+  });
+  assert.equal((await read()).teamId, null);
+  broken = false;
+  assert.equal((await read()).teamId, "red");
+});
