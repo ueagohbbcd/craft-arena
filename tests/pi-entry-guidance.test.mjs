@@ -22,15 +22,7 @@ import { arenaGuidanceArgs } from "../packages/pi-extension/bootstrap.mjs";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const guidance = join(root, "examples", "PROMPT.md");
 const append = ["--append-system-prompt", guidance];
-const defaultTools = [
-  "bash",
-  "edit",
-  "observe",
-  "read",
-  "task_cancel",
-  "task_wait",
-  "write",
-];
+const defaultTools = ["bash", "edit", "read", "write"];
 
 async function fixture(t) {
   const dir = await mkdtemp(join(tmpdir(), "arena-entry-guidance-"));
@@ -160,6 +152,8 @@ test(
               OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
               OPENAI_API_KEY: "entry-fixture-only",
               PI_CODING_AGENT_SESSION_DIR: join(dir, "sessions"),
+              // Task files would otherwise go under <cwd>/.arena.
+              ARENA_TASK_DIR: join(dir, "tasks"),
               MC_INBOX_TRANSPORT: "http",
               MC_INBOX_TOKEN: "entry-inbox-fixture-only",
             },
@@ -192,7 +186,7 @@ test(
 );
 
 test(
-  "real default bootstrap returns direct bash stdout and observe state without codemode",
+  "real default bootstrap returns direct bash stdout and the observe script's state without codemode",
   { timeout: 20000 },
   async (t) => {
     const { dir } = await fixture(t);
@@ -255,12 +249,16 @@ test(
                 },
               },
               {
-                name: "observe",
-                args: {},
+                name: "bash",
+                id: "entry-direct-observe",
+                args: {
+                  command: `node ${JSON.stringify(join(root, "examples/observe.mjs"))}`,
+                  wait_seconds: 10,
+                },
               },
-            ].map(({ name, args }, index) => ({
+            ].map(({ name, id, args }, index) => ({
               index,
-              id: `entry-direct-${name}`,
+              id: id ?? `entry-direct-${name}`,
               type: "function",
               function: { name, arguments: JSON.stringify(args) },
             })),
@@ -334,7 +332,10 @@ test(
         message.role === "tool" &&
         message.tool_call_id === "entry-direct-observe",
     );
-    assert.ok(observation, "native observe result reaches the next request");
+    assert.ok(
+      observation,
+      "the observe script's result reaches the next request",
+    );
     assert.match(JSON.stringify(observation), /entry-observer/);
     assert.equal(actions, 0, "direct observation does not submit game actions");
   },

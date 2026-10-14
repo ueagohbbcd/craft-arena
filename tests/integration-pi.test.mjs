@@ -44,7 +44,7 @@ async function harness(
   reply,
   {
     extensions = [],
-    tools = ["bash", "task_wait", "task_cancel"],
+    tools = ["bash"],
     settings = {},
     gateway = false,
     cash,
@@ -292,7 +292,7 @@ function nodeCommand(script) {
 const ipcImport = `import {InboxClient} from ${JSON.stringify(resolve("packages/inbox/index.mjs"))};const client=new InboxClient();`;
 
 test(
-  "real Pi omitted bash and task_wait budgets resume with fresh state while one command continues",
+  "real Pi omitted bash wait budgets resume with fresh state while one command continues",
   { timeout: 90000 },
   async (t) => {
     // The opt-in run exercises the actual 30-second default twice; normal CI
@@ -365,14 +365,14 @@ test(
           assert.equal(await readFile(join(dir, "starts"), "utf8"), "start\n");
           if (n === 2) {
             waits.push(Date.now() - firstStartedAt);
-            return [{ id: "budget-wait", name: "task_wait", args: { taskId } }];
+            return [{ id: "budget-wait", name: "bash", args: { taskId } }];
           }
           waits.push(Date.now() - firstStartedAt - waits[0]);
           await writeFile(join(dir, "release"), "go");
           return [
             {
               id: "finish-same-task",
-              name: "task_wait",
+              name: "bash",
               args: { taskId, wait_seconds: 5 },
             },
           ];
@@ -404,12 +404,12 @@ test(
     );
     assert.deepEqual(
       results.map((event) => event.toolName),
-      ["bash", "task_wait", "task_wait"],
+      ["bash", "bash", "bash"],
     );
     assert.equal(await readFile(join(h.dir, "starts"), "utf8"), "start\n");
     assert.throws(() => process.kill(pid, 0), { code: "ESRCH" });
     t.diagnostic(
-      `Shared budget ${seconds}s; bash/task_wait returns ${waits.map((ms) => `${ms}ms`).join(" / ")}; one start, four model requests, normal exit.`,
+      `Shared budget ${seconds}s; bash returns ${waits.map((ms) => `${ms}ms`).join(" / ")}; one start, four model requests, normal exit.`,
     );
   },
 );
@@ -615,7 +615,7 @@ test(
           : "done",
       {
         extensions: [createCodemodeExtension({ models: false }), observer],
-        tools: ["bash", "task_wait", "task_cancel", "codemode"],
+        tools: ["bash", "codemode"],
       },
     );
     await h.session.prompt("Run the nested fixture.");
@@ -692,119 +692,110 @@ for (const nested of [false, true])
     },
   );
 
-for (const nested of [false, true])
-  test(
-    `default observe tool ${nested ? "via real codemode" : "direct"} returns durable state`,
-    { timeout: 20000 },
-    async (t) => {
-      const saved = {
-        url: process.env.ARENA_BRIDGE_URL,
-        token: process.env.ARENA_BRIDGE_TOKEN,
-      };
-      const backend = new EventEmitter();
-      Object.assign(backend, {
-        version: "1.21.1",
-        username: "default-observer",
-        entity: {
-          id: 1,
-          position: new Vector(0, 1, 0),
-          velocity: new Vector(),
-          yaw: 0,
-          pitch: 0,
-          height: 1.8,
-        },
-        entities: {},
-        inventory: {
-          slots: Array(46).fill(null),
-          inventoryStart: 9,
-          inventoryEnd: 45,
-        },
-        health: 20,
-        food: 20,
-        game: {},
-        controlState: {},
-        blockAt: (position) => ({
-          position: new Vector(position.x, position.y, position.z),
-          name: position.y === 0 ? "stone" : "air",
-          stateId: position.y === 0 ? 1 : 0,
-          type: position.y === 0 ? 1 : 0,
-          shapes: position.y === 0 ? [[0, 0, 0, 1, 1, 1]] : [],
-          boundingBox: position.y === 0 ? "block" : "empty",
-        }),
-      });
-      let actions = 0;
-      const bridge = await startBridge({
-        bot: backend,
-        token: "observe-tool-integration-token",
-        snapshotRadius: 1,
-      });
-      bridge.server.on("request", (request) => {
-        if (request.url === "/v1/action") actions++;
-      });
-      process.env.ARENA_BRIDGE_URL = bridge.url;
-      process.env.ARENA_BRIDGE_TOKEN = "observe-tool-integration-token";
-      t.after(async () => {
-        await bridge.close();
-        for (const [name, value] of [
-          ["ARENA_BRIDGE_URL", saved.url],
-          ["ARENA_BRIDGE_TOKEN", saved.token],
-        ]) {
-          if (value === undefined) delete process.env[name];
-          else process.env[name] = value;
-        }
-      });
-      const h = await harness(
-        t,
-        (_body, n) => {
-          if (n !== 1) return "Current state received.";
-          const args = {};
-          return nested
-            ? [
-                {
-                  id: "observe-outer",
-                  name: "codemode",
-                  args: {
-                    code: `const r=await tools.observe(${JSON.stringify(args)});for(const block of r.content){if(block.type==='image')image(block);else if(block.type==='text')text(block.text);}`,
-                  },
-                },
-              ]
-            : [{ id: "observe-direct", name: "observe", args }];
-        },
-        {
-          extensions: nested
-            ? [createCodemodeExtension({ models: false })]
-            : [],
-          tools: ["observe", ...(nested ? ["codemode"] : [])],
-          gateway: true,
-        },
-      );
-      await h.session.prompt("Inspect the current state and nearby layer.");
-      assert.equal(h.requests.length, 2);
-      const transcript = JSON.stringify(h.requests[1].messages);
-      assert.doesNotMatch(transcript, /data:image\/png;base64,/);
-      assert.match(transcript, /default-observer/);
-      const result = h.session.agent.state.messages.find(
-        (message) => message.role === "toolResult",
-      );
-      assert(
-        result.content.some(
-          (block) =>
-            block.type === "text" && block.text.includes("default-observer"),
-        ),
-        "observe state remains in durable tool result",
-      );
-      assert.doesNotMatch(
-        JSON.stringify(h.session.agent.state.messages),
-        /mc-current-observation|Current observation for this model request only\./,
-      );
-      assert.equal(
-        actions,
-        0,
-        "requested observation and runtime setup do not act",
-      );
-      assert.equal(h.ledger.snapshot("fixture")[0].usedTokens, 30);
-    },
-  );
+test(
+  "the observe script through bash returns durable state",
+  { timeout: 20000 },
+  async (t) => {
+    const saved = {
+      url: process.env.ARENA_BRIDGE_URL,
+      token: process.env.ARENA_BRIDGE_TOKEN,
+    };
+    const backend = new EventEmitter();
+    Object.assign(backend, {
+      version: "1.21.1",
+      username: "default-observer",
+      entity: {
+        id: 1,
+        position: new Vector(0, 1, 0),
+        velocity: new Vector(),
+        yaw: 0,
+        pitch: 0,
+        height: 1.8,
+      },
+      entities: {},
+      inventory: {
+        slots: Array(46).fill(null),
+        inventoryStart: 9,
+        inventoryEnd: 45,
+      },
+      health: 20,
+      food: 20,
+      game: {},
+      controlState: {},
+      blockAt: (position) => ({
+        position: new Vector(position.x, position.y, position.z),
+        name: position.y === 0 ? "stone" : "air",
+        stateId: position.y === 0 ? 1 : 0,
+        type: position.y === 0 ? 1 : 0,
+        shapes: position.y === 0 ? [[0, 0, 0, 1, 1, 1]] : [],
+        boundingBox: position.y === 0 ? "block" : "empty",
+      }),
+    });
+    let actions = 0;
+    const bridge = await startBridge({
+      bot: backend,
+      token: "observe-tool-integration-token",
+      snapshotRadius: 1,
+    });
+    bridge.server.on("request", (request) => {
+      if (request.url === "/v1/action") actions++;
+    });
+    process.env.ARENA_BRIDGE_URL = bridge.url;
+    process.env.ARENA_BRIDGE_TOKEN = "observe-tool-integration-token";
+    t.after(async () => {
+      await bridge.close();
+      for (const [name, value] of [
+        ["ARENA_BRIDGE_URL", saved.url],
+        ["ARENA_BRIDGE_TOKEN", saved.token],
+      ]) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+    const h = await harness(
+      t,
+      (_body, n) => {
+        if (n !== 1) return "Current state received.";
+        return [
+          {
+            id: "observe-script",
+            name: "bash",
+            args: {
+              command: `${quote(process.execPath)} ${quote(resolve("examples/observe.mjs"))}`,
+              wait_seconds: 15,
+            },
+          },
+        ];
+      },
+      { gateway: true },
+    );
+    await h.session.prompt("Inspect the current state and nearby layer.");
+    assert.equal(h.requests.length, 2);
+    const transcript = JSON.stringify(h.requests[1].messages);
+    assert.doesNotMatch(transcript, /data:image\/png;base64,/);
+    assert.match(transcript, /default-observer/);
+    const result = h.session.agent.state.messages.find(
+      (message) => message.role === "toolResult",
+    );
+    assert(
+      result.content.some(
+        (block) =>
+          block.type === "text" && block.text.includes("default-observer"),
+      ),
+      "observe output remains in durable tool result",
+    );
+    assert.doesNotMatch(
+      JSON.stringify(h.session.agent.state.messages),
+      /mc-current-observation|Current observation for this model request only\./,
+    );
+    assert.equal(
+      actions,
+      0,
+      "requested observation and runtime setup do not act",
+    );
+    assert.equal(h.ledger.snapshot("fixture")[0].usedTokens, 30);
+  },
+);
 
 test(
   "bootstrap launches shipped Pi CLI with shared model profile, scoped auth, cash reference configuration and the arena extension",
@@ -983,15 +974,7 @@ test(
     assert.equal(received[0].auth, "Bearer fake-upstream-credential");
     assert.equal(received[0].body.max_completion_tokens, 2048);
     const names = received[0].body.tools.map((x) => x.function.name);
-    assert.deepEqual(names.toSorted(), [
-      "bash",
-      "edit",
-      "observe",
-      "read",
-      "task_cancel",
-      "task_wait",
-      "write",
-    ]);
+    assert.deepEqual(names.toSorted(), ["bash", "edit", "read", "write"]);
     assert.ok(
       received[0].body.tools.find((x) => x.function.name === "bash").function
         .parameters.properties.wait_seconds,
@@ -1370,15 +1353,7 @@ test(
     assert.match(first, /minecraft-arena-programming/);
     assert.match(first, /SKILL.md/);
     const tools = requests[0].tools.map((x) => x.function.name);
-    assert.deepEqual(tools.toSorted(), [
-      "bash",
-      "edit",
-      "observe",
-      "read",
-      "task_cancel",
-      "task_wait",
-      "write",
-    ]);
+    assert.deepEqual(tools.toSorted(), ["bash", "edit", "read", "write"]);
     const second = JSON.stringify(requests[1].messages);
     assert.match(second, /authenticated host match snapshot/);
     assert.match(second, /resident-fixture/);

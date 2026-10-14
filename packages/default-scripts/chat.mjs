@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Default chat listener. The runtime starts this ordinary script at session
-// start; it forwards in-game chat to the inbox. Stop it with task_cancel, or
+// start; it forwards in-game chat to the inbox. Stop it with arena-task cancel <taskId>, or
 // run your own copy to filter or summarize chat differently.
 // ARENA_CHAT_WAKE=mention|all posts matching chat as urgent, which wakes an
 // idle model; the default (none) never wakes it.

@@ -52,7 +52,7 @@ export function currentTasks(manager, now = Date.now()) {
 export function runtimeState(
   manager,
   inbox,
-  { now = Date.now(), fullRuntime = false, projection = {} } = {},
+  { now = Date.now(), fullRuntime = false, projection = {}, fullFile } = {},
 ) {
   const allTasks = currentTasks(manager, now);
   const allProgram = (inbox.currentSnapshot?.() ?? []).filter(
@@ -151,7 +151,8 @@ export function runtimeState(
         bytes,
       },
       budgets: budget,
-      fullQuery: { tool: "observe", arguments: { fullRuntime: true } },
+      // The uncut state is rewritten to this file whenever a report is made.
+      ...(fullFile ? { fullFile } : {}),
     },
   };
 }

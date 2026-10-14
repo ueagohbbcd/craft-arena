@@ -102,10 +102,12 @@ test("default runtime projection bounds program bytes and historical tasks, pres
   assert.equal(projected.displayLimits.programStatus.omitted, 2);
   assert.equal(projected.displayLimits.programStatus.dataOmitted, 8);
   assert(Buffer.byteLength(JSON.stringify(projected.programStatus)) <= 8192);
-  assert.deepEqual(projected.displayLimits.fullQuery, {
-    tool: "observe",
-    arguments: { fullRuntime: true },
-  });
+  assert.equal(projected.displayLimits.fullFile, undefined);
+  assert.equal(
+    runtimeState(tasks, inbox, { now: time, fullFile: "/r.json" }).displayLimits
+      .fullFile,
+    "/r.json",
+  );
   const full = runtimeState(tasks, inbox, { now: time, fullRuntime: true });
   assert.equal(full.tasks.length, 128);
   assert.deepEqual(full.programStatus, before);

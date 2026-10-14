@@ -94,11 +94,11 @@ test("undelivered or rejected changes do not advance the comparison baseline", (
   pending.onDelivered();
   assert.equal(c.prepare(s), null);
 });
-test("default state retains runtime omission and full-query guidance", () => {
+test("default state retains runtime omission and full-state file guidance", () => {
   const s = sample();
   s.displayLimits = {
     tasks: { omitted: 20 },
-    fullQuery: { tool: "observe", arguments: { fullRuntime: true } },
+    fullFile: "/workspace/.arena/tasks/runtime.json",
   };
   assert.deepEqual(
     deliveredChanges().next(s).changes.displayLimits,
