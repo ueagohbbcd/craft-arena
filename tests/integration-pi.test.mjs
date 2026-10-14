@@ -1405,7 +1405,7 @@ test(
     );
     assert.equal(ledger.snapshot("fixture")[0].settledTokens, 45);
     const final = await (
-      await fetch(`${bridge.url}/v1/match`, {
+      await fetch(`${bridge.url}/v1/session`, {
         headers: { authorization: `Bearer ${matchToken}` },
       })
     ).json();

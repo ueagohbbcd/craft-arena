@@ -2,58 +2,20 @@ import { randomUUID, timingSafeEqual } from "node:crypto";
 const id = (x) => typeof x === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(x);
 const plainObject = (x) => !!x && typeof x === "object" && !Array.isArray(x);
 
-/** Short briefing for legacy race-of-wool configs without `live.briefing`. */
-// The default text legacy race-of-wool configs had before modes existed.
-export const LEGACY_BRIEFING =
-  "Complete your team monument objectives by placing the map-required blocks at the map-designated team monuments. All objectives are required. Simultaneous completion within one observer poll is a draw. Participant disconnection abandons the match; deaths do not end it. Use only the scoped game bridge and model gateway.";
-
-/**
- * A config with neither a `session` nor a `judge` block uses the legacy
- * race-of-wool shape.
- */
-export function isLegacyConfig(c) {
-  return plainObject(c) && c.session === undefined && c.judge === undefined;
-}
-
-function briefingBlock(briefing, fallbackText = null) {
+function briefingBlock(briefing) {
   const b = plainObject(briefing) ? briefing : {};
   return {
-    text: typeof b.text === "string" ? b.text : fallbackText,
+    text: typeof b.text === "string" ? b.text : null,
     promptFile: typeof b.promptFile === "string" ? b.promptFile : null,
     public: plainObject(b.public) ? b.public : null,
   };
 }
 
-/**
- * Returns a copy in the session/judge/briefing shape. Legacy race-of-wool
- * configs (game, rules, durationMs, live.goals/observer/briefing) become a
- * `monument-blocks` match with the same behaviour. Idempotent; never throws.
- */
+/** Returns a copy with session, judge and briefing defaults filled in. Never throws. */
 export function normalizeConfig(config) {
   if (!plainObject(config)) return config;
   const c = structuredClone(config);
   c.teams = Array.isArray(c.teams) ? c.teams : [];
-  if (isLegacyConfig(c)) {
-    c.session = {
-      kind: "match",
-      durationMs: c.durationMs,
-      onTimeout: c.rules?.onTimeout,
-    };
-    c.judge = {
-      type: "monument-blocks",
-      pollMs: c.live?.pollMs ?? 100,
-      objectives: c.rules?.objectives,
-      goals: c.live?.goals,
-      observer: c.live?.observer,
-      publicObjectives: c.live?.publicObjectives,
-      publishGoalPositions: c.live?.publishGoalPositions,
-    };
-    c.briefing = briefingBlock(
-      c.briefing,
-      typeof c.live?.briefing === "string" ? c.live.briefing : LEGACY_BRIEFING,
-    );
-    return c;
-  }
   const kind = c.session?.kind ?? "match";
   c.session = {
     ...c.session,
@@ -65,28 +27,10 @@ export function normalizeConfig(config) {
   c.judge = {
     ...c.judge,
     type,
-    pollMs: c.judge?.pollMs ?? (type === "monument-blocks" ? 100 : 500),
+    pollMs: c.judge?.pollMs ?? 500,
   };
   c.briefing = briefingBlock(c.briefing);
   return c;
-}
-
-function validateLegacy(c, errors) {
-  if (c.game !== "race-of-wool") errors.push("game must be race-of-wool");
-  if (!Number.isSafeInteger(c.durationMs) || c.durationMs <= 0)
-    errors.push("durationMs must be positive integer");
-  const objectives = c.rules?.objectives;
-  if (
-    !Array.isArray(objectives) ||
-    !objectives.length ||
-    objectives.some((x) => !id(x)) ||
-    new Set(objectives).size !== objectives.length
-  )
-    errors.push("rules.objectives requires unique objective IDs");
-  if (c.rules?.winner !== "first-team-all-objectives")
-    errors.push("supported winner rule: first-team-all-objectives");
-  if (!["draw", "most-objectives"].includes(c.rules?.onTimeout))
-    errors.push("onTimeout must be draw or most-objectives");
 }
 
 function validateSession(c, errors) {
@@ -113,24 +57,9 @@ function validateSession(c, errors) {
   } else {
     if (!Number.isSafeInteger(duration) || duration <= 0)
       errors.push("session.durationMs must be positive integer");
-    if (!["datapack", "monument-blocks"].includes(type))
-      errors.push("matches use judge datapack or monument-blocks");
-    const allowed =
-      type === "monument-blocks"
-        ? ["draw", "most-objectives"]
-        : ["draw", "most-score"];
-    if (onTimeout !== undefined && !allowed.includes(onTimeout))
-      errors.push(`onTimeout must be ${allowed.join(" or ")}`);
-  }
-  if (type === "monument-blocks") {
-    const objectives = c.judge?.objectives;
-    if (
-      !Array.isArray(objectives) ||
-      !objectives.length ||
-      objectives.some((x) => !id(x)) ||
-      new Set(objectives).size !== objectives.length
-    )
-      errors.push("judge.objectives requires unique objective IDs");
+    if (type !== "datapack") errors.push("matches use judge datapack");
+    if (onTimeout !== undefined && !["draw", "most-score"].includes(onTimeout))
+      errors.push("onTimeout must be draw or most-score");
   }
 }
 
@@ -155,8 +84,7 @@ export function validateMatchConfig(c) {
   const errors = [];
   if (!plainObject(c)) return ["config must be an object"];
   if (!id(c.id)) errors.push("id must be a stable identifier");
-  const legacy = isLegacyConfig(c),
-    open = !legacy && c.session?.kind === "open";
+  const open = c.session?.kind === "open";
   if (
     (!open || c.map != null) &&
     (!c.map?.id ||
@@ -165,8 +93,12 @@ export function validateMatchConfig(c) {
       !/^[a-f0-9]{64}$/i.test(c.map.sha256))
   )
     errors.push("operator map id, version and SHA-256 are required");
-  if (legacy) validateLegacy(c, errors);
-  else validateSession(c, errors);
+  // Pre-datapack race-of-wool configs: rules now live on the server.
+  if (["game", "rules", "durationMs"].some((k) => k in c) || c.live?.goals)
+    errors.push(
+      "game, rules, durationMs and live.goals are no longer supported: use session/judge and a server datapack (infra/datapacks/race-of-wool)",
+    );
+  validateSession(c, errors);
   validateBriefing(c.briefing, errors);
   const teams = Array.isArray(c.teams) ? c.teams : [],
     participants = Array.isArray(c.participants) ? c.participants : [];
@@ -203,12 +135,10 @@ const END_REASONS = [
   "map-fault",
   "runtime-fault",
   "timeout",
-  "objectives-complete",
-  "simultaneous-objectives",
   "judge-decision",
 ];
 // Ends without a winner that still count as a draw rather than no result.
-const DRAW_REASONS = ["timeout", "simultaneous-objectives", "judge-decision"];
+const DRAW_REASONS = ["timeout", "judge-decision"];
 const validScores = (scores) =>
   plainObject(scores) &&
   Object.values(scores).every((v) => typeof v === "number" && isFinite(v));
@@ -242,20 +172,13 @@ export class MatchHost {
     this.runId = runId;
     this.seen = new Set();
     this.events = [];
-    this.progress = Object.fromEntries(
-      this.config.teams.map((t) => [t.id, []]),
-    );
+    this.teamIds = new Set(this.config.teams.map((t) => t.id));
     this.metrics = { deaths: {}, disconnects: {} };
     this.scores = null;
     this.transition = false;
   }
   get kind() {
     return this.config.session.kind;
-  }
-  get objectives() {
-    return this.config.judge.type === "monument-blocks"
-      ? this.config.judge.objectives
-      : [];
   }
   get deadline() {
     const duration = this.config.session.durationMs;
@@ -320,19 +243,7 @@ export class MatchHost {
       await this.checkTimeout();
       return { late: true };
     }
-    if (event.type === "objective" || event.type === "objective-lost") {
-      if (
-        !Object.hasOwn(this.progress, event.team) ||
-        !this.objectives.includes(event.objective)
-      )
-        throw new Error("Unknown team/objective");
-      if (event.type === "objective-lost")
-        this.progress[event.team] = this.progress[event.team].filter(
-          (x) => x !== event.objective,
-        );
-      else if (!this.progress[event.team].includes(event.objective))
-        this.progress[event.team].push(event.objective);
-    } else if (["death", "disconnect"].includes(event.type)) {
+    if (["death", "disconnect"].includes(event.type)) {
       if (!this.config.participants.some((p) => p.id === event.participant))
         throw new Error("Unknown participant");
       const bucket =
@@ -341,56 +252,7 @@ export class MatchHost {
     } else throw new Error("Unsupported authoritative event");
     this.seen.add(event.id);
     this.events.push({ ...structuredClone(event), receivedAt: this.now() });
-    if (event.type === "objective") await this.#finishObjectives();
     return { accepted: true };
-  }
-  /** Trusted full observation round. All teams are judged after one atomic update. */
-  async observe(observations) {
-    if (this.state !== "running") throw new Error("Match is not running");
-    if (this.config.judge.type !== "monument-blocks")
-      throw new Error("Objective observations need the monument-blocks judge");
-    const receivedAt = this.now();
-    if (receivedAt >= this.deadline) {
-      await this.checkTimeout();
-      return { late: true };
-    }
-    const next = Object.fromEntries(this.config.teams.map((t) => [t.id, []]));
-    const events = [];
-    for (const { id: team } of this.config.teams) {
-      for (const objective of this.objectives) {
-        const complete = observations[team]?.[objective];
-        // A missing observation must never silently clear a scored objective.
-        if (typeof complete !== "boolean")
-          throw new Error("A full observation round is required");
-        if (complete) next[team].push(objective);
-        if (complete === this.progress[team].includes(objective)) continue;
-        events.push({
-          id: randomUUID(),
-          runId: this.runId,
-          type: complete ? "objective" : "objective-lost",
-          team,
-          objective,
-          receivedAt,
-        });
-      }
-    }
-    this.progress = next;
-    for (const event of events) {
-      this.seen.add(event.id);
-      this.events.push(event);
-    }
-    await this.#finishObjectives();
-    return { accepted: true };
-  }
-  async #finishObjectives() {
-    if (!this.objectives.length) return;
-    const winners = this.config.teams.filter(
-      (t) => this.progress[t.id].length === this.objectives.length,
-    );
-    if (winners.length > 1)
-      return this.#finish("simultaneous-objectives", null);
-    if (winners.length === 1)
-      return this.#finish("objectives-complete", winners[0].id);
   }
   /** Records the server judge's current scores and note without ending. */
   report({ scores, message } = {}) {
@@ -415,7 +277,7 @@ export class MatchHost {
       return { late: true };
     }
     const team = winner === "draw" || winner === "" ? null : winner;
-    if (team !== null && !Object.hasOwn(this.progress, team))
+    if (team !== null && !this.teamIds.has(team))
       throw new Error(`Judge named unknown winner ${winner}`);
     await this.#finish("judge-decision", team);
     return { accepted: true };
@@ -429,18 +291,14 @@ export class MatchHost {
     this.report({ scores, message });
     if (this.reason !== "timeout") return;
     if (winner === "draw") this.winner = null;
-    else if (winner && Object.hasOwn(this.progress, winner))
-      this.winner = winner;
+    else if (winner && this.teamIds.has(winner)) this.winner = winner;
     else this.winner = this.#timeoutWinner();
   }
   #timeoutWinner() {
-    const rule = this.config.session.onTimeout;
     const ranked =
-      rule === "most-objectives"
-        ? Object.entries(this.progress).map(([t, p]) => [t, p.length])
-        : rule === "most-score" && this.scores
-          ? this.config.teams.map((t) => [t.id, this.scores[t.id]])
-          : [];
+      this.config.session.onTimeout === "most-score" && this.scores
+        ? this.config.teams.map((t) => [t.id, this.scores[t.id]])
+        : [];
     const valid = ranked
       .filter(([, n]) => typeof n === "number")
       .sort((a, b) => b[1] - a[1]);
@@ -461,15 +319,8 @@ export class MatchHost {
     )
       throw new Error("Cannot end this state");
     if (!END_REASONS.includes(reason)) throw new Error("Invalid end reason");
-    if (winner !== null && !Object.hasOwn(this.progress, winner))
+    if (winner !== null && !this.teamIds.has(winner))
       throw new Error("Invalid winner");
-    if (
-      reason === "objectives-complete" &&
-      (!winner ||
-        !this.objectives.length ||
-        this.progress[winner].length !== this.objectives.length)
-    )
-      throw new Error("Objective completion not established");
     return this.#finish(reason, winner);
   }
   async failRuntime(fault) {
@@ -528,7 +379,6 @@ export class MatchHost {
       endedAt: this.endedAt,
       elapsedMs:
         this.startedAt === undefined ? 0 : this.endedAt - this.startedAt,
-      progress: this.progress,
       scores: this.scores,
       message: this.message,
       metrics: this.metrics,
@@ -537,7 +387,6 @@ export class MatchHost {
       versions: this.config.versions,
       stopConfirmed: this.stopConfirmed,
       stopError: this.stopError,
-      observerError: this.observerError,
       judgeError: this.judgeError,
       runtimeError: this.runtimeError,
       stateReportError: this.stateReportError,

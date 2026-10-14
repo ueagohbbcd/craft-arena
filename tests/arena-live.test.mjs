@@ -4,12 +4,11 @@ import { EventEmitter, once } from "node:events";
 import net from "node:net";
 import { createLiveMatch, validateLive } from "../packages/arena/src/live.mjs";
 import { RconClient } from "../packages/arena/src/rcon.mjs";
-import { LEGACY_BRIEFING } from "../packages/arena/src/index.mjs";
 const config = {
   id: "live-fixture",
-  game: "race-of-wool",
+  session: { kind: "match", durationMs: 10000, onTimeout: "draw" },
+  judge: { type: "datapack", pollMs: 100 },
   map: { id: "fixture", version: "fixture", sha256: "0".repeat(64) },
-  durationMs: 10000,
   teams: [{ id: "r" }, { id: "b" }],
   participants: [
     {
@@ -25,65 +24,46 @@ const config = {
       bridge: { port: 8082, tokenEnv: "B_TOKEN" },
     },
   ],
-  rules: {
-    objectives: ["wool"],
-    winner: "first-team-all-objectives",
-    onTimeout: "draw",
-  },
   versions: { participantImage: "fixture", bridge: "fixture" },
   live: {
     replay: { enabled: false },
     minecraft: { host: "fixture", version: "1.21.11" },
     rcon: { host: "fixture", passwordEnv: "RCON" },
-    observer: { username: "ref" },
     commands: {
       prepare: [{ command: "reset", expect: "OK" }],
       start: [{ command: "start", expect: "OK" }],
       end: [{ command: "stop", expect: "OK" }],
     },
-    goals: [
-      {
-        team: "r",
-        objective: "wool",
-        position: { x: 0, y: 64, z: 0 },
-        block: "red_wool",
-      },
-      {
-        team: "b",
-        objective: "wool",
-        position: { x: 10, y: 64, z: 0 },
-        block: "blue_wool",
-      },
-    ],
   },
 };
-test("live orchestrator runs RCON lifecycle, gates actual bridges and observes goals", async () => {
-  const commands = [],
-    gates = [],
-    cells = new Map([
-      [0, "air"],
-      [10, "air"],
-    ]);
-  let closed = 0;
-  const observer = new EventEmitter();
-  Object.assign(observer, {
-    entity: {},
-    blockAt: (p) => ({ name: cells.get(p.x) }),
-    quit() {
-      this.emit("end");
+/** Fake RCON for a server running a protocol v1 datapack. */
+function datapackServer(calls = []) {
+  const s = { session: '{version:1,state:"waiting",winner:""}' };
+  s.rcon = () => ({
+    connect: async () => {},
+    command: async (c) => {
+      calls.push(c);
+      if (c === "data get storage arena:session")
+        return `Storage arena:session has the following contents: ${s.session}`;
+      if (c.startsWith("function #arena:"))
+        return `Running function rules:${c.slice(16)}`;
+      if (c.startsWith("data ")) return "Modified storage arena:config";
+      return "OK";
+    },
+    close() {
+      calls.push("rcon-close");
     },
   });
+  return s;
+}
+test("live orchestrator runs RCON lifecycle, gates actual bridges and ends on the server verdict", async () => {
+  const commands = [],
+    gates = [];
+  let closed = 0;
+  const server = datapackServer(commands);
   const match = await createLiveMatch(config, {
     env: { R_TOKEN: "r", B_TOKEN: "b", RCON: "operator" },
-    createBot: () => observer,
-    rconFactory: () => ({
-      connect: async () => {},
-      command: async (x) => {
-        commands.push(x);
-        return "OK";
-      },
-      close() {},
-    }),
+    rconFactory: server.rcon,
     startLiveBridge: async (options) => {
       gates.push(options.bridge.authorizeAction);
       return {
@@ -95,39 +75,35 @@ test("live orchestrator runs RCON lifecycle, gates actual bridges and observes g
     },
   });
   await match.prepare();
-  assert.deepEqual(commands, ["reset"]);
+  const tags = () => commands.filter((c) => c.startsWith("function #arena:"));
+  assert.deepEqual(tags(), ["function #arena:prepare"]);
+  assert.equal(commands[0], "reset");
   assert.equal(gates[0](), false);
   await match.start();
   assert.equal(gates[0](), true);
-  cells.set(0, "red_wool");
+  server.session = '{version:1,state:"ended",winner:"r",scores:{r:3,b:1}}';
   await match.poll();
-  assert.equal(match.host.result().winner, "r");
+  await match.host.ending;
+  const result = match.host.result();
+  assert.equal(result.winner, "r");
+  assert.equal(result.reason, "judge-decision");
+  assert.deepEqual(result.scores, { r: 3, b: 1 });
   assert.equal(gates[0](), false);
   assert.equal(closed, 2);
-  assert.deepEqual(commands, ["reset", "start", "stop"]);
+  // A server-declared end is final: no #arena:stop after it.
+  assert.deepEqual(tags(), [
+    "function #arena:prepare",
+    "function #arena:start",
+  ]);
+  assert.ok(commands.includes("stop"));
 });
-test("invalid goal coordinates and unverified reset fail closed", async () => {
+test("operator commands are optional but must be command/expect pairs", () => {
+  const plain = structuredClone(config);
+  delete plain.live.commands;
+  assert.doesNotThrow(() => validateLive(plain));
   const bad = structuredClone(config);
-  bad.live.goals[0].position.x = null;
-  assert.throws(() => validateLive(bad), /Operator goal/);
-  const match = await createLiveMatch(config, {
-    env: { RCON: "x" },
-    createBot: () => ({
-      entity: {},
-      blockAt: () => ({ name: "red_wool" }),
-      quit() {},
-    }),
-    rconFactory: () => ({
-      connect: async () => {},
-      command: async () => "OK",
-      close() {},
-    }),
-    startLiveBridge: async () => {
-      throw new Error("must not create participants");
-    },
-  });
-  await assert.rejects(match.prepare(), /Reset verification/);
-  assert.equal(match.host.state, "created");
+  bad.live.commands.start = [{ command: "start" }];
+  assert.throws(() => validateLive(bad), /start command/);
 });
 const packet = (id, type, text) => {
   const b = Buffer.from(text),
@@ -230,37 +206,6 @@ test("RCON waits for command response before sending its fence", async (t) => {
   );
   assert.equal(earlyFence, false);
 });
-test("simultaneous observed completions draw instead of awarding configured team order", async () => {
-  const cells = new Map([
-    [0, "air"],
-    [10, "air"],
-  ]);
-  const match = await createLiveMatch(config, {
-    env: { R_TOKEN: "r", B_TOKEN: "b", RCON: "x" },
-    createBot: () => ({
-      entity: {},
-      blockAt: (p) => ({ name: cells.get(p.x) }),
-      quit() {},
-    }),
-    rconFactory: () => ({
-      connect: async () => {},
-      command: async () => "OK",
-      close() {},
-    }),
-    startLiveBridge: async () => ({
-      bot: { entity: {} },
-      close: async () => {},
-    }),
-  });
-  await match.prepare();
-  await match.start();
-  cells.set(0, "red_wool");
-  cells.set(10, "blue_wool");
-  await match.poll();
-  assert.equal(match.host.result().reason, "simultaneous-objectives");
-  assert.equal(match.host.result().winner, null);
-  assert.equal(match.host.result().events.length, 2);
-});
 test("terminal match status remains authenticated and readable after actual game-bot end", async (t) => {
   const { startLiveBridge } = await import("../packages/mf-bridge/live.mjs");
   const local = structuredClone(config);
@@ -268,10 +213,6 @@ test("terminal match status remains authenticated and readable after actual game
     p.bridge.port = 0;
     p.bridge.host = "127.0.0.1";
   }
-  const cells = new Map([
-    [0, "air"],
-    [10, "air"],
-  ]);
   const bots = [];
   const makeBot = () => {
     const b = new EventEmitter();
@@ -286,20 +227,14 @@ test("terminal match status remains authenticated and readable after actual game
     bots.push(b);
     return b;
   };
-  const observer = makeBot();
-  observer.blockAt = (p) => ({ name: cells.get(p.x) });
+  const server = datapackServer();
   const match = await createLiveMatch(local, {
     env: {
       R_TOKEN: "red-fixture-token-123",
       B_TOKEN: "blue-fixture-token-123",
       RCON: "x",
     },
-    createBot: () => observer,
-    rconFactory: () => ({
-      connect: async () => {},
-      command: async () => "OK",
-      close() {},
-    }),
+    rconFactory: server.rcon,
     startLiveBridge: (options) =>
       startLiveBridge({ ...options, createBot: makeBot }),
   });
@@ -307,12 +242,13 @@ test("terminal match status remains authenticated and readable after actual game
   await match.prepare();
   const bridge = match.bridges.get("r1");
   await match.start();
-  cells.set(0, "red_wool");
+  server.session = '{version:1,state:"ended",winner:"r"}';
   await match.poll();
+  await match.host.ending;
   assert.equal(match.host.state, "ended");
   assert.ok(bots.every((b) => b.disconnected));
   assert.equal(bridge.server.listening, true);
-  const res = await fetch(`${bridge.url}/v1/match`, {
+  const res = await fetch(`${bridge.url}/v1/session`, {
     headers: { authorization: "Bearer red-fixture-token-123" },
   });
   assert.equal(res.status, 200);
@@ -321,78 +257,18 @@ test("terminal match status remains authenticated and readable after actual game
   assert.equal(data.result.runId, match.host.runId);
   assert.equal(data.result.winner, "r");
   assert.equal(data.result.teamId, "r");
-  assert.equal(data.result.publicGoalPositions, undefined);
   assert.equal(data.result.replay, undefined);
-  assert.equal((await fetch(`${bridge.url}/v1/match`)).status, 401);
+  assert.equal((await fetch(`${bridge.url}/v1/session`)).status, 401);
+  assert.equal(
+    (
+      await fetch(`${bridge.url}/v1/match`, {
+        headers: { authorization: "Bearer red-fixture-token-123" },
+      })
+    ).status,
+    404,
+  );
   await match.close();
   assert.equal(bridge.server.listening, false);
-});
-test("live monuments require currently present blocks and unknown observations fault", async () => {
-  const local = structuredClone(config);
-  local.rules.objectives = ["a", "b"];
-  local.live.goals = [
-    {
-      team: "r",
-      objective: "a",
-      position: { x: 0, y: 64, z: 0 },
-      block: "red_wool",
-    },
-    {
-      team: "r",
-      objective: "b",
-      position: { x: 1, y: 64, z: 0 },
-      block: "red_wool",
-    },
-    {
-      team: "b",
-      objective: "a",
-      position: { x: 10, y: 64, z: 0 },
-      block: "blue_wool",
-    },
-    {
-      team: "b",
-      objective: "b",
-      position: { x: 11, y: 64, z: 0 },
-      block: "blue_wool",
-    },
-  ];
-  const cells = new Map([
-    [0, "air"],
-    [1, "air"],
-    [10, "air"],
-    [11, "air"],
-  ]);
-  const match = await createLiveMatch(local, {
-    env: { R_TOKEN: "r", B_TOKEN: "b", RCON: "x" },
-    createBot: () => ({
-      entity: {},
-      blockAt: (p) => (cells.has(p.x) ? { name: cells.get(p.x) } : null),
-      quit() {},
-    }),
-    rconFactory: () => ({
-      connect: async () => {},
-      command: async () => "OK",
-      close() {},
-    }),
-    startLiveBridge: async () => ({
-      bot: { entity: {} },
-      close: async () => {},
-    }),
-  });
-  await match.prepare();
-  await match.start();
-  cells.set(0, "red_wool");
-  await match.poll();
-  cells.set(0, "air");
-  cells.set(1, "red_wool");
-  await match.poll();
-  assert.equal(match.host.state, "running");
-  assert.deepEqual(match.host.progress.r, ["b"]);
-  assert.ok(match.host.events.some((e) => e.type === "objective-lost"));
-  cells.delete(0);
-  await match.poll();
-  assert.equal(match.host.result().reason, "map-fault");
-  await match.close();
 });
 
 test("opening image regions require a known team, course trigger and bounded crops", () => {
@@ -424,23 +300,7 @@ test("recording is confirmed before running and saved after game cleanup", async
   const state = { enabled: true, status: "pending", files: [] };
   const match = await createLiveMatch(local, {
     env: { R_TOKEN: "r", B_TOKEN: "b", RCON: "x" },
-    createBot: () => ({
-      entity: {},
-      blockAt: () => ({ name: "air" }),
-      quit() {
-        calls.push("observer-quit");
-      },
-    }),
-    rconFactory: () => ({
-      connect: async () => {},
-      command: async (text) => {
-        calls.push(text);
-        return "OK";
-      },
-      close() {
-        calls.push("rcon-close");
-      },
-    }),
+    rconFactory: datapackServer(calls).rcon,
     startLiveBridge: async () => ({
       bot: { entity: {} },
       close: async () => {
@@ -480,51 +340,4 @@ test("recording is confirmed before running and saved after game cleanup", async
   assert.ok(calls.indexOf("rcon-close") < calls.indexOf("replay-save"));
   assert.equal(match.host.result().replay.status, "saved");
   assert.equal(match.host.result().stopConfirmed, true);
-});
-
-test("legacy configs serve the session object with legacy match fields", async () => {
-  const cells = new Map([
-    [0, "air"],
-    [10, "air"],
-  ]);
-  const views = [];
-  const match = await createLiveMatch(config, {
-    env: { R_TOKEN: "r", B_TOKEN: "b", RCON: "x" },
-    createBot: () => ({
-      entity: {},
-      blockAt: (p) => ({ name: cells.get(p.x) }),
-      quit() {},
-    }),
-    rconFactory: () => ({
-      connect: async () => {},
-      command: async () => "OK",
-      close() {},
-    }),
-    startLiveBridge: async (options) => {
-      views.push(options.bridge.getMatchState);
-      return { bot: { entity: {} }, close: async () => {} };
-    },
-  });
-  await match.prepare();
-  const view = views[0]();
-  assert.equal(view.kind, "match");
-  assert.equal(view.sessionId, "live-fixture");
-  assert.equal(view.matchId, "live-fixture");
-  assert.equal(view.username, "r1");
-  assert.equal(view.game, "race-of-wool");
-  assert.deepEqual(view.rules, config.rules);
-  assert.deepEqual(view.objectives, ["wool"]);
-  assert.equal(view.durationMs, 10000);
-  assert.equal(view.scores, null);
-  assert.deepEqual(view.briefing, {
-    text: LEGACY_BRIEFING,
-    prompt: null,
-    public: null,
-  });
-  await match.start();
-  cells.set(0, "red_wool");
-  cells.set(10, "blue_wool");
-  await match.poll();
-  assert.equal(views[1]().winner, "draw");
-  assert.equal(match.host.result().winner, null);
 });

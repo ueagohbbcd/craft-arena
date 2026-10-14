@@ -25,16 +25,29 @@ import {
   runtimeState,
 } from "../packages/pi-extension/runtime-state.mjs";
 
-test("trusted match projection identifies teams and wool interests without guessing hidden objective items", () => {
+test("trusted session projection takes teams, own goal items and watched items from public data only", () => {
   const options = observationOptionsFromMatch({
-    game: "race-of-wool",
     teamId: "red",
     participants: [
       { username: "red-player", teamId: "red", token: "private-not-copied" },
       { username: "blue-player", teamId: "blue" },
     ],
-    rules: { objectives: ["wool-a", "secret-goal"] },
-    publicGoalPositions: [{ block: "minecraft:red_wool" }],
+    objectives: ["wool-a", "secret-goal"],
+    briefing: {
+      public: {
+        goals: [
+          { team: "red", block: "minecraft:red_wool" },
+          { team: "blue", block: "minecraft:blue_wool" },
+          { team: "red", block: "oak_log[axis=y]" },
+        ],
+        watchItems: [
+          "minecraft:white_wool",
+          "red_wool",
+          "red_wool",
+          "not an item",
+        ],
+      },
+    },
     openingViews: {
       course: {
         bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 20, z: 30 } },
@@ -46,8 +59,7 @@ test("trusted match projection identifies teams and wool interests without guess
     byUsername: { "red-player": "red", "blue-player": "blue" },
   });
   assert.deepEqual(options.objectiveItems, ["red_wool"]);
-  assert.equal(options.inventoryWatchItems.length, 16);
-  assert.equal(options.inventoryWatchType, "wool_inventory");
+  assert.deepEqual(options.inventoryWatchItems, ["white_wool", "red_wool"]);
   assert.deepEqual(options.publicMapBounds.max, { x: 10, y: 20, z: 30 });
   assert.doesNotMatch(
     JSON.stringify(options),

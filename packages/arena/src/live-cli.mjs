@@ -2,7 +2,6 @@
 import { dirname, resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { readFile, access } from "node:fs/promises";
-import { isLegacyConfig } from "./index.mjs";
 import { createLiveMatch, loadBriefingPrompt } from "./live.mjs";
 import { writeRunState } from "./run-files.mjs";
 import { readRuntimeFault } from "./runtime-supervisor.mjs";
@@ -23,10 +22,6 @@ if (!path) {
   try {
     await writeRunState(run, resultPath);
     run.config = JSON.parse(await readFile(path, "utf8"));
-    if (isLegacyConfig(run.config))
-      console.error(
-        "Deprecated config: game/rules/live.goals are converted to session/judge/briefing (monument-blocks); see packages/arena/README.md",
-      );
     match = await createLiveMatch(run.config, {
       runId: run.runId,
       resultDir: dirname(resolve(resultPath)),

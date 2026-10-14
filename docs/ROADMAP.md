@@ -34,20 +34,20 @@
 
 设计见 [GAME-MODES.md](GAME-MODES.md)。玩法规则、判定和行为限制由服务器上的数据包或插件负责，平台只管会话生命周期，并通过 RCON 协议（`#arena:prepare/start/stop` 和 `arena:session` 存储）与服务器对话。
 
-| 状态 | 事项                                                                                                                                                                                                      |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ✅   | 协议与判定器：SNBT 解析、`datapack` 判定器、写入 `arena:config`；把现有方块判定抽成 `monument-blocks` 判定器                                                                                              |
-| ✅   | 比赛配置改为 `session`／`judge`／`briefing` 三块，旧格式自动转换；去掉写死的 `race-of-wool`                                                                                                               |
-| ✅   | 游戏桥 `/v1/session`（含 `kind`）；Pi 扩展和启动器支持 `open` 会话：空闲提醒不再要求比赛主控                                                                                                              |
-| ✅   | 参赛提示拆成通用部分（`examples/PROMPT.md`）和玩法部分（由会话配置的 `briefing.promptFile` 提供）                                                                                                         |
-| ✅   | 独立游戏桥：`BRIDGE_SESSION=open`、`MF_AUTH=microsoft`；陪玩部署模板（`infra/companion`）                                                                                                                 |
-| ✅   | 聊天转发：提到 bot 名字的消息和私聊可设为紧急，用来唤醒空闲的模型（`ARENA_CHAT_WAKE`）                                                                                                                    |
-| ✅   | 最小示例数据包（`infra/datapacks/arena-example`）                                                                                                                                                         |
-| ⬜   | 把羊毛竞速地图移植成数据包，删除 `monument-blocks`                                                                                                                                                        |
-| ⬜   | 补测试：游戏桥 CLI（`cliOptions`、提示词大小上限、`MF_AUTH`）、`/v1/session` 与 `/v1/match` 别名、`createMatchReader` 的 404 回退、`open` 会话的时钟、开局提示里的简报、启动器的 `open` 会话、`chatWakes` |
-| ⬜   | 协议 v1 给没有队伍的 `open` 会话传玩家名单（现在 `arena:config` 的 `teams` 为空，数据包看不到 bot）                                                                                                       |
-| ⬜   | `briefing.public` 的大小上限；比赛中 `public` 变化时发平台消息                                                                                                                                            |
-| ⬜   | 观察器的目标物品只读旧字段 `publicGoalPositions`；`datapack` 判定器的公开数据在 `briefing.public`，观察器还不认                                                                                           |
+| 状态 | 事项                                                                                                                                  |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| ✅   | 协议与判定器：SNBT 解析、`datapack` 判定器、写入 `arena:config`；把现有方块判定抽成 `monument-blocks` 判定器                          |
+| ✅   | 比赛配置改为 `session`／`judge`／`briefing` 三块；去掉写死的 `race-of-wool`                                                           |
+| ✅   | 游戏桥 `/v1/session`（含 `kind`）；Pi 扩展和启动器支持 `open` 会话：空闲提醒不再要求比赛主控                                          |
+| ✅   | 参赛提示拆成通用部分（`examples/PROMPT.md`）和玩法部分（由会话配置的 `briefing.promptFile` 提供）                                     |
+| ✅   | 独立游戏桥：`BRIDGE_SESSION=open`、`MF_AUTH=microsoft`；陪玩部署模板（`infra/companion`）                                             |
+| ✅   | 聊天转发：提到 bot 名字的消息和私聊可设为紧急，用来唤醒空闲的模型（`ARENA_CHAT_WAKE`）                                                |
+| ✅   | 最小示例数据包（`infra/datapacks/arena-example`）                                                                                     |
+| ✅   | 把羊毛竞速地图移植成数据包（`infra/datapacks/race-of-wool`），删除 `monument-blocks`、旧配置转换和 `/v1/match` 别名；实服验证         |
+| ⬜   | 补测试：游戏桥 CLI（`cliOptions`、提示词大小上限、`MF_AUTH`）、`open` 会话的时钟、开局提示里的简报、启动器的 `open` 会话、`chatWakes` |
+| ⬜   | 协议 v1 给没有队伍的 `open` 会话传玩家名单（现在 `arena:config` 的 `teams` 为空，数据包看不到 bot）                                   |
+| ⬜   | `briefing.public` 的大小上限；比赛中 `public` 变化时发平台消息                                                                        |
+| ✅   | 观察器的目标物品和关注物品改读 `briefing.public.goals`／`watchItems`（不再写死羊毛）                                                  |
 
 ## 模型调用与计量
 

@@ -1,8 +1,8 @@
 # 玩法、会话与服务器协议
 
-状态：已实现（2026-10-14），本页作为设计和协议参考。代码在 `packages/arena/src/judges.mjs`（判定器）、`packages/arena/src/snbt.mjs`（SNBT）、`packages/mf-bridge/cli.mjs`（独立游戏桥）；配置字段见 [packages/arena/README.md](../packages/arena/README.md)，示例数据包见 [infra/datapacks/arena-example](../infra/datapacks/arena-example/README.md)，陪玩模板见 [infra/companion](../infra/companion/README.md)。
+状态：已实现（2026-10-14），本页作为设计和协议参考。代码在 `packages/arena/src/judges.mjs`（判定器）、`packages/arena/src/snbt.mjs`（SNBT）、`packages/mf-bridge/cli.mjs`（独立游戏桥）；配置字段见 [packages/arena/README.md](../packages/arena/README.md)，羊毛竞速数据包见 [infra/datapacks/race-of-wool](../infra/datapacks/race-of-wool/README.md)，最小示例数据包见 [infra/datapacks/arena-example](../infra/datapacks/arena-example/README.md)，陪玩模板见 [infra/companion](../infra/companion/README.md)。
 
-**尚未在真实服务器上验证：** 协议只用假 RCON 测过；示例数据包只做过静态检查，没有装进真实的 1.21.1 服务器；`MF_AUTH=microsoft` 登录和陪玩模板都没有实际跑过。剩下的事项见 [ROADMAP](ROADMAP.md)。
+**真实服务器验证（2026-10-14，1.21.1 原版）：** 协议 v1、示例数据包和羊毛竞速数据包都在真实服务器上跑过，包括比赛主控 `live-cli.mjs` 带两个真实 Mineflayer bot 的完整一局（见 [VALIDATION](VALIDATION.md)）。`MF_AUTH=microsoft` 登录和陪玩模板还没有实际跑过。剩下的事项见 [ROADMAP](ROADMAP.md)。
 
 ## 要解决的问题
 
@@ -99,18 +99,18 @@ RCON 断开或读到空的、格式错误的存储，`match` 会话容忍连续 
 }
 ```
 
-`judge.type` 有两种：
+`judge.type` 原计划两种：
 
-- `datapack`：上面的协议，以后的默认值。
-- `monument-blocks`：现在的裁判 bot 方块判定，原样保留，用来兼容已有地图。羊毛竞速移植成数据包以后，这一种可以删除。
+- `datapack`：上面的协议，默认值。
+- `monument-blocks`：原来的裁判 bot 方块判定，过渡期保留。羊毛竞速移植成数据包（[infra/datapacks/race-of-wool](../infra/datapacks/race-of-wool/README.md)）后已删除（2026-10-14）。
 
 `live.commands.prepare/start/end` 保留，作为调用 `#arena:*` 之前的额外命令。
 
-实现时增加了第三种 `none`：不判定，是 `open` 会话的默认值（`open` 会话也可以用 `datapack`，只读取 `public` 和分数）。旧格式（没有 `session` 和 `judge` 块）自动转换为 `monument-blocks`，并打印弃用提示。
+实现时增加了第三种 `none`：不判定，是 `open` 会话的默认值（`open` 会话也可以用 `datapack`，只读取 `public` 和分数）。旧格式（顶层 `game`、`rules`、`durationMs` 或 `live.goals`）过渡期曾自动转换，现在被拒绝。
 
 ## 参赛者看到的接口
 
-- **会话状态：** 游戏桥的 `/v1/match` 改为 `/v1/session`，旧路径保留一个版本。返回值多两个字段：`kind`，以及 `durationMs`（`open` 会话为 `null`）。`public` 原样放在 `briefing.public` 里。
+- **会话状态：** 游戏桥的 `/v1/match` 改为 `/v1/session`；旧路径过渡一个版本后已删除。返回值多两个字段：`kind`，以及 `durationMs`（`open` 会话为 `null`）。`public` 原样放在 `briefing.public` 里。
 - **Pi 扩展和启动器：**
   - 判断"会话在运行"，不再只认比赛。
   - 空闲提醒在 `open` 会话中照样生效。
@@ -134,13 +134,14 @@ RCON 断开或读到空的、格式错误的存储，`match` 会话容忍连续 
 
 ## 迁移步骤
 
-第 1–5 步已完成，只剩第 5 步的后半：把羊毛竞速地图移植成数据包，再删除 `monument-blocks`。
+全部完成（2026-10-14）。
 
 1. **协议和适配器。** 写 SNBT 解析器、`datapack` 判定器、`arena:config` 写入。`monument-blocks` 从 `live.mjs` 抽成同一接口下的另一个实现。
 2. **配置。** 引入 `session`/`judge`/`briefing` 块，旧的 `game`/`rules`/`live.goals` 自动转换成新格式，并打印弃用提示。
 3. **会话接口。** 新增 `/v1/session`；Pi 扩展和启动器改用它，并支持 `open`；简报改为由模式提供。
 4. **独立游戏桥。** 支持 `BRIDGE_SESSION=open` 和 `MF_AUTH`；聊天转发增加按提及升为紧急的选项；新增陪玩部署模板。
-5. **示例数据包。** 写一个最小的示例数据包，演示协议：手动命令开始、按计分板判胜负。之后把羊毛竞速地图移植成数据包，再删除 `monument-blocks`。
+5. **示例数据包。** 写一个最小的示例数据包，演示协议：手动命令开始、按计分板判胜负。
+6. **移植羊毛竞速。** 纪念碑判定写成数据包 `infra/datapacks/race-of-wool`，在真实 1.21.1 服务器上验证后删除 `monument-blocks`、旧配置转换、`/v1/match` 别名和观察器里写死的羊毛规则。观察器改从 `briefing.public.goals` 和 `briefing.public.watchItems` 取目标物品和关注物品。
 
 ## 未决问题
 

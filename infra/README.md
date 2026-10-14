@@ -35,25 +35,24 @@
 
    构建时需要联网；比赛时服务器不下载任何东西。镜像默认叫 `craft-arena-minecraft:local`。`MC_SERVER_BUILD_CONTEXT` 可换构建目录；已有审核过的镜像时设 `MC_SERVER_IMAGE` 并用 `--no-build` 启动，它必须支持下面的录像挂载，否则关掉录像。
 
-3. 把解压好的世界（含 `level.dat`）、`server.properties`（开启 RCON 并设私有密码，关闭命令方块）和 `eula.txt` 放进 `world` 卷（容器内 `/data`）。参赛 bot 不能是服务器管理员（OP）。
-4. 复制 [`match.live.template.json`](match.live.template.json) 为 `infra/match.live.json`，填好所有 `OPERATOR_...` 占位值：地图、参赛者、目标方块坐标（`judge.goals`）、准备／开赛／结束时执行的 RCON 命令和期望回应、裁判 bot（`judge.observer`）的位置与视距（要能加载所有目标），以及给参赛者的 `briefing.text`。`session.durationMs` 决定比赛时长。比赛配置的字段说明见 [packages/arena/README.md](../packages/arena/README.md)。
-   - 模板是羊毛竞速，用 `monument-blocks` 判定器（裁判 bot 看纪念碑方块）。规则由服务器上的数据包判定时，见下文[玩法与判定器](#玩法与判定器)。
+3. 把解压好的世界（含 `level.dat`）、`server.properties`（开启 RCON 并设私有密码，关闭命令方块）和 `eula.txt` 放进 `world` 卷（容器内 `/data`），再把规则数据包复制进世界的 `datapacks/`，羊毛竞速用 [`datapacks/race-of-wool`](datapacks/race-of-wool/README.md)（先在它的 `map.mcfunction` 里填好这张地图的纪念碑坐标）。参赛 bot 不能是服务器管理员（OP）。
+4. 复制 [`match.live.template.json`](match.live.template.json) 为 `infra/match.live.json`，填好所有 `OPERATOR_...` 占位值：地图、参赛者、可选的准备／开赛／结束 RCON 命令和期望回应（例如传送、设出生点），以及给参赛者的 `briefing.text`。`session.durationMs` 决定比赛时长。比赛配置的字段说明见 [packages/arena/README.md](../packages/arena/README.md)。
+   - 模板是羊毛竞速，用 `datapack` 判定器：纪念碑由服务器上的数据包判定，见下文[玩法与判定器](#玩法与判定器)。
    - 玩法提示 `briefing.promptFile` 相对配置文件解析；[`compose.live.yaml`](compose.live.yaml) 把 [`maps/`](maps/) 挂到 `/config/maps`。文件不存在时主控拒绝启动。
    - `live.minecraft.version` 必须与下载清单的 `minecraftVersion` 一致。
-   - 目标坐标默认不告诉参赛者；只有设 `judge.publishGoalPositions: true` 才公开。不要把秘密写进 `briefing`。
+   - 纪念碑坐标是否公开由数据包决定（`map.mcfunction` 里的 `publishGoals`）。不要把秘密写进 `briefing`。
    - 游戏内聊天默认开启（包括 `/tell`、`/teammsg` 这类普通命令）。要关掉，在参赛者的 `bridge` 里设 `allowChat: false`。
    - 参赛者 ID、游戏桥端口和令牌必须和 Compose 文件、预算文件一致。
-   - 旧格式的配置（`game: "race-of-wool"`、`rules`、`live.goals`、`live.briefing`）照样能用，主控会自动转换并打印弃用提示。
+   - 旧格式的配置（顶层 `game`、`rules`、`durationMs` 或 `live.goals`）不再支持，主控会拒绝并提示改用数据包。
 
 ### 玩法与判定器
 
 比赛主控只管会话：准备、开赛、时限、掉线、结束。谁赢由判定器决定（`judge.type`），设计见 [docs/GAME-MODES.md](../docs/GAME-MODES.md)：
 
-| `judge.type`      | 谁判定                                                                                                                                                        |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `monument-blocks` | 可信的裁判 bot 轮询纪念碑方块。只用于羊毛竞速这类已有地图                                                                                                     |
-| `datapack`        | 服务器上的数据包或插件，按服务器协议 v1 通过 RCON 交换 `arena:config` 和 `arena:session`。示例见 [datapacks/arena-example](datapacks/arena-example/README.md) |
-| `none`            | 不判定，只用于 `open` 会话                                                                                                                                    |
+| `judge.type` | 谁判定                                                                                                                                                                                                                                   |
+| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `datapack`   | 服务器上的数据包或插件，按服务器协议 v1 通过 RCON 交换 `arena:config` 和 `arena:session`。羊毛竞速见 [datapacks/race-of-wool](datapacks/race-of-wool/README.md)，最小示例见 [datapacks/arena-example](datapacks/arena-example/README.md) |
+| `none`       | 不判定，只用于 `open` 会话                                                                                                                                                                                                               |
 
 不比赛、只想让模型在普通服务器上陪玩时，不需要比赛主控：游戏桥自己提供一个 `open` 会话，部署模板见 [companion/README.md](companion/README.md)。
 

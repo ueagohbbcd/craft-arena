@@ -1,22 +1,17 @@
-import { setTimeout as delay } from "node:timers/promises";
 import { parseStorageReply, serializeSnbt } from "./snbt.mjs";
 
 /**
  * Judges decide the match outcome for the live runner. Every judge has the
  * same shape:
  *
- * - `beforeBridges()`: prepare work before participant bots join.
  * - `afterBridges()`: prepare work once every participant bot has spawned.
  * - `start()`: release the match on the judge's side.
  * - `poll()`: one reading while running; throws to end the match `map-fault`.
  * - `stop(reason)`: freeze and read the final state while the host is ending.
- * - `close()`: release judge-owned connections.
- * - `lost()`: true when a judge connection ended before the start.
  * - `public()`: latest public data the server published, or null.
  */
 export function createJudge(config, context) {
   const type = config.judge.type;
-  if (type === "monument-blocks") return monumentBlocksJudge(config, context);
   if (type === "datapack") return datapackJudge(config, context);
   if (type === "none") return noJudge(context);
   throw new Error(`Unknown judge type ${type}`);
@@ -49,91 +44,12 @@ export async function spawned(bot, timeoutMs) {
 function noJudge({ host }) {
   return {
     type: "none",
-    async beforeBridges() {},
     async afterBridges() {},
     async start() {},
     async poll() {
       await host().checkTimeout();
     },
     async stop() {},
-    async close() {},
-    lost: () => false,
-    public: () => null,
-  };
-}
-
-/**
- * The trusted referee bot reads each configured goal block every poll and
- * reports one full observation round to the host.
- */
-function monumentBlocksJudge(
-  config,
-  { createBot, Vec3, host, timeoutMs, runCommands, quitBot, endedBots },
-) {
-  const { goals, observer: observerConfig } = config.judge;
-  let observer;
-  const read = (g) =>
-    observer.blockAt(new Vec3(g.position.x, g.position.y, g.position.z));
-  const matches = (g, b) =>
-    b?.name === g.block &&
-    Object.entries(g.properties ?? {}).every(
-      ([k, v]) => b.getProperties?.()[k] === v,
-    );
-  return {
-    type: "monument-blocks",
-    observer: () => observer,
-    async beforeBridges() {
-      observer = createBot({ ...config.live.minecraft, ...observerConfig });
-      await spawned(observer, timeoutMs);
-      observer.on?.("end", () => {
-        endedBots.add(observer);
-        if (host().state === "running") void host().end("map-fault");
-      });
-      observer.on?.("error", () => {
-        if (host().state === "running") void host().end("map-fault");
-      });
-      await runCommands("observer", observerConfig.commands ?? []);
-      if (
-        observer.registry?.blocksByName &&
-        goals.some((g) => !observer.registry.blocksByName[g.block])
-      )
-        throw new Error(
-          "Configured goal block unknown for selected Minecraft version",
-        );
-      const deadline = Date.now() + timeoutMs;
-      while (goals.some((g) => !read(g))) {
-        if (Date.now() >= deadline)
-          throw new Error(
-            "Goal chunks unavailable: position trusted observer so all configured monuments are loaded",
-          );
-        await delay(100);
-      }
-      if (goals.some((g) => matches(g, read(g))))
-        throw new Error(
-          "Reset verification failed: a goal is already complete",
-        );
-    },
-    async afterBridges() {},
-    async start() {},
-    async poll() {
-      const observations = Object.fromEntries(
-        config.teams.map((t) => [t.id, Object.create(null)]),
-      );
-      for (const goal of goals) {
-        const block = read(goal);
-        if (!block)
-          throw new Error(
-            "Goal observation became unavailable during running match",
-          );
-        observations[goal.team][goal.objective] = matches(goal, block);
-      }
-      await host().observe(observations);
-    },
-    async stop() {},
-    async close() {
-      await quitBot(observer);
-    },
-    lost: () => !!observer && endedBots.has(observer),
     public: () => null,
   };
 }
@@ -208,7 +124,8 @@ function datapackJudge(config, { rcon, host }) {
     prepared = false;
   const run = async (phase) => {
     const reply = await rcon.command(`function #arena:${phase}`);
-    if (/Unknown function/i.test(reply))
+    // 1.21.1 answers "Can't find any functions for name arena:<phase>".
+    if (/Unknown function|Can't find any functions/i.test(reply))
       throw new Error(
         `Server has no #arena:${phase} function tag; install the arena datapack`,
       );
@@ -226,7 +143,6 @@ function datapackJudge(config, { rcon, host }) {
   };
   return {
     type: "datapack",
-    async beforeBridges() {},
     async afterBridges() {
       // `data modify` needs a path, so the root cannot be replaced in one
       // command: drop the optional key a previous session may have left, then
@@ -281,13 +197,11 @@ function datapackJudge(config, { rcon, host }) {
       try {
         host().conclude(await read());
       } catch (e) {
-        host().judgeError = `Final arena:session read failed: ${e.message}`;
+        host().judgeError ??= `Final arena:session read failed: ${e.message}`;
         host().conclude({});
       }
       if (error) throw error;
     },
-    async close() {},
-    lost: () => false,
     public: () => published,
   };
 }

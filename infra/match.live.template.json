@@ -6,74 +6,8 @@
     "onTimeout": "draw"
   },
   "judge": {
-    "type": "monument-blocks",
-    "pollMs": 100,
-    "objectives": ["wool-a", "wool-b", "wool-c"],
-    "observer": {
-      "username": "arena_referee"
-    },
-    "goals": [
-      {
-        "team": "red",
-        "objective": "wool-a",
-        "position": {
-          "x": null,
-          "y": null,
-          "z": null
-        },
-        "block": "OPERATOR_TARGET_BLOCK_NAME"
-      },
-      {
-        "team": "red",
-        "objective": "wool-b",
-        "position": {
-          "x": null,
-          "y": null,
-          "z": null
-        },
-        "block": "OPERATOR_TARGET_BLOCK_NAME"
-      },
-      {
-        "team": "red",
-        "objective": "wool-c",
-        "position": {
-          "x": null,
-          "y": null,
-          "z": null
-        },
-        "block": "OPERATOR_TARGET_BLOCK_NAME"
-      },
-      {
-        "team": "blue",
-        "objective": "wool-a",
-        "position": {
-          "x": null,
-          "y": null,
-          "z": null
-        },
-        "block": "OPERATOR_TARGET_BLOCK_NAME"
-      },
-      {
-        "team": "blue",
-        "objective": "wool-b",
-        "position": {
-          "x": null,
-          "y": null,
-          "z": null
-        },
-        "block": "OPERATOR_TARGET_BLOCK_NAME"
-      },
-      {
-        "team": "blue",
-        "objective": "wool-c",
-        "position": {
-          "x": null,
-          "y": null,
-          "z": null
-        },
-        "block": "OPERATOR_TARGET_BLOCK_NAME"
-      }
-    ]
+    "type": "datapack",
+    "pollMs": 200
   },
   "briefing": {
     "text": "OPERATOR_REPLACE_WITH_PUBLIC_MAP_RULES_AND_START_INSTRUCTIONS",

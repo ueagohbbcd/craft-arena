@@ -61,7 +61,8 @@ function server() {
       if (c === "data get storage arena:session")
         return s.session === null ? "Connection reset" : storage(s.session);
       if (c.startsWith("function #arena:"))
-        return `Running 1 functions from tag ${c.slice(9)}`;
+        // Real 1.21.1 reply for a one-function tag.
+        return `Running function example:${c.slice(16)}`;
       return "OK";
     },
   });
@@ -72,9 +73,6 @@ async function live(config, s, extra = {}) {
   const states = [];
   const match = await createLiveMatch(config, {
     env: { R: "r", B: "b", RCON: "x" },
-    createBot: () => {
-      throw new Error("datapack needs no referee bot");
-    },
     rconFactory: s.rcon,
     now: () => now,
     startLiveBridge: async (options) => {
@@ -174,8 +172,9 @@ test("datapack timeout runs #arena:stop and falls back to most-score", async () 
 
 test("datapack faults: unknown function at prepare, unreadable polls, unknown winner", async () => {
   const missing = server();
+  // Real 1.21.1 reply when no datapack provides the tag.
   missing.replies["function #arena:prepare"] =
-    "Unknown function tag '#arena:prepare'";
+    "Can't find any functions for name arena:prepare";
   const a = await live(base, missing);
   await assert.rejects(a.match.prepare(), /no #arena:prepare function tag/);
   assert.equal(a.match.host.state, "created");
@@ -191,7 +190,7 @@ test("datapack faults: unknown function at prepare, unreadable polls, unknown wi
   flaky.session = "{version:1,state:"; // malformed SNBT counts as unreadable
   await b.match.poll();
   assert.equal(b.match.host.result().reason, "map-fault");
-  assert.match(b.match.host.result().observerError, /unreadable/);
+  assert.match(b.match.host.result().judgeError, /unreadable/);
 
   const recovers = server();
   const c = await live(base, recovers);

@@ -2,7 +2,7 @@
 
 写给开发者和运营者：每项能力现在验证到哪一级、比赛前还缺哪些验收、怎样复现。这里只写当前状态；按日期的运行记录在 [history/VALIDATION-LOG.md](history/VALIDATION-LOG.md)。术语（收件箱、紧急消息、平台消息、持续会话等）见 [README 术语表](../README.md#术语表)。
 
-更新：2026-10-13，代码 `3a89277`。
+更新：2026-10-14（服务器协议与羊毛竞速数据包实服验证）。
 
 ## 验证等级
 
@@ -36,7 +36,8 @@
 | PvP 适配、战斗报告 | 夹具测试 | `tests/sdk-plugins.test.mjs`、`tests/combat-report.test.mjs` | 没有实战 |
 | 游戏桥：动作校验、背压、错误 | 夹具测试 | `tests/bridge*.test.mjs` | 2026-10-11 的实服检查经过游戏桥；之后有改动 |
 | 预算网关：计量、限速、排队、只给比例 | 真实 Pi 测试 | `tests/budget-*.test.mjs`、`tests/integration-pi.test.mjs` | 2026-10-11 部署时连过真实模型，当时走的是已删除的 OAuth 适配器 |
-| 比赛主控：生命周期、RCON、判定 | 夹具测试 | `tests/arena-*.test.mjs`（含本地 TCP RCON） | 2026-10-11 Windows 部署做过生命周期与计分冒烟 |
+| 比赛主控：生命周期、RCON、判定 | 实服验证 | `tests/arena-*.test.mjs`（含本地 TCP RCON）；2026-10-14 实服运行，见下方[服务器协议实服运行](#服务器协议实服运行) | `live-cli.mjs` 带两个真实 Mineflayer bot 跑完准备、开赛、数据包判胜、结束；没有参赛模型 |
+| 服务器协议 v1、`race-of-wool`／`arena-example` 数据包 | 实服验证 | `tests/datapack-*.test.mjs`（静态）；2026-10-14 实服运行 | 胜、平、时限停止、拆除目标回落、区块强制加载与释放；Direct Fire 地图本身没有装进去跑 |
 | 服务端录像 | 夹具测试 | `tests/server-replay.test.mjs` | 真实服务器录像输出与回放播放都没验收 |
 | 开局图像、截图脚本 | 夹具测试 | `tests/opening-delivery.test.mjs`、`tests/visual-*.test.mjs` | 真实 Chromium 测试需 `MC_TEST_CHROMIUM=1`；上次跑通是 2026-10-11 的 Windows 部署，在删除 Pi 里的图像工具之前 |
 | Unix socket 收件箱 | 夹具测试 | `tests/inbox.test.mjs` | 运行环境拒绝绑定（`EPERM`）时这项跳过，只剩 loopback HTTP |
@@ -55,6 +56,18 @@
 6. **实战插件表现**：动态地形寻路、PvP、完整容器交互，按选定地图验证。
 7. **服务端录像**：实服录像输出、保存，以及 [近视回放客户端](../tools/replay-myopia/README.md) 播放。
 8. **模型读图与策略效果**：图像能送到模型已验证；模型据此做出更好决策没有评估。
+
+## 服务器协议实服运行
+
+2026-10-14，Linux 上的 Minecraft 1.21.1 原版服务器（平坦世界，离线模式，开启 RCON），Java 21，Node 22。
+
+1. 下载 `infra/minecraft-download.json` 里固定的 `server.jar`（SHA-1 一致），`server.properties` 开 RCON，把数据包复制进 `world/datapacks/`。
+2. 用仓库的 `RconClient`、`serverConfig`、`serializeSnbt`、`readServerSession` 直接走协议：
+   - `arena-example`：写 `arena:config`、`#arena:prepare`（分数 0、`waiting`）、`#arena:start`（`running`）、`scoreboard players add red arena_points 3` 后服务器写出 `winner:"red"`、`state:"ended"`。缺少标签时 1.21.1 回复 `Can't find any functions for name arena:<阶段>`，判定器据此报"未安装数据包"。
+   - `race-of-wool`（纪念碑坐标即 Direct Fire 的）：准备时清空已放好的目标并强制加载区块；`setblock` 放羊毛后分数 1→2，拆掉一块回落，集齐判胜；开赛前双方都放满，开赛第一刻判平局；`#arena:stop` 记录持有数（`most-score` 可用）并释放强制加载。
+3. 完整比赛主控：`live-cli.mjs` 读取由 `infra/windows-local/match.direct-fire.json` 改主机地址、关录像、改开赛传送命令得到的配置，两个参赛者的游戏桥各连一个真实 Mineflayer bot。等待开赛标记期间 `arena:config` 的队伍和玩家名正确；开赛后用 bot SDK（`connectBot`、`getSessionState`、`equip`、`placeBlock`）从红方游戏桥读取 `briefing.public.goals` 并放下三块羊毛，会话 `scores` 依次为 1、2、3，随后数据包判红方胜。结果：`reason: "judge-decision"`、`winner: "red"`、`scores: {red:3, blue:0}`、`stopConfirmed: true`。
+
+没有覆盖：Direct Fire 地图本身、参赛模型、服务端录像、默认观察器读新公开数据的实服运行、Windows 部署脚本里新增的 `-Datapacks` 复制（只在 Windows 上运行）。
 
 ## 持续限制
 

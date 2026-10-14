@@ -25,7 +25,6 @@ Every request needs `Authorization: Bearer <token>`. A wrong or missing token ge
 | `GET /v1/chat`                              | SSE stream of chat-box text only                     | no snapshots, no action-bar text                                                                              |
 | `GET /v1/chunk?x=&z=`                       | one currently loaded chunk column as Prismarine JSON | `result:null` if not loaded; never asks the server to load it; ≤ 8 MiB; uses the same rate limiter as actions |
 | `GET /v1/session`                           | read-only session state from the session host        | `404` if no `getMatchState` was given, `503` if it throws                                                     |
-| `GET /v1/match`                             | legacy alias of `/v1/session`, same body             | kept for one version                                                                                          |
 | `GET /v1/memory/block`, `/chunk`, `/chunks` | block memory queries                                 | not rate-limited; `503` when memory is disabled                                                               |
 
 Any other route returns `404`. Large integers travel as `{"$arenaBigInt":"<digits>"}` in both directions.

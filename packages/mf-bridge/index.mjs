@@ -805,11 +805,7 @@ export function createBridgeServer({
       }
       return;
     }
-    // /v1/session is the session route; /v1/match is its legacy alias.
-    if (
-      req.method === "GET" &&
-      (req.url === "/v1/session" || req.url === "/v1/match")
-    ) {
+    if (req.method === "GET" && req.url === "/v1/session") {
       if (typeof getMatchState !== "function") {
         res.writeHead(404);
         return res.end();

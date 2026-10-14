@@ -7,6 +7,8 @@ param(
     [switch]$AcceptEula,
     [string]$ServerJar,
     [string]$ServerDownload = (Join-Path $PSScriptRoot '../infra/minecraft-download.json'),
+    # Datapacks installed into the world; the default judges the race-of-wool monuments.
+    [string[]]$Datapacks = @(Join-Path $PSScriptRoot '../infra/datapacks/race-of-wool'),
     [string]$DeepSeekApiKeyEnv = 'DEEPSEEK_API_KEY',
     [string]$RedUpstreamApiKeyEnv = 'RED_UPSTREAM_API_KEY'
 )
@@ -62,6 +64,16 @@ try {
     & $node @prepareArgs
     if ($LASTEXITCODE -ne 0) { throw 'Checked Minecraft server preparation failed.' }
     Copy-Item -LiteralPath $world -Destination (Join-Path $stage 'map-original/world') -Recurse
+    # Into the original world so every reset keeps the rules.
+    $packDir = Join-Path $stage 'map-original/world/datapacks'
+    New-Item -ItemType Directory -Force -Path $packDir | Out-Null
+    foreach ($pack in $Datapacks) {
+        $source = (Resolve-Path -LiteralPath $pack).Path
+        if (-not (Test-Path -LiteralPath (Join-Path $source 'pack.mcmeta') -PathType Leaf)) { throw "Datapack $source has no pack.mcmeta." }
+        $target = Join-Path $packDir (Split-Path -Leaf $source)
+        if (Test-Path -LiteralPath $target) { throw "World already contains datapack $(Split-Path -Leaf $source)." }
+        Copy-Item -LiteralPath $source -Destination $target -Recurse
+    }
     Copy-Item -LiteralPath (Join-Path $stage 'map-original/world') -Destination (Join-Path $stage 'minecraft-data/world') -Recurse
     $envLines = [Collections.Generic.List[string]]::new()
     # Compose dotenv single quotes preserve dollar signs and backslashes literally.

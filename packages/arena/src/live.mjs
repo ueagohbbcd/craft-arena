@@ -26,16 +26,9 @@ function validateLive(config) {
     throw new Error(
       "Live Minecraft version/host and RCON host/passwordEnv required",
     );
-  const monuments = c.judge.type === "monument-blocks";
-  // The referee-bot mode needs its own reset and release commands; with a
-  // server judge they are optional extras run before the #arena:* tags.
   for (const phase of ["prepare", "start", "end"]) {
     const list = c.live.commands?.[phase];
-    if (
-      monuments
-        ? !validCommands(list) || !list.length
-        : list !== undefined && !validCommands(list)
-    )
+    if (list !== undefined && !validCommands(list))
       throw new Error(
         `Explicit ${phase} command/expected-response pairs required`,
       );
@@ -47,35 +40,6 @@ function validateLive(config) {
       !Number.isSafeInteger(p.bridge.port)
     )
       throw new Error(`Live username/bridge config required for ${p.id}`);
-  if (monuments) {
-    const { goals, objectives } = c.judge;
-    if (!c.judge.observer?.username)
-      throw new Error("Trusted observer username required");
-    for (const team of c.teams)
-      for (const objective of objectives) {
-        const g = goals?.find(
-          (x) => x.team === team.id && x.objective === objective,
-        );
-        if (
-          !g ||
-          typeof g.block !== "string" ||
-          !g.position ||
-          !["x", "y", "z"].every((k) => Number.isSafeInteger(g.position[k]))
-        )
-          throw new Error(
-            `Operator goal block/position required for ${team.id}/${objective}`,
-          );
-      }
-    if (
-      new Set(goals.map((g) => JSON.stringify(g.position))).size !==
-      goals.length
-    )
-      throw new Error("Goal positions must be distinct");
-    if (goals.length !== c.teams.length * objectives.length)
-      throw new Error(
-        "Exactly one configured goal per team/objective required",
-      );
-  }
   validateReplay(c);
   for (const [team, views] of Object.entries(c.live.openingViews ?? {})) {
     if (!c.teams.some((t) => t.id === team))
@@ -128,7 +92,6 @@ export async function createLiveMatch(
   rawConfig,
   {
     env = process.env,
-    createBot,
     startLiveBridge,
     rconFactory = (options) => new RconClient(options),
     now = Date.now,
@@ -140,12 +103,8 @@ export async function createLiveMatch(
 ) {
   validateLive(rawConfig);
   const config = normalizeConfig(rawConfig);
-  if (!createBot)
-    ({ createCompatibleBot: createBot } =
-      await import("../../mf-bridge/minecraft-compat.mjs"));
   if (!startLiveBridge)
     ({ startLiveBridge } = await import("../../mf-bridge/live.mjs"));
-  const { Vec3 } = await import("vec3");
   const rcon = rconFactory({
     ...config.live.rcon,
     password: env[config.live.rcon.passwordEnv],
@@ -192,16 +151,7 @@ export async function createLiveMatch(
       }
     });
   };
-  const judge = createJudge(config, {
-    rcon,
-    createBot,
-    Vec3,
-    host: () => host,
-    timeoutMs: timeout,
-    runCommands,
-    quitBot,
-    endedBots,
-  });
+  const judge = createJudge(config, { rcon, host: () => host });
   const cleanup = async (preserveStatus = false) => {
     clearInterval(timer);
     const failures = [];
@@ -222,11 +172,6 @@ export async function createLiveMatch(
       }
     }
     if (!preserveStatus) bridges.clear();
-    try {
-      await judge.close();
-    } catch (e) {
-      failures.push(e.message);
-    }
     rcon.close();
     if (failures.length)
       throw new Error(`Stop failures: ${failures.join("; ")}`);
@@ -235,15 +180,12 @@ export async function createLiveMatch(
     const merged = { ...config.briefing.public, ...judge.public() };
     return Object.keys(merged).length ? merged : null;
   };
-  // The session object each bridge serves at /v1/session (and /v1/match).
+  // The session object each bridge serves at /v1/session.
   const sessionView = (p) => {
     const published = publicData();
-    const objectives =
-      config.judge.type === "monument-blocks"
-        ? (config.judge.publicObjectives ?? config.judge.objectives)
-        : Array.isArray(published?.objectives)
-          ? published.objectives
-          : undefined;
+    const objectives = Array.isArray(published?.objectives)
+      ? published.objectives
+      : undefined;
     return {
       kind: config.session.kind,
       sessionId: config.id,
@@ -258,29 +200,11 @@ export async function createLiveMatch(
         username: validName(participant.username),
         teamId: participant.team ?? null,
       })),
-      // The observer keys wool reports off `game`; monument-blocks is the
-      // race-of-wool judge even in configs written without the legacy key.
-      game:
-        config.game ??
-        (config.judge.type === "monument-blocks" ? "race-of-wool" : undefined),
       map: config.map
         ? { id: config.map.id, version: config.map.version }
         : null,
-      rules: config.rules,
       objectives,
       openingViews: p.team ? config.live.openingViews?.[p.team] : undefined,
-      publicGoalPositions:
-        config.judge.type === "monument-blocks" &&
-        config.judge.publishGoalPositions === true
-          ? config.judge.goals
-              .filter((g) => g.team === p.team)
-              .map((g) => ({
-                objective: g.objective,
-                position: g.position,
-                block: g.block,
-                properties: g.properties ?? {},
-              }))
-          : undefined,
       briefing: {
         text: config.briefing.text,
         prompt: briefingPrompt,
@@ -305,7 +229,6 @@ export async function createLiveMatch(
         await rcon.connect();
         await replay.prepare();
         await execute("prepare");
-        await judge.beforeBridges();
         for (const p of config.participants) {
           const token = env[p.bridge.tokenEnv];
           if (!token) throw new Error(`Missing bridge token for ${p.id}`);
@@ -369,10 +292,7 @@ export async function createLiveMatch(
       }
     },
     start: async () => {
-      if (
-        judge.lost() ||
-        [...bridges.values()].some((b) => endedBots.has(b.bot))
-      )
+      if ([...bridges.values()].some((b) => endedBots.has(b.bot)))
         throw new Error("Game connection ended before match start");
       await replay.start();
       await execute("start");
@@ -433,7 +353,7 @@ export async function createLiveMatch(
     try {
       await judge.poll();
     } catch (e) {
-      host.observerError = e.message;
+      host.judgeError = e.message;
       await host.end("map-fault");
     } finally {
       polling = false;
@@ -443,7 +363,6 @@ export async function createLiveMatch(
     host,
     bridges,
     judge,
-    observer: () => judge.observer?.(),
     async prepare() {
       await host.prepare();
     },

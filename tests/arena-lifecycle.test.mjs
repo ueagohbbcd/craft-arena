@@ -6,19 +6,14 @@ import {
 } from "../packages/arena/src/index.mjs";
 export const config = {
   id: "test",
-  game: "race-of-wool",
+  session: { kind: "match", durationMs: 1000, onTimeout: "draw" },
+  judge: { type: "datapack" },
   map: { id: "operator-map", version: "test", sha256: "0".repeat(64) },
-  durationMs: 1000,
   teams: [{ id: "red" }, { id: "blue" }],
   participants: [
     { id: "a", team: "red" },
     { id: "b", team: "blue" },
   ],
-  rules: {
-    objectives: ["wool1", "wool2"],
-    winner: "first-team-all-objectives",
-    onTimeout: "draw",
-  },
   versions: { participantImage: "test", bridge: "test" },
 };
 const create = (now) =>
@@ -33,47 +28,49 @@ const create = (now) =>
       stop: async () => {},
     },
   });
-test("validates map and membership, lifecycle, authoritative scoring and dedup", async () => {
+test("validates map and membership, lifecycle, authenticated events and dedup", async () => {
   assert.deepEqual(validateMatchConfig(config), []);
   assert.ok(validateMatchConfig({}).length);
   const host = create(() => 0);
   await assert.rejects(host.start(), /prepared/);
   await host.prepare();
   await host.start();
-  const e = {
-    runId: host.runId,
-    id: "1",
-    type: "objective",
-    team: "red",
-    objective: "wool1",
-  };
+  const e = { runId: host.runId, id: "1", type: "death", participant: "a" };
   await assert.rejects(host.ingest(e, "participant"), /Unauthorized/);
   await host.ingest(e, "trusted");
   assert.deepEqual(await host.ingest(e, "trusted"), { duplicate: true });
-  await host.ingest({ ...e, id: "2", objective: "wool2" }, "trusted");
-  assert.equal(host.result().winner, "red");
-  assert.equal(host.result().events.length, 2);
-  assert.equal(host.result().stopConfirmed, true);
+  await assert.rejects(
+    host.ingest({ ...e, id: "2", type: "objective" }, "trusted"),
+    /Unsupported/,
+  );
+  await assert.rejects(
+    host.verdict({ winner: "green" }),
+    /unknown winner green/,
+  );
+  await host.verdict({ winner: "red", scores: { red: 3, blue: 1 } });
+  const result = host.result();
+  assert.equal(result.reason, "judge-decision");
+  assert.equal(result.winner, "red");
+  assert.deepEqual(result.scores, { red: 3, blue: 1 });
+  assert.deepEqual(result.metrics.deaths, { a: 1 });
+  assert.equal(result.events.length, 1);
+  assert.equal(result.stopConfirmed, true);
 });
-test("timeout rejects late scoring, abandonment and failed stop reported", async () => {
+test("a server draw is recorded as a draw without a winner", async () => {
+  const host = create(() => 0);
+  await host.prepare();
+  await host.start();
+  await host.verdict({ winner: "draw" });
+  assert.equal(host.result().winner, null);
+  assert.equal(host.result().draw, true);
+});
+test("timeout rejects a late verdict, abandonment and failed stop reported", async () => {
   let now = 0;
   const host = create(() => now);
   await host.prepare();
   await host.start();
   now = 1000;
-  assert.deepEqual(
-    await host.ingest(
-      {
-        runId: host.runId,
-        id: "late",
-        type: "objective",
-        team: "red",
-        objective: "wool1",
-      },
-      "trusted",
-    ),
-    { late: true },
-  );
+  assert.deepEqual(await host.verdict({ winner: "red" }), { late: true });
   assert.equal(host.result().reason, "timeout");
   assert.equal(host.result().winner, null);
   const abandoned = create(() => 0);
@@ -83,6 +80,22 @@ test("timeout rejects late scoring, abandonment and failed stop reported", async
   await abandoned.prepare();
   await abandoned.end("abandoned");
   assert.equal(abandoned.result().stopConfirmed, false);
+});
+test("most-score timeout uses the last server scores; a tie is a draw", async () => {
+  for (const [scores, winner] of [
+    [{ red: 1, blue: 2 }, "blue"],
+    [{ red: 2, blue: 2 }, null],
+  ]) {
+    let now = 0;
+    const host = create(() => now);
+    host.config.session.onTimeout = "most-score";
+    await host.prepare();
+    await host.start();
+    host.report({ scores });
+    now = 1000;
+    assert.equal(await host.checkTimeout(), true);
+    assert.equal(host.result().winner, winner);
+  }
 });
 test("ending during deferred start cannot resurrect and stop follows start effects", async () => {
   const host = create(() => 0);
@@ -134,116 +147,6 @@ test("ending during deferred prepare cannot resurrect and cleanup runs afterward
   assert.deepEqual(calls, ["prepared", "stopped"]);
 });
 
-const observations = (complete = {}) =>
-  Object.fromEntries(
-    config.teams.map(({ id: team }) => [
-      team,
-      Object.fromEntries(
-        config.rules.objectives.map((objective) => [
-          objective,
-          complete[team]?.includes(objective) ?? false,
-        ]),
-      ),
-    ]),
-  );
-
-test("host applies a full round before judging simultaneous winners", async () => {
-  const host = create(() => 10);
-  let stops = 0;
-  host.connector.stop = async () => {
-    stops++;
-  };
-  await host.prepare();
-  await host.start();
-  // Reverse the configured order: neither ordering may award the first team.
-  await host.observe(
-    Object.fromEntries(
-      Object.entries(
-        observations({
-          red: ["wool1", "wool2"],
-          blue: ["wool1", "wool2"],
-        }),
-      ).reverse(),
-    ),
-  );
-  const result = host.result();
-  assert.equal(result.reason, "simultaneous-objectives");
-  assert.equal(result.winner, null);
-  assert.equal(result.events.length, 4);
-  assert.ok(
-    result.events.every((e) => e.runId === host.runId && e.receivedAt === 10),
-  );
-  assert.deepEqual(await host.end("abandoned"), result);
-  assert.equal(stops, 1);
-  await assert.rejects(host.observe(observations()), /not running/);
-  assert.deepEqual(host.result(), result);
-});
-
-test("repeated observations are quiet and lost objectives replace current progress", async () => {
-  const host = create(() => 0);
-  await host.prepare();
-  await host.start();
-  const first = observations({ red: ["wool1"] });
-  await host.observe(first);
-  await host.observe(first);
-  assert.equal(host.events.length, 1);
-  await host.observe(observations({ red: ["wool2"] }));
-  assert.deepEqual(host.progress.red, ["wool2"]);
-  assert.deepEqual(
-    host.events.map((e) => e.type),
-    ["objective", "objective-lost", "objective"],
-  );
-  assert.equal(host.state, "running");
-  await host.observe(observations({ red: ["wool1", "wool2"] }));
-  assert.equal(host.result().winner, "red");
-});
-
-test("an incomplete round cannot partially clear or change progress", async () => {
-  const host = create(() => 0);
-  await host.prepare();
-  await host.start();
-  await host.observe(observations({ red: ["wool1"] }));
-  const before = structuredClone({
-    progress: host.progress,
-    events: host.events,
-  });
-  for (const bad of [
-    { red: { wool1: false, wool2: true } },
-    { ...observations(), blue: { wool1: false } },
-    { ...observations(), blue: { wool1: false, wool2: null } },
-  ]) {
-    await assert.rejects(host.observe(bad), /full observation/);
-    assert.deepEqual({ progress: host.progress, events: host.events }, before);
-  }
-  // Unconfigured fields carry no scoring authority.
-  await host.observe({
-    ...observations({ red: ["wool1"] }),
-    extra: { wool1: true },
-  });
-  assert.deepEqual({ progress: host.progress, events: host.events }, before);
-  await host.end();
-});
-
-test("deadline rejects an entire late round before it can affect timeout scoring", async () => {
-  let now = 0;
-  const host = create(() => now);
-  host.config.session.onTimeout = "most-objectives";
-  await host.prepare();
-  await host.start();
-  now = 999;
-  await host.observe(observations({ red: ["wool1"] }));
-  now = 1000;
-  assert.deepEqual(
-    await host.observe(observations({ blue: ["wool1", "wool2"] })),
-    { late: true },
-  );
-  const result = host.result();
-  assert.equal(result.reason, "timeout");
-  assert.equal(result.winner, "red");
-  assert.deepEqual(result.progress, { red: ["wool1"], blue: [] });
-  assert.equal(result.events.length, 1);
-});
-
 test("concurrent and repeated end requests share one cleanup and first outcome", async () => {
   const host = create(() => 0);
   let finish,
@@ -259,7 +162,7 @@ test("concurrent and repeated end requests share one cleanup and first outcome",
   const repeated = host.end("map-fault");
   assert.equal(host.state, "ending");
   assert.throws(() => host.result(), /not final/);
-  await assert.rejects(host.observe(observations()), /not running/);
+  await assert.rejects(host.verdict({ winner: "red" }), /not running/);
   finish();
   const result = await ending;
   assert.deepEqual(await repeated, result);

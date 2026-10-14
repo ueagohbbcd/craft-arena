@@ -60,11 +60,8 @@ const briefingKeys = [
   "teamId",
   "username",
   "teams",
-  "game",
   "map",
-  "rules",
   "objectives",
-  "publicGoalPositions",
   "startedAt",
   "durationMs",
 ];
@@ -72,7 +69,6 @@ const briefingKeys = [
 /**
  * Opening prompt with the session briefing: public session fields, briefing
  * text, public data and the mode instructions, all from the trusted host.
- * A legacy host sends `briefing` as a plain string; treat it as the text.
  */
 export function openingPromptText(initialPrompt, host) {
   if (!host) return initialPrompt;
@@ -82,11 +78,7 @@ export function openingPromptText(initialPrompt, host) {
       .map((key) => [key, host[key]]),
   );
   const briefing =
-    typeof host.briefing === "string"
-      ? { text: host.briefing }
-      : host.briefing && typeof host.briefing === "object"
-        ? host.briefing
-        : {};
+    host.briefing && typeof host.briefing === "object" ? host.briefing : {};
   let message = `${initialPrompt}\n\nTrusted host session briefing (configuration data):\n${JSON.stringify(fields)}`;
   if (typeof briefing.text === "string" && briefing.text)
     message += `\n\nSession briefing text (from the trusted session host):\n${briefing.text}`;
@@ -307,7 +299,7 @@ export async function launchPi({
   process.on("SIGINT", interrupt);
   if (resident) {
     child.stdin.on("error", () => {}); // Startup failure is reported by the child error/exit event.
-    // Shared validated reader: /v1/session with the /v1/match fallback.
+    // Shared validated reader of the bridge's /v1/session.
     const readMatch = createMatchReader({
       url: bridgeUrl,
       token,

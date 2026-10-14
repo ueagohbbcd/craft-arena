@@ -153,14 +153,11 @@ export class BotFacade extends EventEmitter {
       this._requests.delete(request);
     }
   }
-  /** Session state from /v1/session; older bridges only serve /v1/match. */
+  /** Session state from /v1/session. */
   async getSessionState() {
-    const headers = { authorization: `Bearer ${this.token}` };
-    let res = await this.fetch(`${this.url}/v1/session`, { headers });
-    if (res.status === 404) {
-      await res.body?.cancel?.();
-      res = await this.fetch(`${this.url}/v1/match`, { headers });
-    }
+    const res = await this.fetch(`${this.url}/v1/session`, {
+      headers: { authorization: `Bearer ${this.token}` },
+    });
     if (!res.ok) throw new Error(`Session state HTTP ${res.status}`);
     const body = await res.json();
     return body.result;

@@ -254,8 +254,8 @@ test("trusted match gate blocks before start and after end; permits running acti
   assert.equal((await call()).status, 403);
   assert.equal(b.calls.length, 1);
   assert.deepEqual(seen, ["attack", "attack", "attack"]);
-  assert.equal((await fetch(s.url + "/v1/match")).status, 401);
-  const response = await fetch(s.url + "/v1/match", {
+  assert.equal((await fetch(s.url + "/v1/session")).status, 401);
+  const response = await fetch(s.url + "/v1/session", {
     headers: { authorization: `Bearer ${token}` },
   });
   assert.deepEqual(await response.json(), {
