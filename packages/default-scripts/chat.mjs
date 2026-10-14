@@ -45,26 +45,18 @@ export function startChatForwarder({
     if (args[1] === "game_info") return;
     const metadata = args[5] ?? {};
     inbox
-      .post(
-        {
-          sessionId: inbox.sessionId,
-          kind: "event",
-          priority: "normal",
-          data: {
-            type: "game.chat",
-            source: "minecraft",
-            trusted: false,
-            text: args[0],
-            position: args[1] ?? null,
-            senderUUID: args[3] ?? null,
-            verified: args[4] ?? null,
-            observedAt: metadata.observedAt ?? Date.now(),
-            truncated: metadata.truncated === true,
-          },
-        },
-        { source: "runtime" },
-      )
-      ?.catch?.(() => {
+      .post({
+        type: "game.chat",
+        source: "minecraft",
+        trusted: false,
+        text: args[0],
+        position: args[1] ?? null,
+        senderUUID: args[3] ?? null,
+        verified: args[4] ?? null,
+        observedAt: metadata.observedAt ?? Date.now(),
+        truncated: metadata.truncated === true,
+      })
+      .catch(() => {
         /* The inbox may be closing; chat is not replayed. */
       });
   }
@@ -115,14 +107,8 @@ if (
   process.argv[1] &&
   import.meta.url === pathToFileURL(process.argv[1]).href
 ) {
-  const client = new InboxClient();
-  // InboxClient.send assigns the program source; the data stays marked untrusted.
-  const chat = startChatForwarder({
-    inbox: {
-      sessionId: client.sessionId,
-      post: (message) => client.send(message),
-    },
-  });
+  // The inbox marks this as a program message; the data stays marked untrusted.
+  const chat = startChatForwarder({ inbox: new InboxClient() });
   for (const signal of ["SIGTERM", "SIGINT"])
     process.once(signal, () => chat.close().then(() => process.exit(0)));
 }

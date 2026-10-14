@@ -5,11 +5,8 @@ import { setTimeout as delay } from "node:timers/promises";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import {
-  Inbox,
-  TaskManager,
-  localInboxClient,
-} from "../packages/inbox/index.mjs";
+import { Inbox, localInboxClient } from "../packages/inbox/index.mjs";
+import { TaskManager } from "../packages/tasks/index.mjs";
 import { startObserver } from "../packages/observation/observer.mjs";
 import { runObserver } from "../packages/default-scripts/observer.mjs";
 import { defaultScripts } from "../packages/pi-extension/default-scripts.mjs";

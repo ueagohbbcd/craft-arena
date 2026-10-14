@@ -13,7 +13,8 @@ import {
   SettingsManager,
 } from "@earendil-works/pi-coding-agent";
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai";
-import { Inbox, TaskManager } from "../packages/inbox/index.mjs";
+import { Inbox } from "../packages/inbox/index.mjs";
+import { TaskManager } from "../packages/tasks/index.mjs";
 import { observationOptionsFromMatch } from "../packages/observation/match-options.mjs";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
 import { encodePNG } from "mineflayer-world-memory/live.mjs";

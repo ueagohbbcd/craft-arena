@@ -1,6 +1,5 @@
 /** Pi access to current observation state. */
 import { Type } from "typebox";
-import { connectBot } from "../bot-sdk/index.mjs";
 import { observe } from "../observation/observe.mjs";
 
 export const observeParameters = Type.Object({
@@ -35,12 +34,6 @@ export const observeParameters = Type.Object({
   ),
 });
 
-export async function observeForModel(bot, options = {}, dependencies) {
-  const result = await observe(bot, options, dependencies);
-  if (options.displayLimits) result.state.displayLimits = options.displayLimits;
-  return observationForModel(result);
-}
-
 export function observationForModel(result) {
   const payload = { state: result.state, metadata: result.metadata };
   const content = [
@@ -60,10 +53,12 @@ export function observationForModel(result) {
 /**
  * One on-demand sample. Background reporting belongs to the default observer
  * script; this tool creates no listeners or reports. Register exactly once.
+ * `runtime(ctx, params)` adds the runtime's own sections (task and program
+ * status) next to the game state.
  */
 export function registerObserveTool(
   pi,
-  { getBot, sampleOptions = {}, dependencies } = {},
+  { getBot, sampleOptions = {}, runtime } = {},
 ) {
   if (typeof getBot !== "function")
     throw new TypeError("registerObserveTool requires getBot(ctx, params)");
@@ -86,28 +81,9 @@ export function registerObserveTool(
           : sampleOptions;
       if (signal?.aborted)
         throw signal.reason ?? new Error("Observation cancelled");
-      return observeForModel(bot, { ...defaults, ...params }, dependencies);
+      const result = await observe(bot, { ...defaults, ...params });
+      if (runtime) Object.assign(result.state, await runtime(ctx, params));
+      return observationForModel(result);
     },
-  });
-}
-/** Optional standalone registration for hosts that do not load the main arena extension. */
-export default function observationExtension(pi) {
-  let connection;
-  registerObserveTool(pi, {
-    async getBot() {
-      connection ??= connectBot();
-      try {
-        return await connection;
-      } catch (error) {
-        connection = undefined;
-        throw error;
-      }
-    },
-  });
-  pi.on("session_shutdown", async () => {
-    try {
-      (await connection)?.closeBridge();
-    } catch {}
-    connection = undefined;
   });
 }

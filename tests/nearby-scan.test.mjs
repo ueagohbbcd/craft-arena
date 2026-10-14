@@ -41,7 +41,7 @@ function fixture(options = {}) {
     connectionStatus: () => status,
     now: () => time,
     options,
-    postReport(data, { onDelivered, minDeliveryDelayMs }) {
+    postReport(data, { onDelivered, onLost, minDeliveryDelayMs }) {
       reports.push(data);
       return accepted
         ? inbox.post(
@@ -53,11 +53,11 @@ function fixture(options = {}) {
               priority: "normal",
               data,
             },
-            { source: "runtime", onDelivered },
+            { source: "runtime", onDelivered, onLost },
           )
         : { accepted: false, reason: "fixture queue rejected" };
     },
-    postSigns(data, { key, onDelivered }) {
+    postSigns(data, { key, onDelivered, onLost }) {
       signReports.push(data);
       return accepted
         ? inbox.post(
@@ -68,7 +68,7 @@ function fixture(options = {}) {
               priority: "normal",
               data: { type: "observation.nearby_signs", ...data },
             },
-            { source: "runtime", onDelivered },
+            { source: "runtime", onDelivered, onLost },
           )
         : { accepted: false };
     },
@@ -517,5 +517,23 @@ test("blocked seeds and read errors remain visible in ordinary reports", () => {
   f.tick();
   assert.equal(f.reports.at(-1).status, "partial");
   assert.equal(f.reports.at(-1).readErrors, 3);
+  f.runtime.close();
+});
+
+test("polls without a new sample post nothing until a report is lost", () => {
+  const f = fixture({});
+  f.tick();
+  const posted = f.reports.length;
+  assert.ok(posted > 0);
+  for (let n = 0; n < 3; n++) f.tick(); // same source: unchanged_source
+  assert.equal(f.reports.length, posted, "no repost of an unchanged report");
+  f.inbox.remove(
+    f.inbox.items.find(
+      (item) => item.message.key === "observation.recent_blocks",
+    ).id,
+    "expired",
+  );
+  f.tick();
+  assert.equal(f.reports.length, posted + 1, "a lost report is posted again");
   f.runtime.close();
 });

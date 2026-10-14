@@ -224,9 +224,15 @@ export function startNearbyScan({
   }
   function poll() {
     const sampled = sampleNow();
+    // Without a new sample, repost only what changed status or was lost.
     if (!closed && !sampled) {
       publishSigns();
-      publishPending();
+      if (
+        reportLost ||
+        (samplingStatus !== postedStatus &&
+          samplingStatus !== "unchanged_source")
+      )
+        publishPending();
     }
     if (!closed) {
       timer = schedule(poll, settings.intervalMs);
@@ -254,13 +260,20 @@ export function startNearbyScan({
       lastSample: lastSample ? structuredClone(lastSample) : null,
     };
   }
+  let reportLost = false,
+    postedStatus;
   function publishPending() {
     if (!settings.enabled || closed) return;
     const value = snapshot();
     if (!value?.samples) return;
+    reportLost = false;
+    postedStatus = samplingStatus;
     try {
       const accepted = postReport(projectRecentBlocks(value, now()), {
         minDeliveryDelayMs: settings.minReportMs,
+        onLost() {
+          reportLost = true;
+        },
         onDelivered() {
           accumulator.retireThrough(value.throughSample);
           // Samples after this queued watermark belong to a fresh pending interval.
@@ -273,6 +286,7 @@ export function startNearbyScan({
         );
     } catch (error) {
       // Failed enqueue retains all samples for a later natural poll/boundary.
+      reportLost = true;
       samplingError = error?.message ?? String(error);
     }
   }
@@ -296,21 +310,31 @@ export function startNearbyScan({
         pendingSigns.set(signature, {
           key,
           data: structuredClone(nearbySigns),
+          posted: false,
         });
       }
     }
-    for (const [signature, { key, data }] of [...pendingSigns]) {
+    // Each observation is posted once; it is posted again only if it was lost.
+    for (const [signature, entry] of [...pendingSigns]) {
+      if (entry.posted) continue;
+      const { key, data } = entry;
+      entry.posted = true;
       try {
-        postSigns(structuredClone(data), {
+        const result = postSigns(structuredClone(data), {
           key,
+          onLost() {
+            if (pendingSigns.get(signature) === entry) entry.posted = false;
+          },
           onDelivered() {
             // An older delivery cannot retire a newer observation of this set.
             if (pendingSigns.get(signature)?.data === data)
               pendingSigns.delete(signature);
           },
         });
+        if (result?.accepted !== true) entry.posted = false;
       } catch {
         /* Refresh the same pending state on the next sample or poll. */
+        entry.posted = false;
       }
     }
   }

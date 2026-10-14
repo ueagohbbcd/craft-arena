@@ -636,7 +636,7 @@ function localSummary(bot, options, origin) {
       }
   // Already-loaded block entities expose static signs outside the tiny local crop.
   // Do not fetch chunks, inspect unopened inventories, or synthesize missing text.
-  if (bot?.columns instanceof Map)
+  if (options.loadedSigns !== false && bot?.columns instanceof Map)
     for (const [key, column] of bot.columns) {
       const [cx, cz] = key.split(",").map(Number);
       if (![cx, cz].every(Number.isFinite)) continue;
@@ -835,8 +835,6 @@ export function sampleObservation(bot, options = {}) {
     ...observedEntities,
     radar,
     local: localSummary(bot, options, position),
-    tasks: plain(options.tasks ?? []),
-    programStatus: plain(options.programStatus ?? []),
   };
 }
 

@@ -83,24 +83,9 @@ export async function createInboxServer({
       Math.max(Number.isFinite(Number(waitText)) ? Number(waitText) : 0, 0),
       maxReceiptWaitMs,
     );
-    const answer = () => {
-      const outcome = inbox.outcome(id);
-      reply(outcome === "unknown" ? 404 : 200, { id, outcome });
-    };
-    if (inbox.outcome(id) !== "pending" || waitMs === 0) return answer();
-    const onSettled = (event) => {
-      if (event.id === id) finish();
-    };
-    const timer = setTimeout(() => finish(), waitMs);
-    const finish = () => {
-      clearTimeout(timer);
-      inbox.off("settled", onSettled);
-      answer();
-    };
-    inbox.on("settled", onSettled);
-    res.on("close", () => {
-      clearTimeout(timer);
-      inbox.off("settled", onSettled);
+    inbox.waitForOutcome(id, waitMs).then((outcome) => {
+      if (!res.writableEnded && !res.destroyed)
+        reply(outcome === "unknown" ? 404 : 200, { id, outcome });
     });
   }
   server.requestTimeout = 5000;

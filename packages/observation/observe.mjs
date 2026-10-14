@@ -1,12 +1,8 @@
-/** Sample current state on demand. Background reporting lives in the observation runtime. */
+/** Sample current game state on demand. Background reporting is the default observer script's. */
 import { sampleObservation } from "./index.mjs";
-export async function observe(
-  bot,
-  options = {},
-  { sample = sampleObservation } = {},
-) {
+export async function observe(bot, options = {}) {
   return {
-    state: sample(bot, options),
+    state: sampleObservation(bot, options),
     metadata: {
       epoch: bot?.epoch ?? null,
       sequence: bot?.sequence ?? null,

@@ -19,7 +19,6 @@ const sample = () => ({
   radar: { players: [], entities: [], drops: [] },
   players: [],
   entities: { entries: [] },
-  tasks: [],
 });
 test("ordinary history gets baseline then only changed sections, ignores sample age", () => {
   const changes = deliveredChanges(),
@@ -50,13 +49,11 @@ test("leaving entities and loss of connection are explicit", () => {
   next.freshness.status = "disconnected";
   assert.equal(c.next(next).changes.connection.status, "disconnected");
 });
-test("sub-decimeter idle jitter and task duration do not create repeated reports", () => {
+test("sub-decimeter idle jitter does not create repeated reports", () => {
   const c = deliveredChanges(),
     s = sample();
-  s.tasks = [{ taskId: "t", status: "running", durationMs: 1 }];
   c.next(s);
   s.self.position.x += 0.0001;
-  s.tasks[0].durationMs = 200;
   assert.equal(c.next(s), null);
 });
 

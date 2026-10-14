@@ -9,8 +9,8 @@ import {
   Inbox,
   InboxClient,
   createInboxServer,
-  TaskManager,
 } from "../packages/inbox/index.mjs";
+import { TaskManager } from "../packages/tasks/index.mjs";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const post = (inbox, data, extra = {}) =>
   inbox.post({ sessionId: inbox.sessionId, data, ...extra });

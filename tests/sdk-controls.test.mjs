@@ -7,11 +7,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { createAuthority, startBridge } from "../packages/mf-bridge/index.mjs";
 import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
-import {
-  Inbox,
-  createInboxServer,
-  TaskManager,
-} from "../packages/inbox/index.mjs";
+import { Inbox, createInboxServer } from "../packages/inbox/index.mjs";
+import { TaskManager } from "../packages/tasks/index.mjs";
 
 const require = createRequire(import.meta.url);
 const registry = require("prismarine-registry")("1.21.1");

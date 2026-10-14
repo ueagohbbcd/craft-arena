@@ -667,18 +667,31 @@ test("detail queries expand previews and local range with an explicit work budge
   );
 });
 
-test("tasks and program reports are detached facts, not inferred movement policy", () => {
-  const bot = fixture();
-  const tasks = [{ taskId: "build", status: "running" }];
-  const programStatus = [
-    { source: "program", data: { progress: { placed: 3 }, status: "blocked" } },
-  ];
-  const sample = sampleObservation(bot, { now: 1000, tasks, programStatus });
-  tasks[0].status = "complete";
-  programStatus[0].data.progress.placed = 100;
-  assert.equal(sample.tasks[0].status, "running");
-  assert.equal(sample.programStatus[0].data.progress.placed, 3);
+test("a game sample carries no runtime sections or inferred movement policy", () => {
+  const sample = sampleObservation(fixture(), {
+    now: 1000,
+    tasks: [{ taskId: "build", status: "running" }],
+  });
+  assert.equal("tasks" in sample, false);
+  assert.equal("programStatus" in sample, false);
   assert.equal(sample.self.stuck, undefined);
+});
+
+test("loadedSigns: false skips the loaded-column sign scan", () => {
+  const bot = fixture();
+  // A sign well outside the local crop, known only from a loaded column.
+  putBlock(bot, "oak_sign", { x: 20, y: 64, z: 3 }).setSignText(["Far"], []);
+  bot.columns = new Map([
+    ["1,0", { sampledAt: 900, chunk: { blockEntities: { "4,64,3": {} } } }],
+  ]);
+  const full = sampleObservation(bot, { now: 1000, localRadius: 1 });
+  assert.equal(full.local.signs[0]?.text[0], "Far");
+  const light = sampleObservation(bot, {
+    now: 1000,
+    localRadius: 1,
+    loadedSigns: false,
+  });
+  assert.equal(light.local.signs.length, 0);
 });
 
 test("persistent native disconnect stays disconnected after a new observer and bridge reset", () => {

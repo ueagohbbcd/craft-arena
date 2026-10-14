@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
-import { Inbox, TaskManager } from "../packages/inbox/index.mjs";
+import { Inbox } from "../packages/inbox/index.mjs";
+import { TaskManager } from "../packages/tasks/index.mjs";
 
 const fixture = fileURLToPath(
   new URL("./fixtures/example-process.mjs", import.meta.url),

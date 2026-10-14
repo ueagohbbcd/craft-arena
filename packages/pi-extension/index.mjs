@@ -164,8 +164,14 @@ export default function arenaExtension(pi) {
       };
       // Default scripts are ordinary tasks: listed, cancellable, replaceable.
       if (bridgeUrl && bridgeToken)
-        runtime.defaultTasks = defaultScripts().map(({ name, command }) =>
-          tasks.start(command, { label: `default ${name}`, background: true }),
+        runtime.defaultTasks = new Map(
+          defaultScripts().map(({ name, command }) => [
+            name,
+            tasks.start(command, {
+              label: `default ${name}`,
+              background: true,
+            }),
+          ]),
         );
       platform.reset();
       inbox.on("message", () => {
@@ -292,16 +298,26 @@ export default function arenaExtension(pi) {
   }
   /** Before the first request, give the default observer a moment to report. */
   async function observerReady(r) {
-    if (r.observerChecked || !r.defaultTasks?.length) return;
+    const observer = r.tasks.tasks.get(r.defaultTasks?.get("observer"));
+    if (r.observerChecked || !observer) return;
     r.observerChecked = true;
-    const deadline = Date.now() + observerReadyMs;
-    const observer = r.tasks.tasks.get(r.defaultTasks[0]);
-    while (
-      Date.now() < deadline &&
-      observer?.status === "running" &&
-      !r.inbox.items.some((item) => item.message.key === "observation.current")
-    )
-      await new Promise((resolve) => setTimeout(resolve, 25));
+    const isReport = (message) => message.key === "observation.current";
+    if (r.inbox.items.some((item) => isReport(item.message))) return;
+    await new Promise((resolve) => {
+      const done = () => {
+        clearTimeout(deadline);
+        clearInterval(exited);
+        r.inbox.off("message", onMessage);
+        resolve();
+      };
+      const onMessage = (message) => isReport(message) && done();
+      const deadline = setTimeout(done, observerReadyMs);
+      const exited = setInterval(
+        () => observer.status !== "running" && done(),
+        250,
+      );
+      r.inbox.on("message", onMessage);
+    });
   }
   pi.on("tool_result", async (event, ctx) => {
     const r = await ensure(ctx);
@@ -394,13 +410,16 @@ export default function arenaExtension(pi) {
         throw new Error(`Game observation unavailable: ${error.message}`);
       }
     },
-    sampleOptions: async (ctx, params) => {
+    sampleOptions: async (ctx) => ({
+      ...observationOptionsFromMatch(await readMatch()),
+      ...(await readObserverOptions(ctx.cwd)),
+    }),
+    runtime: async (ctx, params) => {
       const r = await ensure(ctx);
-      return {
-        ...observationOptionsFromMatch(await readMatch()),
-        ...(await readObserverOptions(ctx.cwd)),
-        ...runtimeSnapshot(r, { fullRuntime: params?.fullRuntime === true }),
-      };
+      return runtimeState(r.tasks, r.inbox, {
+        projection: displayLimits,
+        fullRuntime: params?.fullRuntime === true,
+      });
     },
   });
   pi.registerTool({

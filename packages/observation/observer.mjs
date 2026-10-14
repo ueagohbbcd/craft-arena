@@ -6,7 +6,7 @@ import {
 } from "./nearby-scan.mjs";
 import { compactObservation, createSectionDiff } from "./section-diff.mjs";
 import { observationOptionsFromMatch } from "./match-options.mjs";
-import { readObserverConfig } from "./observer-config.mjs";
+import { observerOptions, readObserverConfig } from "./observer-config.mjs";
 
 // The default observer: createDefaultObserver is the sampling and event
 // policy; startObserver runs it against a bot and reports through an inbox
@@ -30,7 +30,7 @@ export function createDefaultObserver({
     connectionStatus,
     now,
     options: recentBlocks,
-    postReport: (data, { onDelivered, minDeliveryDelayMs }) =>
+    postReport: (data, { onDelivered, onLost, minDeliveryDelayMs }) =>
       post(
         {
           kind: "state",
@@ -39,9 +39,9 @@ export function createDefaultObserver({
           priority: "normal",
           data: { type: "observation.recent_blocks", ...data },
         },
-        { onDelivered },
+        { onDelivered, onLost },
       ),
-    postSigns: (data, { key, onDelivered }) =>
+    postSigns: (data, { key, onDelivered, onLost }) =>
       post(
         {
           kind: "state",
@@ -49,7 +49,7 @@ export function createDefaultObserver({
           priority: "normal",
           data: { type: "observation.nearby_signs", ...data },
         },
-        { onDelivered },
+        { onDelivered, onLost },
       ),
   });
   return {
@@ -60,18 +60,18 @@ export function createDefaultObserver({
         : undefined;
       if (bot) recent.sampleNow();
     },
-    sample(overrides = {}) {
+    /** Game state only; recent blocks and signs have their own reports. */
+    sampleState(overrides = {}) {
       const settings = { ...options, ...overrides, now };
+      return watcher ? watcher.sample(settings) : sample(null, settings);
+    },
+    sample(overrides = {}) {
       return {
-        ...(watcher ? watcher.sample(settings) : sample(null, settings)),
+        ...this.sampleState(overrides),
         nearbySigns: recent.currentSigns(),
         ...(recentBlocks.enabled === false
           ? {}
-          : {
-              recentBlocks: overrides.fullRecentBlocks
-                ? recent.snapshot()
-                : projectRecentBlocks(recent.snapshot(), now()),
-            }),
+          : { recentBlocks: projectRecentBlocks(recent.snapshot(), now()) }),
       };
     },
     close() {
@@ -117,8 +117,7 @@ export async function startObserver({
   }
   const options = {
     ...observationOptionsFromMatch(match),
-    ...(config.radar ? { radar: config.radar } : {}),
-    ...config.events,
+    ...observerOptions(config),
     ...events,
   };
   let closed = false;
@@ -134,19 +133,29 @@ export async function startObserver({
   listen("end", () => (status = "disconnected"));
   listen("kicked", () => (status = "disconnected"));
 
-  /** Accept now; confirm through the receipt. A failed post is retried by the next sample. */
-  function post(message, { onDelivered } = {}) {
+  /**
+   * Accept now; confirm through the receipt. `onLost` runs when the message
+   * will never reach the model (send failed, or it expired or was dropped), so
+   * the producer can post it again; a replaced message is not lost.
+   */
+  function post(message, { onDelivered, onLost } = {}) {
+    const lost = () => !closed && onLost?.();
     inbox
       .send(message)
       .then(async (result) => {
-        if (!onDelivered || !result?.accepted) return;
+        if (!result?.accepted) return lost();
+        if (!onDelivered && !onLost) return;
         const { outcome } = await inbox.delivery(result.id, {
           timeoutMs: Infinity,
         });
-        if (outcome === "delivered" && !closed) onDelivered();
+        if (closed) return;
+        if (outcome === "delivered") onDelivered?.();
+        else if (outcome !== "replaced") lost();
       })
       .catch((error) => {
-        if (!closed) onError(error);
+        if (closed) return;
+        onError(error);
+        lost();
       });
     return { accepted: true };
   }
@@ -164,17 +173,16 @@ export async function startObserver({
   });
   core.attachBot(bot);
 
+  const connection = () =>
+    status === "connected" ? {} : { connectionStatus: status };
   const changes = createSectionDiff();
   let posted = null; // { signature, keys } of the report still waiting in the inbox
   function publish() {
     if (closed) return;
     let snapshot;
     try {
-      // Task and program-state facts belong to the runtime, not this script.
-      const { tasks, programStatus, displayLimits, ...game } = core.sample(
-        status === "connected" ? {} : { connectionStatus: status },
-      );
-      snapshot = game;
+      // Signs in loaded columns are reported by the nearby scan, not here.
+      snapshot = core.sampleState({ ...connection(), loadedSigns: false });
     } catch (error) {
       onError(error);
       return;
@@ -219,8 +227,7 @@ export async function startObserver({
   return {
     publish,
     /** One full sample, including accumulated interval blocks and signs. */
-    sample: () =>
-      core.sample(status === "connected" ? {} : { connectionStatus: status }),
+    sample: () => core.sample(connection()),
     close() {
       closed = true;
       clearInterval(timer);

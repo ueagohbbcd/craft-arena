@@ -53,7 +53,7 @@ test("schema registers only observe and can reuse runtime context and task state
       connections++;
       return bot;
     },
-    sampleOptions: async (passed) => {
+    runtime: async (passed) => {
       assert.equal(passed, ctx);
       return { tasks: [{ taskId: "running-job", status: "running" }] };
     },

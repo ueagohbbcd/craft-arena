@@ -39,9 +39,6 @@ export function compactObservation(snapshot) {
       if (Number.isFinite(state.self[name]))
         state.self[name] = Math.round(state.self[name] * 100) / 100;
   }
-  // Task identity/status is useful; elapsed time alone is not a new event.
-  if (state.tasks)
-    state.tasks = state.tasks.map(({ durationMs, ...task }) => task);
   return state;
 }
 
@@ -83,10 +80,6 @@ export function createSectionDiff(
           initialized = true;
         },
       };
-    },
-    reset() {
-      previous = new Map();
-      initialized = false;
     },
   };
 }

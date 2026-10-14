@@ -26,7 +26,11 @@ export async function readObserverConfig(cwd, env = process.env) {
   return {};
 }
 
+/** The sample options observer.json sets: radar and event thresholds. */
+export function observerOptions(config = {}) {
+  return { ...(config.radar ? { radar: config.radar } : {}), ...config.events };
+}
+
 export async function readObserverOptions(cwd, env = process.env) {
-  const value = await readObserverConfig(cwd, env);
-  return value.radar ? { radar: value.radar } : {};
+  return observerOptions(await readObserverConfig(cwd, env));
 }

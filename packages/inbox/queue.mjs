@@ -36,6 +36,21 @@ export class Inbox extends EventEmitter {
     if (this.items.some((item) => item.id === id)) return "pending";
     return this.outcomes.get(id) ?? "unknown";
   }
+  /** Resolve with the outcome once the message leaves the queue, or after timeoutMs. */
+  waitForOutcome(id, timeoutMs = Infinity) {
+    return new Promise((resolve) => {
+      if (this.outcome(id) !== "pending") return resolve(this.outcome(id));
+      const done = () => {
+        clearTimeout(timer);
+        this.off("settled", onSettled);
+        resolve(this.outcome(id));
+      };
+      const onSettled = (event) => event.id === id && done();
+      const timer =
+        timeoutMs === Infinity ? undefined : setTimeout(done, timeoutMs);
+      this.on("settled", onSettled);
+    });
+  }
   settle(id, outcome) {
     this.outcomes.set(id, outcome);
     if (this.outcomes.size > this.maxOutcomes)
@@ -54,7 +69,12 @@ export class Inbox extends EventEmitter {
     this.dropped[reason]++;
     this.totalDropped[reason]++;
   }
-  post(input, { onDelivered, source = "program" } = {}) {
+  /**
+   * `onDelivered` runs when the model receives the message; `onLost` when it
+   * leaves the queue undelivered (expired, overflow, removed), but not when a
+   * newer message with the same key replaces it. Neither may post synchronously.
+   */
+  post(input, { onDelivered, onLost, source = "program" } = {}) {
     if (!input || typeof input !== "object" || Array.isArray(input))
       throw new Error("Message must be an object");
     if (input.sessionId !== this.sessionId) throw new Error("Session mismatch");
@@ -166,6 +186,7 @@ export class Inbox extends EventEmitter {
       expiresAt: message.expiresAt,
       eligibleAt,
       onDelivered,
+      onLost,
     });
     this.bytes += bytes;
     if (priority === "urgent") this.emit("urgent", message);
@@ -197,9 +218,18 @@ export class Inbox extends EventEmitter {
   remove(id, outcome = "removed") {
     const i = this.items.findIndex((x) => x.id === id);
     if (i < 0) return false;
-    this.bytes -= this.items[i].bytes;
-    this.items.splice(i, 1);
+    const [item] = this.items.splice(i, 1);
+    this.bytes -= item.bytes;
     this.settle(id, outcome);
+    if (outcome !== "replaced")
+      try {
+        item.onLost?.();
+      } catch (error) {
+        this.emit("deliveryError", {
+          id,
+          message: error?.message ?? String(error),
+        });
+      }
     return true;
   }
   /** Claim and acknowledge only at the final model-visible boundary. */
@@ -266,22 +296,10 @@ export function localInboxClient(inbox, { source = "program" } = {}) {
       send({ ...options, kind: "state", key, data }),
     requestJudgment: (data, options = {}) =>
       send({ ...options, kind: "judgment", data, priority: "urgent" }),
-    delivery(id, { timeoutMs = 30000 } = {}) {
-      return new Promise((resolve) => {
-        const done = (outcome) => {
-          inbox.off("settled", onSettled);
-          clearTimeout(timer);
-          resolve({ id, outcome });
-        };
-        const onSettled = (event) => event.id === id && done(event.outcome);
-        const outcome = inbox.outcome(id);
-        if (outcome !== "pending") return resolve({ id, outcome });
-        inbox.on("settled", onSettled);
-        const timer =
-          timeoutMs === Infinity
-            ? undefined
-            : setTimeout(() => done(inbox.outcome(id)), timeoutMs);
-      });
+    setStatus: (key, data, options = {}) =>
+      send({ ...options, kind: "current", key, data }),
+    async delivery(id, { timeoutMs = 30000 } = {}) {
+      return { id, outcome: await inbox.waitForOutcome(id, timeoutMs) };
     },
   };
 }

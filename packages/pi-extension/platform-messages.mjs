@@ -163,8 +163,7 @@ export function createPlatformMessages({
       needsSnapshot = true;
     },
     async collect() {
-      await refreshBudget();
-      const host = await readMatch();
+      const [, host] = await Promise.all([refreshBudget(), readMatch()]);
       const clock = clockData(host, { now: now(), bootAt, configured });
       const changes = {};
       const bucket = JSON.stringify([
