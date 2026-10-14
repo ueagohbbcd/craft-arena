@@ -1,0 +1,157 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { readFile, readdir } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const dir = new URL("../infra/companion/", import.meta.url);
+const read = (name) => readFile(new URL(name, dir), "utf8");
+
+function sections(text) {
+  return Object.fromEntries(
+    [
+      ...text.matchAll(
+        /^  ([a-z][a-z0-9-]+):\n([\s\S]*?)(?=^  [a-z][a-z0-9-]+:|^networks:|^volumes:|(?![\s\S]))/gm,
+      ),
+    ].map((match) => [match[1], match[2]]),
+  );
+}
+
+function environment(section) {
+  const block = section.match(/^    environment:\n((?:^      .*\n?)*)/m);
+  assert(block, "service has an environment block");
+  return Object.fromEntries(
+    [...block[1].matchAll(/^      ([A-Z][A-Z0-9_]*): (.*)$/gm)].map((m) => [
+      m[1],
+      m[2].trim().replace(/^(["'])(.*)\1$/, "$2"),
+    ]),
+  );
+}
+
+// Names from the shared session contract (docs/GAME-MODES.md).
+const CONTRACT = new Set([
+  "BRIDGE_SESSION",
+  "BRIDGE_SESSION_ID",
+  "BRIDGE_BRIEFING",
+  "BRIDGE_PROMPT_FILE",
+  "MF_AUTH",
+  "MF_PROFILES_DIR",
+  "ARENA_CHAT_WAKE",
+]);
+
+async function sourceText(path) {
+  const out = [];
+  for (const entry of await readdir(path, { withFileTypes: true })) {
+    if (entry.name === "node_modules") continue;
+    const child = join(path, entry.name);
+    if (entry.isDirectory()) out.push(await sourceText(child));
+    else if (entry.name.endsWith(".mjs"))
+      out.push(await readFile(child, "utf8"));
+  }
+  return out.join("\n");
+}
+
+test("companion compose runs an open bridge, a gateway and an isolated participant", async () => {
+  const text = await read("compose.yaml");
+  const services = sections(text);
+  assert.deepEqual(Object.keys(services).sort(), [
+    "bridge",
+    "budget-gateway",
+    "participant",
+  ]);
+  for (const section of Object.values(services)) {
+    assert.match(section, /<<: \*restricted/);
+    assert.doesNotMatch(section, /^    ports:/m, "no host ports");
+  }
+  assert.match(text, /cap_drop: \[ALL\]/);
+  assert.match(text, /no-new-privileges:true/);
+  assert.match(text, /^  companion: \{ ?internal: true ?\}$/m);
+
+  const bridge = environment(services.bridge);
+  assert.match(services.bridge, /packages\/mf-bridge\/cli\.mjs/);
+  assert.equal(bridge.BRIDGE_SESSION, "open");
+  assert.equal(bridge.BRIDGE_PROMPT_FILE, "/config/PROMPT.md");
+  assert.match(services.bridge, /PROMPT\.md}?:\/config\/PROMPT\.md:ro/);
+  assert.match(bridge.MF_AUTH, /^\$\{MF_AUTH:-offline\}$/);
+  assert.match(bridge.MF_HOST, /^\$\{MC_HOST:\?/, "external server from env");
+  assert.match(services.bridge, /networks: \[companion, minecraft-egress\]/);
+
+  const participant = environment(services.participant);
+  assert.match(services.participant, /Dockerfile\.participant/);
+  assert.equal(participant.ARENA_BRIDGE_URL, "http://bridge:8080");
+  assert.equal(participant.ARENA_CONTINUOUS_SESSION, "1");
+  assert.match(participant.ARENA_CHAT_WAKE, /mention/);
+  assert.match(
+    participant.OPENAI_BASE_URL,
+    /^http:\/\/budget-gateway:8081\/participants\/companion\/v1$/,
+  );
+  assert.match(services.participant, /^    networks: \[companion\]$/m);
+  // ARENA_BRIDGE_TOKEN is the participant's own token; the bridge's
+  // BRIDGE_TOKEN variable, the upstream key and the prompt mount stay outside.
+  assert.doesNotMatch(
+    services.participant,
+    /UPSTREAM_API_KEY|^      BRIDGE_TOKEN:|PROMPT\.md|mf-profiles/m,
+  );
+  // Microsoft device login can hold the bridge back for a long time.
+  assert(Number(participant.ARENA_START_TIMEOUT_MS) >= 3600000);
+
+  assert.match(
+    services["budget-gateway"],
+    /networks: \[companion, model-egress\]/,
+  );
+  assert.doesNotMatch(services.bridge, /UPSTREAM_API_KEY|MODEL_TOKEN/);
+});
+
+test("every bridge and participant variable is defined by the code or the contract", async () => {
+  const services = sections(await read("compose.yaml"));
+  const code = {
+    bridge: await sourceText(
+      fileURLToPath(new URL("../packages/mf-bridge/", import.meta.url)),
+    ),
+    participant: [
+      await sourceText(fileURLToPath(new URL("../packages/", import.meta.url))),
+    ].join("\n"),
+  };
+  for (const [service, text] of Object.entries(code)) {
+    for (const name of Object.keys(environment(services[service]))) {
+      if (name === "TEAM_GIT_DIR") continue; // Mounted path, read by participant programs.
+      assert(
+        CONTRACT.has(name) || new RegExp(`\\b${name}\\b`).test(text),
+        `${service}: ${name} is not read by the code`,
+      );
+    }
+  }
+});
+
+test("budget, model and env examples agree with the compose file", async () => {
+  const compose = await read("compose.yaml");
+  const services = sections(compose);
+  const gatewayEnv = environment(services["budget-gateway"]);
+  const budget = JSON.parse(await read("budget.json"));
+  const model = JSON.parse(await read("model.json"));
+  assert.equal(budget.modelConfig, "model.json");
+  assert.equal(budget.requireRunningMatch, true);
+  assert(budget.referenceCost.models[model.id], "priced model");
+  for (const [id, p] of Object.entries(budget.participants)) {
+    assert.equal(id, "companion");
+    assert(budget.teams[p.team], "participant team exists");
+    assert(gatewayEnv[p.tokenEnv], p.tokenEnv);
+    assert(gatewayEnv[p.matchTokenEnv], p.matchTokenEnv);
+    assert.equal(p.matchStatusUrl, "http://bridge:8080/v1/session");
+  }
+  assert(gatewayEnv[budget.upstream.apiKeyEnv], budget.upstream.apiKeyEnv);
+  for (const key of ["id", "api", "contextWindow", "maxOutputTokens"])
+    assert(key in model, key);
+
+  const example = await read(".env.example");
+  const required = [...compose.matchAll(/\$\{([A-Z0-9_]+):\?/g)].map(
+    (m) => m[1],
+  );
+  for (const name of new Set(required))
+    assert.match(example, new RegExp(`^${name}=`, "m"), name);
+
+  const prompt = await read("PROMPT.md");
+  assert(Buffer.byteLength(prompt) <= 32 * 1024);
+  assert.match(prompt, /grief/i);
+  assert.match(prompt, /chat/i);
+});

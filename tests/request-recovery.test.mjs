@@ -324,7 +324,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
         stderr = "";
       const requests = [];
       const server = http.createServer(async (req, res) => {
-        if (req.url === "/v1/match") {
+        if (req.url === "/v1/session") {
           assert.equal(
             req.headers.authorization,
             "Bearer trusted-host-fixture",
@@ -569,7 +569,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
       assert.match(JSON.stringify(prompt(2)), /previous model request failed/);
       assert.match(
         JSON.stringify(prompt(7)),
-        /trusted host still reports a running match/,
+        /trusted host still reports a running session/,
       );
       assert.ok(
         requests[2].at - requests[1].at >= 180,

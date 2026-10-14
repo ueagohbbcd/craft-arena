@@ -4,6 +4,7 @@ import { EventEmitter, once } from "node:events";
 import net from "node:net";
 import { createLiveMatch, validateLive } from "../packages/arena/src/live.mjs";
 import { RconClient } from "../packages/arena/src/rcon.mjs";
+import { LEGACY_BRIEFING } from "../packages/arena/src/index.mjs";
 const config = {
   id: "live-fixture",
   game: "race-of-wool",
@@ -479,4 +480,51 @@ test("recording is confirmed before running and saved after game cleanup", async
   assert.ok(calls.indexOf("rcon-close") < calls.indexOf("replay-save"));
   assert.equal(match.host.result().replay.status, "saved");
   assert.equal(match.host.result().stopConfirmed, true);
+});
+
+test("legacy configs serve the session object with legacy match fields", async () => {
+  const cells = new Map([
+    [0, "air"],
+    [10, "air"],
+  ]);
+  const views = [];
+  const match = await createLiveMatch(config, {
+    env: { R_TOKEN: "r", B_TOKEN: "b", RCON: "x" },
+    createBot: () => ({
+      entity: {},
+      blockAt: (p) => ({ name: cells.get(p.x) }),
+      quit() {},
+    }),
+    rconFactory: () => ({
+      connect: async () => {},
+      command: async () => "OK",
+      close() {},
+    }),
+    startLiveBridge: async (options) => {
+      views.push(options.bridge.getMatchState);
+      return { bot: { entity: {} }, close: async () => {} };
+    },
+  });
+  await match.prepare();
+  const view = views[0]();
+  assert.equal(view.kind, "match");
+  assert.equal(view.sessionId, "live-fixture");
+  assert.equal(view.matchId, "live-fixture");
+  assert.equal(view.username, "r1");
+  assert.equal(view.game, "race-of-wool");
+  assert.deepEqual(view.rules, config.rules);
+  assert.deepEqual(view.objectives, ["wool"]);
+  assert.equal(view.durationMs, 10000);
+  assert.equal(view.scores, null);
+  assert.deepEqual(view.briefing, {
+    text: LEGACY_BRIEFING,
+    prompt: null,
+    public: null,
+  });
+  await match.start();
+  cells.set(0, "red_wool");
+  cells.set(10, "blue_wool");
+  await match.poll();
+  assert.equal(views[1]().winner, "draw");
+  assert.equal(match.host.result().winner, null);
 });

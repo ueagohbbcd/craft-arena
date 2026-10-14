@@ -1,6 +1,21 @@
 import { budgetFromHeaders, budgetFromSnapshot } from "./budget-feedback.mjs";
 
-/** Authenticated host match snapshot, cached briefly; undefined when unavailable. */
+/** A session snapshot is usable when its clock fields are well formed. */
+export function validSession(value) {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    typeof value.state === "string" &&
+    Number.isFinite(value.now) &&
+    (value.durationMs === null || Number.isFinite(value.durationMs))
+  );
+}
+
+/**
+ * Authenticated host session snapshot, cached briefly; undefined when
+ * unavailable. Reads /v1/session and falls back to the legacy /v1/match route
+ * on 404. `kind` defaults to "match" for hosts that predate open sessions.
+ */
 export function createMatchReader({
   url,
   token,
@@ -11,6 +26,11 @@ export function createMatchReader({
   let readAt = 0;
   let snapshot;
   let reading;
+  const get = (path) =>
+    fetch(`${url.replace(/\/$/, "")}${path}`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(timeoutMs),
+    });
   return async function readMatch(fresh = false) {
     if (!url || !token) return undefined;
     if (reading) return reading;
@@ -18,22 +38,16 @@ export function createMatchReader({
     readAt = now();
     reading = (async () => {
       try {
-        const response = await fetch(`${url.replace(/\/$/, "")}/v1/match`, {
-          headers: { authorization: `Bearer ${token}` },
-          signal: AbortSignal.timeout(timeoutMs),
-        });
+        let response = await get("/v1/session");
+        if (response.status === 404) {
+          await response.body?.cancel();
+          response = await get("/v1/match");
+        }
         if (!response.ok) return (snapshot = undefined);
         const body = await response.json();
         const value = body.result;
-        if (
-          !body.ok ||
-          !value ||
-          typeof value.state !== "string" ||
-          !Number.isFinite(value.now) ||
-          !Number.isFinite(value.durationMs)
-        )
-          return (snapshot = undefined);
-        return (snapshot = value);
+        if (!body.ok || !validSession(value)) return (snapshot = undefined);
+        return (snapshot = { ...value, kind: value.kind ?? "match" });
       } catch {
         return (snapshot = undefined);
       }
@@ -68,6 +82,18 @@ export function clockData(host, { now, bootAt, configured }) {
       host.elapsedMs === null || !Number.isFinite(host.elapsedMs)
         ? null
         : Math.max(0, host.elapsedMs);
+    // Open sessions have no time limit, so there is nothing to count down.
+    if (host.kind === "open" || host.durationMs === null)
+      return {
+        basis: "authenticated host session snapshot",
+        kind: host.kind ?? "match",
+        sessionId: host.sessionId ?? host.matchId,
+        state: host.state,
+        startedAtMs: host.startedAt ?? null,
+        asOfMs: host.now,
+        elapsedMs: elapsed,
+        ...(host.kind === "open" ? {} : { winner: host.winner ?? null }),
+      };
     return {
       basis: "authenticated host match snapshot",
       matchId: host.matchId,
@@ -100,7 +126,7 @@ export function clockData(host, { now, bootAt, configured }) {
 }
 
 /**
- * Trusted match clock and budget feedback for the model. These come from the
+ * Trusted session clock and budget feedback for the model. These come from the
  * platform, not from participant programs, so they travel as their own Pi
  * message rather than through the participant inbox. `collect()` returns only
  * the sections that changed since the last delivered update.
@@ -168,10 +194,10 @@ export function createPlatformMessages({
       const changes = {};
       const bucket = JSON.stringify([
         clock.basis,
-        clock.matchId,
+        clock.matchId ?? clock.sessionId,
         clock.state,
         clock.winner,
-        clock.matchStartedAtMs,
+        clock.matchStartedAtMs ?? clock.startedAtMs,
         Math.floor((clock.elapsedMs ?? clock.agentUptimeMs ?? 0) / 10000),
       ]);
       if (bucket !== lastClockBucket) {
@@ -188,6 +214,7 @@ export function createPlatformMessages({
         budget = undefined;
       }
       return {
+        // Kept as matchEnded for callers; true when any session has ended.
         matchEnded: host?.state === "ended",
         update: Object.keys(changes).length
           ? { type: "arena.platform", ...changes }
@@ -198,4 +225,4 @@ export function createPlatformMessages({
 }
 
 export const platformMessageText = (update) =>
-  `Arena platform message (trusted match host and model budget gateway):\n${JSON.stringify(update)}`;
+  `Arena platform message (trusted session host and model budget gateway):\n${JSON.stringify(update)}`;

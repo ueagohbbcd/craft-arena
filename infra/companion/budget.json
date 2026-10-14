@@ -1,0 +1,48 @@
+{
+  "participants": {
+    "companion": {
+      "team": "companion",
+      "tokenEnv": "COMPANION_MODEL_TOKEN",
+      "tokens": null,
+      "tpm": null,
+      "concurrency": 2,
+      "matchStatusUrl": "http://bridge:8080/v1/session",
+      "matchTokenEnv": "COMPANION_BRIDGE_TOKEN",
+      "cashRateLimit": "0.20"
+    }
+  },
+  "teams": {
+    "companion": {
+      "tokens": null,
+      "tpm": null,
+      "concurrency": 2,
+      "cashRateLimit": "0.20"
+    }
+  },
+  "upstream": {
+    "url": "https://api.deepseek.com/chat/completions",
+    "apiKeyEnv": "UPSTREAM_API_KEY"
+  },
+  "limits": {
+    "estimator": "approximate",
+    "imageTokenAllowance": 4096
+  },
+  "requireRunningMatch": true,
+  "examplePurpose": "Companion (open session): USD 0.20/minute reference-cost rate and no token cap, because an open session has no time limit. upstream.url is any OpenAI-compatible chat completions endpoint; its key comes from UPSTREAM_API_KEY. requireRunningMatch only admits calls while the bridge reports a running session.",
+  "referenceCost": {
+    "mode": "official-api-list-price",
+    "currency": "USD",
+    "windowMs": 60000,
+    "models": {
+      "deepseek-flash": {
+        "cachedInputPerMillion": "0.006",
+        "inputPerMillion": "0.30",
+        "outputPerMillion": "1.20",
+        "provider": "deepseek",
+        "sourceUrl": "https://api-docs.deepseek.com/quick_start/pricing/",
+        "verifiedAt": "2026-10-10"
+      }
+    }
+  },
+  "modelConfig": "model.json"
+}

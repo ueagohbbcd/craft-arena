@@ -112,6 +112,8 @@ services:
     - blue1
     volumes:
     - ./match.live.json:/config/match.live.json:ro
+    # Mode prompts: briefing.promptFile resolves relative to the config file.
+    - ./maps:/config/maps:ro
     - match-results:/results
     - match-control:/control
     - replay-config:/replay-config

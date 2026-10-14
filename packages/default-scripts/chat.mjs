@@ -2,6 +2,8 @@
 // Default chat listener. The runtime starts this ordinary script at session
 // start; it forwards in-game chat to the inbox. Stop it with task_cancel, or
 // run your own copy to filter or summarize chat differently.
+// ARENA_CHAT_WAKE=mention|all posts matching chat as urgent, which wakes an
+// idle model; the default (none) never wakes it.
 import { setTimeout as delay } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
 // Resolve the toolkit from ARENA_TOOLKIT_ROOT so a copy saved in your working
@@ -12,15 +14,84 @@ const toolkit = (path) =>
     : new URL(`../../${path}`, import.meta.url).href;
 const { InboxClient } = await import(toolkit("packages/inbox/index.mjs"));
 
-/** Passive chat only: no world mirror, action calls, or model wakeups. */
+const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Whether a chat line should wake the model. `mention`: the text names the bot
+ * (case-insensitive, whole word) or is a whisper to it; `all`: any line. The
+ * bot's own chat and whispers never wake.
+ */
+export function chatWakes(text, { mode = "none", username } = {}) {
+  if (mode !== "mention" && mode !== "all") return false;
+  const name =
+    typeof username === "string" && username ? escape(username) : null;
+  // Outgoing whispers ("You whisper to x: ...") are always the bot's own.
+  if (/^You whisper to /i.test(text)) return false;
+  // Vanilla "<name> text" and "[name -> x]" are the bot's own chat.
+  if (name && new RegExp(`^(?:<${name}>|\\[${name} -> )`, "i").test(text))
+    return false;
+  if (mode === "all") return true;
+  if (!name) return false;
+  // Vanilla "x whispers to you: ..." and the common "[x -> me] ..." format.
+  if (
+    /^\S+ whispers to you:? /i.test(text) ||
+    new RegExp(`^\\[\\S+ -> (?:me|${name})\\]`, "i").test(text)
+  )
+    return true;
+  return new RegExp(`(?<![\\w])${name}(?![\\w])`, "i").test(text);
+}
+
+/** Username of this bot from the session, or undefined when unavailable. */
+async function sessionUsername(url, token, signal) {
+  for (const path of ["/v1/session", "/v1/match"]) {
+    const response = await fetch(`${url.replace(/\/$/, "")}${path}`, {
+      headers: { authorization: `Bearer ${token}` },
+      signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]),
+    });
+    if (response.status === 404) {
+      await response.body?.cancel();
+      continue;
+    }
+    if (!response.ok) {
+      await response.body?.cancel();
+      return undefined;
+    }
+    const { result } = await response.json();
+    if (typeof result?.username === "string" && result.username)
+      return result.username;
+    const self = Array.isArray(result?.participants)
+      ? result.participants.find((p) => p?.id === result.participantId)
+      : undefined;
+    return typeof self?.username === "string" ? self.username : undefined;
+  }
+  return undefined;
+}
+
+/** Chat only: no world mirror or action calls; wakes the model only when asked. */
 export function startChatForwarder({
   url = process.env.ARENA_BRIDGE_URL,
   token = process.env.ARENA_BRIDGE_TOKEN,
   inbox,
   retryMs = 1000,
+  wake = process.env.ARENA_CHAT_WAKE || "none",
+  username = process.env.ARENA_CHAT_USERNAME || undefined,
 }) {
+  if (!["none", "mention", "all"].includes(wake))
+    throw new Error("ARENA_CHAT_WAKE must be none, mention or all");
   const controller = new AbortController();
   const { signal } = controller;
+  // The session names this bot; the env value is used until (or unless) it answers.
+  let sessionName;
+  let sessionRead = false;
+  const learnUsername = async () => {
+    if (wake === "none" || sessionRead) return;
+    try {
+      sessionName = await sessionUsername(url, token, signal);
+      sessionRead = true;
+    } catch {
+      /* Retried on the next reconnect. */
+    }
+  };
   function accept(frame) {
     const payload = frame
       .split("\n")
@@ -44,18 +115,25 @@ export function startChatForwarder({
     if (!Array.isArray(args) || typeof args[0] !== "string") return;
     if (args[1] === "game_info") return;
     const metadata = args[5] ?? {};
+    const urgent = chatWakes(args[0], {
+      mode: wake,
+      username: sessionName ?? username,
+    });
     inbox
-      .post({
-        type: "game.chat",
-        source: "minecraft",
-        trusted: false,
-        text: args[0],
-        position: args[1] ?? null,
-        senderUUID: args[3] ?? null,
-        verified: args[4] ?? null,
-        observedAt: metadata.observedAt ?? Date.now(),
-        truncated: metadata.truncated === true,
-      })
+      .post(
+        {
+          type: "game.chat",
+          source: "minecraft",
+          trusted: false,
+          text: args[0],
+          position: args[1] ?? null,
+          senderUUID: args[3] ?? null,
+          verified: args[4] ?? null,
+          observedAt: metadata.observedAt ?? Date.now(),
+          truncated: metadata.truncated === true,
+        },
+        urgent ? { priority: "urgent" } : {},
+      )
       .catch(() => {
         /* The inbox may be closing; chat is not replayed. */
       });
@@ -63,6 +141,7 @@ export function startChatForwarder({
   const done = (async () => {
     while (!signal.aborted) {
       try {
+        await learnUsername();
         const response = await fetch(`${url.replace(/\/$/, "")}/v1/chat`, {
           headers: { authorization: `Bearer ${token}` },
           signal,

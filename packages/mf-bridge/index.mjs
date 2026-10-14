@@ -805,7 +805,11 @@ export function createBridgeServer({
       }
       return;
     }
-    if (req.method === "GET" && req.url === "/v1/match") {
+    // /v1/session is the session route; /v1/match is its legacy alias.
+    if (
+      req.method === "GET" &&
+      (req.url === "/v1/session" || req.url === "/v1/match")
+    ) {
       if (typeof getMatchState !== "function") {
         res.writeHead(404);
         return res.end();
@@ -820,7 +824,7 @@ export function createBridgeServer({
       } catch {
         res.writeHead(503, { "content-type": "application/json" });
         res.end(
-          JSON.stringify({ ok: false, error: "Match state unavailable" }),
+          JSON.stringify({ ok: false, error: "Session state unavailable" }),
         );
       }
       return;

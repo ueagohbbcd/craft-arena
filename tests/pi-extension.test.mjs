@@ -447,7 +447,7 @@ test("authenticated host match clock preserves ended state and cached frozen ela
       res.end();
       return;
     }
-    assert.equal(req.url, "/v1/match");
+    assert.equal(req.url, "/v1/session");
     assert.equal(req.headers.authorization, "Bearer clock-fixture-token");
     reads++;
     res.setHeader("content-type", "application/json");
@@ -521,7 +521,7 @@ test(
         res.write('data: {"type":"connected"}\n\n');
         return;
       }
-      if (req.url === "/v1/match") {
+      if (req.url === "/v1/session") {
         assert.equal(req.headers.authorization, "Bearer host-resident-fixture");
         res.setHeader("content-type", "application/json");
         res.end(

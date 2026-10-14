@@ -3,7 +3,7 @@
 This package is the platform code inside each participant container. It has two parts:
 
 - **Pi extension** ([index.mjs](index.mjs)): code loaded into the Pi coding agent (pinned to `@earendil-works/pi-coding-agent@1.1.0`). It adds the arena tools, the inbox server, default-script startup, runtime reports, platform messages and the wake rules of a continuous session.
-- **Launcher** ([bootstrap.mjs](bootstrap.mjs)): the container's start command. It builds a private Pi profile, appends the participant prompt, waits for the match, sends the opening prompt and keeps the session alive.
+- **Launcher** ([bootstrap.mjs](bootstrap.mjs)): the container's start command. It builds a private Pi profile, appends the participant prompt, waits for the session, sends the opening prompt and keeps the session alive.
 
 This README is for developers and operators. How the model should use the tools is in [examples/SKILL.md](../../examples/SKILL.md#tools-and-waiting); what reaches the model and when is in [docs/CONTEXT-DELIVERY.md](../../docs/CONTEXT-DELIVERY.md).
 
@@ -41,15 +41,17 @@ A message **needs a decision** when it is urgent and `ARENA_WAKE_ON_URGENT=1`, o
 
 - **Urgent release.** An urgent inbox message ends every waiting `bash` / `task_wait` call at once with `running`, including calls made later in the same tool batch. The processes keep running. Other blocking work (network calls, a codemode loop) is not interrupted.
 - **Urgent wake / completion wake.** If Pi is idle and a message that needs a decision arrives, the extension sends the whole queue as an `arena-inbox` message that starts a turn. Other messages wait for the next request.
-- **Idle reminder.** In a continuous session with a bridge configured: if the model stopped normally, no non-background task is running, Pi has no queued turn and the arena host reports `running`, the extension sends an `arena-continue` prompt after `ARENA_IDLE_REMINDER_MS` (5000). The default scripts are background tasks and do not hold it off. While a participant task runs, only its completion or an urgent message wakes the model.
-- After the arena host reports `ended`, none of these wake the model.
+- **Idle reminder.** In a continuous session with a bridge configured: if the model stopped normally, no non-background task is running, Pi has no queued turn and the session host reports `running` (a match or an open session), the extension sends an `arena-continue` prompt after `ARENA_IDLE_REMINDER_MS` (5000). The default scripts are background tasks and do not hold it off. While a participant task runs, only its completion or an urgent message wakes the model.
+- After the session host reports `ended`, none of these wake the model.
 
 ### Platform messages
 
-| Section  | Source                                                                                                          | Sent when                                                                                                                                                                                                                       |
-| -------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `clock`  | The bridge's `GET /v1/match` (2 s cache, 300 ms timeout)                                                        | State, winner or match changes, or the elapsed time enters a new 10 s bucket. If no bridge is configured or the arena host is unreachable: `ARENA_MATCH_STARTED_AT` / `ARENA_DURATION_MS` when set, else labelled agent uptime. |
-| `budget` | Gateway response headers (`x-arena-*`), then one `GET $OPENAI_BASE_URL/budget` (300 ms timeout) at the turn end | It changed, or the last request queued (`queueDelayMs > 0`). A 429 rejection also triggers one `/budget` read.                                                                                                                  |
+| Section  | Source                                                                                                          | Sent when                                                                                                                                                                                                                         |
+| -------- | --------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `clock`  | The bridge's `GET /v1/session`, or `/v1/match` on `404` (2 s cache, 300 ms timeout)                             | State, winner or session changes, or the elapsed time enters a new 10 s bucket. If no bridge is configured or the arena host is unreachable: `ARENA_MATCH_STARTED_AT` / `ARENA_DURATION_MS` when set, else labelled agent uptime. |
+| `budget` | Gateway response headers (`x-arena-*`), then one `GET $OPENAI_BASE_URL/budget` (300 ms timeout) at the turn end | It changed, or the last request queued (`queueDelayMs > 0`). A 429 rejection also triggers one `/budget` read.                                                                                                                    |
+
+In a match, `clock` carries `durationMs` and `remainingMs`. A session without a time limit (every `open` session, `durationMs: null`) gets `kind`, `state`, `startedAtMs` and `elapsedMs` only.
 
 Only an allowlisted projection reaches the model: token counts and cash ratios, never currency amounts or prices. Field meanings: [examples/BUDGET-AND-TEAM.md](../../examples/BUDGET-AND-TEAM.md) and the [budget gateway README](../budget-gateway/README.md).
 
@@ -78,18 +80,18 @@ This is the participant image's `CMD` ([infra/Dockerfile.participant](../../infr
 | Environment set for the extension | `ARENA_CONTINUOUS_SESSION=1`, `ARENA_WAKE_ON_URGENT=1` (unless already set) | Neither                                                 |
 | Idle reminder, request recovery   | On (need `ARENA_BRIDGE_URL` and `ARENA_BRIDGE_TOKEN`)                       | Off                                                     |
 
-In a continuous session the launcher polls the bridge's `/v1/match` every 2 s:
+In a continuous session the launcher polls the bridge's `/v1/session` (falling back to `/v1/match` on `404`) every 2 s, through the same validated reader as the clock:
 
-- **Opening prompt.** `ARENA_PROMPT`, or a generic arena instruction. With `ARENA_WAIT_FOR_MATCH=1` (requires the bridge settings) the launcher waits until the arena host reports `running`, then adds the match briefing (the public `/v1/match` fields: teams, game, map, rules, objectives, public goal positions, briefing text, start time and duration) and the opening image. Without it, the prompt is sent at once, with no briefing and no opening image. If no running match is seen within `ARENA_START_TIMEOUT_MS` (600000) the launcher exits with status 1.
+- **Opening prompt.** `ARENA_PROMPT`, or a generic instruction. With `ARENA_WAIT_FOR_MATCH=1` (requires the bridge settings) the launcher waits until the session host reports `running`, then adds the session briefing and the opening image. The briefing is the public session fields as JSON (kind, session ID, teams, game, map, rules, objectives, public goal positions, start time and duration), then `briefing.text`, then `briefing.public`, then `briefing.prompt` labelled "Mode instructions (from the trusted session host)". Without the wait, a match prompt is sent at once with no briefing and no opening image; an open session that answers within 1 s gets its briefing. If no running session is seen within `ARENA_START_TIMEOUT_MS` (600000) the launcher exits with status 1.
 - **Opening images.** When the match configuration has `openingViews`, [opening-views.mjs](opening-views.mjs) renders them from this character's loaded chunks. The opening prompt carries a lobby view (rendered while the match is `prepared`), or the course view if the character is not in the lobby. Later, the first time the character is inside the course entry area, the launcher sends the course view once as a steering prompt. Each stage is tried at most three times. If rendering fails, the opening prompt tells the model to run `examples/screenshot.mjs`. Rendering is described in the [world-visual README](../world-visual/README.md).
-- **Match end.** When the arena host reports `ended`, the launcher closes Pi's input, then sends SIGTERM after 5 s and SIGKILL 1 s later. The task manager stops all tasks on session shutdown.
+- **Session end.** When the session host reports `ended`, the launcher closes Pi's input, then sends SIGTERM after 5 s and SIGKILL 1 s later. The task manager stops all tasks on session shutdown.
 
 ### Request recovery
 
 [request-recovery.mjs](request-recovery.mjs) watches Pi's RPC output. It only handles requests that failed or were cut off; normal scheduling belongs to the extension.
 
-- After a turn ends with `stopReason` `error` or `length`, it waits, checks that the arena host reports `running` and that Pi is not streaming, compacting or holding a queued message, then sends one continue prompt. The prompt tells the model that tasks may still be running and not to repeat submitted actions.
-- Delay: `ARENA_RETRY_DELAY_MS` (2000), doubling per consecutive failure up to `ARENA_RETRY_MAX_DELAY_MS` (60000). A truncated response that made progress is continued after 2 s. There is no retry limit while the match runs.
+- After a turn ends with `stopReason` `error` or `length`, it waits, checks that the session host reports `running` (match or open session) and that Pi is not streaming, compacting or holding a queued message, then sends one continue prompt. The prompt tells the model that tasks may still be running and not to repeat submitted actions.
+- Delay: `ARENA_RETRY_DELAY_MS` (2000), doubling per consecutive failure up to `ARENA_RETRY_MAX_DELAY_MS` (60000). A truncated response that made progress is continued after 2 s. There is no retry limit while the session runs.
 - Permanent errors (bad or missing API key, exhausted budget, model not allowed, context too long) stop the session once the arena host still reports `running`: the launcher exits with status 1. A container exit does not end the match by itself; when the operator runs the participant supervisor (`scripts/supervise-participants.mjs`, see [infra/README.md](../../infra/README.md)), the arena host ends the match as a runtime fault.
 
 ## Long-session compaction
@@ -107,19 +109,19 @@ Pi compacts when the context reaches `contextWindow − reserveTokens`. The summ
 
 Launcher (read by [bootstrap.mjs](bootstrap.mjs)):
 
-| Variable                                 | Default              | Meaning                                                                                                                                  |
-| ---------------------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `ARENA_MODEL_CONFIG`                     | required             | Path to the model descriptor JSON (relative to the working directory).                                                                   |
-| `OPENAI_BASE_URL`                        | required             | Budget gateway URL, `http(s)`, no credentials, query or fragment.                                                                        |
-| `OPENAI_API_KEY`                         | required             | This participant's gateway key.                                                                                                          |
-| `ARENA_BRIDGE_URL`, `ARENA_BRIDGE_TOKEN` | unset                | This participant's bridge. Needed for match polling, opening images, request recovery, default scripts, `observe` and the idle reminder. |
-| `ARENA_WAIT_FOR_MATCH`                   | unset                | `1`: send the opening prompt only once the match is `running` (continuous session only).                                                 |
-| `ARENA_START_TIMEOUT_MS`                 | `600000`             | How long to wait for a running match before exiting with status 1.                                                                       |
-| `ARENA_PROMPT`                           | built-in text        | Opening prompt text.                                                                                                                     |
-| `ARENA_EXTRA_EXTENSIONS`                 | empty                | Comma-separated extra Pi extension paths.                                                                                                |
-| `ARENA_RETRY_DELAY_MS`                   | `2000`               | First request-recovery delay.                                                                                                            |
-| `ARENA_RETRY_MAX_DELAY_MS`               | `60000`              | Request-recovery delay ceiling.                                                                                                          |
-| `PI_CODING_AGENT_SESSION_DIR`            | `<cwd>/.pi/sessions` | Where Pi keeps session records.                                                                                                          |
+| Variable                                 | Default              | Meaning                                                                                                                                    |
+| ---------------------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `ARENA_MODEL_CONFIG`                     | required             | Path to the model descriptor JSON (relative to the working directory).                                                                     |
+| `OPENAI_BASE_URL`                        | required             | Budget gateway URL, `http(s)`, no credentials, query or fragment.                                                                          |
+| `OPENAI_API_KEY`                         | required             | This participant's gateway key.                                                                                                            |
+| `ARENA_BRIDGE_URL`, `ARENA_BRIDGE_TOKEN` | unset                | This participant's bridge. Needed for session polling, opening images, request recovery, default scripts, `observe` and the idle reminder. |
+| `ARENA_WAIT_FOR_MATCH`                   | unset                | `1`: send the opening prompt only once the session is `running` (continuous session only).                                                 |
+| `ARENA_START_TIMEOUT_MS`                 | `600000`             | How long to wait for a running session before exiting with status 1.                                                                       |
+| `ARENA_PROMPT`                           | built-in text        | Opening prompt text.                                                                                                                       |
+| `ARENA_EXTRA_EXTENSIONS`                 | empty                | Comma-separated extra Pi extension paths.                                                                                                  |
+| `ARENA_RETRY_DELAY_MS`                   | `2000`               | First request-recovery delay.                                                                                                              |
+| `ARENA_RETRY_MAX_DELAY_MS`               | `60000`              | Request-recovery delay ceiling.                                                                                                            |
+| `PI_CODING_AGENT_SESSION_DIR`            | `<cwd>/.pi/sessions` | Where Pi keeps session records.                                                                                                            |
 
 Set by the launcher for Pi: `ARENA_TOOLKIT_ROOT`, `PI_OFFLINE=1`, `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`, and in a continuous session `ARENA_CONTINUOUS_SESSION=1` and `ARENA_WAKE_ON_URGENT` (default `1`).
 

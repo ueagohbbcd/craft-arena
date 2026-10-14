@@ -1,0 +1,90 @@
+# Companion template: one model plays on an external Minecraft server in an open
+# session (no arena host, no time limit, no winner). Validate with
+# docker compose --env-file .env -f infra/companion/compose.yaml config.
+# No host ports are published.
+name: craft-arena-companion
+x-restricted: &restricted
+  user: "1000:1000"
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  init: true
+  pids_limit: ${ARENA_PIDS_LIMIT:-256}
+  mem_limit: ${ARENA_MEMORY_LIMIT:-2g}
+  cpus: ${ARENA_CPU_LIMIT:-2.0}
+  restart: "no"
+services:
+  # Standalone game bridge. It serves an open session at /v1/session and is the
+  # only service that reaches the Minecraft server.
+  bridge:
+    <<: *restricted
+    build: { context: "../..", dockerfile: infra/Dockerfile.trusted }
+    image: craft-arena-trusted:companion
+    command: [node, packages/mf-bridge/cli.mjs]
+    environment:
+      MF_HOST: ${MC_HOST:?Provide the Minecraft server address}
+      MF_PORT: ${MC_PORT:-25565}
+      MF_USERNAME: ${MC_USERNAME:?Provide the bot account name}
+      MF_VERSION: ${MC_VERSION:?Select exact server protocol version}
+      MF_AUTH: ${MF_AUTH:-offline}
+      MF_PROFILES_DIR: /profiles
+      BRIDGE_HOST: 0.0.0.0
+      BRIDGE_PORT: "8080"
+      BRIDGE_ALLOW_CHAT: "true"
+      BRIDGE_TOKEN: ${COMPANION_BRIDGE_TOKEN:?Provide unique operator token}
+      BRIDGE_SESSION: open
+      BRIDGE_SESSION_ID: ${COMPANION_SESSION_ID:-companion}
+      BRIDGE_PROMPT_FILE: /config/PROMPT.md
+    networks: [companion, minecraft-egress]
+    volumes:
+      [
+        "${COMPANION_PROMPT_PATH:-./PROMPT.md}:/config/PROMPT.md:ro",
+        "./mf-profiles:/profiles",
+      ]
+  budget-gateway:
+    <<: *restricted
+    image: craft-arena-trusted:companion
+    depends_on: [bridge]
+    command: [node, packages/budget-gateway/src/cli.mjs, /config/budget.json]
+    environment:
+      UPSTREAM_API_KEY: ${UPSTREAM_API_KEY:?Provide upstream credential only to gateway}
+      COMPANION_MODEL_TOKEN: ${COMPANION_MODEL_TOKEN:?Provide scoped operator token}
+      COMPANION_BRIDGE_TOKEN: ${COMPANION_BRIDGE_TOKEN}
+    networks: [companion, model-egress]
+    volumes:
+      [
+        "./budget.json:/config/budget.json:ro",
+        "./model.json:/config/model.json:ro",
+      ]
+  participant:
+    <<: *restricted
+    build: { context: "../..", dockerfile: infra/Dockerfile.participant }
+    image: craft-arena-participant:companion
+    depends_on: [bridge, budget-gateway]
+    environment:
+      ARENA_BRIDGE_URL: http://bridge:8080
+      ARENA_BRIDGE_TOKEN: ${COMPANION_BRIDGE_TOKEN}
+      OPENAI_BASE_URL: http://budget-gateway:8081/participants/companion/v1
+      OPENAI_API_KEY: ${COMPANION_MODEL_TOKEN}
+      ARENA_MODEL_CONFIG: /config/model.json
+      TEAM_GIT_DIR: /team-git
+      ARENA_CONTINUOUS_SESSION: "1"
+      ARENA_WAIT_FOR_MATCH: "1"
+      # The bridge listens only after the bot spawns; a Microsoft device login
+      # can take longer than the default 10-minute start wait.
+      ARENA_START_TIMEOUT_MS: "86400000"
+      ARENA_CHAT_WAKE: ${ARENA_CHAT_WAKE:-mention}
+    networks: [companion]
+    volumes:
+      [
+        companion-work:/workspace,
+        companion-git:/team-git,
+        ./model.json:/config/model.json:ro,
+      ]
+    tmpfs: ["/tmp:rw,nosuid,size=256m"]
+networks:
+  companion: { internal: true }
+  minecraft-egress: {}
+  model-egress: {}
+volumes:
+  companion-work: {}
+  companion-git: {}

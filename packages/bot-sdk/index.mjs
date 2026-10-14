@@ -153,13 +153,21 @@ export class BotFacade extends EventEmitter {
       this._requests.delete(request);
     }
   }
-  async getMatchState() {
-    const res = await this.fetch(`${this.url}/v1/match`, {
-      headers: { authorization: `Bearer ${this.token}` },
-    });
-    if (!res.ok) throw new Error(`Match state HTTP ${res.status}`);
+  /** Session state from /v1/session; older bridges only serve /v1/match. */
+  async getSessionState() {
+    const headers = { authorization: `Bearer ${this.token}` };
+    let res = await this.fetch(`${this.url}/v1/session`, { headers });
+    if (res.status === 404) {
+      await res.body?.cancel?.();
+      res = await this.fetch(`${this.url}/v1/match`, { headers });
+    }
+    if (!res.ok) throw new Error(`Session state HTTP ${res.status}`);
     const body = await res.json();
     return body.result;
+  }
+  /** Legacy name of getSessionState. */
+  getMatchState() {
+    return this.getSessionState();
   }
   _fire(action, args) {
     // Native movement controls apply in call order. Concurrent HTTP requests

@@ -149,7 +149,7 @@ In cash mode each also has `cash`, the same object as in `x-arena-cash-ratios`. 
 
 ## Match gating
 
-With `requireRunningMatch: true`, each participant entry also needs `matchStatusUrl` (its bridge's `/v1/match` on the arena host) and `matchTokenEnv` (the variable holding that participant's bridge token). For every call the gateway fetches the match state with a 2 s timeout, twice: before the call joins the queue and again just before forwarding. Anything other than state `running`, including a failed fetch, refuses the call with `403` and refunds its reservation. A call already forwarded when the match ends is not cancelled and is still charged. The live templates enable gating; the standalone `infra/compose.yaml` does not.
+With `requireRunningMatch: true`, each participant entry also needs `matchStatusUrl` (its bridge's `/v1/session` on the arena host, or the standalone bridge; the legacy `/v1/match` alias also works) and `matchTokenEnv` (the variable holding that participant's bridge token). For every call the gateway fetches the match state with a 2 s timeout, twice: before the call joins the queue and again just before forwarding. Anything other than state `running`, including a failed fetch, refuses the call with `403` and refunds its reservation. A call already forwarded when the match ends is not cancelled and is still charged. The live templates enable gating; the standalone `infra/compose.yaml` does not.
 
 ## Operator totals
 

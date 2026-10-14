@@ -1,37 +1,80 @@
 import { randomUUID, timingSafeEqual } from "node:crypto";
-export function validateMatchConfig(c) {
-  const errors = [],
-    id = (x) => typeof x === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(x);
-  if (!c || typeof c !== "object") return ["config must be an object"];
-  if (!id(c.id)) errors.push("id must be a stable identifier");
+const id = (x) => typeof x === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(x);
+const plainObject = (x) => !!x && typeof x === "object" && !Array.isArray(x);
+
+/** Short briefing for legacy race-of-wool configs without `live.briefing`. */
+// The default text legacy race-of-wool configs had before modes existed.
+export const LEGACY_BRIEFING =
+  "Complete your team monument objectives by placing the map-required blocks at the map-designated team monuments. All objectives are required. Simultaneous completion within one observer poll is a draw. Participant disconnection abandons the match; deaths do not end it. Use only the scoped game bridge and model gateway.";
+
+/**
+ * A config with neither a `session` nor a `judge` block uses the legacy
+ * race-of-wool shape.
+ */
+export function isLegacyConfig(c) {
+  return plainObject(c) && c.session === undefined && c.judge === undefined;
+}
+
+function briefingBlock(briefing, fallbackText = null) {
+  const b = plainObject(briefing) ? briefing : {};
+  return {
+    text: typeof b.text === "string" ? b.text : fallbackText,
+    promptFile: typeof b.promptFile === "string" ? b.promptFile : null,
+    public: plainObject(b.public) ? b.public : null,
+  };
+}
+
+/**
+ * Returns a copy in the session/judge/briefing shape. Legacy race-of-wool
+ * configs (game, rules, durationMs, live.goals/observer/briefing) become a
+ * `monument-blocks` match with the same behaviour. Idempotent; never throws.
+ */
+export function normalizeConfig(config) {
+  if (!plainObject(config)) return config;
+  const c = structuredClone(config);
+  c.teams = Array.isArray(c.teams) ? c.teams : [];
+  if (isLegacyConfig(c)) {
+    c.session = {
+      kind: "match",
+      durationMs: c.durationMs,
+      onTimeout: c.rules?.onTimeout,
+    };
+    c.judge = {
+      type: "monument-blocks",
+      pollMs: c.live?.pollMs ?? 100,
+      objectives: c.rules?.objectives,
+      goals: c.live?.goals,
+      observer: c.live?.observer,
+      publicObjectives: c.live?.publicObjectives,
+      publishGoalPositions: c.live?.publishGoalPositions,
+    };
+    c.briefing = briefingBlock(
+      c.briefing,
+      typeof c.live?.briefing === "string" ? c.live.briefing : LEGACY_BRIEFING,
+    );
+    return c;
+  }
+  const kind = c.session?.kind ?? "match";
+  c.session = {
+    ...c.session,
+    kind,
+    durationMs: c.session?.durationMs ?? null,
+    onTimeout: kind === "open" ? null : (c.session?.onTimeout ?? "draw"),
+  };
+  const type = c.judge?.type ?? (kind === "open" ? "none" : "datapack");
+  c.judge = {
+    ...c.judge,
+    type,
+    pollMs: c.judge?.pollMs ?? (type === "monument-blocks" ? 100 : 500),
+  };
+  c.briefing = briefingBlock(c.briefing);
+  return c;
+}
+
+function validateLegacy(c, errors) {
   if (c.game !== "race-of-wool") errors.push("game must be race-of-wool");
-  if (
-    !c.map?.id ||
-    !c.map?.version ||
-    !c.map?.sha256 ||
-    !/^[a-f0-9]{64}$/i.test(c.map.sha256)
-  )
-    errors.push("operator map id, version and SHA-256 are required");
   if (!Number.isSafeInteger(c.durationMs) || c.durationMs <= 0)
     errors.push("durationMs must be positive integer");
-  const teams = Array.isArray(c.teams) ? c.teams : [],
-    participants = Array.isArray(c.participants) ? c.participants : [];
-  if (
-    teams.length < 2 ||
-    teams.some((t) => !id(t.id)) ||
-    new Set(teams.map((t) => t.id)).size !== teams.length
-  )
-    errors.push("at least two unique teams required");
-  if (
-    !participants.length ||
-    participants.some(
-      (p) => !id(p.id) || !teams.some((t) => t.id === p.team),
-    ) ||
-    new Set(participants.map((p) => p.id)).size !== participants.length
-  )
-    errors.push("unique participants with known teams required");
-  if (teams.some((t) => !participants.some((p) => p.team === t.id)))
-    errors.push("each team needs participants");
   const objectives = c.rules?.objectives;
   if (
     !Array.isArray(objectives) ||
@@ -44,10 +87,131 @@ export function validateMatchConfig(c) {
     errors.push("supported winner rule: first-team-all-objectives");
   if (!["draw", "most-objectives"].includes(c.rules?.onTimeout))
     errors.push("onTimeout must be draw or most-objectives");
+}
+
+function validateSession(c, errors) {
+  const kind = c.session?.kind ?? "match";
+  if (!plainObject(c.session) || !["match", "open"].includes(kind))
+    errors.push("session.kind must be match or open");
+  const duration = c.session?.durationMs ?? null,
+    type = c.judge?.type ?? (kind === "open" ? "none" : "datapack"),
+    onTimeout = c.session?.onTimeout;
+  if (c.judge !== undefined && !plainObject(c.judge))
+    errors.push("judge must be an object");
+  if (
+    c.judge?.pollMs !== undefined &&
+    (!Number.isSafeInteger(c.judge.pollMs) || c.judge.pollMs <= 0)
+  )
+    errors.push("judge.pollMs must be positive integer");
+  if (kind === "open") {
+    if (duration !== null)
+      errors.push("open sessions have no durationMs (use null)");
+    if (onTimeout !== undefined && onTimeout !== null)
+      errors.push("open sessions have no onTimeout");
+    if (!["none", "datapack"].includes(type))
+      errors.push("open sessions use judge none or datapack");
+  } else {
+    if (!Number.isSafeInteger(duration) || duration <= 0)
+      errors.push("session.durationMs must be positive integer");
+    if (!["datapack", "monument-blocks"].includes(type))
+      errors.push("matches use judge datapack or monument-blocks");
+    const allowed =
+      type === "monument-blocks"
+        ? ["draw", "most-objectives"]
+        : ["draw", "most-score"];
+    if (onTimeout !== undefined && !allowed.includes(onTimeout))
+      errors.push(`onTimeout must be ${allowed.join(" or ")}`);
+  }
+  if (type === "monument-blocks") {
+    const objectives = c.judge?.objectives;
+    if (
+      !Array.isArray(objectives) ||
+      !objectives.length ||
+      objectives.some((x) => !id(x)) ||
+      new Set(objectives).size !== objectives.length
+    )
+      errors.push("judge.objectives requires unique objective IDs");
+  }
+}
+
+function validateBriefing(b, errors) {
+  if (b === undefined) return;
+  if (!plainObject(b)) {
+    errors.push("briefing must be an object");
+    return;
+  }
+  if (b.text != null && typeof b.text !== "string")
+    errors.push("briefing.text must be a string");
+  if (
+    b.promptFile != null &&
+    (typeof b.promptFile !== "string" || !b.promptFile)
+  )
+    errors.push("briefing.promptFile must be a path");
+  if (b.public != null && !plainObject(b.public))
+    errors.push("briefing.public must be an object");
+}
+
+export function validateMatchConfig(c) {
+  const errors = [];
+  if (!plainObject(c)) return ["config must be an object"];
+  if (!id(c.id)) errors.push("id must be a stable identifier");
+  const legacy = isLegacyConfig(c),
+    open = !legacy && c.session?.kind === "open";
+  if (
+    (!open || c.map != null) &&
+    (!c.map?.id ||
+      !c.map?.version ||
+      !c.map?.sha256 ||
+      !/^[a-f0-9]{64}$/i.test(c.map.sha256))
+  )
+    errors.push("operator map id, version and SHA-256 are required");
+  if (legacy) validateLegacy(c, errors);
+  else validateSession(c, errors);
+  validateBriefing(c.briefing, errors);
+  const teams = Array.isArray(c.teams) ? c.teams : [],
+    participants = Array.isArray(c.participants) ? c.participants : [];
+  if (
+    (open
+      ? c.teams !== undefined && !Array.isArray(c.teams)
+      : teams.length < 2) ||
+    teams.some((t) => !id(t.id)) ||
+    new Set(teams.map((t) => t.id)).size !== teams.length
+  )
+    errors.push(
+      open ? "teams must be unique" : "at least two unique teams required",
+    );
+  if (
+    !participants.length ||
+    participants.some(
+      (p) =>
+        !id(p.id) ||
+        (open && !teams.length
+          ? p.team !== undefined && p.team !== null
+          : !teams.some((t) => t.id === p.team)),
+    ) ||
+    new Set(participants.map((p) => p.id)).size !== participants.length
+  )
+    errors.push("unique participants with known teams required");
+  if (!open && teams.some((t) => !participants.some((p) => p.team === t.id)))
+    errors.push("each team needs participants");
   if (!c.versions?.participantImage || !c.versions?.bridge)
     errors.push("participantImage and bridge versions required");
   return errors;
 }
+const END_REASONS = [
+  "abandoned",
+  "map-fault",
+  "runtime-fault",
+  "timeout",
+  "objectives-complete",
+  "simultaneous-objectives",
+  "judge-decision",
+];
+// Ends without a winner that still count as a draw rather than no result.
+const DRAW_REASONS = ["timeout", "simultaneous-objectives", "judge-decision"];
+const validScores = (scores) =>
+  plainObject(scores) &&
+  Object.values(scores).every((v) => typeof v === "number" && isFinite(v));
 /** Trusted orchestration only. No participant-facing method may submit scoring events. */
 export class MatchHost {
   constructor({
@@ -69,7 +233,7 @@ export class MatchHost {
       throw new Error("Trusted connector required");
     if (typeof eventToken !== "string" || !eventToken.length)
       throw new Error("Operator-provided event token required");
-    this.config = structuredClone(config);
+    this.config = normalizeConfig(config);
     this.connector = connector;
     this.now = now;
     this.eventToken = eventToken;
@@ -78,9 +242,26 @@ export class MatchHost {
     this.runId = runId;
     this.seen = new Set();
     this.events = [];
-    this.progress = Object.fromEntries(config.teams.map((t) => [t.id, []]));
+    this.progress = Object.fromEntries(
+      this.config.teams.map((t) => [t.id, []]),
+    );
     this.metrics = { deaths: {}, disconnects: {} };
+    this.scores = null;
     this.transition = false;
+  }
+  get kind() {
+    return this.config.session.kind;
+  }
+  get objectives() {
+    return this.config.judge.type === "monument-blocks"
+      ? this.config.judge.objectives
+      : [];
+  }
+  get deadline() {
+    const duration = this.config.session.durationMs;
+    return duration == null || this.startedAt === undefined
+      ? Infinity
+      : this.startedAt + duration;
   }
   async prepare() {
     if (this.state !== "created" || this.transition)
@@ -135,14 +316,14 @@ export class MatchHost {
       throw new Error("Invalid event identity");
     if (this.seen.has(event.id)) return { duplicate: true };
     if (this.state !== "running") throw new Error("Match is not running");
-    if (this.now() >= this.startedAt + this.config.durationMs) {
+    if (this.now() >= this.deadline) {
       await this.checkTimeout();
       return { late: true };
     }
     if (event.type === "objective" || event.type === "objective-lost") {
       if (
         !Object.hasOwn(this.progress, event.team) ||
-        !this.config.rules.objectives.includes(event.objective)
+        !this.objectives.includes(event.objective)
       )
         throw new Error("Unknown team/objective");
       if (event.type === "objective-lost")
@@ -166,15 +347,17 @@ export class MatchHost {
   /** Trusted full observation round. All teams are judged after one atomic update. */
   async observe(observations) {
     if (this.state !== "running") throw new Error("Match is not running");
+    if (this.config.judge.type !== "monument-blocks")
+      throw new Error("Objective observations need the monument-blocks judge");
     const receivedAt = this.now();
-    if (receivedAt >= this.startedAt + this.config.durationMs) {
+    if (receivedAt >= this.deadline) {
       await this.checkTimeout();
       return { late: true };
     }
     const next = Object.fromEntries(this.config.teams.map((t) => [t.id, []]));
     const events = [];
     for (const { id: team } of this.config.teams) {
-      for (const objective of this.config.rules.objectives) {
+      for (const objective of this.objectives) {
         const complete = observations[team]?.[objective];
         // A missing observation must never silently clear a scored objective.
         if (typeof complete !== "boolean")
@@ -200,28 +383,73 @@ export class MatchHost {
     return { accepted: true };
   }
   async #finishObjectives() {
+    if (!this.objectives.length) return;
     const winners = this.config.teams.filter(
-      (t) => this.progress[t.id].length === this.config.rules.objectives.length,
+      (t) => this.progress[t.id].length === this.objectives.length,
     );
     if (winners.length > 1)
       return this.#finish("simultaneous-objectives", null);
     if (winners.length === 1)
       return this.#finish("objectives-complete", winners[0].id);
   }
-  async checkTimeout() {
-    if (
-      this.state !== "running" ||
-      this.now() < this.startedAt + this.config.durationMs
-    )
-      return false;
-    let winner = null;
-    if (this.config.rules.onTimeout === "most-objectives") {
-      const scores = Object.entries(this.progress).sort(
-        (a, b) => b[1].length - a[1].length,
-      );
-      if (scores[0][1].length > scores[1][1].length) winner = scores[0][0];
+  /** Records the server judge's current scores and note without ending. */
+  report({ scores, message } = {}) {
+    if (!["prepared", "running", "ending"].includes(this.state))
+      throw new Error("Match is not active");
+    if (scores != null) {
+      if (!validScores(scores)) throw new Error("Scores must be numbers");
+      this.scores = structuredClone(scores);
     }
-    await this.#finish("timeout", winner);
+    if (typeof message === "string" && message) this.message = message;
+  }
+  /**
+   * The server judge declared the end. `winner` is a team ID, "draw", or
+   * empty/null (no winner, recorded as a draw). A verdict read at or after
+   * the deadline ends as timeout instead.
+   */
+  async verdict({ winner = null, scores, message } = {}) {
+    if (this.state !== "running") throw new Error("Match is not running");
+    this.report({ scores, message });
+    if (this.now() >= this.deadline) {
+      await this.checkTimeout();
+      return { late: true };
+    }
+    const team = winner === "draw" || winner === "" ? null : winner;
+    if (team !== null && !Object.hasOwn(this.progress, team))
+      throw new Error(`Judge named unknown winner ${winner}`);
+    await this.#finish("judge-decision", team);
+    return { accepted: true };
+  }
+  /**
+   * Final judge reading taken while ending (after `#arena:stop`). Scores and
+   * message are recorded; on timeout a server winner overrides `onTimeout`.
+   */
+  conclude({ winner = null, scores, message } = {}) {
+    if (this.state !== "ending") return;
+    this.report({ scores, message });
+    if (this.reason !== "timeout") return;
+    if (winner === "draw") this.winner = null;
+    else if (winner && Object.hasOwn(this.progress, winner))
+      this.winner = winner;
+    else this.winner = this.#timeoutWinner();
+  }
+  #timeoutWinner() {
+    const rule = this.config.session.onTimeout;
+    const ranked =
+      rule === "most-objectives"
+        ? Object.entries(this.progress).map(([t, p]) => [t, p.length])
+        : rule === "most-score" && this.scores
+          ? this.config.teams.map((t) => [t.id, this.scores[t.id]])
+          : [];
+    const valid = ranked
+      .filter(([, n]) => typeof n === "number")
+      .sort((a, b) => b[1] - a[1]);
+    if (!valid.length) return null;
+    return valid.length === 1 || valid[0][1] > valid[1][1] ? valid[0][0] : null;
+  }
+  async checkTimeout() {
+    if (this.state !== "running" || this.now() < this.deadline) return false;
+    await this.#finish("timeout", this.#timeoutWinner());
     return true;
   }
   async end(reason = "abandoned", winner = null) {
@@ -232,23 +460,14 @@ export class MatchHost {
       !(this.state === "created" && this.transition)
     )
       throw new Error("Cannot end this state");
-    if (
-      ![
-        "abandoned",
-        "map-fault",
-        "runtime-fault",
-        "timeout",
-        "objectives-complete",
-        "simultaneous-objectives",
-      ].includes(reason)
-    )
-      throw new Error("Invalid end reason");
+    if (!END_REASONS.includes(reason)) throw new Error("Invalid end reason");
     if (winner !== null && !Object.hasOwn(this.progress, winner))
       throw new Error("Invalid winner");
     if (
       reason === "objectives-complete" &&
       (!winner ||
-        this.progress[winner].length !== this.config.rules.objectives.length)
+        !this.objectives.length ||
+        this.progress[winner].length !== this.objectives.length)
     )
       throw new Error("Objective completion not established");
     return this.#finish(reason, winner);
@@ -276,7 +495,7 @@ export class MatchHost {
       }
       try {
         if (pendingPhase) await pendingPhase;
-        await this.connector.stop(this.runId);
+        await this.connector.stop(this.runId, reason);
         this.stopConfirmed = true;
       } catch (e) {
         this.stopConfirmed = false;
@@ -287,20 +506,31 @@ export class MatchHost {
     })();
     return this.ending;
   }
+  /** Session winner: a team ID, "draw", or null (no result or not ended). */
+  get outcome() {
+    if (!["ending", "ended"].includes(this.state)) return null;
+    if (this.winner) return this.winner;
+    return DRAW_REASONS.includes(this.reason) ? "draw" : null;
+  }
   result() {
     if (this.state !== "ended") throw new Error("Result is not final");
     return structuredClone({
       matchId: this.config.id,
       runId: this.runId,
+      kind: this.kind,
+      judge: this.config.judge.type,
       mode: this.connector.mode ?? "external",
       state: this.state,
       reason: this.reason,
       winner: this.winner,
+      draw: this.outcome === "draw",
       startedAt: this.startedAt ?? null,
       endedAt: this.endedAt,
       elapsedMs:
         this.startedAt === undefined ? 0 : this.endedAt - this.startedAt,
       progress: this.progress,
+      scores: this.scores,
+      message: this.message,
       metrics: this.metrics,
       events: this.events,
       map: this.config.map,
@@ -308,6 +538,7 @@ export class MatchHost {
       stopConfirmed: this.stopConfirmed,
       stopError: this.stopError,
       observerError: this.observerError,
+      judgeError: this.judgeError,
       runtimeError: this.runtimeError,
       stateReportError: this.stateReportError,
       ...(this.replay ? { replay: this.replay } : {}),

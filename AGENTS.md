@@ -35,6 +35,6 @@ npm test              # 全部测试
 
 - 参赛模型和插件都是照着真实 Mineflayer 写的。SDK 与真实 bot 的差距由 `tests/sdk-fidelity.test.mjs` 跟踪；补上一个方法后，从它的 `KNOWN_GAPS` 中删掉对应条目。
 - 观察器、聊天转发是普通脚本（`packages/default-scripts/`）。不要把新的自动报告做进 Pi 扩展进程，写成脚本，通过 `InboxClient` 交付。
-- 比赛时钟、预算这类来自可信侧的信息走平台消息（`packages/pi-extension/platform-messages.mjs`），不走收件箱。
+- 会话时钟、预算这类来自可信侧的信息走平台消息（`packages/pi-extension/platform-messages.mjs`），不走收件箱。
 - 改动参赛者能看到的行为时，同步更新 `examples/PROMPT.md`、`examples/SKILL.md` 和对应包的 README。
 - 待办只记在 [docs/ROADMAP.md](docs/ROADMAP.md)。

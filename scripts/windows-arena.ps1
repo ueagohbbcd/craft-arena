@@ -104,7 +104,7 @@ function Stop-ProxyRelay {
   }
 }
 function Read-MatchState {
-  $script = "const r=await fetch('http://127.0.0.1:8080/v1/match',{headers:{authorization:'Bearer '+process.env.RED1_BRIDGE_TOKEN}});if(!r.ok)process.exit(1);console.log((await r.json()).result.state)"
+  $script = "const r=await fetch('http://127.0.0.1:8080/v1/session',{headers:{authorization:'Bearer '+process.env.RED1_BRIDGE_TOKEN}});if(!r.ok)process.exit(1);console.log((await r.json()).result.state)"
   $state = & $docker @compose exec -T arena-host node --input-type=module -e $script 2>$null
   if ($LASTEXITCODE -eq 0) { return ($state -join '').Trim() }
   return ''

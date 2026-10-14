@@ -1,6 +1,6 @@
 # Craft Arena：Minecraft AI 竞速测试场
 
-Craft Arena 给一个通用 coding AI 一个 Minecraft 角色。每个参赛者拿到的公开能力和资料都相同，模型调用速率有限；它自己决定怎样观察、判断和写程序，比赛成绩用来比较这些做法的效果。首类场景是 Race of Wool 一类 PvP 竞速地图：两队收集指定羊毛并放到本队纪念碑上。
+Craft Arena 给一个通用 coding AI 一个 Minecraft 角色。每个参赛者拿到的公开能力和资料都相同，模型调用速率有限；它自己决定怎样观察、判断和写程序，比赛成绩用来比较这些做法的效果。首类场景是 Race of Wool 一类 PvP 竞速地图：两队收集指定羊毛并放到本队纪念碑上。玩法规则和胜负判定可以交给服务器上的数据包或插件，比赛主控只管会话；不比赛时，也可以让游戏桥单独运行一个 `open` 会话，让模型在普通服务器里陪玩（见 [docs/GAME-MODES.md](docs/GAME-MODES.md)）。
 
 ## 架构：可信侧与参赛容器
 
@@ -23,7 +23,7 @@ flowchart LR
   upstream["模型服务<br/>（OpenAI 兼容接口）"]
   scripts -- "状态与动作" --> bridge
   progs -- "状态与动作" --> bridge
-  pi -- "observe、比赛时钟" --> bridge
+  pi -- "observe、会话时钟" --> bridge
   pi -- "模型请求" --> gateway
   gateway --> upstream
   scripts -- "InboxClient" --> pi
@@ -33,7 +33,7 @@ flowchart LR
 - 只有游戏桥连接 Minecraft。它只接受经过校验的语义动作（移动、挖、放、攻击、交互等），不转发自定义数据包。比赛开始前和结束后，所有动作都被拒绝。
 - 只有预算网关持有模型凭证。它只开放 `/chat/completions` 和 `/budget` 两个入口。
 - Pathfinder、PvP 等 Mineflayer 插件在参赛者自己的程序里运行，基于本地镜像（`connectBot()` 在程序里保存的 bot 状态副本）计算，算出的动作再发给游戏桥。
-- Pi 扩展从游戏桥的 `/v1/match` 读取比赛主控的比赛状态和时钟。
+- Pi 扩展从游戏桥的 `/v1/session` 读取会话状态和时钟：比赛由比赛主控提供，陪玩等 `open` 会话由独立运行的游戏桥自己提供。
 - Minecraft 服务器只在内部网络，不对宿主机开放端口。
 
 ### 谁能改什么
@@ -61,7 +61,7 @@ flowchart LR
 | -------- | --------------------------------------------------------------------- | -------------------------------------------------------------------- |
 | 工具结果 | 模型自己调用的工具（`bash`、`task_wait`、`observe` 等）               | 工具返回本身就是一个请求边界                                         |
 | 收件箱   | 参赛者的程序（包括默认观察器和聊天转发）；Pi 扩展的任务与程序状态报告 | 普通消息随下一个请求边界附带；紧急消息提前结束等待，或唤醒空闲的会话 |
-| 平台消息 | 比赛主控（比赛时钟）、预算网关（预算反馈）                            | 回合结束时排入，随下一个请求送达，自己不发起请求                     |
+| 平台消息 | 比赛主控（会话时钟）、预算网关（预算反馈）                            | 回合结束时排入，随下一个请求送达，自己不发起请求                     |
 
 另有只在查询时才读的信息：`observe` 的完整状态、区块记忆、程序日志。详细规则见 [docs/CONTEXT-DELIVERY.md](docs/CONTEXT-DELIVERY.md)。
 
@@ -93,7 +93,7 @@ flowchart LR
 | 术语     | 含义                                                                                                                                                                                     |
 | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 可信侧   | 比赛主控、游戏桥、预算网关和 Minecraft 服务器；参赛者不能访问或修改                                                                                                                      |
-| 比赛主控 | `packages/arena`：比赛生命周期、裁判、结果（compose 服务 `arena-host`）                                                                                                                  |
+| 比赛主控 | `packages/arena`：会话生命周期、判定器、结果（compose 服务 `arena-host`）                                                                                                                |
 | 游戏桥   | `packages/mf-bridge`：每个参赛者一个真实 Mineflayer bot，只执行校验过的语义动作                                                                                                          |
 | 预算网关 | `packages/budget-gateway`：OpenAI 兼容的模型调用入口，计量每次调用，超出速率时排队                                                                                                       |
 | 参赛者   | 一个参赛单位：一个容器、一个角色、一个模型会话、一个网关 key                                                                                                                             |
@@ -105,7 +105,7 @@ flowchart LR
 | 请求边界 | 向模型发出请求的时刻；新信息只能在这时进入模型                                                                                                                                           |
 | 收件箱   | Pi 扩展里的消息队列；程序用 `InboxClient` 发消息，随下一个请求边界送达并保留在历史中                                                                                                     |
 | 紧急消息 | 优先级为 urgent 的收件箱消息：提前结束正在进行的等待（程序继续运行），或唤醒空闲会话                                                                                                     |
-| 平台消息 | 回合结束时若有变化，发一条 `Arena platform message`，只含变化了的比赛时钟和预算反馈；不属于收件箱                                                                                        |
+| 平台消息 | 回合结束时若有变化，发一条 `Arena platform message`，只含变化了的会话时钟和预算反馈；不属于收件箱                                                                                        |
 | 区块记忆 | 游戏桥记录的角色收到过的区块，卸载后仍可查询；查到的是最后一次收到时的样子                                                                                                               |
 
 ## 文档索引
@@ -126,6 +126,8 @@ flowchart LR
 
 - [infra/README.md](infra/README.md)：Docker Compose 部署、比赛回放
 - [infra/windows-local/README.md](infra/windows-local/README.md)：Windows 本机两队部署
+- [infra/companion/README.md](infra/companion/README.md)：陪玩部署：独立游戏桥 + 一个参赛容器，接入普通服务器
+- [infra/datapacks/arena-example/README.md](infra/datapacks/arena-example/README.md)：示例数据包，演示服务器协议 v1
 - [packages/arena/README.md](packages/arena/README.md)：比赛配置与实服运行器
 - [packages/budget-gateway/README.md](packages/budget-gateway/README.md)：价格、限速与预算配置
 - [tools/replay-myopia/README.md](tools/replay-myopia/README.md)：赛后回放的近距视野滤镜（客户端工具）
@@ -135,7 +137,7 @@ flowchart LR
 - [AGENTS.md](AGENTS.md)：开发指南
 - [docs/ROADMAP.md](docs/ROADMAP.md)：待办
 - [docs/CONTEXT-DELIVERY.md](docs/CONTEXT-DELIVERY.md)：信息何时、从哪里送到模型
-- [docs/GAME-MODES.md](docs/GAME-MODES.md)：玩法、会话类型与服务器协议（设计稿）
+- [docs/GAME-MODES.md](docs/GAME-MODES.md)：玩法、会话类型与服务器协议
 - [docs/VALIDATION.md](docs/VALIDATION.md)：验证状态与复现
 - [packages/pi-extension/README.md](packages/pi-extension/README.md)：启动器、工具、持续会话
 - [packages/tasks/README.md](packages/tasks/README.md)：任务管理

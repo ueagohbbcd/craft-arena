@@ -6,7 +6,7 @@
       "tokens": null,
       "tpm": null,
       "concurrency": 2,
-      "matchStatusUrl": "http://arena-host:8080/v1/match",
+      "matchStatusUrl": "http://arena-host:8080/v1/session",
       "matchTokenEnv": "RED1_BRIDGE_TOKEN",
       "cashRateLimit": "OPERATOR_SET_DECIMAL_AMOUNT_PER_WINDOW"
     },
@@ -16,7 +16,7 @@
       "tokens": null,
       "tpm": null,
       "concurrency": 2,
-      "matchStatusUrl": "http://arena-host:8082/v1/match",
+      "matchStatusUrl": "http://arena-host:8082/v1/session",
       "matchTokenEnv": "BLUE1_BRIDGE_TOKEN",
       "cashRateLimit": "OPERATOR_SET_DECIMAL_AMOUNT_PER_WINDOW"
     }

@@ -227,7 +227,7 @@ test("an incomplete round cannot partially clear or change progress", async () =
 test("deadline rejects an entire late round before it can affect timeout scoring", async () => {
   let now = 0;
   const host = create(() => now);
-  host.config.rules.onTimeout = "most-objectives";
+  host.config.session.onTimeout = "most-objectives";
   await host.prepare();
   await host.start();
   now = 999;

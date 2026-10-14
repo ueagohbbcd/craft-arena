@@ -242,7 +242,7 @@ export default function arenaExtension(pi) {
         {
           customType: "arena-continue",
           content:
-            "The trusted host still reports a running match, and no background task or queued turn is pending. Check progress and continue the remaining objective." +
+            "The trusted host still reports a running session, and no background task or queued turn is pending. Check progress and continue with what the session briefing asks of you." +
             (batch.messages.length ? `\n${batchText(batch)}` : ""),
           display: true,
         },
@@ -384,7 +384,7 @@ export default function arenaExtension(pi) {
       message: {
         customType: "arena-inbox-setup",
         display: false,
-        content: `Inbox: programs started through bash can report to you with InboxClient (packages/inbox), which reads MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN from the environment. Normal messages arrive with your next tool result. An urgent message ends the current bash/task_wait wait early; the program keeps running. bash and task_wait wait ${waitSeconds} seconds by default (wait_seconds changes it for one call), then return "running" with a taskId while the program continues: call task_wait with that taskId instead of starting it again, and task_cancel to stop it. The bash timeout parameter is a separate kill deadline. ${process.env.ARENA_CONTINUOUS_SESSION === "1" ? "This session stays alive after you finish a response. While a program you started is still running you get no idle reminder; its completion or an urgent message starts your next turn. Programs can ask for a later decision with requestJudgment. The session closes when the match ends." : ""} Session: ${r.sessionId}.${initial ? "\n" + JSON.stringify(initial.message) : ""}${batch ? "\n" + batchText(batch) : ""}`,
+        content: `Inbox: programs started through bash can report to you with InboxClient (packages/inbox), which reads MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN from the environment. Normal messages arrive with your next tool result. An urgent message ends the current bash/task_wait wait early; the program keeps running. bash and task_wait wait ${waitSeconds} seconds by default (wait_seconds changes it for one call), then return "running" with a taskId while the program continues: call task_wait with that taskId instead of starting it again, and task_cancel to stop it. The bash timeout parameter is a separate kill deadline. ${process.env.ARENA_CONTINUOUS_SESSION === "1" ? "This session stays alive after you finish a response. While a program you started is still running you get no idle reminder; its completion or an urgent message starts your next turn. Programs can ask for a later decision with requestJudgment. It closes when the trusted host ends the session." : ""} Session: ${r.sessionId}.${initial ? "\n" + JSON.stringify(initial.message) : ""}${batch ? "\n" + batchText(batch) : ""}`,
       },
     };
   });

@@ -1,8 +1,22 @@
-import { setTimeout as delay } from "node:timers/promises";
-import { MatchHost } from "./index.mjs";
+import { readFile, stat } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { MatchHost, normalizeConfig } from "./index.mjs";
+import { createJudge, spawned } from "./judges.mjs";
 import { RconClient } from "./rcon.mjs";
 import { createReplayRecorder, validateReplay } from "./replay.mjs";
-function validateLive(c) {
+// Mode instructions are prompt text, not a map: keep them small.
+export const MAX_PROMPT_BYTES = 32 * 1024;
+const validCommands = (list) =>
+  Array.isArray(list) &&
+  list.every(
+    (x) =>
+      typeof x?.command === "string" &&
+      !!x.command &&
+      typeof x.expect === "string" &&
+      !!x.expect,
+  );
+function validateLive(config) {
+  const c = normalizeConfig(config);
   if (
     !c.live?.minecraft?.host ||
     !c.live.minecraft.version ||
@@ -12,21 +26,20 @@ function validateLive(c) {
     throw new Error(
       "Live Minecraft version/host and RCON host/passwordEnv required",
     );
-  for (const phase of ["prepare", "start", "end"])
+  const monuments = c.judge.type === "monument-blocks";
+  // The referee-bot mode needs its own reset and release commands; with a
+  // server judge they are optional extras run before the #arena:* tags.
+  for (const phase of ["prepare", "start", "end"]) {
+    const list = c.live.commands?.[phase];
     if (
-      !Array.isArray(c.live.commands?.[phase]) ||
-      !c.live.commands[phase].length ||
-      c.live.commands[phase].some(
-        (x) =>
-          typeof x.command !== "string" ||
-          !x.command ||
-          typeof x.expect !== "string" ||
-          !x.expect,
-      )
+      monuments
+        ? !validCommands(list) || !list.length
+        : list !== undefined && !validCommands(list)
     )
       throw new Error(
         `Explicit ${phase} command/expected-response pairs required`,
       );
+  }
   for (const p of c.participants)
     if (
       !p.username ||
@@ -34,30 +47,35 @@ function validateLive(c) {
       !Number.isSafeInteger(p.bridge.port)
     )
       throw new Error(`Live username/bridge config required for ${p.id}`);
-  if (!c.live.observer?.username)
-    throw new Error("Trusted observer username required");
-  for (const team of c.teams)
-    for (const objective of c.rules.objectives) {
-      const g = c.live.goals?.find(
-        (x) => x.team === team.id && x.objective === objective,
-      );
-      if (
-        !g ||
-        typeof g.block !== "string" ||
-        !g.position ||
-        !["x", "y", "z"].every((k) => Number.isSafeInteger(g.position[k]))
-      )
-        throw new Error(
-          `Operator goal block/position required for ${team.id}/${objective}`,
+  if (monuments) {
+    const { goals, objectives } = c.judge;
+    if (!c.judge.observer?.username)
+      throw new Error("Trusted observer username required");
+    for (const team of c.teams)
+      for (const objective of objectives) {
+        const g = goals?.find(
+          (x) => x.team === team.id && x.objective === objective,
         );
-    }
-  if (
-    new Set(c.live.goals.map((g) => JSON.stringify(g.position))).size !==
-    c.live.goals.length
-  )
-    throw new Error("Goal positions must be distinct");
-  if (c.live.goals.length !== c.teams.length * c.rules.objectives.length)
-    throw new Error("Exactly one configured goal per team/objective required");
+        if (
+          !g ||
+          typeof g.block !== "string" ||
+          !g.position ||
+          !["x", "y", "z"].every((k) => Number.isSafeInteger(g.position[k]))
+        )
+          throw new Error(
+            `Operator goal block/position required for ${team.id}/${objective}`,
+          );
+      }
+    if (
+      new Set(goals.map((g) => JSON.stringify(g.position))).size !==
+      goals.length
+    )
+      throw new Error("Goal positions must be distinct");
+    if (goals.length !== c.teams.length * objectives.length)
+      throw new Error(
+        "Exactly one configured goal per team/objective required",
+      );
+  }
   validateReplay(c);
   for (const [team, views] of Object.entries(c.live.openingViews ?? {})) {
     if (!c.teams.some((t) => t.id === team))
@@ -91,31 +109,23 @@ function validateLive(c) {
   }
 }
 export { validateLive };
-async function spawned(bot, timeoutMs) {
-  if (bot.entity) return;
-  await new Promise((resolve, reject) => {
-    const done = (e) => {
-      clearTimeout(timer);
-      bot.off("spawn", onSpawn);
-      bot.off("error", onError);
-      bot.off("end", onEnd);
-      e ? reject(e) : resolve();
-    };
-    const onSpawn = () => done(),
-      onError = (e) => done(e),
-      onEnd = () => done(new Error("Minecraft disconnected before ready"));
-    const timer = setTimeout(
-      () => done(new Error("Minecraft spawn timeout")),
-      timeoutMs,
-    );
-    bot.once("spawn", onSpawn);
-    bot.once("error", onError);
-    bot.once("end", onEnd);
-  });
+/**
+ * Reads `briefing.promptFile` relative to the config file's directory.
+ * Returns null when no prompt file is configured.
+ */
+export async function loadBriefingPrompt(config, configPath) {
+  const file = normalizeConfig(config)?.briefing?.promptFile;
+  if (!file) return null;
+  const path = resolve(dirname(resolve(configPath)), file);
+  if ((await stat(path)).size > MAX_PROMPT_BYTES)
+    throw new Error(`briefing.promptFile exceeds ${MAX_PROMPT_BYTES} bytes`);
+  return readFile(path, "utf8");
 }
-/** Uses real RCON lifecycle commands, real Mineflayer world observation and one gated bridge per player. */
+const validName = (name) =>
+  /^[A-Za-z0-9_]{1,16}$/.test(name ?? "") ? name : null;
+/** Uses real RCON lifecycle commands, a judge and one gated bridge per player. */
 export async function createLiveMatch(
-  config,
+  rawConfig,
   {
     env = process.env,
     createBot,
@@ -125,9 +135,11 @@ export async function createLiveMatch(
     runId,
     resultDir = process.cwd(),
     replayFactory = createReplayRecorder,
+    briefingPrompt = null,
   } = {},
 ) {
-  validateLive(config);
+  validateLive(rawConfig);
+  const config = normalizeConfig(rawConfig);
   if (!createBot)
     ({ createCompatibleBot: createBot } =
       await import("../../mf-bridge/minecraft-compat.mjs"));
@@ -140,29 +152,20 @@ export async function createLiveMatch(
   });
   const bridges = new Map(),
     endedBots = new WeakSet();
-  let observer,
-    host,
+  let host,
     timer,
     polling = false,
     eventCounter = 0,
     replay;
   const timeout = config.live.readyTimeoutMs ?? 30000;
-  const execute = async (phase) => {
-    for (const { command, expect } of phase === "observer"
-      ? (config.live.observer.commands ?? [])
-      : config.live.commands[phase]) {
+  const runCommands = async (phase, list = []) => {
+    for (const { command, expect } of list) {
       const response = await rcon.command(command);
       if (!new RegExp(expect).test(response))
         throw new Error(`RCON ${phase} command acknowledgement mismatch`);
     }
   };
-  const read = (g) =>
-    observer.blockAt(new Vec3(g.position.x, g.position.y, g.position.z));
-  const matches = (g, b) =>
-    b?.name === g.block &&
-    Object.entries(g.properties ?? {}).every(
-      ([k, v]) => b.getProperties?.()[k] === v,
-    );
+  const execute = (phase) => runCommands(phase, config.live.commands?.[phase]);
   const quitBot = async (bot) => {
     if (!bot?.quit || endedBots.has(bot)) return;
     if (!bot.once) {
@@ -189,6 +192,16 @@ export async function createLiveMatch(
       }
     });
   };
+  const judge = createJudge(config, {
+    rcon,
+    createBot,
+    Vec3,
+    host: () => host,
+    timeoutMs: timeout,
+    runCommands,
+    quitBot,
+    endedBots,
+  });
   const cleanup = async (preserveStatus = false) => {
     clearInterval(timer);
     const failures = [];
@@ -210,13 +223,80 @@ export async function createLiveMatch(
     }
     if (!preserveStatus) bridges.clear();
     try {
-      await quitBot(observer);
+      await judge.close();
     } catch (e) {
       failures.push(e.message);
     }
     rcon.close();
     if (failures.length)
       throw new Error(`Stop failures: ${failures.join("; ")}`);
+  };
+  const publicData = () => {
+    const merged = { ...config.briefing.public, ...judge.public() };
+    return Object.keys(merged).length ? merged : null;
+  };
+  // The session object each bridge serves at /v1/session (and /v1/match).
+  const sessionView = (p) => {
+    const published = publicData();
+    const objectives =
+      config.judge.type === "monument-blocks"
+        ? (config.judge.publicObjectives ?? config.judge.objectives)
+        : Array.isArray(published?.objectives)
+          ? published.objectives
+          : undefined;
+    return {
+      kind: config.session.kind,
+      sessionId: config.id,
+      matchId: config.id,
+      runId: host.runId,
+      participantId: p.id,
+      teamId: p.team ?? null,
+      username: validName(p.username),
+      teams: config.teams.map((t) => ({ id: t.id })),
+      participants: config.participants.map((participant) => ({
+        id: participant.id,
+        username: validName(participant.username),
+        teamId: participant.team ?? null,
+      })),
+      // The observer keys wool reports off `game`; monument-blocks is the
+      // race-of-wool judge even in configs written without the legacy key.
+      game:
+        config.game ??
+        (config.judge.type === "monument-blocks" ? "race-of-wool" : undefined),
+      map: config.map
+        ? { id: config.map.id, version: config.map.version }
+        : null,
+      rules: config.rules,
+      objectives,
+      openingViews: p.team ? config.live.openingViews?.[p.team] : undefined,
+      publicGoalPositions:
+        config.judge.type === "monument-blocks" &&
+        config.judge.publishGoalPositions === true
+          ? config.judge.goals
+              .filter((g) => g.team === p.team)
+              .map((g) => ({
+                objective: g.objective,
+                position: g.position,
+                block: g.block,
+                properties: g.properties ?? {},
+              }))
+          : undefined,
+      briefing: {
+        text: config.briefing.text,
+        prompt: briefingPrompt,
+        public: published,
+      },
+      state: host.state,
+      startedAt: host.startedAt ?? null,
+      durationMs: config.session.durationMs ?? null,
+      now: now(),
+      elapsedMs:
+        host.startedAt === undefined
+          ? null
+          : Math.max(0, (host.endedAt ?? now()) - host.startedAt),
+      winner: host.outcome,
+      scores: host.scores ?? null,
+    };
   };
   const connector = {
     mode: "live-rcon-mineflayer",
@@ -225,40 +305,7 @@ export async function createLiveMatch(
         await rcon.connect();
         await replay.prepare();
         await execute("prepare");
-        observer = createBot({
-          ...config.live.minecraft,
-          ...config.live.observer,
-        });
-        await spawned(observer, timeout);
-        observer.on?.("end", () => {
-          endedBots.add(observer);
-          if (host.state === "running") void host.end("map-fault");
-        });
-        observer.on?.("error", () => {
-          if (host.state === "running") void host.end("map-fault");
-        });
-        await execute("observer");
-        if (
-          observer.registry?.blocksByName &&
-          config.live.goals.some(
-            (g) => !observer.registry.blocksByName[g.block],
-          )
-        )
-          throw new Error(
-            "Configured goal block unknown for selected Minecraft version",
-          );
-        const deadline = Date.now() + timeout;
-        while (config.live.goals.some((g) => !read(g))) {
-          if (Date.now() >= deadline)
-            throw new Error(
-              "Goal chunks unavailable: position trusted observer so all configured monuments are loaded",
-            );
-          await delay(100);
-        }
-        if (config.live.goals.some((g) => matches(g, read(g))))
-          throw new Error(
-            "Reset verification failed: a goal is already complete",
-          );
+        await judge.beforeBridges();
         for (const p of config.participants) {
           const token = env[p.bridge.tokenEnv];
           if (!token) throw new Error(`Missing bridge token for ${p.id}`);
@@ -268,57 +315,15 @@ export async function createLiveMatch(
               ...p.bridge,
               token,
               blockMemory: {
-                worldId: `${config.map.id}@${config.map.version}`,
+                worldId: config.map
+                  ? `${config.map.id}@${config.map.version}`
+                  : `session:${config.id}`,
                 runId: host.runId,
                 participantId: p.id,
               },
               host: p.bridge.host ?? "0.0.0.0",
               authorizeAction: () => host.state === "running",
-              getMatchState: () => ({
-                matchId: config.id,
-                runId: host.runId,
-                participantId: p.id,
-                teamId: p.team,
-                teams: config.teams.map((t) => ({ id: t.id })),
-                participants: config.participants.map((participant) => ({
-                  id: participant.id,
-                  username: /^[A-Za-z0-9_]{1,16}$/.test(
-                    participant.username ?? "",
-                  )
-                    ? participant.username
-                    : null,
-                  teamId: participant.team,
-                })),
-                game: config.game,
-                map: { id: config.map.id, version: config.map.version },
-                rules: config.rules,
-                objectives:
-                  config.live.publicObjectives ?? config.rules.objectives,
-                openingViews: config.live.openingViews?.[p.team],
-                publicGoalPositions:
-                  config.live.publishGoalPositions === true
-                    ? config.live.goals
-                        .filter((g) => g.team === p.team)
-                        .map((g) => ({
-                          objective: g.objective,
-                          position: g.position,
-                          block: g.block,
-                          properties: g.properties ?? {},
-                        }))
-                    : undefined,
-                briefing:
-                  config.live.briefing ??
-                  "Complete your team monument objectives by placing the map-required blocks at the map-designated team monuments. All objectives are required. Simultaneous completion within one observer poll is a draw. Participant disconnection abandons the match; deaths do not end it. Use only the scoped game bridge and model gateway.",
-                state: host.state,
-                startedAt: host.startedAt ?? null,
-                durationMs: config.durationMs,
-                now: now(),
-                elapsedMs:
-                  host.startedAt === undefined
-                    ? null
-                    : Math.max(0, (host.endedAt ?? now()) - host.startedAt),
-                winner: host.winner ?? null,
-              }),
+              getMatchState: () => sessionView(p),
             },
           });
           bridges.set(p.id, b);
@@ -350,10 +355,12 @@ export async function createLiveMatch(
                   },
                   host.eventToken,
                 )
-                .then(() => host.end("abandoned"))
+                // Only the operator ends an open session.
+                .then(() => host.kind === "match" && host.end("abandoned"))
                 .catch(() => {});
           });
         }
+        await judge.afterBridges();
       } catch (e) {
         try {
           await cleanup();
@@ -363,15 +370,19 @@ export async function createLiveMatch(
     },
     start: async () => {
       if (
-        endedBots.has(observer) ||
+        judge.lost() ||
         [...bridges.values()].some((b) => endedBots.has(b.bot))
       )
         throw new Error("Game connection ended before match start");
       await replay.start();
       await execute("start");
+      await judge.start();
     },
-    stop: async () => {
+    stop: async (_runId, reason) => {
       let error;
+      const fail = (e) => {
+        error = error ? new Error(`${error.message}; ${e.message}`) : e;
+      };
       for (const b of bridges.values()) {
         for (const fn of [
           () => b.bot.clearControlStates?.(),
@@ -390,12 +401,17 @@ export async function createLiveMatch(
         await execute("end");
       } catch (e) {
         error = e;
+      }
+      try {
+        await judge.stop(reason);
+      } catch (e) {
+        fail(e);
       } finally {
         await replay.requestStop();
         try {
           await cleanup(true);
         } catch (e) {
-          error = error ? new Error(`${error.message}; ${e.message}`) : e;
+          fail(e);
         }
       }
       await replay.finish();
@@ -403,7 +419,7 @@ export async function createLiveMatch(
     },
   };
   host = new MatchHost({
-    config,
+    config: rawConfig,
     connector,
     now,
     runId,
@@ -415,18 +431,7 @@ export async function createLiveMatch(
     if (polling || host.state !== "running") return;
     polling = true;
     try {
-      const observations = Object.fromEntries(
-        config.teams.map((t) => [t.id, Object.create(null)]),
-      );
-      for (const goal of config.live.goals) {
-        const block = read(goal);
-        if (!block)
-          throw new Error(
-            "Goal observation became unavailable during running match",
-          );
-        observations[goal.team][goal.objective] = matches(goal, block);
-      }
-      await host.observe(observations);
+      await judge.poll();
     } catch (e) {
       host.observerError = e.message;
       await host.end("map-fault");
@@ -437,13 +442,14 @@ export async function createLiveMatch(
   return {
     host,
     bridges,
-    observer: () => observer,
+    judge,
+    observer: () => judge.observer?.(),
     async prepare() {
       await host.prepare();
     },
     async start() {
       await host.start();
-      timer = setInterval(() => void poll(), config.live.pollMs ?? 100);
+      timer = setInterval(() => void poll(), config.judge.pollMs);
       await poll();
     },
     poll,

@@ -10,7 +10,7 @@ Readers: developers and operators. Participant programs talk to the bridge throu
 | `live.mjs`             | `startLiveBridge({minecraft, bridge})`: creates a new Mineflayer bot and a bridge for it; trusted config only    |
 | `block-memory.mjs`     | default block memory adapter over `mineflayer-world-memory`                                                      |
 | `minecraft-compat.mjs` | `createCompatibleBot`: patches the 1.21/1.21.1 (protocol 767) recipe-type table before creating a bot            |
-| `cli.mjs`              | standalone bridge for manual testing                                                                             |
+| `cli.mjs`              | standalone bridge: manual testing, or an open session without an arena host                                      |
 
 In a match the arena host starts one bridge per participant inside its own process (see [arena README](../arena/README.md)); there are no separate bridge containers.
 
@@ -24,7 +24,8 @@ Every request needs `Authorization: Bearer <token>`. A wrong or missing token ge
 | `GET /v1/events`                            | SSE stream of snapshots and bot events               | starts with a `reset` frame holding a full snapshot                                                           |
 | `GET /v1/chat`                              | SSE stream of chat-box text only                     | no snapshots, no action-bar text                                                                              |
 | `GET /v1/chunk?x=&z=`                       | one currently loaded chunk column as Prismarine JSON | `result:null` if not loaded; never asks the server to load it; ≤ 8 MiB; uses the same rate limiter as actions |
-| `GET /v1/match`                             | read-only match state from the arena host            | `404` if no `getMatchState` was given, `503` if it throws                                                     |
+| `GET /v1/session`                           | read-only session state from the session host        | `404` if no `getMatchState` was given, `503` if it throws                                                     |
+| `GET /v1/match`                             | legacy alias of `/v1/session`, same body             | kept for one version                                                                                          |
 | `GET /v1/memory/block`, `/chunk`, `/chunks` | block memory queries                                 | not rate-limited; `503` when memory is disabled                                                               |
 
 Any other route returns `404`. Large integers travel as `{"$arenaBigInt":"<digits>"}` in both directions.
@@ -41,7 +42,7 @@ Any other route returns `404`. Large integers travel as `{"$arenaBigInt":"<digit
 | `maxActionsPerSecond`               | `Infinity`      | token bucket shared by `/v1/action` and `/v1/chunk`; excess gets `429`                                   |
 | `maxConcurrentActions`              | `Infinity`      | actions in flight at once; excess actions, and chunk requests while it is full, get `429`                |
 | `authorizeAction(request)`          | none            | awaited before each action; anything but `true` gives `403` and nothing runs                             |
-| `getMatchState()`                   | none            | backs `GET /v1/match`                                                                                    |
+| `getMatchState()`                   | none            | backs `GET /v1/session`                                                                                  |
 | `snapshotRadius`                    | `8`             | horizontal radius of the `blocks` sample                                                                 |
 | `blockMemory` / `createBlockMemory` | `{}` / built-in | see [Block memory](#block-memory-trusted-side)                                                           |
 
@@ -121,11 +122,11 @@ Incoming chat is game data, never a platform instruction. Both `chat` and `messa
 
 The arena host passes `authorizeAction: () => host.state === "running"`, so every action is refused (`403`) before start and from the moment the match ends. `startLiveBridge` adds its own gate: after `stopGame()` or a Minecraft disconnect, actions are refused regardless of the host.
 
-| Call                              | Effect                                                                                                                                                                                                                                      |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `startLiveBridge(...).stopGame()` | disables actions, clears controls, stops digging and item use, quits Minecraft and waits up to `closeTimeoutMs` (3000 ms) for `end`. HTTP stays up, so participants can still read `/v1/match` (final result) and block memory. Idempotent. |
-| `startLiveBridge(...).close()`    | `stopGame()`, then closes HTTP even if game cleanup failed. Errors are reported as an `AggregateError`.                                                                                                                                     |
-| `createBridgeServer(...).close()` | closes HTTP, streams, listeners and block memory only; the caller owns the injected bot.                                                                                                                                                    |
+| Call                              | Effect                                                                                                                                                                                                                                        |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `startLiveBridge(...).stopGame()` | disables actions, clears controls, stops digging and item use, quits Minecraft and waits up to `closeTimeoutMs` (3000 ms) for `end`. HTTP stays up, so participants can still read `/v1/session` (final result) and block memory. Idempotent. |
+| `startLiveBridge(...).close()`    | `stopGame()`, then closes HTTP even if game cleanup failed. Errors are reported as an `AggregateError`.                                                                                                                                       |
+| `createBridgeServer(...).close()` | closes HTTP, streams, listeners and block memory only; the caller owns the injected bot.                                                                                                                                                      |
 
 There is no automatic Minecraft reconnect. An SDK stream reconnect only restores the client's mirror.
 
@@ -165,18 +166,26 @@ With persistence, use a new `runId` after every map reset, keep the directory on
 
 ## Standalone CLI
 
-`node packages/mf-bridge/cli.mjs` creates a new offline-auth bot and a bridge for it. Never point it at a personal account session.
+`node packages/mf-bridge/cli.mjs` creates a new bot and a bridge for it, without an arena host. Use it for an open session, such as a companion bot on an ordinary server. Never point it at a personal account session. `cliOptions(env)` in the same file builds the `startLiveBridge` options from the environment without connecting.
 
-| Variable              | Default                  |
-| --------------------- | ------------------------ |
-| `MF_HOST`             | required                 |
-| `MF_PORT`             | `25565`                  |
-| `MF_USERNAME`         | required                 |
-| `MF_VERSION`          | required                 |
-| `BRIDGE_HOST`         | `127.0.0.1`              |
-| `BRIDGE_PORT`         | `8080`                   |
-| `BRIDGE_TOKEN`        | required                 |
-| `BRIDGE_ALLOW_CHAT`   | chat on unless `false`   |
-| `BRIDGE_BLOCK_MEMORY` | memory on unless `false` |
+| Variable              | Default                                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `MF_HOST`             | required                                                                                              |
+| `MF_PORT`             | `25565`                                                                                               |
+| `MF_USERNAME`         | required                                                                                              |
+| `MF_VERSION`          | required                                                                                              |
+| `BRIDGE_HOST`         | `127.0.0.1`                                                                                           |
+| `BRIDGE_PORT`         | `8080`                                                                                                |
+| `BRIDGE_TOKEN`        | required                                                                                              |
+| `BRIDGE_ALLOW_CHAT`   | chat on unless `false`                                                                                |
+| `BRIDGE_BLOCK_MEMORY` | memory on unless `false`                                                                              |
+| `MF_AUTH`             | `offline`; `microsoft` logs in with a Microsoft account for online-mode servers                       |
+| `MF_PROFILES_DIR`     | Microsoft token cache directory (passed to Mineflayer as `profilesFolder`)                            |
+| `BRIDGE_SESSION`      | unset: no session route (`/v1/session` returns `404`); `open`: serve an open session                  |
+| `BRIDGE_SESSION_ID`   | `open-<start time>`                                                                                   |
+| `BRIDGE_BRIEFING`     | none; the open session's `briefing.text`                                                              |
+| `BRIDGE_PROMPT_FILE`  | none; file read once at start (at most 32 KiB) and served as `briefing.prompt`, the mode instructions |
+
+With `BRIDGE_SESSION=open`, `/v1/session` returns `kind: "open"`, `state: "running"`, `startedAt` = bridge start, `durationMs: null`, `username` = the bot's in-game name once it has spawned (with `MF_AUTH=microsoft`, `MF_USERNAME` is only the account used to log in), `participants: [{id, username, teamId: null}]`, `teams: []`, and `briefing: {text, prompt, public: null}`. Behaviour limits (where the bot may go, what it may break) belong to the server: give the bot's account the same permissions you would give a player. With `MF_AUTH=microsoft`, keep `MF_PROFILES_DIR` on the trusted host, out of participant containers. If the bot disconnects, the CLI exits with code 1 instead of reporting a running session with no bot; restart it to rejoin.
 
 `SIGINT`/`SIGTERM` call `close()`.
