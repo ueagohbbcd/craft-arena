@@ -253,26 +253,10 @@ test("terminal match status remains authenticated and readable after actual game
   assert.equal(bridge.server.listening, false);
 });
 
-test("opening image regions require a known team, course trigger and bounded crops", () => {
+test("retired opening image regions are rejected", () => {
   const c = structuredClone(config);
-  const box = { min: { x: 0, y: 0, z: 0 }, max: { x: 9, y: 9, z: 9 } };
-  c.live.openingViews = { r: { course: { bounds: box, entryBounds: box } } };
-  assert.doesNotThrow(() => validateLive(c));
-  delete c.live.openingViews.r.course.entryBounds;
-  assert.throws(() => validateLive(c), /entryBounds/);
-  c.live.openingViews = {
-    unknown: { course: { bounds: box, entryBounds: box } },
-  };
-  assert.throws(() => validateLive(c), /Unknown/);
-  c.live.openingViews = {
-    r: {
-      course: {
-        bounds: { min: box.min, max: { x: 1000, y: 1000, z: 1000 } },
-        entryBounds: box,
-      },
-    },
-  };
-  assert.throws(() => validateLive(c), /1,000,000/);
+  c.live.openingViews = {};
+  assert.throws(() => validateLive(c), /openingViews is no longer supported/);
 });
 
 test("recording is confirmed before running and saved after game cleanup", async () => {

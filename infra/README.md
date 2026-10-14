@@ -145,7 +145,7 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
 
 ### 资源上限
 
-`.env` 中的 `ARENA_CPU_LIMIT`（默认 2.0）、`ARENA_MEMORY_LIMIT`（2g）、`ARENA_PIDS_LIMIT`（256）作用于除 Minecraft 外的所有服务；Minecraft 用 `MC_MEMORY_LIMIT`（3g）。参赛镜像带 Chromium，用于开局图像和截图脚本，渲染会占用参赛容器的 CPU 和内存；对所有参赛者设同样的上限。
+`.env` 中的 `ARENA_CPU_LIMIT`（默认 2.0）、`ARENA_MEMORY_LIMIT`（2g）、`ARENA_PIDS_LIMIT`（256）作用于除 Minecraft 外的所有服务；Minecraft 用 `MC_MEMORY_LIMIT`（3g）。参赛镜像带 Chromium，用于截图脚本，渲染会占用参赛容器的 CPU 和内存；对所有参赛者设同样的上限。
 
 ### 离线 Mineflayer 参考仓库
 

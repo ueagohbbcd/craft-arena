@@ -17,7 +17,6 @@ import {
   createRequestRecovery,
   observeRpcOutput,
 } from "./request-recovery.mjs";
-import { createOpeningViews } from "./opening-views.mjs";
 import { createMatchReader } from "./platform-messages.mjs";
 
 const extensionPath = fileURLToPath(new URL("./index.mjs", import.meta.url));
@@ -267,23 +266,14 @@ export async function launchPi({
   let initialSent = false;
   // Without the wait, the first prompt is already on its way; the poll must not send it.
   let initialQueued = !waitForMatch;
-  let preparedOpening;
-  let openingPrepared = false;
-  let pendingCourseView;
   let startupTimedOut = false;
   let runtimeFailed = false;
   let recovery;
   let detachRpc;
-  const openingViews = createOpeningViews({
-    url: bridgeUrl,
-    token,
-    report: (message) => process.stderr.write(`${message}\n`),
-  });
   const startupAt = Date.now();
   const shutdown = (signal) => {
     if (stopping || child.exitCode !== null) return;
     stopping = true;
-    openingViews.close();
     recovery?.close();
     clearInterval(matchTimer);
     if (resident) child.stdin.end();
@@ -336,13 +326,8 @@ export async function launchPi({
     const sendInitial = async (host) => {
       if (initialSent || stopping) return;
       initialSent = true;
-      let message = openingPromptText(initialPrompt, host);
-      const view = openingPrepared
-        ? preparedOpening
-        : await openingViews.capture(host, true);
+      const message = openingPromptText(initialPrompt, host);
       if (host) {
-        preparedOpening = view;
-        openingPrepared = true;
         const fresh = await readMatch();
         if (fresh?.state === "ended") {
           shutdown();
@@ -354,9 +339,8 @@ export async function launchPi({
         }
       }
       if (stopping) return;
-      if (view) message += `\n\n${view.message}`;
       child.stdin.write(
-        `${JSON.stringify({ id: "arena-initial-prompt", type: "prompt", message, images: view?.images })}\n`,
+        `${JSON.stringify({ id: "arena-initial-prompt", type: "prompt", message })}\n`,
       );
     };
     if (!waitForMatch) {
@@ -392,14 +376,7 @@ export async function launchPi({
         try {
           const host = await readMatch();
           if (host) {
-            if (
-              host.state === "prepared" &&
-              host.openingViews &&
-              !openingPrepared
-            ) {
-              preparedOpening = await openingViews.capture(host, true);
-              openingPrepared = true;
-            } else if (host.state === "ended") {
+            if (host.state === "ended") {
               if (!initialSent)
                 process.stderr.write(
                   "Arena ended before the initial prompt was submitted.\n",
@@ -411,24 +388,6 @@ export async function launchPi({
               !initialQueued
             )
               await sendInitial(host);
-            else if (host.state === "running" && initialSent) {
-              pendingCourseView ??= await openingViews.capture(host);
-              if (
-                pendingCourseView &&
-                !stopping &&
-                (await readMatch())?.state === "running"
-              ) {
-                child.stdin.write(
-                  `${JSON.stringify({
-                    id: "arena-course-view",
-                    type: "prompt",
-                    streamingBehavior: "steer",
-                    ...pendingCourseView,
-                  })}\n`,
-                );
-                pendingCourseView = undefined;
-              }
-            }
           }
         } catch {
           /* The host remains authoritative; temporary unavailability does not invent a match end. */
@@ -452,7 +411,6 @@ export async function launchPi({
       );
     });
   } finally {
-    openingViews.close();
     recovery?.close();
     detachRpc?.();
     clearInterval(matchTimer);

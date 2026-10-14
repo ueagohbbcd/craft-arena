@@ -46,7 +46,7 @@
 | 参赛镜像只含参赛侧代码 | 夹具测试 | `tests/deployment.test.mjs`；按清单复制的目录能加载全部参赛侧模块 | 没有在这个环境里构建镜像（没有 Docker 守护进程） |
 | 部署配置一致性检查 | 夹具测试 | `tests/check-deployment.test.mjs` | Windows 初始化时自动运行，PowerShell 部分没有在 Windows 上跑过 |
 | 服务端录像 | 夹具测试 | `tests/server-replay.test.mjs` | 真实服务器录像输出与回放播放都没验收 |
-| 开局图像、截图脚本 | 夹具测试 | `tests/opening-delivery.test.mjs`、`tests/visual-*.test.mjs` | 真实 Chromium 测试需 `MC_TEST_CHROMIUM=1`；上次跑通是 2026-10-11 的 Windows 部署，在删除 Pi 里的图像工具之前 |
+| 截图脚本 | 夹具测试 | `tests/visual-*.test.mjs` | 真实 Chromium 测试需 `MC_TEST_CHROMIUM=1`；上次跑通是 2026-10-11 的 Windows 部署，在删除 Pi 里的图像工具之前 |
 | Unix socket 收件箱 | 夹具测试 | `tests/inbox.test.mjs` | 运行环境拒绝绑定（`EPERM`）时这项跳过，只剩 loopback HTTP |
 | Windows 本机部署 | 部署验证（旧代码） | `tests/deployment.test.mjs`、`tests/windows-*.test.mjs` | 2026-10-11 跑过。删除 OAuth 适配器（`e6933a4`）后 PowerShell 脚本没有重跑；`windows-initialize` 只在 Windows 上运行 |
 | 完整自主对局 | 无 | — | 没有一场从开局到判胜、全程无人干预的记录 |

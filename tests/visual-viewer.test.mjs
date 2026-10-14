@@ -2,10 +2,8 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   renderOblique,
-  renderMinimap,
   VIEW_DIRECTIONS,
 } from "mineflayer-world-memory/live.mjs";
-import { renderOpeningComposite } from "../packages/world-visual/index.mjs";
 const snapshot = {
   bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 2, y: 2, z: 8 } },
   sequence: 17,
@@ -43,57 +41,6 @@ test("four oblique cameras expose distinct transforms and reject invalid directi
       .rgba,
   );
 });
-test("opening layouts preserve panel pixels, common snapshot and world aspect", () => {
-  for (const layout of ["lobby", "course"]) {
-    const render = renderOpeningComposite(snapshot, {
-      layout,
-      width: 240,
-      height: 240,
-      position: { x: 1, y: 1, z: 1 },
-    });
-    assert.equal(render.metadata.panels.length, 3);
-    for (const panel of render.metadata.panels) {
-      assert.equal(panel.sequence, 17);
-      assert.deepEqual(panel.bounds, snapshot.bounds);
-      const direct = (
-        panel.kind.startsWith("top-down") ? renderMinimap : renderOblique
-      )(snapshot, {
-        ...panel.rect,
-        viewDirection: panel.viewDirection,
-        horizontalAxis: panel.kind.startsWith("top-down")
-          ? panel.orientation.right.startsWith("+X")
-            ? "x"
-            : "z"
-          : undefined,
-      });
-      for (let row = 0; row < panel.rect.height; row++) {
-        const offset = ((panel.rect.y + row) * 240 + panel.rect.x) * 4;
-        assert.deepEqual(
-          render.rgba.subarray(offset, offset + panel.rect.width * 4),
-          direct.rgba.subarray(
-            row * panel.rect.width * 4,
-            (row + 1) * panel.rect.width * 4,
-          ),
-        );
-      }
-    }
-    if (layout === "course") {
-      const strip = render.metadata.panels[0];
-      assert.equal(strip.orientation.right, "+Z (south)");
-      assert.equal(strip.viewport.width / strip.viewport.height, 3);
-      assert.equal(render.metadata.panels[1].rect.width, 240);
-      assert.equal(render.metadata.panels[2].rect.width, 240);
-      assert.ok(
-        render.metadata.panels[2].rect.y > render.metadata.panels[1].rect.y,
-      );
-    }
-  }
-  assert.throws(
-    () => renderOpeningComposite(snapshot, { width: 1, height: 1 }),
-    /too small/,
-  );
-});
-
 import { createRequire } from "node:module";
 import {
   fittedCamera,

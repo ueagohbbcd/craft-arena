@@ -15,7 +15,7 @@
 | `packages/bot-sdk` | Mineflayer 风格 SDK、Pathfinder／PvP 适配、区块记忆客户端 | 参赛者程序 |
 | `packages/observation` | 观察库：状态采样、事件监听、默认观察器 | 参赛者程序 |
 | `packages/default-scripts` | 开局自动启动的默认脚本：观察器、聊天转发 | 参赛者程序 |
-| `packages/world-visual` | 开局图像与按需截图 | 参赛者程序 |
+| `packages/world-visual` | 按需截图 | 参赛者程序 |
 | `examples/` | 参赛提示、Skill、FAQ、示例程序 | 参赛模型 |
 | `infra/` | 部署模板、运营指南、规则数据包（`infra/datapacks/`） | 运营者 |
 | `docs/` | 设计、验证、路线图；`docs/history/` 是按日期保存的记录 | 开发者 |

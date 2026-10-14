@@ -1,4 +1,4 @@
-/** Prismarine viewer over a local snapshot: opening composites and on-demand screenshots. Never opens a Minecraft connection. */
+/** Prismarine viewer over a local snapshot: on-demand screenshots. Never opens a Minecraft connection. */
 import { createRequire } from "node:module";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -8,9 +8,7 @@ import {
   normalizeSnapshot,
   validateImageDimensions,
   viewDirectionSigns,
-  encodePNG,
 } from "mineflayer-world-memory/live.mjs";
-import { renderOpeningComposite } from "./index.mjs";
 const require = createRequire(import.meta.url);
 /** Fit all selection corners to the viewer's 75-degree perspective without changing scale ratios. */
 export function fittedCamera(
@@ -413,57 +411,5 @@ export async function capturePrismarineSnapshot(
       await browser?.close();
       await server.close();
     }
-  }
-}
-
-/** Lobby/course panels whose oblique views are actual Prismarine models and textures. */
-export async function captureOpeningComposite(snapshot, options = {}) {
-  const start = performance.now();
-  const composite = renderOpeningComposite(snapshot, options);
-  const dir = await mkdtemp(join(tmpdir(), "mc-opening-"));
-  const captureSession = {};
-  try {
-    for (const panel of composite.metadata.panels) {
-      if (panel.kind !== "oblique-voxel-structural-view") continue;
-      const { x, y, width, height } = panel.rect;
-      const captured = await capturePrismarineSnapshot(snapshot, {
-        ...options,
-        captureSession,
-        alignLongAxis: options.layout === "course",
-        width,
-        height,
-        viewDirection: panel.viewDirection,
-        outputPath: join(dir, `panel-${panel.index}.png`),
-      });
-      for (let row = 0; row < height; row++)
-        captured.rgba.copy(
-          composite.rgba,
-          ((y + row) * composite.metadata.width + x) * 4,
-          row * width * 4,
-          (row + 1) * width * 4,
-        );
-      Object.assign(panel, captured.metadata);
-      for (const field of [
-        "pixelsPerBlock",
-        "cameraDirection",
-        "renderedBlocks",
-        "unknownColumns",
-      ])
-        delete panel[field];
-    }
-    composite.png = encodePNG(
-      composite.metadata.width,
-      composite.metadata.height,
-      composite.rgba,
-    );
-    composite.metadata.renderMs =
-      Math.round((performance.now() - start) * 100) / 100;
-    composite.metadata.textures =
-      "Prismarine models/textures for oblique panels; schematic coverage minimap";
-    return composite;
-  } finally {
-    await captureSession.browser?.close();
-    await captureSession.server?.close();
-    await rm(dir, { recursive: true, force: true });
   }
 }
