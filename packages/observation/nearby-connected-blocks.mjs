@@ -37,13 +37,17 @@ const offsets = [
 const airNames = new Set(["air", "cave_air", "void_air"]);
 const key = ({ x, y, z }) => `${x},${y},${z}`;
 
-/** Use observed eye height if present, otherwise disclose the entity-height approximation. */
+/** Mineflayer entity.height is the body top; the eye is slightly below it. */
 export function observedHeadCell(entity) {
   const position = entity?.position;
   if (!position || !axes.every((axis) => Number.isFinite(position[axis])))
     return { position: null, height: null, source: "unavailable" };
   const eyeKnown = Number.isFinite(entity.eyeHeight) && entity.eyeHeight >= 0;
-  const height = eyeKnown ? entity.eyeHeight : entity.height;
+  const height = eyeKnown
+    ? entity.eyeHeight
+    : Number.isFinite(entity.height)
+      ? Math.max(0, entity.height - 0.18)
+      : null;
   if (!Number.isFinite(height) || height < 0)
     return { position: null, height: null, source: "unavailable" };
   return {
@@ -53,7 +57,9 @@ export function observedHeadCell(entity) {
       z: Math.floor(position.z),
     },
     height,
-    source: eyeKnown ? "entity.eyeHeight" : "entity.height approximation",
+    source: eyeKnown
+      ? "entity.eyeHeight"
+      : "entity.height - 0.18 approximation",
   };
 }
 

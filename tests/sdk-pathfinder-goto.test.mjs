@@ -18,7 +18,7 @@ function fixture() {
     entities: {},
     inventory: { items: () => [] },
     clearControlStates() {},
-    stopAndCenter() {},
+    stop() {},
     loadPlugin(plugin) {
       plugin(this);
     },

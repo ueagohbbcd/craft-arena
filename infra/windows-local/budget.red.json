@@ -1,0 +1,54 @@
+{
+  "participants": {
+    "red1": {
+      "team": "red",
+      "tokenEnv": "RED1_MODEL_TOKEN",
+      "tokens": null,
+      "tpm": null,
+      "concurrency": 2,
+      "matchStatusUrl": "http://arena-host:8080/v1/session",
+      "matchTokenEnv": "RED1_BRIDGE_TOKEN",
+      "cashRateLimit": "0.50"
+    }
+  },
+  "teams": {
+    "red": {
+      "tokens": null,
+      "tpm": null,
+      "concurrency": 2,
+      "cashRateLimit": "0.50"
+    }
+  },
+  "upstream": {
+    "url": "https://api.openai.com/v1/chat/completions",
+    "apiKeyEnv": "RED_UPSTREAM_API_KEY"
+  },
+  "limits": {
+    "estimator": "approximate",
+    "imageTokenAllowance": 4096
+  },
+  "requireRunningMatch": true,
+  "examplePurpose": "Local 1v1, red team: USD 0.50/minute reference-cost rate; 250000-token compaction threshold, 32768 output tokens. upstream.url is any OpenAI-compatible chat completions endpoint (an OAuth-to-API service works the same way); its key comes from RED_UPSTREAM_API_KEY.",
+  "referenceCost": {
+    "mode": "official-api-list-price",
+    "currency": "USD",
+    "windowMs": 60000,
+    "models": {
+      "gpt-6.1-sol": {
+        "verifiedAt": "2026-10-10",
+        "cachedInputPerMillion": "0.10",
+        "provider": "openai",
+        "inputPerMillion": "2",
+        "sourceUrl": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+        "outputPerMillion": "10",
+        "longContext": {
+          "thresholdTokens": 272000,
+          "inputPerMillion": "4",
+          "cachedInputPerMillion": "0.20",
+          "outputPerMillion": "15"
+        }
+      }
+    }
+  },
+  "modelConfig": "model.red.json"
+}

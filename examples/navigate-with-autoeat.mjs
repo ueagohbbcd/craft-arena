@@ -259,10 +259,7 @@ async function main() {
     throw new Error(
       "Usage: node examples/navigate-with-autoeat.mjs X Y Z [--no-dig]",
     );
-  const bot = await connectBot({
-    url: process.env.ARENA_BRIDGE_URL ?? process.env.MC_BRIDGE_URL,
-    token: process.env.ARENA_BRIDGE_TOKEN ?? process.env.MC_BRIDGE_TOKEN,
-  });
+  const bot = await connectBot();
   const inbox = new InboxClient(),
     controller = new AbortController();
   const { Movements, goals } = loadSelectedPlugins(bot, { pvp: false });

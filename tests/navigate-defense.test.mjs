@@ -50,7 +50,7 @@ async function fixture(t) {
   };
   const { Movements } = loadSelectedPlugins(bot, {
     inbox,
-    combatObservation: { now: () => time },
+    combatReport: { now: () => time },
   });
   const originalMovements = new Movements(bot);
   bot.pathfinder = {
@@ -82,7 +82,7 @@ async function fixture(t) {
   };
   t.after(async () => {
     bot.pvp.forceStop();
-    await bot.combatObservation.close();
+    await bot.combatReport.close();
     bot.closeBridge();
   });
   const entity = (id, name, x) =>

@@ -488,6 +488,7 @@ export function createBridgeServer({
   authorizeAction,
   getMatchState,
   blockMemory = {},
+  createBlockMemory: memoryFactory = createBlockMemory,
 } = {}) {
   if (!bot || typeof token !== "string" || token.length < 16)
     throw new Error("Bot and token (16+ characters) required");
@@ -521,7 +522,27 @@ export function createBridgeServer({
         : {}),
     ...(action ? { action } : {}),
   });
-  const terrainMemory = createBlockMemory(bot, blockMemory, serializeBlock);
+  // Trusted host wiring only. Participant requests cannot select an implementation
+  // or change this bot's memory scope.
+  const terrainMemory =
+    blockMemory === false
+      ? {
+          query() {
+            throw Object.assign(new Error("Block memory is disabled"), {
+              status: 503,
+            });
+          },
+          close() {},
+        }
+      : memoryFactory(bot, blockMemory, serializeBlock);
+  if (
+    !terrainMemory ||
+    typeof terrainMemory.query !== "function" ||
+    typeof terrainMemory.close !== "function"
+  )
+    throw new TypeError(
+      "Block memory factory must return {query, close, ready?}",
+    );
   const epoch = randomUUID();
   let sequence = 0;
   const clients = new Set();
@@ -784,7 +805,11 @@ export function createBridgeServer({
       }
       return;
     }
-    if (req.method === "GET" && req.url === "/v1/match") {
+    // /v1/session is the session route; /v1/match is its legacy alias.
+    if (
+      req.method === "GET" &&
+      (req.url === "/v1/session" || req.url === "/v1/match")
+    ) {
       if (typeof getMatchState !== "function") {
         res.writeHead(404);
         return res.end();
@@ -799,7 +824,7 @@ export function createBridgeServer({
       } catch {
         res.writeHead(503, { "content-type": "application/json" });
         res.end(
-          JSON.stringify({ ok: false, error: "Match state unavailable" }),
+          JSON.stringify({ ok: false, error: "Session state unavailable" }),
         );
       }
       return;
@@ -895,6 +920,9 @@ export function createBridgeServer({
     server,
     authority,
     async listen({ host = "127.0.0.1", port = 0 } = {}) {
+      // No endpoint opens while memory initialization/restore is pending. An
+      // initialization rejection aborts startup; disabling is an explicit choice.
+      await terrainMemory.ready;
       await new Promise((r, j) => {
         server.once("error", j);
         server.listen(port, host, r);
@@ -920,5 +948,16 @@ export function createBridgeServer({
 }
 export async function startBridge(options) {
   const bridge = createBridgeServer(options);
-  return { ...bridge, ...(await bridge.listen(options)) };
+  try {
+    return { ...bridge, ...(await bridge.listen(options)) };
+  } catch (error) {
+    try {
+      await bridge.close();
+    } catch (cleanupError) {
+      throw new AggregateError([error, cleanupError], error.message, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
 }

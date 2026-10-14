@@ -39,53 +39,39 @@ services:
       - ./results:/results
       - ./control:/control
       - ./replay-config:/replay-config
-  codex-adapter:
-    <<: *common
-    profiles: [agents]
-    image: craft-arena-trusted:local
-    command: [node, packages/codex-adapter/cli.mjs, /config/codex.json]
-    environment:
-      CODEX_ADAPTER_TOKEN: ${CODEX_ADAPTER_TOKEN}
-      NODE_USE_ENV_PROXY: '1'
-      HTTP_PROXY: ${ARENA_OPENAI_PROXY:-}
-      HTTPS_PROXY: ${ARENA_OPENAI_PROXY:-}
-      NO_PROXY: localhost,127.0.0.1,::1
-    networks: [model-backend, model-egress]
-    volumes:
-      - ./codex.json:/config/codex.json:ro
-      - ./auth:/auth
-  budget-gateway:
+  # Each team's gateway calls an OpenAI-compatible upstream directly (see
+  # budget.red.json / budget.blue.json); outbound traffic may use the Windows
+  # system proxy relay.
+  budget-red:
     <<: *common
     profiles: [agents]
     image: craft-arena-trusted:local
     command: [node, packages/budget-gateway/src/cli.mjs, /config/budget.json]
     environment:
-      CODEX_ADAPTER_TOKEN: ${CODEX_ADAPTER_TOKEN}
       RED1_MODEL_TOKEN: ${RED1_MODEL_TOKEN}
       RED1_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
-    networks: [red1, model-backend]
-    volumes: [./budget.json:/config/budget.json:ro, ./model.codex.json:/config/model.codex.json:ro]
-  deepseek-adapter:
-    <<: *common
-    profiles: [agents]
-    image: craft-arena-trusted:local
-    command: [node, packages/codex-adapter/cli.mjs, /config/deepseek.json]
-    environment:
-      DEEPSEEK_ADAPTER_TOKEN: ${DEEPSEEK_ADAPTER_TOKEN}
-      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY}
-    networks: [deepseek-backend, model-egress]
-    volumes: [./deepseek.json:/config/deepseek.json:ro]
+      RED_UPSTREAM_API_KEY: ${RED_UPSTREAM_API_KEY:-}
+      NODE_USE_ENV_PROXY: '1'
+      HTTP_PROXY: ${ARENA_OPENAI_PROXY:-}
+      HTTPS_PROXY: ${ARENA_OPENAI_PROXY:-}
+      NO_PROXY: localhost,127.0.0.1,::1,arena-host
+    networks: [red1, model-egress]
+    volumes: [./budget.red.json:/config/budget.json:ro, ./model.red.json:/config/model.red.json:ro]
   budget-blue:
     <<: *common
     profiles: [agents]
     image: craft-arena-trusted:local
     command: [node, packages/budget-gateway/src/cli.mjs, /config/budget.json]
     environment:
-      DEEPSEEK_ADAPTER_TOKEN: ${DEEPSEEK_ADAPTER_TOKEN}
       BLUE1_MODEL_TOKEN: ${BLUE1_MODEL_TOKEN}
       BLUE1_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
-    networks: [blue1, deepseek-backend]
-    volumes: [./budget.deepseek.json:/config/budget.json:ro, ./model.deepseek.json:/config/model.deepseek.json:ro]
+      DEEPSEEK_API_KEY: ${DEEPSEEK_API_KEY:-}
+      NODE_USE_ENV_PROXY: '1'
+      HTTP_PROXY: ${ARENA_OPENAI_PROXY:-}
+      HTTPS_PROXY: ${ARENA_OPENAI_PROXY:-}
+      NO_PROXY: localhost,127.0.0.1,::1,arena-host
+    networks: [blue1, model-egress]
+    volumes: [./budget.blue.json:/config/budget.json:ro, ./model.blue.json:/config/model.blue.json:ro]
   participant-red1:
     <<: *common
     profiles: [agents]
@@ -96,14 +82,14 @@ services:
     environment:
       ARENA_BRIDGE_URL: http://arena-host:8080
       ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
-      OPENAI_BASE_URL: http://budget-gateway:8081/participants/red1/v1
+      OPENAI_BASE_URL: http://budget-red:8081/participants/red1/v1
       OPENAI_API_KEY: ${RED1_MODEL_TOKEN}
-      ARENA_MODEL_CONFIG: /config/model.codex.json
+      ARENA_MODEL_CONFIG: /config/model.red.json
       TEAM_GIT_DIR: /team-git
       ARENA_WAIT_FOR_MATCH: '1'
       ARENA_START_TIMEOUT_MS: '86400000'
     networks: [red1]
-    volumes: [red-work:/workspace, red-git:/team-git, ./model.codex.json:/config/model.codex.json:ro]
+    volumes: [red-work:/workspace, red-git:/team-git, ./model.red.json:/config/model.red.json:ro]
     tmpfs: ['/tmp:rw,nosuid,size=256m']
   participant-blue1:
     <<: *common
@@ -114,19 +100,17 @@ services:
       ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://budget-blue:8081/participants/blue1/v1
       OPENAI_API_KEY: ${BLUE1_MODEL_TOKEN}
-      ARENA_MODEL_CONFIG: /config/model.deepseek.json
+      ARENA_MODEL_CONFIG: /config/model.blue.json
       TEAM_GIT_DIR: /team-git
       ARENA_WAIT_FOR_MATCH: '1'
       ARENA_START_TIMEOUT_MS: '86400000'
     networks: [blue1]
-    volumes: [blue-work:/workspace, blue-git:/team-git, ./model.deepseek.json:/config/model.deepseek.json:ro]
+    volumes: [blue-work:/workspace, blue-git:/team-git, ./model.blue.json:/config/model.blue.json:ro]
     tmpfs: ['/tmp:rw,nosuid,size=256m']
 networks:
   backend: {internal: true}
   red1: {internal: true}
   blue1: {internal: true}
-  model-backend: {internal: true}
-  deepseek-backend: {internal: true}
   model-egress: {}
 volumes:
   red-work: {}

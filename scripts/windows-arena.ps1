@@ -79,7 +79,9 @@ function Start-ProxyRelay {
     $node = Find-Node
     $cli = Join-Path $repo 'packages/system-proxy-relay/cli.mjs'
     # Start-Process joins ArgumentList; quote paths, never put the secret in argv.
-    $arguments = @('"'+$cli+'"','--secret-file','"'+$secretFile+'"','--port',"$ProxyPort")
+    # Allow exactly the upstream hosts the gateways are configured to call.
+    $hosts = foreach ($team in 'red','blue') { ([uri](Get-Content -LiteralPath (Join-Path $deployment "budget.$team.json") -Raw | ConvertFrom-Json).upstream.url).Host }
+    $arguments = @('"'+$cli+'"','--secret-file','"'+$secretFile+'"','--port',"$ProxyPort",'--allow',(($hosts | Sort-Object -Unique) -join ','))
     $process = Start-Process -FilePath $node -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput "$deployment/proxy-relay.log" -RedirectStandardError "$deployment/proxy-relay.err.log"
     @{pid=$process.Id;startedAt=$process.StartTime.ToUniversalTime().Ticks} | ConvertTo-Json | Set-Content -LiteralPath "$deployment/proxy-process.json" -Encoding utf8
     for ($i=0; $i -lt 20; $i++) {
@@ -102,7 +104,7 @@ function Stop-ProxyRelay {
   }
 }
 function Read-MatchState {
-  $script = "const r=await fetch('http://127.0.0.1:8080/v1/match',{headers:{authorization:'Bearer '+process.env.RED1_BRIDGE_TOKEN}});if(!r.ok)process.exit(1);console.log((await r.json()).result.state)"
+  $script = "const r=await fetch('http://127.0.0.1:8080/v1/session',{headers:{authorization:'Bearer '+process.env.RED1_BRIDGE_TOKEN}});if(!r.ok)process.exit(1);console.log((await r.json()).result.state)"
   $state = & $docker @compose exec -T arena-host node --input-type=module -e $script 2>$null
   if ($LASTEXITCODE -eq 0) { return ($state -join '').Trim() }
   return ''
@@ -128,11 +130,10 @@ switch ($Action) {
   'logs' { Invoke-Compose @('logs','--tail','80') }
   'proxy' {
     Start-ProxyRelay
-    Invoke-Compose @('up','-d','--no-deps','codex-adapter')
+    Invoke-Compose @('up','-d','--no-deps','budget-red','budget-blue')
   }
   'up' {
     if (Test-Path -LiteralPath "$deployment/control/start") { throw 'An earlier match has a start marker. Use status, or reset for a new match.' }
-    if (-not (Test-Path -LiteralPath "$deployment/auth/auth.json")) { throw 'Complete the project OAuth login before up.' }
     Start-ProxyRelay
     Invoke-Compose @('up','-d','minecraft')
     $ready = $false

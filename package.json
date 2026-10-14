@@ -13,12 +13,11 @@
     "check": "node scripts/check-syntax.mjs",
     "validate": "npm run check && npm test",
     "demo:match": "node packages/arena/src/cli.mjs simulate infra/match.example.json",
-    "demo:visual": "node examples/render-fixture.mjs",
+    "demo:screenshot": "node examples/render-fixture.mjs",
     "format": "prettier --write \"packages/**/*.mjs\" \"tests/**/*.mjs\" \"examples/**/*.mjs\" \"scripts/**/*.mjs\"",
     "format:check": "prettier --check \"packages/**/*.mjs\" \"tests/**/*.mjs\" \"examples/**/*.mjs\" \"scripts/**/*.mjs\"",
     "arena:live": "node packages/arena/src/live-cli.mjs",
-    "agent:start": "node packages/pi-extension/bootstrap.mjs",
-    "auth:codex": "node packages/codex-adapter/login.mjs"
+    "agent:start": "node packages/pi-extension/bootstrap.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.1.0",

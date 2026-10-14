@@ -1,151 +1,191 @@
-# Trusted capability bridge
+# Game bridge
 
-`createBridgeServer({bot,token,...policy})` binds one trusted Mineflayer bot to one
-server. `startBridge` starts it and returns URL/port. A participant supplies only
-`{action,args}` to POST `/v1/action`, with a Bearer token; it cannot choose another
-bot, change connection options, load code, invoke arbitrary object paths or write
-packets. GET `/v1/events` yields SSE reset/state/event frames. Authenticated
-GET `/v1/chat` yields only chat-box `messagestr` event frames, without world
-snapshots or action-bar (`game_info`) text. It uses the same bearer authorization
-and SSE output budget; it does not replay missed messages on reconnect.
-Authenticated
-GET `/v1/chunk?x=...&z=...` reads one already loaded chunk column as native
-Prismarine JSON; unknown columns return null and never trigger server loads.
-Endpoints expose no
-arbitrary filesystem or network operations.
+The game bridge (`packages/mf-bridge`) is a trusted-side HTTP service that owns one real Mineflayer bot for one participant. The participant's programs see the bot's state over a stream and ask for game actions over HTTP. The bridge accepts only a fixed list of named actions (semantic actions) with checked arguments. A participant can never send packets, call arbitrary bot methods, load code, pick another bot or change connection options.
 
-Policy defaults: chat enabled, no action-rate/concurrency/subscriber-count cap.
-Transport budgets remain 16 KiB request bodies, 8 MiB per chunk transfer, and
-4 MiB of accumulated SSE backlog beyond the largest queued frame before
-disconnecting a slow reader. Complete large reset frames drain in order; Node
-buffers its normal high-water mark plus one frame, while the application queue
-holds at most its largest frame plus that 4 MiB allowance. Optional trusted
-`maxActionsPerSecond` and `maxConcurrentActions` can enforce operator policy. Minecraft
-enforces gameplay reach by default; operators may explicitly set `maxReach` to
-add a bridge policy checked against authoritative position. The dispatcher
-validates consumed values and ignores unused fields. Each handler explicitly
-selects arguments, so extra metadata cannot select a bot, method or connection.
-Numbers must be finite; block positions and entity IDs must fit their actual
-Minecraft wire formats. Tokens must have at least 16
-characters; generate random high-entropy tokens (length alone is not entropy).
-Host/network/firewall restrictions must independently deny participant access to
-Minecraft, other bridges, orchestrator credentials and metadata. HTTP bearer
-traffic assumes an isolated private container network; use authenticated TLS if
-crossing untrusted networks.
+Readers: developers and operators. Participant programs talk to the bridge through `connectBot()`; client behaviour is in the [bot SDK README](../bot-sdk/README.md) and participant-side block memory in [BLOCK-MEMORY.md](../bot-sdk/BLOCK-MEMORY.md). Pathfinder, PvP and other plugins run in the participant's program against its local mirror, never in the bridge.
 
-`live.mjs` is supervisor-only. `startLiveBridge({minecraft,bridge})` accepts only
-trusted config. `cli.mjs` consumes MF_HOST, MF_PORT, MF_USERNAME, MF_VERSION,
-BRIDGE_HOST, BRIDGE_PORT and BRIDGE_TOKEN; it creates a NEW offline-auth bot. Never
-point it at an existing personal bot session. No automatic Minecraft reconnect
-is implemented. SDK stream reconnect only restores mirror observation.
+| File                   | What it does                                                                                                     |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `index.mjs`            | `createAuthority` (action checks and dispatch, snapshots), `createBridgeServer`, `startBridge`, `serializeBlock` |
+| `live.mjs`             | `startLiveBridge({minecraft, bridge})`: creates a new Mineflayer bot and a bridge for it; trusted config only    |
+| `block-memory.mjs`     | default block memory adapter over `mineflayer-world-memory`                                                      |
+| `minecraft-compat.mjs` | `createCompatibleBot`: patches the 1.21/1.21.1 (protocol 767) recipe-type table before creating a bot            |
+| `cli.mjs`              | standalone bridge: manual testing, or an open session without an arena host                                      |
 
-Snapshot schema: `{sampledAt,version,entity,entities,inventory,heldItem,game,
-health,food,controlState,blocks,replaceBlocks,columns,...}`. `columns` lists all
-columns currently loaded by Mineflayer. The SDK fetches new columns once and
-updates them with block/chunk events; it evicts unloaded columns and resets on
-reconnect or dimension changes. Block entries include stateId,
-biomeId, lighting and absolute position. `replaceBlocks:false` retains the prior
-nearby block sample, used for explored-history observations and simple fixtures.
-It does not constrain live planning or rendering: those use the full loaded
-chunk mirror. Block updates apply immediately. Entity/inventory state updates
-at 20 Hz; the nearby history sample refreshes at 1 Hz.
-SSE frames contain epoch, sequence, type and data; reset establishes a fresh
-baseline. No event replay is promised. Reconnect always establishes a baseline.
+In a match the arena host starts one bridge per participant inside its own process (see [arena README](../arena/README.md)); there are no separate bridge containers.
 
-The authority enforces configured behavior bounds. Custom movement
-controls, chat policy, Minecraft permissions, world limits, per-team identities
-and rate limits should be selected by the competition operator. Stops do not
-teleport, center or zero velocity. Enabled chat forwards ordinary messages and
-slash commands to Minecraft. Operators must keep participant bots non-OP and
-configure Minecraft permissions; the bridge does not redefine command permissions. Crafting selects an available server-side recipe from numeric item/count
-instead of accepting participant recipe objects. Inventory clicks use the currently open window or the player inventory, like
-Mineflayer. Modes 0–6 and the outside/drop slot -999 are passed through; other
-slots must exist in that authoritative window. Recipe availability comes from
-Mineflayer, with no one-stack cap on craft batches.
+## Endpoints
 
-Container observations retain native window IDs/types/titles, inventory and
-hotbar boundaries, crafting/confirmation fields, slots and selected item. A
-stable `windowRef` identifies the actual window object independently of Minecraft's
-reusable numeric window ID. A monotonic `windowRevision` orders window projections
-received over HTTP and SSE. Item data retains NBT and modern components.
-`openContainer` resolves an authoritative block
-position or entity ID, then returns the opened window. Fixed `windowWithdraw` and
-`windowDeposit` actions accept this ref plus item type, optional metadata/count/NBT
-and delegate to that window's native transfer methods. There is no one-stack cap;
-omitted/null counts keep Mineflayer's default. A stale ref cannot operate on a
-new container. `closeWindow` accepts the current container or player inventory;
-inventory/current-window slot changes publish snapshots, and open/close events
-include the affected window. No participant payload chooses an arbitrary window
-method. `equip` accepts a type ID or authoritative inventory slot and keeps the
-native default hand destination. `tossStack` selects the exact stack in the active
-window or player inventory, preserving its NBT identity.
+Every request needs `Authorization: Bearer <token>`. A wrong or missing token gets `401` with no body. JSON replies are `{ok:true, result}` or `{ok:false, error, ...}`.
 
-## Action errors and native completion semantics
+| Route                                       | Purpose                                              | Notes                                                                                                         |
+| ------------------------------------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `POST /v1/action`                           | run one action: body `{action, args}`                | body ≤ 16 KiB; rate-limited; `403` when `authorizeAction` refuses (in a match: whenever it is not running)    |
+| `GET /v1/events`                            | SSE stream of snapshots and bot events               | starts with a `reset` frame holding a full snapshot                                                           |
+| `GET /v1/chat`                              | SSE stream of chat-box text only                     | no snapshots, no action-bar text                                                                              |
+| `GET /v1/chunk?x=&z=`                       | one currently loaded chunk column as Prismarine JSON | `result:null` if not loaded; never asks the server to load it; ≤ 8 MiB; uses the same rate limiter as actions |
+| `GET /v1/session`                           | read-only session state from the session host        | `404` if no `getMatchState` was given, `503` if it throws                                                     |
+| `GET /v1/match`                             | legacy alias of `/v1/session`, same body             | kept for one version                                                                                          |
+| `GET /v1/memory/block`, `/chunk`, `/chunks` | block memory queries                                 | not rate-limited; `503` when memory is disabled                                                               |
 
-Failed actions return `{ok:false,error,errorDetails}`. `error` remains the message
-string for older clients; `errorDetails` contains the underlying error name,
-message, optional scalar code and known action name. The SDK preserves these
-fields when rejecting the action promise. Stack, cause and arbitrary error
-properties are omitted, and explicit credential values/labels are redacted.
-Authentication failures remain separate; match-policy denials keep HTTP 403.
+Any other route returns `404`. Large integers travel as `{"$arenaBigInt":"<digits>"}` in both directions.
 
-The bridge does not invent task cancellation on death. In the installed
-Mineflayer, `stopDigging()` cancels a pending native dig with `Error("Digging
-aborted")`, and Mineflayer's own death handler calls it. That rejection is
-forwarded. Omitted `forceLook` stays omitted; explicit true/false/`"ignore"`
-are preserved. Mineflayer also removes digging-event listeners on death; spawn
-restores only this bridge's two event relays, without duplicating them or
-restoring participant listeners. Digging events retain their native block argument.
+## Policy and limits
 
-Pathfinder's `goto` is its installed local implementation: it reacts to goal/path
-events and has no universal death-to-rejection rule. Its empty-path resolution
-alone does not prove arrival. Programs decide whether to stop work, retry, or
-replan using the actual result and game observations.
+`createBridgeServer` / `startBridge` options set by the trusted host:
 
-## Match lifecycle integration
+| Option                              | Default         | Effect                                                                                                   |
+| ----------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------- |
+| `token`                             | required        | at least 16 characters; generate a random high-entropy value                                             |
+| `allowChat`                         | `true`          | `false` makes the `chat` action fail                                                                     |
+| `maxReach`                          | `Infinity`      | extra distance check (block centre or entity position to the bot) on top of the server's own reach rules |
+| `maxActionsPerSecond`               | `Infinity`      | token bucket shared by `/v1/action` and `/v1/chunk`; excess gets `429`                                   |
+| `maxConcurrentActions`              | `Infinity`      | actions in flight at once; excess actions, and chunk requests while it is full, get `429`                |
+| `authorizeAction(request)`          | none            | awaited before each action; anything but `true` gives `403` and nothing runs                             |
+| `getMatchState()`                   | none            | backs `GET /v1/session`                                                                                  |
+| `snapshotRadius`                    | `8`             | horizontal radius of the `blocks` sample                                                                 |
+| `blockMemory` / `createBlockMemory` | `{}` / built-in | see [Block memory](#block-memory-trusted-side)                                                           |
 
-A trusted `authorizeAction(request)` callback may be supplied to either the
-server or authority. It is awaited immediately before every approved semantic
-action and must return exactly true. Otherwise the action returns HTTP403 with
-no dispatch. The arena host uses its actual running-state predicate, denying
-pre-start and post-end actions. This is independent of participant SDK checks.
-An optional trusted `getMatchState()` callback backs authenticated GET `/v1/match`
-for read-only authoritative clock/state feedback. No participant payload selects
-another match or changes these callbacks.
+Fixed limits: action body 16 KiB, one chunk reply 8 MiB. A slow SSE reader is disconnected once more than 4 MiB beyond its largest queued frame is waiting; the SDK reconnects and gets a fresh `reset`. Chat events are not filtered or rate-limited.
 
-`startLiveBridge.close()` owns cleanup of its newly created Minecraft bot:
-controls/dig/item stop, quit, HTTP closure, and bounded waiting for the bot's end
-event. It is idempotent; timeout forces end and reports cleanup failure. `createBridgeServer.close`
-only closes the server because injected-bot ownership belongs to its caller.
+Operator security checklist:
 
-Incoming `chat` and `messagestr` events are mirrored as game data, never as trusted
-platform instructions. There is no message-count or per-50ms discard budget.
-The sixth callback argument contains
-`{source:'minecraft',trusted:false,truncated:false,observedAt}`. Raw rich JSON
-chat objects stay on the trusted side (null in events). String arguments remain
-in their Mineflayer positions. The Pi runtime subscribes to `/v1/chat` by default
-and forwards those observations into its inbox as normal `game.chat` events.
-It consumes only `messagestr` to avoid duplicating the companion `chat` event;
-separate messages with identical text are preserved. Operators may
-explicitly disable outgoing chat with `allowChat:false`. Spawn/death
-publish current state before the event, just as health/window/held-item events do.
+- Participant bots must not be OP. The `chat` action passes slash commands to the server; Minecraft permissions decide what they may do.
+- World borders, team identities and gameplay rules are set on the Minecraft server, not in the bridge.
+- Network rules must keep participants away from the Minecraft server, other participants' bridges, the arena host's credentials and metadata services. Bearer tokens travel in plain HTTP on the private container network; use authenticated TLS if traffic crosses an untrusted network.
 
-For resident agents to read terminal match results, `stopGame()` ends the owned
-Minecraft connection while keeping authenticated HTTP status endpoints alive.
-It also disables semantic actions immediately, independent of the host's gate.
-`close()` first calls that idempotent game stop, then closes HTTP even if game
-cleanup failed. The arena host may retain read-only status until operator
-shutdown. Standalone CLI disables outgoing chat only when
-`BRIDGE_ALLOW_CHAT=false`; Minecraft enforces command permissions.
+## Snapshot and event stream
 
+Each SSE frame is `{epoch, sequence, type, data}`. `epoch` is a UUID per bridge server; `sequence` counts frames. Missed frames are never replayed: after a reconnect, rebuild state from the new `reset`.
 
-## Read-only full-column memory
+| Frame `type` | When                                                                                                                                                                                                |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `reset`      | first frame of every `/v1/events` connection; full snapshot including `blocks`                                                                                                                      |
+| `snapshot`   | every 50 ms while a client is connected; also right before events that change state (health, sleep, wake, held item, window open/close, spawn, death, end, kicked) and after inventory slot changes |
+| `event`      | `{name, args}` for a Mineflayer event (list below), plus a `physicsTick` every 50 ms                                                                                                                |
 
-Authenticated GET `/v1/memory/block?dimension=...&x=...&y=...&z=...`,
-`/v1/memory/chunk?dimension=...&x=...&z=...`, and
-`/v1/memory/chunks?dimension=...&offset=...&limit=...` read only this bot's received
-terrain. Unloaded columns remain historical, reload replaces them, and unknown
-coordinates never cause server loads. These routes do not dispatch actions or
-consume their rate/concurrency slots. There is no remote write/clear endpoint.
-The arena sets trusted world/run/participant identity; optional persistence
-requires all three explicit IDs. See [memory isolation and lifecycle](../../docs/BLOCK-MEMORY.md).
+Snapshot fields: `sampledAt`, `version`, `username`, `connectionStatus` (`connecting`/`connected`/`disconnected`), `disconnectReason`, `entity`, `entities`, `inventory`, `heldItem`, `quickBarSlot`, `currentWindow`, `game`, `health`, `food`, `isSleeping`, `oxygenLevel`, `jumpTicks`, `jumpQueued`, `controlState`, `blocks`, `replaceBlocks`, `columns`.
+
+- `blocks` holds the blocks within `snapshotRadius` horizontally and 4 vertically of the bot. It is refreshed once a second (`replaceBlocks:true`); other snapshots send an empty list with `replaceBlocks:false`, meaning "keep the previous sample". Each block has `stateId`, `type`, `name`, `position`, `biomeId`, `light`, `skyLight`, `shapes`, `boundingBox`, `hardness`, `diggable` and its block entity (for example sign text).
+- `columns` lists the chunk columns Mineflayer has loaded now. Clients fetch each with `GET /v1/chunk`; the SDK's `blockAt` and block search use those full columns, not `blocks`.
+
+Forwarded events: `chat`, `messagestr`, `entityMoved`, `entitySpawn`, `entityGone`, `entityHurt`, `entityEquip`, `entityUpdate`, `entityEquipmentChange`, `health`, `sleep`, `wake`, `heldItemChanged`, `windowOpen`, `windowClose`, `diggingCompleted`, `diggingAborted`, `chunkColumnLoad`, `chunkColumnUnload`, `blockUpdate`, `blockEntityData`, `spawn`, `death`, `end`, `kicked`. Entities, blocks and windows in `args` are serialized the same way as in snapshots.
+
+## Actions
+
+`/v1/action` accepts only these names. Each reads only its own named arguments; anything else in the request is ignored.
+
+| Group                | Actions                                                                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Movement and looking | `setControlState`, `clearControlStates`, `stop`, `look`, `lookAt`                                                                     |
+| Blocks               | `dig`, `stopDigging`, `placeBlock`, `activateBlock`                                                                                   |
+| Combat and items     | `attack`, `equip`, `unequip`, `consume`, `activateItem`, `deactivateItem`, `swingArm`, `setQuickBarSlot`, `toss`, `tossStack`, `wake` |
+| Crafting             | `craft`                                                                                                                               |
+| Containers           | `openContainer`, `closeWindow`, `windowWithdraw`, `windowDeposit`, `clickWindow`                                                      |
+| Chat                 | `chat`                                                                                                                                |
+
+Validation:
+
+- Numbers must be finite. Block positions must fit Minecraft's packed position (26/12/26-bit signed); entity IDs must fit a signed 32-bit integer.
+- Blocks are resolved from the bot's own world (`Unknown block` if not loaded) and entities from `bot.entities`; both go through the `maxReach` check.
+- `stop` only clears control states. It does not teleport, centre or change velocity.
+- `craft {itemType, count, table?}` picks the first recipe Mineflayer's `recipesFor` offers for that item and count, then crafts `ceil(count / result.count)` runs. There is no one-stack cap. Participants cannot send recipe objects.
+- `equip` takes `itemType` or an inventory `slot`; destination defaults to `hand`.
+
+Errors: a failed action returns `{ok:false, error, errorDetails}` where `errorDetails` is `{name, message, code?, action?}`. Stacks and other error properties are dropped, and the bridge token, bearer values, URL credentials and `password`/`token`/`secret`/`api_key`-style values are replaced with `[redacted]`. Status codes: `400` bad request or failed action, `403` refused by match policy, `429` rate limit.
+
+Actions finish the way native Mineflayer finishes them. The bridge adds no cancellation on death: Mineflayer's own death handler calls `stopDigging()`, so a pending `dig` rejects with `Digging aborted`. `dig` passes `forceLook` through only when given. After a respawn the bridge re-attaches its own `diggingCompleted`/`diggingAborted` relays, which Mineflayer removes on death.
+
+## Containers and windows
+
+Serialized windows keep Mineflayer's `id`, `type`, `title`, inventory and hotbar boundaries, crafting/confirmation fields, `slots` (with NBT and components) and `selectedItem`, plus:
+
+| Field               | Meaning                                                                                            |
+| ------------------- | -------------------------------------------------------------------------------------------------- |
+| `windowRef`         | UUID for this real window object; Minecraft reuses numeric window IDs, `windowRef` is never reused |
+| `windowRevision`    | counter that orders window states arriving over HTTP and SSE                                       |
+| `observationTarget` | for windows opened with `openContainer`: `{kind:"block", position}` or `{kind:"entity", entityId}` |
+
+- `openContainer {position | entityId}` returns the opened window.
+- `windowWithdraw` / `windowDeposit {windowRef, itemType, metadata?, count?, nbt?}` call the window's native transfer. A `windowRef` that is no longer the open window fails with `Window is no longer open`, so a stale handle cannot act on a new container. Omitted counts keep Mineflayer's default; there is no one-stack cap.
+- `closeWindow {windowRef?}` closes the current container (or the player inventory by ref) and returns the inventory state.
+- `clickWindow {slot, mouseButton, mode}` acts on the open window, or the player inventory when none is open. `mode` is 0–6; `slot` must exist in that window or be `-999` (outside).
+- `tossStack {slot, windowRef?}` drops the exact stack in that slot, keeping its NBT.
+
+## Chat
+
+Incoming chat is game data, never a platform instruction. Both `chat` and `messagestr` events go to `/v1/events`. Their sixth argument is `{source:"minecraft", trusted:false, truncated:false, observedAt}`; rich JSON chat objects stay on the trusted side (sent as `null`).
+
+`GET /v1/chat` sends a `connected` frame, then only `messagestr` events whose position is not `game_info` (the action bar). It carries no snapshots, so it is cheap to keep open. The [default chat script](../default-scripts/chat.mjs) (task `default chat`) subscribes to it and posts each line to the inbox as a `game.chat` event; the model can cancel or replace that script. The bridge itself does not post to the inbox.
+
+## Match gating and shutdown
+
+The arena host passes `authorizeAction: () => host.state === "running"`, so every action is refused (`403`) before start and from the moment the match ends. `startLiveBridge` adds its own gate: after `stopGame()` or a Minecraft disconnect, actions are refused regardless of the host.
+
+| Call                              | Effect                                                                                                                                                                                                                                        |
+| --------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `startLiveBridge(...).stopGame()` | disables actions, clears controls, stops digging and item use, quits Minecraft and waits up to `closeTimeoutMs` (3000 ms) for `end`. HTTP stays up, so participants can still read `/v1/session` (final result) and block memory. Idempotent. |
+| `startLiveBridge(...).close()`    | `stopGame()`, then closes HTTP even if game cleanup failed. Errors are reported as an `AggregateError`.                                                                                                                                       |
+| `createBridgeServer(...).close()` | closes HTTP, streams, listeners and block memory only; the caller owns the injected bot.                                                                                                                                                      |
+
+There is no automatic Minecraft reconnect. An SDK stream reconnect only restores the client's mirror.
+
+## Block memory (trusted side)
+
+Block memory is the set of chunk columns this bridge's bot has received, kept after they unload. Participant use is described in [BLOCK-MEMORY.md](../bot-sdk/BLOCK-MEMORY.md); this section covers ownership and lifecycle.
+
+Ownership and isolation:
+
+- One memory per bridge, recording only what its own bot received. No server map files or other bots feed it.
+- The token selects the bridge, so a participant can read only its own character's memory. Query parameters cannot select another player, world, run, file or source. There is no write or clear route.
+- Memory routes do not dispatch actions and do not use action rate or concurrency slots. They keep working while actions are gated and after `stopGame()`.
+- Unknown coordinates never make the server load anything.
+
+Queries:
+
+| Route               | Parameters                                 | Result (besides the common fields)                 |
+| ------------------- | ------------------------------------------ | -------------------------------------------------- |
+| `/v1/memory/block`  | `x`, `y`, `z`, `dimension?`                | `known`, `status`, `block`                         |
+| `/v1/memory/chunk`  | `x`, `z` (chunk coordinates), `dimension?` | `known`, `status`, `data` (Prismarine column JSON) |
+| `/v1/memory/chunks` | `dimension?`, `offset` (0), `limit` (256)  | `chunks`, `total`, `nextOffset`                    |
+
+Common fields: `instanceId` (UUID of this bridge's memory; changes on restart), `scope` (`{worldId, runId, participantId}`), `revision` (bumped on every memory change), `version`, `currentDimension`, `sampledAt`, `error`. `status` is `current` (column loaded now), `historical` (unloaded; may have changed since `observedAt`) or `unknown` (with `reason` `never_observed` or `outside_dimension_height`). Without `dimension`, `block` and `chunk` use the bot's current dimension and `chunks` lists every dimension.
+
+Lifecycle and configuration:
+
+| Setting                                                   | Effect                                                                                                                                                                         |
+| --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `blockMemory: {}` (default)                               | in-process memory; random `worldId` and `runId`, `participantId` = bot username; lives as long as the bridge, survives SDK reconnects and script exits                         |
+| `blockMemory: {worldId, runId, participantId}`            | sets the scope; the arena host uses `worldId = "<map.id>@<map.version>"`, the match `runId` and the participant ID, without a directory                                        |
+| `blockMemory: {directory, worldId, runId, participantId}` | also persists columns to disk (gzip, one file per column, atomically replaced) so a restarted bridge in the same run restores them as `historical`; all three IDs are required |
+| `blockMemory: false`                                      | no recording; memory routes return `503`; actions and streams still work                                                                                                       |
+| `createBlockMemory(bot, options, serializeBlock)`         | replacement adapter returning `{query(url), close(), ready?}`                                                                                                                  |
+| `BRIDGE_BLOCK_MEMORY=false`                               | the standalone CLI's way to disable it                                                                                                                                         |
+
+With persistence, use a new `runId` after every map reset, keep the directory on the trusted host out of participant containers, and let only one bridge write a scope. The server waits for `ready` before listening; if initialization fails, startup fails and cleans up. Individually corrupt columns are reported in `error` while the rest load. The adapter uses `mineflayer-world-memory` with `analysis: "lazy"` and fails at startup if the installed version does not support it. Memory grows with explored terrain; there is no block-count cap.
+
+## Standalone CLI
+
+`node packages/mf-bridge/cli.mjs` creates a new bot and a bridge for it, without an arena host. Use it for an open session, such as a companion bot on an ordinary server. Never point it at a personal account session. `cliOptions(env)` in the same file builds the `startLiveBridge` options from the environment without connecting.
+
+| Variable              | Default                                                                                               |
+| --------------------- | ----------------------------------------------------------------------------------------------------- |
+| `MF_HOST`             | required                                                                                              |
+| `MF_PORT`             | `25565`                                                                                               |
+| `MF_USERNAME`         | required                                                                                              |
+| `MF_VERSION`          | required                                                                                              |
+| `BRIDGE_HOST`         | `127.0.0.1`                                                                                           |
+| `BRIDGE_PORT`         | `8080`                                                                                                |
+| `BRIDGE_TOKEN`        | required                                                                                              |
+| `BRIDGE_ALLOW_CHAT`   | chat on unless `false`                                                                                |
+| `BRIDGE_BLOCK_MEMORY` | memory on unless `false`                                                                              |
+| `MF_AUTH`             | `offline`; `microsoft` logs in with a Microsoft account for online-mode servers                       |
+| `MF_PROFILES_DIR`     | Microsoft token cache directory (passed to Mineflayer as `profilesFolder`)                            |
+| `BRIDGE_SESSION`      | unset: no session route (`/v1/session` returns `404`); `open`: serve an open session                  |
+| `BRIDGE_SESSION_ID`   | `open-<start time>`                                                                                   |
+| `BRIDGE_BRIEFING`     | none; the open session's `briefing.text`                                                              |
+| `BRIDGE_PROMPT_FILE`  | none; file read once at start (at most 32 KiB) and served as `briefing.prompt`, the mode instructions |
+
+With `BRIDGE_SESSION=open`, `/v1/session` returns `kind: "open"`, `state: "running"`, `startedAt` = bridge start, `durationMs: null`, `username` = the bot's in-game name once it has spawned (with `MF_AUTH=microsoft`, `MF_USERNAME` is only the account used to log in), `participants: [{id, username, teamId: null}]`, `teams: []`, and `briefing: {text, prompt, public: null}`. Behaviour limits (where the bot may go, what it may break) belong to the server: give the bot's account the same permissions you would give a player. With `MF_AUTH=microsoft`, keep `MF_PROFILES_DIR` on the trusted host, out of participant containers. If the bot disconnects, the CLI exits with code 1 instead of reporting a running session with no bot; restart it to rejoin.
+
+`SIGINT`/`SIGTERM` call `close()`.

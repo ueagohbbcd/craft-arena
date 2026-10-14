@@ -9,8 +9,8 @@ import {
   Inbox,
   InboxClient,
   createInboxServer,
-  TaskManager,
 } from "../packages/inbox/index.mjs";
+import { TaskManager } from "../packages/tasks/index.mjs";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const post = (inbox, data, extra = {}) =>
   inbox.post({ sessionId: inbox.sessionId, data, ...extra });
@@ -402,4 +402,52 @@ test("programs choose state keys and lifetimes within the queue byte budget", ()
     1,
     "the queue TTL remains the default",
   );
+});
+
+test("out-of-process producers receive delivery receipts for queued messages", async (t) => {
+  const inbox = new Inbox({ sessionId: "receipts" });
+  const token = "receipt-loopback-token-0123";
+  const server = await createInboxServer({ inbox, port: 0, token });
+  t.after(() => server.close());
+  const client = new InboxClient({
+    url: `http://127.0.0.1:${server.address.port}`,
+    sessionId: "receipts",
+    token,
+  });
+
+  // A pending message reports "pending" when the wait budget runs out.
+  const first = await client.upsert("report", { n: 1 });
+  assert.deepEqual(await client.delivery(first.id, { timeoutMs: 50 }), {
+    id: first.id,
+    outcome: "pending",
+  });
+
+  // A newer state with the same key replaces it; the newer one is delivered.
+  const waitingFirst = client.delivery(first.id, { timeoutMs: 5000 });
+  const second = await client.upsert("report", { n: 2 });
+  assert.equal((await waitingFirst).outcome, "replaced");
+  const waitingSecond = client.delivery(second.id, { timeoutMs: 5000 });
+  await sleep(20);
+  const batch = inbox.drain();
+  assert.deepEqual(
+    batch.messages.map((m) => m.data),
+    [{ n: 2 }],
+  );
+  assert.equal((await waitingSecond).outcome, "delivered");
+  // Later reads still answer from the bounded outcome history.
+  assert.equal((await client.delivery(second.id)).outcome, "delivered");
+
+  // Unknown ids and current facts (which are never queued) are not pending.
+  assert.equal((await client.delivery("no-such-id")).outcome, "unknown");
+  const fact = await client.publishCurrent("phase", "mining");
+  assert.equal((await client.delivery(fact.id)).outcome, "unknown");
+
+  // Expiry and explicit removal are reported, not mistaken for delivery.
+  const expiring = await client.post({ n: 3 }, { ttlMs: 1 });
+  await sleep(5);
+  inbox.prune();
+  assert.equal((await client.delivery(expiring.id)).outcome, "expired");
+  const removed = await client.post({ n: 4 });
+  inbox.remove(removed.id);
+  assert.equal((await client.delivery(removed.id)).outcome, "removed");
 });

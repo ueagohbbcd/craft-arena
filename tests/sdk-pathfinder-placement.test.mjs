@@ -82,7 +82,7 @@ function fixtureBot() {
       for (const name of controls) this.controlState[name] = false;
       calls.push({ action: "clear" });
     },
-    stopAndCenter() {
+    stop() {
       this.clearControlStates();
     },
     lookAt(position) {
@@ -125,7 +125,7 @@ function loadBeforeFix(bot) {
   module.paths = Module._nodeModulePaths(dirname(filename));
   module._compile(
     source.slice(0, start) +
-      "  function fullStop () { bot.stopAndCenter() }" +
+      "  function fullStop () { bot.stop() }" +
       source.slice(end),
     filename,
   );

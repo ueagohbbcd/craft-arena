@@ -4,8 +4,8 @@ import {
   Inbox,
   InboxClient,
   createInboxServer,
-  TaskManager,
 } from "../packages/inbox/index.mjs";
+import { TaskManager } from "../packages/tasks/index.mjs";
 
 test("current facts survive drains, replace by source/key, expire, and never wake or become history", () => {
   let now = 100;

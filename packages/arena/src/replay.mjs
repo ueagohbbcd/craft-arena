@@ -193,7 +193,7 @@ export function createReplayRecorder({
         const replayConfig = {
           ...existing,
           enabled: false,
-          world_name: config.map.id,
+          world_name: config.map?.id ?? config.id,
           server_name: `Craft Arena ${config.id} ${runId}`,
           player_recording_path: serverDirectory,
           player_recording_name: "{username}",

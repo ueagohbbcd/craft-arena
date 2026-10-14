@@ -54,7 +54,7 @@ test("flush waits for unsent writes and preserves pulses across clear and stop",
   bot.setControlState("jump", false);
   bot.clearControlStates();
   bot.setControlState("forward", true);
-  bot.stopAndCenter();
+  bot.stop();
   bot.setControlState("sneak", true);
   const expected = [
     { action: "setControlState", control: "jump", state: true },
@@ -252,7 +252,7 @@ test("same-state writes never merge across a transition, clear or stop", async (
   bot.clearControlStates();
   bot.setControlState("jump", true);
   bot.setControlState("jump", true);
-  bot.stopAndCenter();
+  bot.stop();
   bot.setControlState("jump", true);
   bot.setControlState("jump", true);
   await bot.flush();

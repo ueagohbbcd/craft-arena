@@ -4,8 +4,8 @@ import { createProxyRelay } from "./index.mjs";
 const args = process.argv.slice(2);
 const options = {};
 for (let i = 0; i < args.length; i += 2) {
-  if (!["--port", "--secret-file"].includes(args[i]) || !args[i + 1])
-    throw new Error("Expected --port or --secret-file");
+  if (!["--port", "--secret-file", "--allow"].includes(args[i]) || !args[i + 1])
+    throw new Error("Expected --port, --secret-file or --allow");
   options[args[i]] = args[i + 1];
 }
 const port = Number(
@@ -18,8 +18,17 @@ const secretFile =
 const secret =
   process.env.ARENA_PROXY_RELAY_SECRET ||
   (secretFile ? (await readFile(secretFile, "utf8")).trim() : "");
+// Comma-separated upstream hosts (port 443) the relay may tunnel to; defaults
+// to the hosts of the bundled Windows gateway configs.
+const allow = options["--allow"] || process.env.ARENA_PROXY_RELAY_ALLOWED_HOSTS;
 const relay = createProxyRelay({
   secret,
+  ...(allow && {
+    allowedHosts: allow
+      .split(",")
+      .map((host) => host.trim().toLowerCase())
+      .filter(Boolean),
+  }),
   onEvent: (event) => console.log(JSON.stringify(event)),
 });
 relay.on("error", () => {

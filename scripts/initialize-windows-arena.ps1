@@ -7,7 +7,8 @@ param(
     [switch]$AcceptEula,
     [string]$ServerJar,
     [string]$ServerDownload = (Join-Path $PSScriptRoot '../infra/minecraft-download.json'),
-    [string]$DeepSeekApiKeyEnv = 'DEEPSEEK_API_KEY'
+    [string]$DeepSeekApiKeyEnv = 'DEEPSEEK_API_KEY',
+    [string]$RedUpstreamApiKeyEnv = 'RED_UPSTREAM_API_KEY'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -28,8 +29,13 @@ if ($ServerJar) { $ServerJar = (Resolve-Path -LiteralPath $ServerJar).Path }
 if ($matchDocument.live.minecraft.version -ne $download.minecraftVersion) { throw 'Match Minecraft version must match ServerDownload.minecraftVersion.' }
 $node = (Get-Command node -ErrorAction Stop).Source
 if ((& $node -p 'Number(process.versions.node.split(".")[0]) >= 24') -ne 'true') { throw 'Node.js 24 or newer is required.' }
-$key = [Environment]::GetEnvironmentVariable($DeepSeekApiKeyEnv)
-if ($key -match '[\r\n\x00]') { throw 'DeepSeek API key contains unsupported characters.' }
+# Model upstream keys are optional here; the gateways refuse to start without them.
+$upstreamKeys = [ordered]@{ DEEPSEEK_API_KEY = $DeepSeekApiKeyEnv; RED_UPSTREAM_API_KEY = $RedUpstreamApiKeyEnv }
+foreach ($name in @($upstreamKeys.Keys)) {
+    $value = [Environment]::GetEnvironmentVariable($upstreamKeys[$name])
+    if ($value -match '[\r\n\x00]') { throw "$name contains unsupported characters." }
+    $upstreamKeys[$name] = $value
+}
 # Assemble in a private sibling directory; Directory.Move refuses an existing destination.
 $parent = Split-Path -Parent $destination
 New-Item -ItemType Directory -Force -Path $parent | Out-Null
@@ -46,9 +52,9 @@ try {
         $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new($sid, 'FullControl', $inheritance, $propagation, $allow))
     }
     Set-Acl -LiteralPath $stage -AclObject $acl
-    foreach ($dir in @('minecraft-data','map-original','auth','results','control','replay-config')) { New-Item -ItemType Directory -Path (Join-Path $stage $dir) | Out-Null }
+    foreach ($dir in @('minecraft-data','map-original','results','control','replay-config')) { New-Item -ItemType Directory -Path (Join-Path $stage $dir) | Out-Null }
     $template = Join-Path $repo 'infra/windows-local'
-    foreach ($file in @('compose.yaml','budget.json','budget.deepseek.json','codex.json','deepseek.json','model.codex.json','model.deepseek.json')) { Copy-Item -LiteralPath (Join-Path $template $file) -Destination $stage }
+    foreach ($file in @('compose.yaml','budget.red.json','budget.blue.json','model.red.json','model.blue.json')) { Copy-Item -LiteralPath (Join-Path $template $file) -Destination $stage }
     $matchDocument.live | Add-Member -NotePropertyName runtimeFaultSignalFile -NotePropertyValue '/control/runtime-fault.json' -Force
     $matchDocument | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $stage 'match.live.json') -Encoding utf8
     $prepareArgs = @((Join-Path $repo 'scripts/prepare-minecraft-server.mjs'), (Join-Path $stage 'server'), '--manifest', $ServerDownload)
@@ -62,12 +68,12 @@ try {
     function Quote-DotEnv([string]$value) { return "'" + $value.Replace("'", "\'") + "'" }
     $envLines.Add('ARENA_SOURCE_DIR=' + (Quote-DotEnv $repo.Replace('\','/')))
     $rcon = ''
-    foreach ($name in @('MC_RCON_PASSWORD','RED1_BRIDGE_TOKEN','BLUE1_BRIDGE_TOKEN','RED1_MODEL_TOKEN','BLUE1_MODEL_TOKEN','CODEX_ADAPTER_TOKEN','DEEPSEEK_ADAPTER_TOKEN')) {
+    foreach ($name in @('MC_RCON_PASSWORD','RED1_BRIDGE_TOKEN','BLUE1_BRIDGE_TOKEN','RED1_MODEL_TOKEN','BLUE1_MODEL_TOKEN')) {
         $token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
         $envLines.Add("$name=$token")
         if ($name -eq 'MC_RCON_PASSWORD') { $rcon = $token }
     }
-    if ($key) { $envLines.Add('DEEPSEEK_API_KEY=' + (Quote-DotEnv $key)) }
+    foreach ($name in $upstreamKeys.Keys) { if ($upstreamKeys[$name]) { $envLines.Add("$name=" + (Quote-DotEnv $upstreamKeys[$name])) } }
     [IO.File]::WriteAllLines((Join-Path $stage '.env'), $envLines)
     [IO.File]::WriteAllText((Join-Path $stage '.proxy.env'), '')
     [IO.File]::WriteAllText((Join-Path $stage 'minecraft-data/eula.txt'), "eula=true`n")
@@ -81,4 +87,4 @@ try {
         Remove-Item -LiteralPath $stage -Recurse -Force
     }
 }
-Write-Output "Initialized deployment at $destination. Review server.properties and match.live.json, then complete Codex OAuth login before starting agents."
+Write-Output "Initialized deployment at $destination. Review server.properties, match.live.json and the model upstreams in budget.red.json / budget.blue.json (keys: RED_UPSTREAM_API_KEY, DEEPSEEK_API_KEY in .env) before starting agents."

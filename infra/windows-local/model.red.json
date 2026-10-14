@@ -1,0 +1,16 @@
+{
+  "id": "gpt-6.1-sol",
+  "api": "openai-completions",
+  "reasoning": true,
+  "input": [
+    "text",
+    "image"
+  ],
+  "contextWindow": 300000,
+  "maxOutputTokens": 32768,
+  "requestTimeoutMs": 600000,
+  "compaction": {
+    "reserveTokens": 50000,
+    "keepRecentTokens": 20000
+  }
+}

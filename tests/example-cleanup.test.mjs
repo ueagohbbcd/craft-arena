@@ -5,7 +5,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
-import { Inbox, TaskManager } from "../packages/inbox/index.mjs";
+import { Inbox } from "../packages/inbox/index.mjs";
+import { TaskManager } from "../packages/tasks/index.mjs";
 
 const fixture = fileURLToPath(
   new URL("./fixtures/example-process.mjs", import.meta.url),
@@ -60,7 +61,7 @@ async function cancelExample(t, name, args, env = {}) {
 }
 
 test("managed SIGTERM stops the actual navigation CLI and flushes controls before exit", async (t) => {
-  const { trace, closed } = await cancelExample(t, "plugin-goal.mjs", [
+  const { trace, closed } = await cancelExample(t, "navigate.mjs", [
     "10",
     "1",
     "0",

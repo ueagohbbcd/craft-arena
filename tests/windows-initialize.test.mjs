@@ -127,8 +127,7 @@ test("Windows Compose applies resource defaults and operator overrides", (t) => 
     "BLUE1_BRIDGE_TOKEN",
     "RED1_MODEL_TOKEN",
     "BLUE1_MODEL_TOKEN",
-    "CODEX_ADAPTER_TOKEN",
-    "DEEPSEEK_ADAPTER_TOKEN",
+    "RED_UPSTREAM_API_KEY",
     "DEEPSEEK_API_KEY",
   ])
     env[key] = "test-placeholder";
@@ -180,7 +179,7 @@ test("Windows Compose applies resource defaults and operator overrides", (t) => 
     assert.equal(result.status, 0, result.stderr || String(result.error));
     const { services } = JSON.parse(result.stdout);
     for (const [participant, gateway] of [
-      ["participant-red1", "budget-gateway"],
+      ["participant-red1", "budget-red"],
       ["participant-blue1", "budget-blue"],
     ]) {
       const player = services[participant];
@@ -195,10 +194,7 @@ test("Windows Compose applies resource defaults and operator overrides", (t) => 
       assert.ok(gatewayMount?.read_only, gateway);
       assert.equal(playerMount.source, gatewayMount.source);
       assert.ok(
-        !player.volumes.some(
-          (volume) =>
-            volume.target === "/auth" || /budget.*\.json$/.test(volume.target),
-        ),
+        !player.volumes.some((volume) => /budget.*\.json$/.test(volume.target)),
       );
       for (const name of Object.keys(player.environment))
         assert.ok(

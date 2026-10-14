@@ -35,7 +35,7 @@ export function createProxyRelay({
   secret,
   resolver = resolveSystemProxy,
   timeoutMs = 20000,
-  allowedHosts = ["chatgpt.com", "auth.openai.com"],
+  allowedHosts = ["api.openai.com", "api.deepseek.com"],
   onEvent = () => {},
   connectDirect = (options) => net.connect(options),
 } = {}) {

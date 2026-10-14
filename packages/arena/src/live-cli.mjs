@@ -2,7 +2,8 @@
 import { dirname, resolve, join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { readFile, access } from "node:fs/promises";
-import { createLiveMatch } from "./live.mjs";
+import { isLegacyConfig } from "./index.mjs";
+import { createLiveMatch, loadBriefingPrompt } from "./live.mjs";
 import { writeRunState } from "./run-files.mjs";
 import { readRuntimeFault } from "./runtime-supervisor.mjs";
 const [path, resultPath = "match-result.json"] = process.argv.slice(2);
@@ -22,9 +23,15 @@ if (!path) {
   try {
     await writeRunState(run, resultPath);
     run.config = JSON.parse(await readFile(path, "utf8"));
+    if (isLegacyConfig(run.config))
+      console.error(
+        "Deprecated config: game/rules/live.goals are converted to session/judge/briefing (monument-blocks); see packages/arena/README.md",
+      );
     match = await createLiveMatch(run.config, {
       runId: run.runId,
       resultDir: dirname(resolve(resultPath)),
+      // Read once at startup so the mode prompt cannot change mid-match.
+      briefingPrompt: await loadBriefingPrompt(run.config, path),
     });
     match.host.onEnding = (host) => writeRunState(host, resultPath);
     await writeRunState(match.host, resultPath);
@@ -106,6 +113,7 @@ if (!path) {
         runId: result.runId,
         reason: result.reason,
         winner: result.winner,
+        scores: result.scores,
         resultPath,
         stopConfirmed: result.stopConfirmed,
         replay: result.replay,

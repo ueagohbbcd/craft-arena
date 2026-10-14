@@ -11,6 +11,7 @@ export async function createInboxServer({
   host = "127.0.0.1",
   token,
   maxRequestBytes = 65536,
+  maxReceiptWaitMs = 4000,
 }) {
   if (!inbox) throw new Error("inbox required");
   if (
@@ -25,9 +26,16 @@ export async function createInboxServer({
         res.end(JSON.stringify(body));
       }
     };
-    if (req.method !== "POST" || req.url !== "/messages") {
+    const url = new URL(req.url, "http://inbox");
+    const receipt = /^\/messages\/([^/]+)\/delivery$/.exec(url.pathname);
+    if (
+      !(req.method === "POST" && url.pathname === "/messages") &&
+      !(req.method === "GET" && receipt)
+    ) {
       req.resume();
-      return reply(404, { error: "Use POST /messages" });
+      return reply(404, {
+        error: "Use POST /messages or GET /messages/{id}/delivery",
+      });
     }
     if (token) {
       const got = Buffer.from(req.headers.authorization || "");
@@ -36,6 +44,15 @@ export async function createInboxServer({
         req.resume();
         return reply(401, { error: "Unauthorized" });
       }
+    }
+    if (receipt) {
+      req.resume();
+      return waitForOutcome(
+        decodeURIComponent(receipt[1]),
+        url.searchParams.get("waitMs"),
+        reply,
+        res,
+      );
     }
     let bytes = 0;
     const chunks = [];
@@ -60,6 +77,17 @@ export async function createInboxServer({
     req.on("error", () => reply(400, { error: "Incomplete request" }));
     req.setTimeout(5000, () => req.destroy());
   });
+  /** Long-poll one message's outcome, bounded below the server's request timeout. */
+  function waitForOutcome(id, waitText, reply, res) {
+    const waitMs = Math.min(
+      Math.max(Number.isFinite(Number(waitText)) ? Number(waitText) : 0, 0),
+      maxReceiptWaitMs,
+    );
+    inbox.waitForOutcome(id, waitMs).then((outcome) => {
+      if (!res.writableEnded && !res.destroyed)
+        reply(outcome === "unknown" ? 404 : 200, { id, outcome });
+    });
+  }
   server.requestTimeout = 5000;
   server.headersTimeout = 5000;
   server.timeout = 5000;
@@ -134,6 +162,14 @@ export class InboxClient {
   upsert(key, data, options = {}) {
     return this.send({ ...options, kind: "state", key, data });
   }
+  /**
+   * Set this program's current status under key (shown to the model as
+   * programStatus until replaced, cleared with null, or expired).
+   */
+  setStatus(key, data, options = {}) {
+    return this.publishCurrent(key, data, options);
+  }
+  /** Older name for setStatus. */
   publishCurrent(key, data, options = {}) {
     return this.send({
       ...options,
@@ -157,17 +193,51 @@ export class InboxClient {
       ...message,
       sessionId: this.sessionId,
     });
+    return this.request("POST", "/messages", body).then(
+      ({ status, result }) => {
+        if (status >= 300)
+          throw new Error(result.error || result.reason || `HTTP ${status}`);
+        return result;
+      },
+    );
+  }
+  /**
+   * Wait until a posted message leaves the queue. Resolves {id, outcome}:
+   * "delivered" (shown to the model), "replaced" (a newer state with the same
+   * key), "expired", "overflow", "removed", or "pending"/"unknown" on timeout.
+   */
+  async delivery(id, { timeoutMs = 30000 } = {}) {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const waitMs = Math.max(0, Math.min(4000, deadline - Date.now()));
+      const { status, result } = await this.request(
+        "GET",
+        `/messages/${encodeURIComponent(id)}/delivery?waitMs=${waitMs}`,
+        undefined,
+        waitMs + this.timeoutMs,
+      );
+      if (status >= 300 && status !== 404)
+        throw new Error(result.error || `HTTP ${status}`);
+      if (result.outcome !== "pending" || Date.now() >= deadline)
+        return { id, outcome: result.outcome };
+    }
+  }
+  request(method, path, body, timeoutMs = this.timeoutMs) {
     return new Promise((resolve, reject) => {
       const opts = this.socketPath
-        ? { socketPath: this.socketPath, path: "/messages" }
-        : { ...urlOptions(this.url), path: "/messages" };
+        ? { socketPath: this.socketPath, path }
+        : { ...urlOptions(this.url), path };
       const req = http.request(
         {
           ...opts,
-          method: "POST",
+          method,
           headers: {
-            "content-type": "application/json",
-            "content-length": Buffer.byteLength(body),
+            ...(body === undefined
+              ? {}
+              : {
+                  "content-type": "application/json",
+                  "content-length": Buffer.byteLength(body),
+                }),
             ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
           },
         },
@@ -176,14 +246,10 @@ export class InboxClient {
           res.on("data", (x) => chunks.push(x));
           res.on("end", () => {
             try {
-              const result = JSON.parse(Buffer.concat(chunks));
-              if (res.statusCode >= 300)
-                reject(
-                  new Error(
-                    result.error || result.reason || `HTTP ${res.statusCode}`,
-                  ),
-                );
-              else resolve(result);
+              resolve({
+                status: res.statusCode,
+                result: JSON.parse(Buffer.concat(chunks)),
+              });
             } catch (e) {
               reject(e);
             }
@@ -191,7 +257,7 @@ export class InboxClient {
           res.on("error", reject);
         },
       );
-      req.setTimeout(this.timeoutMs, () =>
+      req.setTimeout(timeoutMs, () =>
         req.destroy(new Error("Inbox request timed out")),
       );
       req.on("error", reject);

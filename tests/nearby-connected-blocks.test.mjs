@@ -156,9 +156,9 @@ test("head origin uses observed eye height or labels the entity-height approxima
   assert.deepEqual(
     observedHeadCell({ position: { x: 0, y: 64.3, z: 0 }, height: 1.8 }),
     {
-      position: { x: 0, y: 66, z: 0 },
-      height: 1.8,
-      source: "entity.height approximation",
+      position: { x: 0, y: 65, z: 0 },
+      height: 1.62,
+      source: "entity.height - 0.18 approximation",
     },
   );
   assert.equal(observedHeadCell({ position: origin }).position, null);

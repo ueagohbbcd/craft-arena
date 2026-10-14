@@ -1,6 +1,6 @@
 import { connectBot } from "../bot-sdk/index.mjs";
-import { snapshotFromBot } from "../world-visual/index.mjs";
-import { captureOpeningComposite } from "../world-visual/opening.mjs";
+import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
+import { captureOpeningComposite } from "../world-visual/prismarine.mjs";
 
 export function inside(position, bounds) {
   return (
@@ -85,7 +85,6 @@ export function createOpeningViews({
       const result = await render(snapshot, {
         layout: stage,
         position,
-        textured: true,
       });
       if (closed) return;
       if (stage === "course") {
@@ -111,8 +110,7 @@ export function createOpeningViews({
       if (stage === "course" && attempts.course >= 3) close();
       if (initial)
         return {
-          message:
-            "Opening image unavailable; use the visual tools when needed.",
+          message: `Opening image unavailable; run node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" when a picture is needed, then read its imagePath.`,
         };
     }
   }

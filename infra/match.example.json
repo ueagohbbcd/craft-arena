@@ -1,10 +1,42 @@
 {
-  "id":"operator-map-test",
-  "game":"race-of-wool",
-  "map":{"id":"OPERATOR_SUPPLIED_MAP","version":"OPERATOR_SELECT_VERSION","sha256":"0000000000000000000000000000000000000000000000000000000000000000"},
-  "durationMs":1800000,
-  "teams":[{"id":"red"},{"id":"blue"}],
-  "participants":[{"id":"red1","team":"red"},{"id":"blue1","team":"blue"}],
-  "rules":{"objectives":["wool-a","wool-b","wool-c"],"winner":"first-team-all-objectives","onTimeout":"draw"},
-  "versions":{"participantImage":"OPERATOR_SELECT_DIGEST","bridge":"OPERATOR_SELECT_COMMIT"}
+  "id": "operator-map-test",
+  "session": {
+    "kind": "match",
+    "durationMs": 1800000,
+    "onTimeout": "draw"
+  },
+  "judge": {
+    "type": "datapack",
+    "pollMs": 500
+  },
+  "briefing": {
+    "text": "OPERATOR_REPLACE_WITH_SHORT_RULES_TEXT"
+  },
+  "map": {
+    "id": "OPERATOR_SUPPLIED_MAP",
+    "version": "OPERATOR_SELECT_VERSION",
+    "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+  },
+  "teams": [
+    {
+      "id": "red"
+    },
+    {
+      "id": "blue"
+    }
+  ],
+  "participants": [
+    {
+      "id": "red1",
+      "team": "red"
+    },
+    {
+      "id": "blue1",
+      "team": "blue"
+    }
+  ],
+  "versions": {
+    "participantImage": "OPERATOR_SELECT_DIGEST",
+    "bridge": "OPERATOR_SELECT_COMMIT"
+  }
 }

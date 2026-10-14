@@ -2,12 +2,12 @@ import { createRequire, Module } from "node:module";
 import { readFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { InboxClient } from "../inbox/index.mjs";
-import { observeCombat } from "./combat-observation.mjs";
+import { reportCombat } from "./combat-report.mjs";
 const require = createRequire(import.meta.url);
 /** Local plugin adaptation. No participant code is sent to the authority. */
 export function loadSelectedPlugins(
   bot,
-  { pvp = true, combatObservation = true, inbox } = {},
+  { pvp = true, combatReport = true, inbox } = {},
 ) {
   const filename = require.resolve("mineflayer-pathfinder");
 
@@ -32,7 +32,7 @@ export function loadSelectedPlugins(
   // Keep optimized execution nodes (and their shiftable work lists) separate.
   const patched = (
     source.slice(0, start) +
-    "  function fullStop () { bot.stopAndCenter() }" +
+    "  function fullStop () { bot.stop() }" +
     source.slice(end)
   ).replace(
     pathHeader,
@@ -99,15 +99,15 @@ export function loadSelectedPlugins(
   bot.loadPlugin(m.exports.pathfinder);
   if (pvp) {
     bot.loadPlugin(require("mineflayer-pvp").plugin);
-    if (combatObservation) {
+    if (combatReport) {
       inbox ??=
         (process.env.MC_INBOX_SOCKET || process.env.MC_INBOX_URL) &&
         process.env.MC_INBOX_SESSION
           ? new InboxClient()
           : null;
-      bot.combatObservation = observeCombat(bot, {
+      bot.combatReport = reportCombat(bot, {
         inbox,
-        ...(typeof combatObservation === "object" ? combatObservation : {}),
+        ...(typeof combatReport === "object" ? combatReport : {}),
       });
     }
     // PvP 1.3.2 still subscribes to the legacy singular spelling.

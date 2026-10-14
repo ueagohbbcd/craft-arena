@@ -14,10 +14,11 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
 import {
-  createResidentRecovery,
+  createRequestRecovery,
   observeRpcOutput,
-} from "./resident-recovery.mjs";
+} from "./request-recovery.mjs";
 import { createOpeningViews } from "./opening-views.mjs";
+import { createMatchReader } from "./platform-messages.mjs";
 
 const extensionPath = fileURLToPath(new URL("./index.mjs", import.meta.url));
 const projectRoot = resolve(dirname(extensionPath), "../..");
@@ -28,9 +29,13 @@ const positiveInteger = (value, fallback) => {
   return n;
 };
 
-/** Keep arena guidance once without disabling Pi's user/project context discovery. */
+/**
+ * Append the participant prompt (examples/PROMPT.md) once, without disabling
+ * Pi's own discovery of user/project context files. The repository's root
+ * AGENTS.md is the developer guide, not this prompt.
+ */
 export async function arenaGuidanceArgs({ cwd, agentDir, args = [] }) {
-  const guidance = join(projectRoot, "AGENTS.md");
+  const guidance = join(projectRoot, "examples", "PROMPT.md");
   if (!args.includes("--no-context-files") && !args.includes("-nc")) {
     const { loadProjectContextFiles } =
       await import("@earendil-works/pi-coding-agent");
@@ -45,6 +50,51 @@ export async function arenaGuidanceArgs({ cwd, agentDir, args = [] }) {
       if ((await realpath(file.path).catch(() => null)) === target) return [];
   }
   return ["--append-system-prompt", guidance];
+}
+
+const briefingKeys = [
+  "kind",
+  "sessionId",
+  "matchId",
+  "participantId",
+  "teamId",
+  "username",
+  "teams",
+  "game",
+  "map",
+  "rules",
+  "objectives",
+  "publicGoalPositions",
+  "startedAt",
+  "durationMs",
+];
+
+/**
+ * Opening prompt with the session briefing: public session fields, briefing
+ * text, public data and the mode instructions, all from the trusted host.
+ * A legacy host sends `briefing` as a plain string; treat it as the text.
+ */
+export function openingPromptText(initialPrompt, host) {
+  if (!host) return initialPrompt;
+  const fields = Object.fromEntries(
+    briefingKeys
+      .filter((key) => host[key] !== undefined)
+      .map((key) => [key, host[key]]),
+  );
+  const briefing =
+    typeof host.briefing === "string"
+      ? { text: host.briefing }
+      : host.briefing && typeof host.briefing === "object"
+        ? host.briefing
+        : {};
+  let message = `${initialPrompt}\n\nTrusted host session briefing (configuration data):\n${JSON.stringify(fields)}`;
+  if (typeof briefing.text === "string" && briefing.text)
+    message += `\n\nSession briefing text (from the trusted session host):\n${briefing.text}`;
+  if (briefing.public && typeof briefing.public === "object")
+    message += `\n\nPublic session data (from the trusted session host):\n${JSON.stringify(briefing.public)}`;
+  if (typeof briefing.prompt === "string" && briefing.prompt.trim())
+    message += `\n\nMode instructions (from the trusted session host; they describe this session's mode and rules):\n${briefing.prompt.trim()}`;
+  return message;
 }
 
 /** Generate a private Pi profile containing an environment reference, never the bearer token. */
@@ -144,11 +194,7 @@ export async function preparePiProfile({
     agentDir,
     modelId: model.id,
     models,
-    extensions: [
-      extensionPath,
-      join(projectRoot, "packages/world-visual/pi-extension.mjs"),
-      ...extras,
-    ],
+    extensions: [extensionPath, ...extras],
   };
 }
 
@@ -163,8 +209,8 @@ export async function launchPi({
   const packageRoot = resolve(dirname(entry), "..");
   const resident = args.length === 0;
   const waitForMatch = resident && env.ARENA_WAIT_FOR_MATCH === "1";
-  const bridgeUrl = env.ARENA_BRIDGE_URL || env.MC_BRIDGE_URL;
-  const token = env.ARENA_BRIDGE_TOKEN || env.MC_BRIDGE_TOKEN;
+  const bridgeUrl = env.ARENA_BRIDGE_URL;
+  const token = env.ARENA_BRIDGE_TOKEN;
   const startTimeoutMs = positiveInteger(env.ARENA_START_TIMEOUT_MS, 600000);
   if (waitForMatch && (!bridgeUrl || !token))
     throw new Error(
@@ -178,7 +224,7 @@ export async function launchPi({
   });
   const initialPrompt =
     env.ARENA_PROMPT ||
-    "Participate in the Minecraft arena using the local bridge and your available tools. Write and run your own programs as useful. Use the participant inbox for observations and urgent judgment. Continue pursuing the arena objective until it is complete or the host ends the match.";
+    "Participate in the Minecraft session using the local bridge and your available tools. Write and run your own programs as useful. Use the participant inbox for observations and urgent judgment. Follow the session briefing and keep going until its goal is complete or the host ends the session.";
   const cliArgs = [
     "--provider",
     "arena",
@@ -202,8 +248,8 @@ export async function launchPi({
     PI_CODING_AGENT_SESSION_DIR: sessionDir,
     ...(resident
       ? {
-          MC_INBOX_IDLE_URGENT: env.MC_INBOX_IDLE_URGENT ?? "1",
-          ARENA_RUNTIME_RESIDENT: "1",
+          ARENA_WAKE_ON_URGENT: env.ARENA_WAKE_ON_URGENT ?? "1",
+          ARENA_CONTINUOUS_SESSION: "1",
         }
       : {}),
   };
@@ -227,6 +273,8 @@ export async function launchPi({
   let matchTimer;
   let checkingMatch = false;
   let initialSent = false;
+  // Without the wait, the first prompt is already on its way; the poll must not send it.
+  let initialQueued = !waitForMatch;
   let preparedOpening;
   let openingPrepared = false;
   let pendingCourseView;
@@ -259,24 +307,15 @@ export async function launchPi({
   process.on("SIGINT", interrupt);
   if (resident) {
     child.stdin.on("error", () => {}); // Startup failure is reported by the child error/exit event.
-    const readMatch = async () => {
-      try {
-        const response = await fetch(
-          `${bridgeUrl.replace(/\/$/, "")}/v1/match`,
-          {
-            headers: { authorization: `Bearer ${token}` },
-            signal: AbortSignal.timeout(1000),
-          },
-        );
-        if (!response.ok) return undefined;
-        const body = await response.json();
-        return body.ok === true ? body.result : undefined;
-      } catch {
-        return undefined;
-      }
-    };
+    // Shared validated reader: /v1/session with the /v1/match fallback.
+    const readMatch = createMatchReader({
+      url: bridgeUrl,
+      token,
+      cacheMs: 0,
+      timeoutMs: 1000,
+    });
     if (bridgeUrl && token) {
-      recovery = createResidentRecovery({
+      recovery = createRequestRecovery({
         send(command) {
           if (stopping || child.stdin.destroyed)
             throw new Error("Resident RPC input unavailable");
@@ -305,29 +344,7 @@ export async function launchPi({
     const sendInitial = async (host) => {
       if (initialSent || stopping) return;
       initialSent = true;
-      const briefing = host
-        ? Object.fromEntries(
-            [
-              "matchId",
-              "participantId",
-              "teamId",
-              "teams",
-              "game",
-              "map",
-              "rules",
-              "objectives",
-              "publicGoalPositions",
-              "briefing",
-              "startedAt",
-              "durationMs",
-            ]
-              .filter((key) => host[key] !== undefined)
-              .map((key) => [key, host[key]]),
-          )
-        : undefined;
-      let message = briefing
-        ? `${initialPrompt}\n\nTrusted host match briefing (configuration data):\n${JSON.stringify(briefing)}`
-        : initialPrompt;
+      let message = openingPromptText(initialPrompt, host);
       const view = openingPrepared
         ? preparedOpening
         : await openingViews.capture(host, true);
@@ -350,14 +367,31 @@ export async function launchPi({
         `${JSON.stringify({ id: "arena-initial-prompt", type: "prompt", message, images: view?.images })}\n`,
       );
     };
-    if (!waitForMatch) sendInitial();
+    if (!waitForMatch) {
+      // Matches without the wait start at once with no briefing, as before. An
+      // open session is already running, so include its briefing when the
+      // bridge answers promptly.
+      if (bridgeUrl && token)
+        readMatch()
+          .then((host) =>
+            sendInitial(
+              host?.kind === "open" && host.state === "running"
+                ? host
+                : undefined,
+            ),
+          )
+          .finally(() => {
+            initialQueued = false;
+          });
+      else sendInitial();
+    }
     if (bridgeUrl && token) {
       const checkMatch = async () => {
         if (stopping || checkingMatch) return;
         if (!initialSent && Date.now() - startupAt >= startTimeoutMs) {
           startupTimedOut = true;
           process.stderr.write(
-            "Arena start wait timed out before a running match was observed.\n",
+            "Arena start wait timed out before a running session was observed.\n",
           );
           shutdown();
           return;
@@ -379,7 +413,11 @@ export async function launchPi({
                   "Arena ended before the initial prompt was submitted.\n",
                 );
               shutdown();
-            } else if (host.state === "running" && !initialSent)
+            } else if (
+              host.state === "running" &&
+              !initialSent &&
+              !initialQueued
+            )
               await sendInitial(host);
             else if (host.state === "running" && initialSent) {
               pendingCourseView ??= await openingViews.capture(host);

@@ -10,7 +10,7 @@ import {
   ReferenceCostLedger,
 } from "../packages/budget-gateway/src/index.mjs";
 
-for (const suffix of ["", ".deepseek"]) {
+for (const suffix of [".red", ".blue"]) {
   const configUrl = new URL(
     `../infra/windows-local/budget${suffix}.json`,
     import.meta.url,

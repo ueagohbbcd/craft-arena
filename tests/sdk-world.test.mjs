@@ -8,7 +8,7 @@ import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
 import {
   snapshotFromBot,
   snapshotFromExplored,
-} from "../packages/world-visual/index.mjs";
+} from "mineflayer-world-memory/live.mjs";
 const require = createRequire(import.meta.url);
 const registry = require("prismarine-registry")("1.21.1");
 const Chunk = require("prismarine-chunk")(registry);
@@ -115,7 +115,6 @@ test("SDK preloads real loaded chunks and native Pathfinder plans beyond the old
   assert.ok(
     explored.blocks.every((b) => !b.stale && Number.isFinite(b.observedAt)),
   );
-  assert.equal(bot.knownBlockAt(new Vec3(40, 20, 4)).block.name, "air");
   assert.equal(
     bot.blockAt(new Vec3(64, 0, 4)),
     null,
@@ -239,11 +238,10 @@ test("goal example reports nonzero failure for native empty noPath and only repo
   };
   delete env.MC_INBOX_SOCKET;
   const run = (args) =>
-    promisify(execFile)(
-      process.execPath,
-      ["examples/plugin-goal.mjs", ...args],
-      { env, timeout: 5000 },
-    );
+    promisify(execFile)(process.execPath, ["examples/navigate.mjs", ...args], {
+      env,
+      timeout: 5000,
+    });
   await assert.rejects(run(["10", "1", "4"]), (error) => {
     assert.equal(error.code, 1);
     const report = JSON.parse(error.stderr.trim());

@@ -1,124 +1,193 @@
-# Operator deployment template
+# 运营部署指南
 
-## Windows local deployment
+这份指南写给部署和主持比赛的运营者，按操作顺序排列。Windows 本机部署有自己的脚本，见 [windows-local/README.md](windows-local/README.md)；陪玩部署（独立游戏桥 + 一个参赛容器，接入普通服务器）见 [companion/README.md](companion/README.md)；本页讲通用的 Docker Compose 部署，以及两种部署共用的配置、录像和检查。架构说明见 [README](../README.md)。
 
-Use PowerShell 7, Node.js 24+, and running Docker Desktop with Linux containers. Install project dependencies with `npm ci`. The local Compose template provides two participants, Codex and DeepSeek routes, isolated team work/Git volumes, and the trusted game/model services.
+## 部署由哪些服务组成
 
-Prepare an unpacked Minecraft world containing `level.dat` and an operator-reviewed match JSON. The world directory can have any name. For a Direct Fire match, `infra/windows-local/match.direct-fire.json` is an example; another map needs its own goals, spawns, lifecycle commands and briefing. Keep the template's red1/blue1 bridge names, ports and tokens unless you also update Compose and gateway membership. Match duration comes from this JSON.
+实战模板是 [`compose.live.yaml`](compose.live.yaml)：
 
-After reading and accepting the [Minecraft EULA](https://www.minecraft.net/eula):
+| 服务                                     | 作用                                                                                                      | 网络                            |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `minecraft`                              | Minecraft 1.21.1 Fabric 服务器，带 ServerReplay 录像模组                                                  | `backend`                       |
+| `arena-host`                             | 比赛主控：准备、开赛、判定、结果、录像；每个参赛者的游戏桥也跑在这个进程里（red1 在 8080，blue1 在 8082） | `backend`、`red1`、`blue1`      |
+| `budget-gateway`                         | 预算网关：参赛者调用模型的唯一入口，持有上游 API key                                                      | `red1`、`blue1`、`model-egress` |
+| `participant-red1` / `participant-blue1` | 参赛容器：Pi、Pi 扩展、默认脚本和参赛者自己的程序                                                         | 各自的 `red1` / `blue1`         |
 
-```powershell
-./scripts/initialize-windows-arena.ps1 -WorldDir 'C:\maps\my-prepared-world' -MatchConfig 'C:\maps\match.live.json' -AcceptEula
-./scripts/codex-login.ps1 -AuthFile runtime/deploy/auth/auth.json
-$env:DEEPSEEK_API_KEY = 'your-private-key'
-./scripts/windows-arena.ps1 build
-./scripts/windows-arena.ps1 up
-./scripts/windows-arena.ps1 status
-./scripts/windows-arena.ps1 start
+- `backend`、`red1`、`blue1` 都是 `internal: true`，没有外网路由。只有 `model-egress` 能出网，只有预算网关接在上面。
+- 不映射任何宿主机端口。Minecraft 只在 `backend` 上，参赛容器到不了。
+- 所有服务以 UID 1000 运行，去掉全部 capability，`no-new-privileges`，并有 CPU／内存／进程数上限（见[资源上限](#资源上限)）。
+- 参赛容器拿不到上游 key、Docker socket、宿主机网络和其他参赛者的令牌。
+- 每队一个工作卷（`red-work`）和一个队伍 Git 卷（`red-git`），对方队伍挂不到。
+
+[`compose.yaml`](compose.yaml) 只用于单独调试各组件，见[最后一节](#单组件调试composeyaml)。
+
+运营者自己负责：地图和比赛配置、Minecraft EULA、RCON 密码、所有令牌、上游 API key、模型与价格的选择，以及比赛开始和结束。
+
+## 准备 Minecraft 服务器镜像与地图
+
+1. 阅读并接受 [Minecraft EULA](https://www.minecraft.net/eula)。
+2. 准备服务器构建目录。[`minecraft-download.json`](minecraft-download.json) 是唯一的下载清单：Minecraft 1.21.1、Fabric 加载器和安装器、各库的校验值、ServerReplay 及其依赖。脚本先校验大小和摘要，再生成构建目录：
+
+   ```sh
+   node scripts/prepare-minecraft-server.mjs runtime/server
+   docker compose --env-file .env -f infra/compose.live.yaml build minecraft
+   ```
+
+   构建时需要联网；比赛时服务器不下载任何东西。镜像默认叫 `craft-arena-minecraft:local`。`MC_SERVER_BUILD_CONTEXT` 可换构建目录；已有审核过的镜像时设 `MC_SERVER_IMAGE` 并用 `--no-build` 启动，它必须支持下面的录像挂载，否则关掉录像。
+
+3. 把解压好的世界（含 `level.dat`）、`server.properties`（开启 RCON 并设私有密码，关闭命令方块）和 `eula.txt` 放进 `world` 卷（容器内 `/data`）。参赛 bot 不能是服务器管理员（OP）。
+4. 复制 [`match.live.template.json`](match.live.template.json) 为 `infra/match.live.json`，填好所有 `OPERATOR_...` 占位值：地图、参赛者、目标方块坐标（`judge.goals`）、准备／开赛／结束时执行的 RCON 命令和期望回应、裁判 bot（`judge.observer`）的位置与视距（要能加载所有目标），以及给参赛者的 `briefing.text`。`session.durationMs` 决定比赛时长。比赛配置的字段说明见 [packages/arena/README.md](../packages/arena/README.md)。
+   - 模板是羊毛竞速，用 `monument-blocks` 判定器（裁判 bot 看纪念碑方块）。规则由服务器上的数据包判定时，见下文[玩法与判定器](#玩法与判定器)。
+   - 玩法提示 `briefing.promptFile` 相对配置文件解析；[`compose.live.yaml`](compose.live.yaml) 把 [`maps/`](maps/) 挂到 `/config/maps`。文件不存在时主控拒绝启动。
+   - `live.minecraft.version` 必须与下载清单的 `minecraftVersion` 一致。
+   - 目标坐标默认不告诉参赛者；只有设 `judge.publishGoalPositions: true` 才公开。不要把秘密写进 `briefing`。
+   - 游戏内聊天默认开启（包括 `/tell`、`/teammsg` 这类普通命令）。要关掉，在参赛者的 `bridge` 里设 `allowChat: false`。
+   - 参赛者 ID、游戏桥端口和令牌必须和 Compose 文件、预算文件一致。
+   - 旧格式的配置（`game: "race-of-wool"`、`rules`、`live.goals`、`live.briefing`）照样能用，主控会自动转换并打印弃用提示。
+
+### 玩法与判定器
+
+比赛主控只管会话：准备、开赛、时限、掉线、结束。谁赢由判定器决定（`judge.type`），设计见 [docs/GAME-MODES.md](../docs/GAME-MODES.md)：
+
+| `judge.type`      | 谁判定                                                                                                                                                        |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `monument-blocks` | 可信的裁判 bot 轮询纪念碑方块。只用于羊毛竞速这类已有地图                                                                                                     |
+| `datapack`        | 服务器上的数据包或插件，按服务器协议 v1 通过 RCON 交换 `arena:config` 和 `arena:session`。示例见 [datapacks/arena-example](datapacks/arena-example/README.md) |
+| `none`            | 不判定，只用于 `open` 会话                                                                                                                                    |
+
+不比赛、只想让模型在普通服务器上陪玩时，不需要比赛主控：游戏桥自己提供一个 `open` 会话，部署模板见 [companion/README.md](companion/README.md)。
+
+## 模型与预算配置
+
+模型只通过 OpenAI 兼容的 `/chat/completions` 接口访问，并且必须经过预算网关。网关怎样计费、排队和反馈，见[预算网关 README](../packages/budget-gateway/README.md)。
+
+| 文件                                                             | 内容                                                                                                                                          | 谁能读                     |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| [`model.example.json`](model.example.json)                       | 公开的模型描述：`id`、`api`、`reasoning`、`input`、`contextWindow`、`maxOutputTokens`、`requestTimeoutMs`、可选 `compaction`。不含 key 和价格 | 网关和参赛容器（只读挂载） |
+| [`budget.cash.live.example.json`](budget.cash.live.example.json) | 网关配置：上游地址、key 的环境变量名、每个参赛者和队伍的速率与并发、价格表、比赛状态检查                                                      | 只有网关                   |
+| `.env`（从 [`operator.env.example`](operator.env.example) 复制） | RCON 密码、上游 key、各参赛者的模型令牌和游戏桥令牌、资源上限                                                                                 | 只有 Compose               |
+
+步骤：
+
+1. 在 `model.example.json` 里写定模型。模型的上下文和输出上限只改这一个文件，网关和 Pi 都读它。
+2. 在预算文件里设 `upstream.url`（任意 OpenAI 兼容的 chat completions 地址）和 `referenceCost.models` 里这个模型的价格。模板里的 GPT-4.1 价格只是示例。
+3. 给每个参赛者和队伍填 `cashRateLimit`：每个窗口（默认 60 秒）允许消耗的参考金额，不是总额。占位值会让网关启动失败，这是有意的。`tokens`、`tpm` 保持 `null`。
+4. 在 `.env` 里填 `MODEL_UPSTREAM_KEY` 和每个令牌。令牌要唯一、难猜，不要提交到仓库，两队的值不能相同。
+5. 要换预算文件，设 `BUDGET_CONFIG_PATH`。只按 token 计量的模板是 `budget.live.example.json`。
+
+**OAuth。** 本仓库不含任何 OAuth 转 API 的代码。可选做法：
+
+- 直接用 API key。
+- 运营者自己运行一个外部的 OAuth 转 API 服务，它对外提供 OpenAI 兼容接口，就把它的地址当作 `upstream.url`，和其他上游一样配置。
+- 让容器里的 Pi 自己登录。这需要自定义参赛容器的启动命令和出网路由，并且请求不再经过网关，平台无法计量；对应的计量方案在[路线图](../docs/ROADMAP.md)里。
+
+## 实战部署
+
+以下命令都在仓库根目录执行，`C` 代表 `docker compose --env-file .env -f infra/compose.live.yaml`。
+
+1. 检查合成后的配置：`C config`。输出里有密钥，只在私下查看。
+2. 构建镜像：`C build`。参赛镜像会克隆离线参考仓库（见下文），构建机需要能访问 GitHub。
+3. 启动服务器和比赛主控：
+
+   ```sh
+   C up -d minecraft
+   C up -d arena-host
+   C logs -f arena-host   # 等到 {"state":"prepared"} 和 waiting-for-operator-start
+   ```
+
+   主控启动时如果发现上一场留下的开赛标记 `/control/start`，会拒绝准备。主控从启动起就写 `/results/match-result.json`，里面有本次 `runId`，所以旧结果不会被当成当前结果。
+
+4. 初始化每队的 Git 仓库（只需一次）：
+
+   ```sh
+   C run --rm --no-deps participant-red1 sh -c 'test -d /team-git/project.git || git init --bare /team-git/project.git'
+   C run --rm --no-deps participant-blue1 sh -c 'test -d /team-git/project.git || git init --bare /team-git/project.git'
+   ```
+
+5. 启动网关和参赛者：`C up -d`。参赛容器设了 `ARENA_WAIT_FOR_MATCH=1`：启动器加载好工具后等待，比赛开始前不发开局提示。等待上限是 `ARENA_START_TIMEOUT_MS`（默认 600000，即 10 分钟），超时后参赛容器退出；要等更久，在 Compose 文件里给参赛容器设这个变量（Windows 模板设为 86400000）。
+6. 开赛：创建开赛标记。
+
+   ```sh
+   C exec arena-host touch /control/start
+   ```
+
+   主控收到标记、执行完开赛命令后才放行游戏动作。
+
+参赛容器在比赛中退出不会自动结束比赛；Windows 部署有一个监督脚本做这件事（见 [windows-local/README.md](windows-local/README.md)）。通用部署要用同样的功能，可以在宿主机运行 `node scripts/supervise-participants.mjs DEPLOYMENT_DIR`，但它按 Windows 部署目录的布局（`compose.yaml`、`.env`、`.proxy.env`、`results/`、`control/`）读写文件。
+
+### 资源上限
+
+`.env` 中的 `ARENA_CPU_LIMIT`（默认 2.0）、`ARENA_MEMORY_LIMIT`（2g）、`ARENA_PIDS_LIMIT`（256）作用于除 Minecraft 外的所有服务；Minecraft 用 `MC_MEMORY_LIMIT`（3g）。参赛镜像带 Chromium，用于开局图像和截图脚本，渲染会占用参赛容器的 CPU 和内存；对所有参赛者设同样的上限。
+
+### 离线 Mineflayer 参考仓库
+
+参赛镜像在 `$ARENA_REFERENCE_ROOT`（`/opt/mf-reference`）放了 `mineflayer`、`mineflayer-pathfinder`、`mineflayer-pvp` 的完整 Git 克隆，参赛者可以离线读源码和文档。版本固定在 `scripts/mf-reference.json`，构建时检出并核对包名和版本，任何一个失败都会让构建失败。升级这三个 npm 依赖时同步更新这个文件。
+
+## 结束比赛
+
+- **自然结束**（目标完成或时间到）：主控写入结果、断开游戏 bot，然后继续运行，只为告诉参赛者"比赛已结束"。拿到结果后再停它。
+- **提前结束**：向主控发 `SIGTERM`。它会关闭游戏动作、执行结束命令、停止并保存录像、断开 bot。
+
+```sh
+C stop arena-host                              # 发 SIGTERM，最多等 ARENA_HOST_STOP_GRACE_PERIOD（默认 180s）
+C exec minecraft cat /results/match-result.json  # 查看结果、replay.status 和 stopConfirmed
+C stop participant-red1 participant-blue1 budget-gateway
+C stop minecraft                               # 最后停，且只在录像已保存之后
 ```
 
-For existing deployments created by the old initializer, stop services and rename the saved original world directory to `map-original/world` before using the new reset command. Copy the new public model files and updated Compose/budget/adapter configuration into the deployment, preserving private `.env` and credentials, then rebuild images.
+顺序很重要：先停主控，确认结果里的 `replay.status` 是 `saved`（或录像已关闭）和 `stopConfirmed`，再停 Minecraft。录像还在保存时不要对整个项目 `down`。强行杀掉主控进程时，结束命令和清理不一定执行过。
 
-Initialization copies the selected world to `map-original/world` and `minecraft-data/world`, and the selected match file to `match.live.json`. It never extracts an archive, guesses a world folder or overwrites an existing deployment. Review the generated `minecraft-data/server.properties` for the map; the defaults disable command blocks and use the template's private RCON ports. Worlds, credentials and results stay under ignored `runtime/deploy` with a restricted Windows ACL. An alternate `-DeploymentDir` must be passed consistently, including its auth file to login. The template uses Compose project `craft-arena-local`: operate one deployment at a time on this host.
+预算网关没有总金额上限。运营者从网关日志看累计参考金额（`C logs budget-gateway` 中的 `model-usage` 行），需要时用上面的方式结束比赛。实战模板开启了比赛状态检查，所以比赛结束后网关拒绝新的调用；已经发出的调用仍会完成并计费。
 
-`infra/minecraft-download.json` is the single server/runtime download manifest: Minecraft 1.21.1, Fabric loader/installer, exact library checksums, ServerReplay and its Fabric API/Kotlin dependencies. `-ServerDownload PATH` selects another reviewed manifest with the same schema; the match Minecraft version must match `minecraftVersion`. `-ServerJar PATH` supplies the matching verified Mojang JAR locally; mods and the installer still need downloading. Both deployment paths use `scripts/prepare-minecraft-server.mjs` and `infra/Dockerfile.minecraft`. The helper verifies sizes/digests before creating a fresh build context; the image build runs the official installer and checks the exact Fabric library set. Build the image with network access before competition; no server/runtime downloads are needed on the isolated backend. Node downloads respect an explicitly configured Node environment proxy; Docker/Java build proxy configuration is separate. No version-specific hash is embedded in the scripts.
+结果文件在 `match-results` 卷：
 
-Model capabilities live in `model.codex.json` / `model.deepseek.json`; budget files hold trusted rates and price information, and adapter files hold provider routing. Review them before competition. A DeepSeek key present at initialization is saved privately in `.env`; otherwise supply `DEEPSEEK_API_KEY` in the shell when operating Compose. Credentials are not needed merely to prepare the deployment. Resource defaults are shared within each Compose template. Windows deployments accept `ARENA_CPU_LIMIT`, `ARENA_MEMORY_LIMIT`, `ARENA_PIDS_LIMIT`, and the separate `MC_MEMORY_LIMIT` in their `.env` or shell, just like the general live template. Existing deployments need the updated `compose.yaml` copied in while stopped to gain these overrides.
+| 路径                                              | 内容                       |
+| ------------------------------------------------- | -------------------------- |
+| `/results/match-result.json`                      | 当前一场的状态和结果       |
+| `/results/runs/<runId>.json`                      | 每场的最终结果，不会被覆盖 |
+| `/results/runs/<runId>/replays/<username>/*.mcpr` | 每个参赛者的录像           |
 
-`up` prepares the world and launches agents waiting for the operator; `start` releases the prepared match. `stop` asks the trusted host to end and save results before stopping other services. `logs` and `status` inspect the deployment.
+导出一场：`C cp arena-host:/results/runs/<runId> ./saved-run`，并同样复制 `/results/runs/<runId>.json`。
 
-`up` and `start` also launch a hidden host-side runtime supervisor and require its current-run `watching` status. It discovers all `participant-*` services, including expanded four-player deployments. A participant container exit before normal match shutdown ends the host with `runtime-fault`; evidence is saved in `runtimeError`. The supervisor writes `runtime-supervisor.json` and `runtime-supervisor.err.log` in the deployment directory; Docker inspection outages produce `degraded` status and are retried. It exits automatically after the match ends. To supervise an existing bind-mounted deployment directly, run `node scripts/supervise-participants.mjs runtime/deploy`; this reads its `compose.yaml`, `.env`, `.proxy.env`, and current result, and writes only the operator-owned control/status files. Rebuild the participant and trusted images before the next match. Existing host configurations with `/control/start` use `/control/runtime-fault.json` automatically; new initialization records `live.runtimeFaultSignalFile` explicitly. Preserve private configuration when updating an existing deployment.
+### 下一场之前
 
-`reset` stops services, archives the previous world/current result/start marker under `history/<timestamp-id>`, restores `map-original/world`, and removes stopped host/gateway/participant containers to start fresh in-memory state. Each participant's `.pi/sessions` and `match-artifacts` move to `.arena-history/<timestamp-id>` inside its work volume. Put map-specific generated files in `/workspace/match-artifacts`; arbitrary files elsewhere are deliberately left alone. Reusable code, other Pi settings and team Git survive reset. Old traces remain available in the archive, but active session/artifact directories start fresh. Run `up` for the next match; when changing maps, use a new deployment or replace both the saved original world and match configuration while stopped.
+- 删掉 `/control/start`，否则主控拒绝准备。
+- 重启预算网关。它的账本只在内存里，不重启会带着上一场的计数。
+- 按需要恢复地图。通用部署没有重置脚本；Windows 的 `reset` 做了什么见 [windows-local/README.md](windows-local/README.md)。
+- 参赛者工作区里上一场的代码会保留下来。新开局时清空工作区还在[路线图](../docs/ROADMAP.md)上。
 
-The trusted host writes current state and run ID to `results/match-result.json` from startup, so an earlier result cannot appear current. Final results are also saved under `results/runs/<runId>.json`; reset preserves these run archives.
+## 比赛录像
 
-OpenAI traffic uses an authenticated Windows relay on loopback port 18181. Every new CONNECT tunnel resolves the current Windows system proxy (including direct mode); changing the proxy does not require editing configuration or restarting containers. Existing connections retain their route until closed. Direct mode still requires working direct access to the provider. The relay permits only `chatgpt.com:443` and `auth.openai.com:443`, keeps TLS end-to-end, and logs no credentials. Only the trusted Codex adapter receives its proxy credential. `up` starts the hidden relay; `stop` stops its recorded process. `proxy` repairs/restarts the relay and adapter when needed. Login reads the current system proxy separately when launched.
+实战比赛默认录像（`live.replay.enabled` 默认 `true`）。服务端的 ServerReplay 模组按参赛者分别录下发给这个玩家的数据包和区块，格式是 ReplayMod 的 `.mcpr`。它不录这个玩家没加载过的区域。
 
-The map template and actual deployment checks are described in [validation](../docs/VALIDATION.md). Full autonomous gameplay remains to be evaluated.
+- 关闭：在比赛配置里设 `live.replay.enabled: false`。使用不带该模组的服务器时必须关闭。
+- 主控通过私有挂载控制模组配置：准备时设定本场路径，开赛前逐个启动录像并确认，失败则拒绝开赛。模组自身的自动录像始终关闭，所以热身阶段不会被录下。
+- 结束时主控停止录像、等待写盘、读取文件元数据，写入结果的 `replay` 字段。`replay.status: saved` 表示文件已写完、元数据可读，不代表播放过。等待上限是 `live.replay.saveTimeoutMs`（默认 120000）；调大它时也把 `ARENA_HOST_STOP_GRACE_PERIOD` 调到比它更长。
+- 保存未确认时：保留 Minecraft 运行，查看服务器日志里的 `Successfully closed replay ... and saved to ...`，保留临时文件，确认所有文件后再停服务器。
+- 完整校验（可选，较慢）：`node scripts/verify-server-replay.mjs FILE.mcpr [MINECRAFT_VERSION]`，检查 ZIP CRC、数据包非空并计算 SHA-256。
+- 观看：在 Minecraft 1.21.1 Fabric 客户端安装 [ReplayMod](https://www.replaymod.com/download/)，把文件放进 `replay_recordings` 目录，用 Replay Viewer 打开。
+- 录像会暴露其他玩家、视线外的地形、聊天和背包。比赛期间保密，公开前审查。只有 Minecraft 和主控挂载结果目录，参赛容器看不到。
+- 没有自动清理。注意结果卷的磁盘空间，在服务停止时按自己的策略归档或删除旧录像。
 
-## Server-side match replays
+不用 Compose 部署主控时：安装 `unzip`，把结果路径传给 `live-cli.mjs`，设 `live.replay.configPath`（默认 `/replay-config/config.json`）为模组配置文件的实际路径，`live.replay.serverResultsDir`（默认 `/results`）为 Minecraft 看到的同一结果目录。这两个目录都不能在参赛者工作区里。
 
-Live matches record by default (`live.replay.enabled` defaults to `true`). Set it to `false` in the operator match JSON to opt out, including when deliberately using a vanilla/custom server without this mod. Existing deployments need a planned server stop, the new prepared Minecraft image, shared replay-config/results mounts, rebuilt trusted image, and a matching 1.21.1 protocol setting. Do not hot-install into an active match or reset its world. The standalone `compose.yaml` has no match host and does not automate recording.
+## 开赛前检查
 
-The host controls `config/ServerReplay/config.json` through the private replay-config mount. During preparation it disables stale recorders, sets a new run-specific path and an exact participant-name predicate, then reloads. Before releasing gameplay it starts each participant recorder explicitly and confirms a named start marker for every participant. Missing mod, rejected commands, or a missing recorder fail closed. The mod’s global auto-record flag remains false, including across its own autosaves, so a fresh server boot does not silently record warmup. This host already abandons matches on participant disconnect; automatic rejoin recording is unnecessary. Chunk-region and voice-chat recording are disabled; replay downloading through the Minecraft server is disabled. Mod player recorders capture the packets/chunks sent for each participant, including subsequent movement; they do not capture untouched/unloaded areas of the entire world.
+在目标宿主机上逐项确认，不要沿用别的机器的结论：
 
-At completion, timeout, abandonment, or operator shutdown, gameplay gates close, end commands run, global auto-recording is disabled, all active recorders are stopped/saved, and game connections close. The host waits for each participant's output and recording-cache cleanup, reads the ZIP directory and ReplayMod metadata, then stores file size/duration in the trusted result's `replay` field. `replay.status:saved` means asynchronous output was finalized and its basic metadata is readable; it does not claim visual playback was tested. A stop before gameplay has `ready` and no recording. Replay failures are explicit and make the CLI exit unsuccessful; `stopConfirmed` continues to describe game cleanup separately.
+- [ ] 从参赛容器里访问外网、模型厂商、Minecraft（`minecraft:25565`）都失败；只能访问自己的游戏桥和网关。也试 IPv6 和 `host.docker.internal`。
+- [ ] 用一个参赛者的令牌访问另一个参赛者的网关路由和游戏桥，被拒绝。每个参赛者能读到自己的两个令牌，这是预期的；绝不能给它别人的令牌。
+- [ ] 一队的容器挂不到另一队的工作卷和 Git 卷。
+- [ ] 资源上限生效（`docker stats`），且对两队相同。
+- [ ] UID 1000 能写 `/results` 和 `/control`。新建的卷由镜像设好权限；已有的卷保留原来的权限，需要自己检查。
+- [ ] 参赛 bot 不是 OP；`server.properties` 关闭了命令方块。
+- [ ] 在这张地图上跑一遍准备、开赛、目标判定、结束和重置，确认录像状态为 `saved`。
+- [ ] 换上真实模型 key 前，先跑一次冒烟比赛。
 
-Storage uses the existing run ID and archive:
+Docker 的 `internal: true` 去掉了普通的外网路由，但不能证明完全隔离（宿主机上的服务、IPv6、配置错误、后加的网络）。不要为了让参赛者用 Git 而给参赛容器接一个能出网的网络：队伍 Git 只用卷。确实需要外部访问时，用宿主机控制的白名单代理，并与模型凭据分开。
 
-- Current result: `results/match-result.json`
-- Immutable per-run result: `results/runs/<runId>.json`
-- Replay segments: `results/runs/<runId>/replays/<username>/*.mcpr`
-- Windows: under the private deployment directory; general Compose: in the `match-results` volume. Export a finished run with `docker compose --env-file .env -f infra/compose.live.yaml cp arena-host:/results/runs/<runId> ./saved-run` and also copy `/results/runs/<runId>.json`.
+运营配置（价格、速率、地图设置）留在 `infra/` 或独立的部署目录里，不要放进参赛者能看到的目录。参赛镜像只复制公开的代码、示例和文档；模型描述文件是唯一同时挂给参赛容器和网关的配置，里面没有 key 和价格。已做过的验收记录见 [docs/VALIDATION.md](../docs/VALIDATION.md)。
 
-Only Minecraft and the trusted host mount result/replay configuration. Participant containers, team Git, and participant-facing match status do not expose these files or paths. Replays can reveal other players, terrain outside a player's line of sight, chat and inventories: keep them private during competition and review access before publishing them.
+## 单组件调试：compose.yaml
 
-The host defaults to a 120-second save wait (`live.replay.saveTimeoutMs`); set a longer operator value for large recordings and increase `ARENA_HOST_STOP_GRACE_PERIOD` beyond it plus normal command/bot cleanup time. Compose defaults to 180 seconds for the host; Windows stop honors that grace instead of forcing a 30-second kill. If saving remains unconfirmed, Windows stop/reset leaves Minecraft running and refuses to discard recovery data. Inspect the final result and server logs (`Successfully closed replay ... and saved to ...`), preserve the run's temporary files/caches, and verify all ZIPs before manually stopping or resetting. Abrupt kills, exhausted disks, and server crashes can leave incomplete data; this is not guaranteed crash recovery. The mod's own recovery feature may salvage recordings after restart. Never label those files saved merely because RCON accepted `disable`.
-
-`node scripts/verify-server-replay.mjs FILE.mcpr [MINECRAFT_VERSION]` performs optional full ZIP CRC, nonempty packet-data and SHA-256 verification for acceptance tests or an archive audit. It defaults to the manifest’s game version. This potentially expensive full-file scan is not part of normal match shutdown.
-
-There is no automatic retention policy or newly imposed file-size/duration cap. Monitor free disk space in the trusted results volume, allow room for both temporary and compressed data, and archive/delete completed runs according to your policy while services are stopped. Reset preserves `results/runs`, including replay files. Recording/compression uses Minecraft host CPU, memory and storage I/O; account for it when sizing the existing server resource budget.
-
-To view a finished `.mcpr`, install a compatible Minecraft 1.21.1 Fabric client with [ReplayMod](https://www.replaymod.com/download/), copy the file into that client's `replay_recordings` folder and open Replay Viewer. Select the matching game version. These are ReplayMod recordings; the pinned ServerReplay version does not emit Flashback archives. The recorded view covers that participant's streamed chunks, so use another participant's segment for areas absent from the first. Official mod/source references and locked release URLs are in `infra/minecraft-download.json` and [ServerReplay](https://github.com/senseiwells/ServerReplay/tree/35eb442045aaf9f1911fe61a0f2884144c882d38).
-
-For a non-Compose host, install `unzip`, pass the desired result JSON path to `live-cli.mjs`, set `live.replay.configPath` to the actual mod config file, and set `live.replay.serverResultsDir` to the same result directory as Minecraft sees it. These defaults are `/replay-config/config.json` and `/results` in the supplied containers. Keep those directories outside every participant workspace.
-
-## Offline Mineflayer reference repositories
-
-The participant image includes full Git clones at `$ARENA_REFERENCE_ROOT` (default `/opt/mf-reference`): `mineflayer`, `mineflayer-pathfinder`, and `mineflayer-pvp`. Each keeps its source, documentation, examples and `.git` history, so participants can read the upstream API docs and use `git log`, `git show` or `git grep` without internet access. These are reference checkouts; runtime dependencies still come from the project's locked `npm ci --ignore-scripts` installation. Cloning does not run upstream install/build scripts or add participant network access.
-
-`scripts/mf-reference.json` pins full commit IDs verified against both npm's release `gitHead` metadata and the official GitHub version tags:
-
-- Mineflayer 4.39.0: `c168635cf2f6602069fc5e408bec864702335581`
-- mineflayer-pathfinder 2.4.5: `ca35a00ec18e7d3095280ffe2dc194e7c81b55eb`
-- mineflayer-pvp 1.3.2: `0b4006de03f33f901ab9005c99278cfb24bb22e0`
-
-The image build clones from the official PrismarineJS GitHub repositories, checks out those commits, and verifies package names/versions. It uses neither shallow clones nor partial/sparse checkouts. The reference layer is cached separately from arena source changes; GitHub must be reachable on the build host when creating that layer. A missing repository or commit fails the build rather than silently omitting references. Keep the manifest aligned when upgrading the three npm dependencies. Only this small manifest and preparation script are stored in the arena repository, not vendored upstream trees.
-
-## General templates
-
-1. Run `node --test` locally first. Supply an operator-owned map, installed world/server.properties (including private RCON), and acceptance of the Minecraft EULA yourself. Prepare the default checked server image with `node scripts/prepare-minecraft-server.mjs runtime/server`, then `docker compose --env-file .env -f infra/compose.live.yaml build minecraft`. The default image is `craft-arena-minecraft:local`, built from that context. `MC_SERVER_BUILD_CONTEXT` can select another prepared context.
-2. Supply `.env` values for participant bridge/model tokens, MC_RCON_PASSWORD and MODEL_UPSTREAM_KEY. `MC_VERSION` is needed only by standalone `compose.yaml`; live protocol version comes from the match config. To use an existing vetted image, set MC_SERVER_IMAGE and start with `--no-build`; it must provide compatible ServerReplay/config/result mounts or use `live.replay.enabled:false`. Use unique, unguessable operator-provided tokens. Do not commit them. Edit `model.example.json` for public model capabilities and the selected budget JSON for trusted allowances, prices and upstream. Match membership must match gateway/routes/bridge instances.
-3. Build-time npm ci uses the root lockfile, including pinned @earendil-works/pi-coding-agent and trusted Mineflayer dependencies. Install scripts are disabled; any required native helper installation must be reviewed and included in the image before competition. For reproducibility, freeze a reviewed lockfile and image digests before a real competition. Prepare participant plugins/materials before air-gapping; ordinary arbitrary scripts and plugins are allowed inside the container.
-4. Validate: `docker compose --env-file .env -f infra/compose.yaml config`. Review the resolved file privately because it contains secrets. Bring up services only after operator review.
-5. Default participant launch runs the actual pinned Pi bootstrap with the inbox and world-visual extensions. `ARENA_MODEL_CONFIG` points to the same public model JSON used by the gateway; OPENAI_BASE_URL and scoped OPENAI_API_KEY define its route. The default prompt starts the agent loop; use ARENA_PROMPT or override command for match-specific instructions/another coding agent. The generic GPT-4.1 descriptor advertises the pinned provider catalogue’s 1,047,576-token context and 32,768-token output capacity; edit the shared file once rather than synchronizing limits across services. Workspace node_modules links to the installed dependencies when absent.
-6. Operator initializes `/team-git/project.git` as a bare repository on each team's named volume, owned by UID 1000. Additional SAME-team participants can mount that team's Git volume and clone/push via filesystem transport. Never share this volume between opposing teams. Members of a team have shared write access. Ordinary chat uses the game bridge’s configured chat capability.
-7. Configure and use the shipped live RCON/Mineflayer runner, verify reset/start/objective/end in the selected map, then run network/security smoke tests before using real model credentials or competition participants.
-
-Topology: each participant has only its own internal frontend, with its authenticated semantic bridge and model gateway. Bridges also join the internal backend with Minecraft. Minecraft has no host-published protocol port. Gateway alone joins an internet-routable egress network. Participants get no host network, Docker socket, privileged flag or upstream API key; they run UID 1000 with capabilities dropped, no-new-privileges, CPU/memory/PID limits (ARENA_CPU_LIMIT, ARENA_MEMORY_LIMIT, ARENA_PIDS_LIMIT override template defaults; visual rendering may need larger memory). Containers must not receive host credentials through environment or files.
-
-These templates require deployment security validation. Docker `internal:true` removes ordinary external routing but does not prove complete isolation from host-side services, kernel issues, misconfiguration, IPv6 or future added networks. Do not attach a NAT internet network to participants to allow Git, since that can allow direct model/MC access. Team Git uses only volumes. If external fetch is needed, provide host-controlled allowlisted egress proxy with DNS/address restrictions, test blocked direct/IPv6/host-gateway paths, and keep it separate from model credentials. A trusted bridge must reject raw protocol forwarding and enforce action envelopes. Participants within one sandbox can inspect their own route token, intentionally; never give them other participants' tokens.
-
-For a new deployment, verify the port reachability matrix, external-model bypass attempts, cross-team volumes, resource limits, server compatibility and map lifecycle. The Windows local template has the specific smoke evidence recorded above; other configurations need their own checks. This template publishes no control API.
-
-## Live orchestration path
-
-Use `compose.live.yaml` for a real configured match; `compose.yaml` is a standalone component template without lifecycle gating. Copy match.live.template.json to match.live.json and fill its intentionally-invalid placeholders. Configure the existing server's private RCON/password and operator-approved lifecycle commands; set MC_RCON_PASSWORD for the trusted host. Configure the referee location/view distance so every monument is loaded, with optional live.observer.commands after spawn. Exact goal blocks/properties implement monument scoring, so select compatible map rules.
-
-After reviewing resolved Compose config, start trusted services and inspect arena-host readiness. Participant agents can then be started with the same compose file. Once all agents are ready, create the operator start marker with `docker compose --env-file .env -f infra/compose.live.yaml exec arena-host touch /control/start`. Actions are gated until marker and server start acknowledgements. The result is written to the match-results volume at /results/match-result.json. SIGINT/SIGTERM request abandonment and trusted cleanup. Stop `arena-host` first, inspect its final replay status, and only then stop Minecraft; do not use an unordered whole-stack `down` while recording or saving. Clear /control/start before preparing another match; stale markers fail closed.
-
-Do not reuse a running budget-gateway ledger across different matches without deliberately configuring the intended cumulative budget. After collecting the result, operator stops participant containers and other services. The match host shuts down the game connections and action surfaces, but does not have a Docker socket or container-management privilege. The live model gateway requires authenticated running match status before queueing and immediately before upstream dispatch; ended/unavailable status rejects new work and refunds an unused reservation. Already-dispatched calls may finish and are still charged. Standalone component mode lacks this match guard.
-
-The trusted image pre-creates /results and /control owned by UID/GID 1000 before switching to USER node, so new named volumes inherit writable directory ownership. Existing volumes retain their existing permissions: the operator must verify UID 1000 can write result files and that its start-marker directory is accessible, correcting ownership through their own authorized deployment procedure if necessary. The Windows local deployment verified writable host paths and participant network isolation; repeat these checks for a different volume layout.
-
-Participant image installs Chromium from the official Debian package repository and sets CHROMIUM_PATH=/usr/bin/chromium, alongside locked optional prismarine-viewer/Playwright dependencies. This provides the browser executable needed by textured world_render3d; the geometry renderer remains available. Chromium/SwiftShader rendering consumes additional participant CPU/memory/PIDs and its time counts against match wall-clock time. Tune the published resource limits fairly for all participants. The supplied local renderer disables Chromium's own sandbox inside the already-unprivileged participant container; it renders only the local trusted mirror and must not be repurposed to browse arbitrary external content.
-
-In-game chat is enabled by default, including normal Minecraft commands such as `/tell` and `/teammsg`. Minecraft enforces command permissions and chat limits; participant bots must remain non-OP. Operators may explicitly disable chat with `allowChat:false` or standalone `BRIDGE_ALLOW_CHAT=false`. Team communication follows the selected server/map's visibility rules; configure team chat when privacy is required.
-
-Natural match completion leaves the trusted host running as a read-only status daemon after it writes the result and disconnects game bots. This lets resident participants reliably observe authoritative ended state and exit, through the authenticated status endpoint. Operator SIGTERM/Compose shutdown then closes the status HTTP servers. Live participants set ARENA_WAIT_FOR_MATCH=1, loading their tools but withholding the initial model prompt until trusted running state. The public match response supplies own participant/team ID, team IDs, map id/version, public rules, objective IDs or configured public descriptions, and operator briefing. Private monument coordinates are withheld unless the operator explicitly sets live.publishGoalPositions=true. Never place secrets or private configuration in live.briefing/publicObjectives.
-
-The shared public model descriptor supplies Pi context/compaction metadata and the gateway’s output default and generation timeout. Gateway byte-based estimates drive accounting and feedback, not context rejection; there is no separate reservation safety cap. Cash configurations use tokens:null and tpm:null, so cash debt controls rate without a second token ceiling. Concurrency and actual token-usage settlement remain enforced. The optional token-only examples explicitly demonstrate rolling participant/team TPM of 131072/262144: requests above that configured allowance are rejected, while tokens:null disables a cumulative cutoff.
-
-
-## Cash-rate configuration and operator totals
-
-The normal Compose mounts now default to budget.cash.example.json / budget.cash.live.example.json. BUDGET_CONFIG_PATH may select a different trusted operator file; choose budget.example.json / budget.live.example.json only for the legacy token-only path. Cash templates contain a GPT-4.1 official-price reference example, not a user-selected model or spend. Fill cashRateLimit for every participant/team and explicitly review model/rates before starting. The placeholders deliberately fail startup. The referenceCost block records currency/sourceUrl/verifiedAt and requires a price for every allowed model.
-
-cashRateLimit means official-price reference currency per windowMs (default 60000ms), not an overall balance. Cash-mode examples use tokens:null and tpm:null, disabling separate cumulative-token and token-rate cutoffs. Account concurrency still applies; the cash debt queue is the rate-control policy. Models receive current-window billing-category shares, rate excess ratios and real queue delay; monetary amounts and cumulative costs remain in trusted logs/operatorSnapshot. Totals are official API price equivalents, not actual subscription/API invoices. Missing usage is marked unknown and charged conservatively; cost shares never invent its category. Cash usage creates debt that drains at the configured rate; large calls are admitted and later calls wait for debt repayment rather than receiving a permanent oversized-request error.
-
-The operator monitors cumulative reference cost and uses the existing trusted arena-host SIGTERM/SIGINT end path to stop gameplay: it gates actions, clears controls, executes end commands and disconnects game bots. Check the saved result and stopConfirmed, then stop participant/gateway services. No new automatic total-money supervisor is configured. Price/accounting/queue regression tests use local fake upstreams; the Windows deployment additionally exercised both real model providers.
-
-Participant image construction copies the public package manifests, code, examples, documentation and tests explicitly. Operator configuration under infra, including monetary window limits and private map setup, remains outside that image. Keep actual operator configuration in those trusted-side files or an external deployment directory; public toolkit directories are visible to participants. Private runtime configuration is mounted only into the trusted services that require it. The operator-owned public model descriptor is the deliberate exception: the same read-only file is mounted into both the participant and its gateway, with no credentials or prices.
-
+[`compose.yaml`](compose.yaml) 有 Minecraft、两个独立的游戏桥容器、预算网关（`budget.cash.example.json`，不检查比赛状态）和两个参赛容器，没有比赛主控。它需要 `MC_SERVER_IMAGE` 和 `MC_VERSION`。先用 `docker compose --env-file .env -f infra/compose.yaml config` 检查。不要用它办正式比赛。

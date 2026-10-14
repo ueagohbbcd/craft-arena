@@ -63,7 +63,7 @@ const server = createBudgetGateway({
   participants,
   ledger,
   cashLedger,
-  upstream: { url: config.upstream.url, apiKey, api: model.api },
+  upstream: { url: config.upstream.url, apiKey },
   onMetric: (m) => console.log(JSON.stringify({ kind: "model-usage", ...m })),
 });
 server.listen(Number(process.env.PORT ?? 8081), "0.0.0.0");

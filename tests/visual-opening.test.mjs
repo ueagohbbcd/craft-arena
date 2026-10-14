@@ -2,10 +2,10 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   renderOblique,
-  renderOpeningComposite,
   renderMinimap,
   VIEW_DIRECTIONS,
-} from "../packages/world-visual/index.mjs";
+} from "mineflayer-world-memory/live.mjs";
+import { renderOpeningComposite } from "../packages/world-visual/index.mjs";
 const snapshot = {
   bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 2, y: 2, z: 8 } },
   sequence: 17,
