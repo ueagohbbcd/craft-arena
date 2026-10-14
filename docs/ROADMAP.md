@@ -28,7 +28,7 @@
 | ✅   | 观察器和聊天监听改为默认脚本（`packages/default-scripts/`），Pi 扩展里的观察运行时删除                                                                                            |
 | ✅   | 删除仓库自带的 OAuth 转 API 适配器；模型统一走 OpenAI 兼容接口                                                                                                                    |
 | ✅   | 文档按读者重写，统一术语                                                                                                                                                          |
-| ⬜   | 仓库拆成 `participant/`（进容器的内容）和 `trusted/`（可信端），单独一个只移动文件的提交。现在参赛镜像复制了整个 `packages/`、`docs/`、`tests/`，模型能读到可信侧源码和开发者文档 |
+| ✅   | 参赛镜像只装参赛侧代码：`Dockerfile.participant` 逐个列出参赛侧包、`examples/`、`docs/CONTEXT-DELIVERY.md`；`tests/deployment.test.mjs` 检查清单，并检查参赛侧代码不引用可信侧包。仓库目录不必再拆 |
 
 ## 玩法与会话：规则交给服务器
 

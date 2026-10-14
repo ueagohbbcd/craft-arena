@@ -170,3 +170,51 @@ test("live deployment exposes replay storage only to the two trusted services", 
   assert.doesNotMatch(control, /'stop','-t','30','arena-host'/);
   assert.match(control, /Replay saving is unconfirmed/);
 });
+
+test("participant image carries only participant-side code", async () => {
+  const dockerfile = await readFile(
+    new URL("../infra/Dockerfile.participant", import.meta.url),
+    "utf8",
+  );
+  const copied = [...dockerfile.matchAll(/^COPY --chown=node:node (\S+) /gm)]
+    .map((m) => m[1])
+    .filter((path) => path !== "package.json");
+  const participant = [
+    "pi-extension",
+    "tasks",
+    "inbox",
+    "bot-sdk",
+    "observation",
+    "default-scripts",
+    "world-visual",
+  ];
+  for (const path of copied)
+    if (path.startsWith("packages"))
+      assert.ok(
+        participant.some((name) => path === `packages/${name}`),
+        `${path} is not a participant package`,
+      );
+  for (const name of participant)
+    assert.ok(copied.includes(`packages/${name}`), `missing packages/${name}`);
+  for (const path of copied)
+    assert.doesNotMatch(path, /^(?:tests|docs\/?$|scripts\/?$|README)/);
+  // Participant code must not import trusted-side packages.
+  const { readdir } = await import("node:fs/promises");
+  for (const name of participant) {
+    const dir = new URL(`../packages/${name}/`, import.meta.url);
+    for (const file of await readdir(dir))
+      if (file.endsWith(".mjs"))
+        assert.doesNotMatch(
+          await readFile(new URL(file, dir), "utf8"),
+          /\.\.\/(?:arena|mf-bridge|budget-gateway|system-proxy-relay)\//,
+          `packages/${name}/${file}`,
+        );
+  }
+  // The examples import only participant packages.
+  for (const file of await readdir(new URL("../examples/", import.meta.url)))
+    if (file.endsWith(".mjs"))
+      for (const [, pkg] of (
+        await readFile(new URL(`../examples/${file}`, import.meta.url), "utf8")
+      ).matchAll(/\.\.\/packages\/([a-z-]+)\//g))
+        assert.ok(participant.includes(pkg), `examples/${file} uses ${pkg}`);
+});

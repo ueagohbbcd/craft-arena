@@ -9,13 +9,20 @@ RUN node scripts/prepare-mf-reference.mjs /opt/mf-reference && chown -R node:nod
 ENV ARENA_REFERENCE_ROOT="/opt/mf-reference"
 COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --ignore-scripts && chown -R node:node /opt/arena
-COPY --chown=node:node README.md ./
-COPY --chown=node:node packages ./packages
+# Only participant-side code and its documentation enter this image: no
+# trusted-side source (arena host, bridge, budget gateway, proxy relay), no
+# tests, no developer docs, no operator configuration. The list is checked by
+# tests/deployment.test.mjs.
+COPY --chown=node:node packages/pi-extension ./packages/pi-extension
+COPY --chown=node:node packages/tasks ./packages/tasks
+COPY --chown=node:node packages/inbox ./packages/inbox
+COPY --chown=node:node packages/bot-sdk ./packages/bot-sdk
+COPY --chown=node:node packages/observation ./packages/observation
+COPY --chown=node:node packages/default-scripts ./packages/default-scripts
+COPY --chown=node:node packages/world-visual ./packages/world-visual
 COPY --chown=node:node examples ./examples
-COPY --chown=node:node docs ./docs
-COPY --chown=node:node scripts ./scripts
-COPY --chown=node:node tests ./tests
-# Operator configuration stays on the trusted side; only public toolkit material enters this image.
+COPY --chown=node:node docs/CONTEXT-DELIVERY.md ./docs/CONTEXT-DELIVERY.md
+COPY --chown=node:node scripts/archive-participant-state.mjs ./scripts/archive-participant-state.mjs
 RUN mkdir -p /workspace /team-git && chown node:node /workspace /team-git
 ENV CHROMIUM_PATH="/usr/bin/chromium"
 ENV PATH="/opt/arena/node_modules/.bin:${PATH}"
