@@ -65,7 +65,7 @@ data merge storage arena:config {version:1, sessionId:"...", runId:"...", kind:"
 | `state`   | `waiting` / `running` / `ended`。服务器可以自己宣布结束。              |
 | `winner`  | 结束时的胜者队伍 ID，平局为 `"draw"`，未结束为空串。                   |
 | `scores`  | 可选，各队分数，原样记入结果。                                         |
-| `public`  | 可选，可以公开给模型的数据：目标、目标位置、地图提示等，原样放进简报。 |
+| `public`  | 可选，可以公开给模型的数据：目标、目标位置、地图提示等，原样放进简报。约定字段 `notice`（字符串）是给模型的通知，变化时单独转交并唤醒空闲的模型。 |
 | `message` | 可选，给运营者看的一行说明，例如判定原因。                             |
 
 平台不解释 `scores` 和 `public` 的含义，只负责转交和记录。
@@ -144,4 +144,4 @@ RCON 断开或读到空的、格式错误的存储，`match` 会话容忍连续 
 
 SNBT 解析器支持复合、列表、字符串、数值（含后缀），不是通用解析器。协议 v1 使用 RCON 轮询。
 
-`public` 可在会话中更新，最新值放进 `briefing.public` 供查询；它目前没有大小上限，变化也不会单独生成平台消息。后续工作统一记在 [路线图](ROADMAP.md)。
+`public` 可在会话中更新：最新值放进 `briefing.public`，参赛容器里的 `public.json` 跟着更新，下一条平台消息带 `public` 段（超过 4096 字节时只报大小和文件路径）。`public.notice` 变化时另带 `notice` 段，空闲的模型会被唤醒。运营者在服务器控制台执行 `data modify storage arena:session public.notice set value "..."` 即可发通知。`open` 会话没有服务器协议，`public` 恒为空，发不了通知。后续工作统一记在 [路线图](ROADMAP.md)。

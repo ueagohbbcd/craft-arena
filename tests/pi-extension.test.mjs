@@ -990,6 +990,7 @@ test("cash snapshot refresh is bounded to the turn boundary and strips private h
 
 function residentHost(t) {
   let state = "running";
+  let published = null;
   t.mock.method(globalThis, "fetch", async () =>
     Response.json({
       ok: true,
@@ -998,6 +999,7 @@ function residentHost(t) {
         now: Date.now(),
         durationMs: 60000,
         elapsedMs: 1000,
+        ...(published ? { briefing: { public: published } } : {}),
       },
     }),
   );
@@ -1012,6 +1014,9 @@ function residentHost(t) {
     },
     setState: (value) => {
       state = value;
+    },
+    setPublic: (value) => {
+      published = value;
     },
   };
 }
@@ -1110,4 +1115,49 @@ test("idle inbox events join an already queued turn without scheduling a second 
   assert.equal(h.sent.length, 0);
   const result = await h.handlers.get("tool_result")({ content: [] }, h.ctx);
   assert.match(result.content[0].text, /deliver with the queued turn/);
+});
+
+test("public data changes ride the next platform message; a changed notice wakes an idle model once", async (t) => {
+  const host = residentHost(t);
+  host.setPublic({ goal: "first" });
+  const h = await harness(t, {
+    env: {
+      ...host.env,
+      ARENA_IDLE_REMINDER_MS: "100000",
+      ARENA_NOTICE_POLL_MS: "20",
+    },
+  });
+  await h.handlers.get("before_agent_start")({}, h.ctx);
+  // Busy: a notice waits for the next boundary instead of starting a turn.
+  host.setPublic({ goal: "second", notice: "regroup at spawn" });
+  // Past the 2 s session cache the boundary read sees the change.
+  await delay(2100);
+  assert.equal(h.sent.length, 0);
+  assert.equal(
+    h.platform.filter(([, options]) => options.triggerTurn).length,
+    0,
+  );
+  await h.handlers.get("turn_end")(
+    { entries: [], message: { stopReason: "toolUse" } },
+    h.ctx,
+  );
+  const passive = h.platform.at(-1);
+  assert.equal(passive[1].triggerTurn, false);
+  assert.deepEqual(passive[0].details.public, {
+    data: { goal: "second", notice: "regroup at spawn" },
+  });
+  assert.equal(passive[0].details.notice, "regroup at spawn");
+  assert.match(passive[0].content, /^Arena platform message \(trusted/);
+  // Idle (even while its own programs run): the next notice starts one turn.
+  h.setIdle(true);
+  host.setPublic({ goal: "second", notice: "hold position" });
+  await delay(150);
+  const woke = h.platform.filter(([, options]) => options.triggerTurn);
+  assert.equal(woke.length, 1);
+  assert.equal(woke[0][0].details.notice, "hold position");
+  await delay(100);
+  assert.equal(
+    h.platform.filter(([, options]) => options.triggerTurn).length,
+    1,
+  );
 });

@@ -488,3 +488,48 @@ test("session files copy public fields, skip an empty briefing and rewrite publi
     join(rules, "b.md"),
   ]);
 });
+
+test("platform messages report public data against the opening baseline and inline only small data", async () => {
+  const { createPlatformMessages, PUBLIC_INLINE_BYTES, NOTICE_MAX_CHARS } =
+    await import("../packages/pi-extension/platform-messages.mjs");
+  let host = {
+    state: "running",
+    now: 1,
+    durationMs: null,
+    kind: "open",
+    briefing: { public: { a: 1 } },
+  };
+  const platform = createPlatformMessages({
+    readMatch: async () => host,
+    env: {},
+    sessionDir: "/arena/session",
+  });
+  platform.notePublic(host);
+  let result = await platform.collect();
+  assert.equal(result.update.public, undefined, "the baseline is not news");
+  assert.equal(result.wake, false);
+  host = {
+    ...host,
+    briefing: { public: { big: "x".repeat(PUBLIC_INLINE_BYTES) } },
+  };
+  result = await platform.collect();
+  assert.deepEqual(result.update.public, {
+    omitted: "too large to inline",
+    bytes: JSON.stringify(host.briefing.public).length,
+    file: "/arena/session/public.json",
+  });
+  assert.equal(await platform.noticeChanged(), false);
+  host = {
+    ...host,
+    briefing: { public: { notice: "n".repeat(NOTICE_MAX_CHARS + 5) } },
+  };
+  assert.equal(await platform.noticeChanged(), true);
+  result = await platform.collect();
+  assert.equal(result.wake, true);
+  assert.match(result.update.notice, /\[cut; full text in public\.notice\]$/);
+  assert.equal(await platform.noticeChanged(), false);
+  host = { ...host, briefing: {} };
+  result = await platform.collect();
+  assert.deepEqual(result.update.public, { data: null });
+  assert.equal(result.update.notice, null, "a removed notice is reported");
+});
