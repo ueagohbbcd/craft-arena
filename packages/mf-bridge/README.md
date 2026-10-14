@@ -11,6 +11,9 @@ Readers: developers and operators. Participant programs talk to the bridge throu
 | `block-memory.mjs`     | default block memory adapter over `mineflayer-world-memory`                                                      |
 | `minecraft-compat.mjs` | `createCompatibleBot`: patches the 1.21/1.21.1 (protocol 767) recipe-type table before creating a bot            |
 | `cli.mjs`              | standalone bridge: manual testing, or an open session without an arena host                                      |
+| `session-source.mjs`   | bridge sessions polled from the arena host (`hostSession`) or the server over RCON (`serverSession`)             |
+| `session-object.mjs`   | `sessionObject`: the one builder of the `/v1/session` object                                                     |
+| `bearer.mjs`           | `bearerMatches`: constant-time bearer token check (bridge and arena host session server)                         |
 
 A bridge runs either inside the arena host's process (`live.bridges: "internal"`) or as its own process or container per participant (`live.bridges: "external"`, the shipped Compose deployments), reading its session from the host, from the Minecraft server, or serving an open session; see [Standalone CLI](#standalone-cli) and the [arena README](../arena/README.md).
 

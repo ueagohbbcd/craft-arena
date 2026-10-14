@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { cliOptions } from "../packages/mf-bridge/cli.mjs";
+import { fakeServer } from "./helpers/fake-server.mjs";
 import {
   hostSessionReader,
   polledSession,
@@ -14,26 +15,22 @@ const baseEnv = {
   MF_VERSION: "1.21.1",
   BRIDGE_TOKEN: "test-token-long-enough",
 };
-const storage = (id, snbt) =>
-  `Storage ${id} has the following contents: ${snbt}`;
+// A fake server whose session/config come from `state`.
 function fakeRcon(state) {
-  return {
-    connected: false,
-    closed: false,
-    async connect() {
-      this.connected = true;
-    },
-    close() {
-      this.closed = true;
-    },
-    async command(c) {
-      if (c === "data get storage arena:session")
-        return storage("arena:session", state.session);
-      if (c === "data get storage arena:config")
-        return storage("arena:config", state.config ?? "{}");
-      return "";
-    },
+  const server = fakeServer();
+  const rcon = server.rcon();
+  const command = rcon.command.bind(rcon);
+  rcon.command = (c) => {
+    server.session = state.session;
+    server.config = state.config ?? "{}";
+    return command(c);
   };
+  Object.defineProperty(rcon, "configReads", {
+    get: () =>
+      server.commands.filter((c) => c === "data get storage arena:config")
+        .length,
+  });
+  return rcon;
 }
 
 test("polledSession serves the last good reading and gates actions on running", async () => {
@@ -78,9 +75,10 @@ test("serverSessionReader builds the session from arena:session and arena:config
     config:
       '{version:1,sessionId:"s9",runId:"r9",kind:"match",durationMs:60000,teams:[{id:"red",players:["arena_red1"]},{id:"blue",players:["x"]}]}',
   };
+  const rcon = fakeRcon(state);
   const read = serverSessionReader({
-    rcon: fakeRcon(state),
-    username: "arena_red1",
+    rcon,
+    username: () => "arena_red1",
     sessionId: "fallback",
     briefing: "rules",
     now: () => t,
@@ -109,8 +107,11 @@ test("serverSessionReader builds the session from arena:session and arena:config
   s = await read();
   assert.equal(s.winner, "red");
   assert.equal(s.elapsedMs, 3000);
-  // Without arena:config: no teams, the fallback id.
+  // arena:config is read once per state, not on every poll.
+  assert.equal(rcon.configReads, 3);
+  // A new round without arena:config: no teams, the fallback id.
   state.config = "{}";
+  state.session = '{version:1,state:"waiting",winner:""}';
   s = await read();
   assert.equal(s.teamId, null);
   assert.equal(s.sessionId, "fallback");

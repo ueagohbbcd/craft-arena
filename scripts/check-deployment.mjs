@@ -99,7 +99,7 @@ export function checkDeployment({ compose, match, budgets = [] }) {
     if (external) {
       const bridgeName = url.hostname;
       const bridge = services[bridgeName];
-      bridgeServices.push([p, bridgeName]);
+      bridgeServices.push({ p, bridgeName, nets });
       if (!bridge) {
         fail(`${name}: bridge service ${bridgeName} does not exist`);
         continue;
@@ -131,11 +131,13 @@ export function checkDeployment({ compose, match, budgets = [] }) {
         );
       if (!networksOf(bridge).some((n) => nets.includes(n)))
         fail(`${bridgeName}: shares no network with ${name}`);
-      if (account?.matchTokenEnv)
-        if (variable(benv.BRIDGE_STATUS_TOKEN) !== account.matchTokenEnv)
-          fail(
-            `${p.id}: budget matchTokenEnv ${account.matchTokenEnv} is not ${bridgeName}'s BRIDGE_STATUS_TOKEN`,
-          );
+      if (
+        account?.matchTokenEnv &&
+        variable(benv.BRIDGE_STATUS_TOKEN) !== account.matchTokenEnv
+      )
+        fail(
+          `${p.id}: budget matchTokenEnv ${account.matchTokenEnv} is not ${bridgeName}'s BRIDGE_STATUS_TOKEN`,
+        );
     } else {
       if (url.hostname !== "arena-host")
         fail(`${name}: internal bridges are served by arena-host`);
@@ -161,15 +163,13 @@ export function checkDeployment({ compose, match, budgets = [] }) {
   }
 
   // Isolation: a participant's networks reach only its own bridge.
-  for (const [p, bridgeName] of bridgeServices) {
-    const own = new Set(networksOf(services[`participant-${p.id}`]));
-    for (const [other, otherBridge] of bridgeServices)
+  for (const { p, nets } of bridgeServices)
+    for (const other of bridgeServices)
       if (
-        other !== p &&
-        networksOf(services[otherBridge]).some((n) => own.has(n))
+        other.p !== p &&
+        networksOf(services[other.bridgeName]).some((n) => nets.includes(n))
       )
-        fail(`participant-${p.id} can reach ${otherBridge}`);
-  }
+        fail(`participant-${p.id} can reach ${other.bridgeName}`);
   return errors;
 }
 

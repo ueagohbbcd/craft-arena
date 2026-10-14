@@ -4,6 +4,7 @@ import { EventEmitter, once } from "node:events";
 import net from "node:net";
 import { createLiveMatch, validateLive } from "../packages/arena/src/live.mjs";
 import { RconClient } from "../packages/arena/src/rcon.mjs";
+import { fakeServer } from "./helpers/fake-server.mjs";
 const config = {
   id: "live-fixture",
   session: { kind: "match", durationMs: 10000, onTimeout: "draw" },
@@ -36,31 +37,11 @@ const config = {
     },
   },
 };
-/** Fake RCON for a server running a protocol v1 datapack. */
-function datapackServer(calls = []) {
-  const s = { session: '{version:1,state:"waiting",winner:""}' };
-  s.rcon = () => ({
-    connect: async () => {},
-    command: async (c) => {
-      calls.push(c);
-      if (c === "data get storage arena:session")
-        return `Storage arena:session has the following contents: ${s.session}`;
-      if (c.startsWith("function #arena:"))
-        return `Running function rules:${c.slice(16)}`;
-      if (c.startsWith("data ")) return "Modified storage arena:config";
-      return "OK";
-    },
-    close() {
-      calls.push("rcon-close");
-    },
-  });
-  return s;
-}
 test("live orchestrator runs RCON lifecycle, gates actual bridges and ends on the server verdict", async () => {
   const commands = [],
     gates = [];
   let closed = 0;
-  const server = datapackServer(commands);
+  const server = fakeServer({ commands });
   const match = await createLiveMatch(config, {
     env: { R_TOKEN: "r", B_TOKEN: "b", RCON: "operator" },
     rconFactory: server.rcon,
@@ -227,7 +208,7 @@ test("terminal match status remains authenticated and readable after actual game
     bots.push(b);
     return b;
   };
-  const server = datapackServer();
+  const server = fakeServer();
   const match = await createLiveMatch(local, {
     env: {
       R_TOKEN: "red-fixture-token-123",
@@ -300,7 +281,7 @@ test("recording is confirmed before running and saved after game cleanup", async
   const state = { enabled: true, status: "pending", files: [] };
   const match = await createLiveMatch(local, {
     env: { R_TOKEN: "r", B_TOKEN: "b", RCON: "x" },
-    rconFactory: datapackServer(calls).rcon,
+    rconFactory: fakeServer({ commands: calls }).rcon,
     startLiveBridge: async () => ({
       bot: { entity: {} },
       close: async () => {
@@ -358,23 +339,14 @@ test("external bridges: host waits for players, serves sessions, detects disconn
     /sessionServer/,
   );
   const commands = [];
-  const players = new Set();
-  const server = datapackServer(commands);
-  const base = server.rcon;
-  server.rcon = () => {
-    const r = base();
-    const command = r.command;
-    r.command = async (c) => {
-      if (c === "list")
-        return `There are ${players.size} of a max of 20 players online: ${[...players].join(", ")}`;
-      if (c.startsWith("scoreboard players get r1 arena_deaths"))
-        return "r1 has 2 [arena_deaths]";
-      return command(c);
-    };
-    return r;
-  };
+  const server = fakeServer({ commands });
+  const players = server.players;
+  server.replies["scoreboard players get r1 arena_deaths"] =
+    "r1 has 2 [arena_deaths]";
+  let clock = 0;
   const match = await createLiveMatch(local, {
     env: { RCON: "x", HOST_TOKEN: "host-session-token-123" },
+    now: () => clock,
     rconFactory: server.rcon,
     startLiveBridge: async () => {
       throw new Error("external mode starts no bridges");
@@ -410,6 +382,11 @@ test("external bridges: host waits for players, serves sessions, detects disconn
   );
   await match.start();
   players.delete("b1");
+  // Presence is checked about once a second, not on every poll.
+  clock += 500;
+  await match.poll();
+  assert.equal(match.host.state, "running");
+  clock += 500;
   await match.poll();
   await match.host.ending;
   const result = match.host.result();

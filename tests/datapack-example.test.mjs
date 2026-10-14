@@ -1,30 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import {
+  commandLines as lines,
+  datapackFiles,
+  datapackRoot,
+  functionPath,
+} from "./helpers/datapack.mjs";
 
-const root = fileURLToPath(
-  new URL("../infra/datapacks/arena-example/", import.meta.url),
-);
-
-async function files(dir) {
-  const out = [];
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...(await files(path)));
-    else out.push(relative(root, path).split(sep).join("/"));
-  }
-  return out.sort();
-}
-
-function functionPath(id) {
-  const [ns, path] = id.split(":");
-  return `data/${ns}/function/${path}.mcfunction`;
-}
-
-const lines = (text) =>
-  text.split("\n").filter((line) => line.trim() && !line.startsWith("#"));
+const root = datapackRoot("arena-example");
+const files = (dir) => datapackFiles(root, dir);
 
 test("example datapack declares 1.21.1 and singular folder names", async () => {
   const pack = JSON.parse(await readFile(join(root, "pack.mcmeta"), "utf8"));

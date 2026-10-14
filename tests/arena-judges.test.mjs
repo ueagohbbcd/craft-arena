@@ -9,6 +9,7 @@ import {
   MAX_PROMPT_BYTES,
 } from "../packages/arena/src/live.mjs";
 import { parseSnbt } from "../packages/arena/src/snbt.mjs";
+import { fakeServer } from "./helpers/fake-server.mjs";
 
 const base = {
   id: "dp",
@@ -38,36 +39,8 @@ const base = {
     rcon: { host: "mc", passwordEnv: "RCON" },
   },
 };
-const storage = (snbt) =>
-  `Storage arena:session has the following contents: ${snbt}`;
+const server = () => fakeServer();
 
-/** A fake server: records commands and answers storage reads from `session`. */
-function server() {
-  const s = {
-    commands: [],
-    session: '{version:1,state:"waiting",winner:""}',
-    replies: {},
-  };
-  s.rcon = () => ({
-    connect: async () => {},
-    close() {},
-    command: async (c) => {
-      s.commands.push(c);
-      if (c in s.replies) return s.replies[c];
-      if (c === "data remove storage arena:config durationMs")
-        return "Found no elements matching durationMs";
-      if (c.startsWith("data merge storage arena:config "))
-        return "Modified storage arena:config";
-      if (c === "data get storage arena:session")
-        return s.session === null ? "Connection reset" : storage(s.session);
-      if (c.startsWith("function #arena:"))
-        // Real 1.21.1 reply for a one-function tag.
-        return `Running function example:${c.slice(16)}`;
-      return "OK";
-    },
-  });
-  return s;
-}
 async function live(config, s, extra = {}) {
   let now = 0;
   const states = [];

@@ -1,6 +1,7 @@
 import { createBlockMemory } from "./block-memory.mjs";
 import http from "node:http";
-import { randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
+import { bearerMatches } from "./bearer.mjs";
 const wireStringify = (value) =>
   JSON.stringify(value, (_key, v) =>
     typeof v === "bigint" ? { $arenaBigInt: v.toString() } : v,
@@ -818,21 +819,14 @@ export function createBridgeServer({
   }, 50);
   timer.unref();
   const server = http.createServer(async (req, res) => {
-    const supplied = Buffer.from(req.headers.authorization ?? "");
-    const matches = (value) => {
-      const expected = Buffer.from(`Bearer ${value}`);
-      return (
-        supplied.length === expected.length &&
-        timingSafeEqual(supplied, expected)
-      );
-    };
+    const auth = req.headers.authorization;
     // The status token (for the budget gateway) may only read the session.
     const statusOnly =
       statusToken !== undefined &&
-      matches(statusToken) &&
       req.method === "GET" &&
-      req.url === "/v1/session";
-    if (!statusOnly && !matches(token)) {
+      req.url === "/v1/session" &&
+      bearerMatches(auth, statusToken);
+    if (!statusOnly && !bearerMatches(auth, token)) {
       res.writeHead(401);
       return res.end();
     }

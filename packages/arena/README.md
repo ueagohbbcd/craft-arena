@@ -4,18 +4,19 @@ The arena host (`packages/arena`) runs a session on the trusted side: it resets 
 
 Readers: developers and operators. Step-by-step deployment (start marker, supervisor, replay storage) is in [infra/README.md](../../infra/README.md); this page describes what the code does.
 
-| File                         | What it does                                                                                                   |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `src/index.mjs`              | `validateMatchConfig`, `normalizeConfig`, `MatchHost`: session state, scoring, result                          |
-| `src/judges.mjs`             | judges: `datapack` (server protocol v1), `none`                                                                |
-| `src/snbt.mjs`               | SNBT reader/writer and `data get storage` reply parser                                                         |
-| `src/cli.mjs`                | `validate` and `simulate` commands (no Minecraft)                                                              |
-| `src/live.mjs`               | `createLiveMatch`: the live connector (RCON, judge, bridges) and the session object                            |
-| `src/live-cli.mjs`           | the runnable live match process; writes run state files                                                        |
-| `src/rcon.mjs`               | `RconClient`: TCP RCON client                                                                                  |
-| `src/replay.mjs`             | ServerReplay recording per run                                                                                 |
-| `src/run-files.mjs`          | `writeRunState`: current and per-run result files                                                              |
-| `src/runtime-supervisor.mjs` | runtime-fault marker reader and the participant container watcher used by `scripts/supervise-participants.mjs` |
+| File                         | What it does                                                                                                                             |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/index.mjs`              | `validateMatchConfig`, `normalizeConfig`, `MatchHost`: session state, scoring, result                                                    |
+| `src/judges.mjs`             | judges: `datapack` (server protocol v1), `none`                                                                                          |
+| `src/server-protocol.mjs`    | server protocol v1 over RCON: write `arena:config`, run `#arena:*`, read `arena:session` / `arena:config`; shared with host-less bridges |
+| `src/snbt.mjs`               | SNBT reader/writer and `data get storage` reply parser                                                                                   |
+| `src/cli.mjs`                | `validate` and `simulate` commands (no Minecraft)                                                                                        |
+| `src/live.mjs`               | `createLiveMatch`: the live connector (RCON, judge, bridges) and the session object                                                      |
+| `src/live-cli.mjs`           | the runnable live match process; writes run state files                                                                                  |
+| `src/rcon.mjs`               | `RconClient`: TCP RCON client                                                                                                            |
+| `src/replay.mjs`             | ServerReplay recording per run                                                                                                           |
+| `src/run-files.mjs`          | `writeRunState`: current and per-run result files                                                                                        |
+| `src/runtime-supervisor.mjs` | runtime-fault marker reader and the participant container watcher used by `scripts/supervise-participants.mjs`                           |
 
 ## Match config
 

@@ -1,29 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFile, readdir } from "node:fs/promises";
-import { join, relative, sep } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { parseSnbt } from "../packages/arena/src/snbt.mjs";
+import {
+  commandLines as lines,
+  datapackFiles,
+  datapackRoot,
+  functionPath,
+} from "./helpers/datapack.mjs";
 
-const root = fileURLToPath(
-  new URL("../infra/datapacks/race-of-wool/", import.meta.url),
-);
-
-async function files(dir) {
-  const out = [];
-  for (const entry of await readdir(dir, { withFileTypes: true })) {
-    const path = join(dir, entry.name);
-    if (entry.isDirectory()) out.push(...(await files(path)));
-    else out.push(relative(root, path).split(sep).join("/"));
-  }
-  return out.sort();
-}
-const functionPath = (id) => {
-  const [ns, path] = id.split(":");
-  return `data/${ns}/function/${path}.mcfunction`;
-};
-const lines = (text) =>
-  text.split("\n").filter((line) => line.trim() && !line.startsWith("#"));
+const root = datapackRoot("race-of-wool");
+const files = (dir) => datapackFiles(root, dir);
 const fn = (name) =>
   readFile(join(root, `data/race_of_wool/function/${name}.mcfunction`), "utf8");
 

@@ -1,13 +1,9 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { RconClient } from "../arena/src/rcon.mjs";
 import { startLiveBridge } from "./live.mjs";
-import {
-  hostSessionReader,
-  polledSession,
-  serverSessionReader,
-} from "./session-source.mjs";
+import { sessionObject } from "./session-object.mjs";
+import { hostSession, serverSession } from "./session-source.mjs";
 
 export const MAX_SESSION_PROMPT_BYTES = 32 * 1024;
 
@@ -25,28 +21,18 @@ export function openSession({
   now = Date.now,
 }) {
   return () => {
-    const at = now();
     const name = typeof username === "function" ? username() : username;
-    return {
+    return sessionObject({
       kind: "open",
       state: "running",
       sessionId,
-      matchId: sessionId,
-      runId: sessionId,
       participantId: name,
-      teamId: null,
       username: name,
-      teams: [],
       participants: [{ id: name, username: name, teamId: null }],
-      map: null,
-      now: at,
+      now: now(),
       startedAt,
-      durationMs: null,
-      elapsedMs: Math.max(0, at - startedAt),
-      winner: null,
-      scores: null,
-      briefing: { text: briefing, prompt, public: null },
-    };
+      briefing: { text: briefing, prompt },
+    });
   };
 }
 
@@ -140,81 +126,29 @@ export function cliOptions(
     const intervalMs = Number(env.BRIDGE_SESSION_POLL_MS ?? 250);
     if (!Number.isSafeInteger(intervalMs) || intervalMs < 50)
       throw new Error("BRIDGE_SESSION_POLL_MS must be an integer >= 50");
-    let rcon;
-    if (kind === "host") {
-      required("BRIDGE_HOST_URL");
-      required("BRIDGE_HOST_TOKEN");
-    } else
-      rcon = {
-        host: required("BRIDGE_RCON_HOST"),
-        port: port("BRIDGE_RCON_PORT", 25575),
-        password: required("BRIDGE_RCON_PASSWORD"),
-      };
-    let service;
-    const polled = polledSession({
-      intervalMs,
-      read:
-        kind === "host"
-          ? hostSessionReader({
-              url: env.BRIDGE_HOST_URL,
-              token: env.BRIDGE_HOST_TOKEN,
-            })
-          : () => serverRead(),
-      // A host session is one match: when it ends, stop the game but keep
-      // serving the final state. A stale "ended" read at startup is not an
-      // end. Server sessions can run round after round, so the bot stays and
-      // only actions are refused between rounds.
-      onChange: async (next, previous) => {
-        if (
-          kind === "host" &&
-          next.state === "ended" &&
-          previous &&
-          previous.state !== "ended"
-        )
-          await service?.stopGame().catch(() => {});
-      },
-    });
-    let serverRead;
-    bridge.getMatchState = () => polled.getMatchState();
-    bridge.authorizeAction = () => polled.authorizeAction();
-    return {
-      minecraft,
-      bridge,
-      session: {
-        kind,
-        setUsername,
-        ended: () => {
-          try {
-            return kind === "host" && polled.getMatchState().state === "ended";
-          } catch {
-            return false;
-          }
-        },
-        async start(started, { createRcon = (o) => new RconClient(o) } = {}) {
-          service = started;
-          if (rcon) {
-            const client = createRcon(rcon);
-            await client.connect();
-            serverRead = serverSessionReader({
-              rcon: client,
-              username: () => sessionUsername,
-              sessionId: env.BRIDGE_SESSION_ID || `server-${now()}`,
-              briefing: env.BRIDGE_BRIEFING || null,
-              prompt,
-              now,
-            });
-            const close = polled.close;
-            polled.close = () => {
-              close();
-              client.close();
-            };
-          }
-          await polled.start();
-        },
-        poll: () => polled.poll(),
-        close: () => polled.close(),
-      },
-    };
+    const session =
+      kind === "host"
+        ? hostSession({
+            url: required("BRIDGE_HOST_URL"),
+            token: required("BRIDGE_HOST_TOKEN"),
+            intervalMs,
+          })
+        : serverSession({
+            rcon: {
+              host: required("BRIDGE_RCON_HOST"),
+              port: port("BRIDGE_RCON_PORT", 25575),
+              password: required("BRIDGE_RCON_PASSWORD"),
+            },
+            intervalMs,
+            username: () => sessionUsername,
+            sessionId: env.BRIDGE_SESSION_ID || `server-${now()}`,
+            briefing: env.BRIDGE_BRIEFING || null,
+            prompt,
+            now,
+          });
+    bridge.getMatchState = session.getMatchState;
+    bridge.authorizeAction = session.authorizeAction;
+    return { minecraft, bridge, session: { ...session, kind, setUsername } };
   }
   return { minecraft, bridge };
 }
