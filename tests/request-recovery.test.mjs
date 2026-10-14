@@ -512,7 +512,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
       assert.equal(code, scenario === "fatal" ? 1 : 0, stderr);
       if (scenario === "fatal") {
         assert.equal(requests.length, 1, stderr);
-        assert.match(stderr, /resident fatal/);
+        assert.match(stderr, /request recovery failed/);
         assert.equal(
           match,
           "running",
@@ -528,7 +528,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
         );
         assert.doesNotMatch(
           stderr,
-          /resident recovery: continuing/,
+          /request recovery: continuing/,
           "Pi drains its queued turn before settlement; no recovery prompt overlaps it",
         );
         return;

@@ -24,7 +24,7 @@ const object = (properties) => ({
 });
 const string = { type: "string" };
 const seconds = { type: "number", minimum: 0, maximum: 2147483 };
-/** Share the existing tool/timer range; a wait budget never limits process life. */
+/** Share the existing tool/timer range; the wait time never limits process life. */
 export function defaultToolWaitSeconds(env = process.env) {
   const raw = env.ARENA_TOOL_WAIT_SECONDS;
   const value = Number(raw);
@@ -368,7 +368,7 @@ export default function arenaExtension(pi) {
       message: {
         customType: "arena-inbox-setup",
         display: false,
-        content: `Participant IPC is available in bash child environment as MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN. POST JSON {sessionId,kind:"event"|"state"|"judgment",key?,data,priority:"normal"|"urgent"} to /messages. Programs choose their own message meaning and urgency. Normal inbox data joins a tool result or final turn boundary. Urgent data releases managed bash/task_wait waits without killing processes. Use task_cancel to stop a process. A running task ID represents the same command: use task_wait, do not restart it. Bash and task_wait return after ${waitSeconds} seconds by default, or earlier on completion or urgent input. Each wait_seconds overrides that call's wait budget, including longer waits; a returned running task keeps executing. Bash timeout is a separate, explicit kill deadline. ${process.env.ARENA_CONTINUOUS_SESSION === "1" ? "The resident runner keeps programs and this conversation alive when you finish a response. After a final response, a running program suppresses idle fallback: completion or an urgent judgment request supplies the next decision, not the tool wait budget. Ordinary programs can schedule later judgments with timers and requestJudgment. Host match end or operator shutdown closes the runtime." : ""} Session: ${r.sessionId}.${initial ? "\n" + JSON.stringify(initial.message) : ""}${batch ? "\n" + batchText(batch) : ""}`,
+        content: `Inbox: programs started through bash can report to you with InboxClient (packages/inbox), which reads MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN from the environment. Normal messages arrive with your next tool result. An urgent message ends the current bash/task_wait wait early; the program keeps running. bash and task_wait wait ${waitSeconds} seconds by default (wait_seconds changes it for one call), then return "running" with a taskId while the program continues: call task_wait with that taskId instead of starting it again, and task_cancel to stop it. The bash timeout parameter is a separate kill deadline. ${process.env.ARENA_CONTINUOUS_SESSION === "1" ? "This session stays alive after you finish a response. While a program you started is still running you get no idle reminder; its completion or an urgent message starts your next turn. Programs can ask for a later decision with requestJudgment. The session closes when the match ends." : ""} Session: ${r.sessionId}.${initial ? "\n" + JSON.stringify(initial.message) : ""}${batch ? "\n" + batchText(batch) : ""}`,
       },
     };
   });

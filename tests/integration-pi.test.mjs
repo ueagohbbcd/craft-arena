@@ -996,7 +996,7 @@ test(
     );
     assert.match(
       JSON.stringify(received[0].body.messages),
-      /Participant IPC is available/,
+      /Inbox: programs started through bash/,
     );
     assert.equal(ledger.snapshot("fixture")[0].usedTokens, 15);
     assert.equal(

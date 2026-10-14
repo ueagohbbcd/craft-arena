@@ -30,7 +30,7 @@ export function observeRpcOutput(
           try {
             receive(value);
           } catch {
-            /* Malformed/non-RPC JSON logs cannot stop the resident. */
+            /* Malformed/non-RPC JSON logs cannot stop the session. */
           }
         }
       }
@@ -179,14 +179,14 @@ export function createRequestRecovery({
       if (pending.reason === "fatal") {
         const failure = { type: "model-configuration", at: now() };
         report(
-          "Arena resident fatal: model configuration/authentication/context cannot recover. Closing the runtime with failure status.",
+          "Arena request recovery failed: model configuration/authentication/context cannot recover. Closing the runtime with failure status.",
         );
         await onFatal(failure);
         return;
       }
       active = true; // Hold the slot until prompt preflight or actual agent activity settles.
       report(
-        `Arena resident recovery: continuing ${pending.reason} at ${now()}.`,
+        `Arena request recovery: continuing ${pending.reason} at ${now()}.`,
       );
       try {
         send({
@@ -271,7 +271,7 @@ export function createRequestRecovery({
       clear();
       for (const request of states.values()) {
         cancel(request.timeout);
-        request.reject(new Error("Resident stopped"));
+        request.reject(new Error("Continuous session stopped"));
       }
       states.clear();
     },

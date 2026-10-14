@@ -104,7 +104,7 @@ test("Pi per-call wait overrides preserve longer waits and explicit kill deadlin
   for (const name of ["bash", "task_wait"])
     assert.match(h.tools.get(name).description, /defaults to 0\.02 seconds/);
   const connection = await h.handlers.get("before_agent_start")({}, h.ctx);
-  assert.match(connection.message.content, /return after 0\.02 seconds/);
+  assert.match(connection.message.content, /wait 0\.02 seconds by default/);
   const longer = await h.run(
     "bash",
     { command: "sleep 0.1; printf longer-bash", wait_seconds: 2 },
@@ -1018,7 +1018,7 @@ test("resident waits for a live program then delivers its actual completion exac
   assert.equal(receipt.details.status, "delivered");
 });
 
-test("genuine idle fallback respects queued turns and freshly checks the host", async (t) => {
+test("idle reminder respects queued turns and freshly checks the host", async (t) => {
   const host = residentHost(t);
   const h = await harness(t, { env: host.env });
   h.setIdle(true);
