@@ -29,7 +29,10 @@ npm ci
 npm run check         # 语法检查
 npm run format:check  # prettier
 npm test              # 全部测试
+npm run verify:server # 真实 Minecraft 1.21.1 服务器上的协议、规则数据包与一局实战（需要 Java 21，会下载 server.jar）
 ```
+
+CI（`.github/workflows/ci.yml`）在 Node 24 上跑前三项，并单独跑 `verify:server`。改动服务器协议、`infra/datapacks/` 下的数据包、比赛主控或游戏桥时，本地先跑 `verify:server`。
 
 ## 修改代码时
 
