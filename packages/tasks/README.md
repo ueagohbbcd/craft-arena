@@ -1,6 +1,6 @@
 # Task manager
 
-`TaskManager` ([index.mjs](index.mjs)) runs and tracks every process started through `bash`, plus the default scripts. A **task** is one such process, identified by a `taskId`. The [Pi extension](../pi-extension/README.md) creates one manager per session; the participant-facing behavior of `bash`, `task_wait` and `task_cancel` is in [examples/SKILL.md](../../examples/SKILL.md#tools-and-waiting).
+`TaskManager` ([index.mjs](index.mjs)) runs and tracks every process started through `bash`, plus the default scripts. A **task** is one such process, identified by a `taskId`. The [Pi extension](../pi-extension/README.md) creates one manager per session; the participant-facing behavior of `bash` and `arena-task` is in the appended system prompt, [participant/PROMPT.md](../../participant/PROMPT.md#programs-keep-running).
 
 The core rule: **waiting and process life are separate.** Ending a wait never kills a process; only `cancel`, a kill deadline or shutdown do.
 
@@ -33,7 +33,7 @@ Each process gets the manager's `env` (the inbox connection variables) and `MC_I
 
 ## Wait
 
-`wait(id, {timeoutMs, signal})` blocks for at most the **wait time** `timeoutMs` (no limit if omitted; `bash` / `task_wait` pass `wait_seconds`, default 30 s). It returns:
+`wait(id, {timeoutMs, signal})` blocks for at most the **wait time** `timeoutMs` (no limit if omitted; `bash` passes `wait_seconds`, default 30 s). It returns:
 
 | Result                               | When                                                                                                                                                                                                                                                                                           |
 | ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -50,6 +50,25 @@ A final result is delivered once. If no wait is active when the process exits, t
 `cancel(id)` sends SIGTERM to the process group and SIGKILL 500 ms later. It returns `{status: "cancelling"}`, or `completed` if the task already exited. Confirm the exit with `wait` before starting a replacement.
 
 `close()` refuses new tasks, cancels every running task and waits up to 3.5 s for them. The Pi extension calls it when the session ends or is replaced. Running tasks are not recovered after a restart.
+
+## Task files and `arena-task`
+
+With `logDir` set (the Pi extension uses `ARENA_TASK_DIR`, default `<cwd>/.arena/tasks`), each task gets `<logDir>/<taskId>/` with:
+
+| File                       | Contents                                                                                                                                                                         |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `stdout.log`, `stderr.log` | Everything the process printed, up to `maxLogFileBytes` (16 MiB) per file and `maxLogBytes` (256 MiB) per manager; past a limit `status.json` gets `logLimited: true`            |
+| `status.json`              | `taskId`, `label`, `command`, `cwd`, `status`, `pid`, `pgid` (the task leads its own process group), `startedAt`, and after exit `completedAt`, `exitCode`, `signal`, `timedOut` |
+
+Results carry `logDir`. Each process gets `ARENA_TASK_LOG_DIR` (its own directory); the Pi extension also passes `ARENA_TASK_DIR` and puts [bin/arena-task](bin/arena-task) on `PATH`:
+
+```sh
+arena-task list              # one JSON line per task, newest first
+arena-task status <taskId>   # that task's status.json
+arena-task cancel <taskId>   # SIGTERM to the process group, SIGKILL after 500 ms, then the final status
+```
+
+The files are a copy for the model and its programs; delivery does not depend on them. A write failure stops logging for that task and is noted as `logError`.
 
 ## Output and limits
 

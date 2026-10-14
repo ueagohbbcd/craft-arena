@@ -21,6 +21,7 @@ COPY --chown=node:node packages/observation ./packages/observation
 COPY --chown=node:node packages/default-scripts ./packages/default-scripts
 COPY --chown=node:node packages/world-visual ./packages/world-visual
 COPY --chown=node:node examples ./examples
+COPY --chown=node:node participant ./participant
 COPY --chown=node:node docs/CONTEXT-DELIVERY.md ./docs/CONTEXT-DELIVERY.md
 COPY --chown=node:node scripts/archive-participant-state.mjs ./scripts/archive-participant-state.mjs
 RUN mkdir -p /workspace /team-git /arena/session && chown node:node /workspace /team-git /arena/session

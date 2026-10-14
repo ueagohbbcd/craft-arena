@@ -1,30 +1,30 @@
 # Control FAQ
 
-Short answers to mistakes that keep coming up. The full manual is [SKILL.md](SKILL.md).
+Short answers to mistakes that keep coming up. The full manual is [SKILL.md](skills/minecraft-arena/SKILL.md).
 
 ## Programs and waiting
 
 ### My `bash` call returned `running`. Did the program fail?
 
-No. The wait time ran out, or an urgent report ended the wait. The program is still running. Call `task_wait` with the same `taskId`, or `task_cancel` it. Do not start it again, or two copies will fight over the character. Each `running` result shows only the output printed since the previous `running` result for that task.
+No. The wait time ran out, or an urgent report ended the wait. The program is still running. Call `bash` with `{"taskId": ...}` to keep waiting, or stop it with `arena-task cancel <taskId>`. Do not start it again, or two copies will fight over the character. Each `running` result shows only the output printed since the previous `running` result for that task.
 
 ### A program finished while I was thinking. Where is its output?
 
-Look in your next `task_wait` result for that `taskId`, or in a `task.completed` inbox report. The output is delivered once, in one of those two places. Waiting on that task again afterwards returns `status: "delivered"` with the exit code.
+Look in your next `bash` result for that `taskId`, or in a `task.completed` inbox report. The output is delivered once, in one of those two places. Waiting on that task again afterwards returns `status: "delivered"` with the exit code.
 
 ### I cancelled a controller, but the character is still moving.
 
-`task_cancel` returns `cancelling` and asks the program to stop. Call `task_wait` until it shows `completed` or `delivered`, then check the position before you start a new controller. A program that exits without releasing its controls leaves them pressed for about 1 more second: the bridge releases the movement keys a program pressed once its connection has been closed that long (crash and `task_cancel` included). The character keeps moving during that second, so a controller should still call `bot.clearControlStates()` and `await bot.flush()` before it exits, as [navigate.mjs](navigate.mjs) does.
+`arena-task cancel <taskId>` sends SIGTERM to the program's process group, SIGKILL after 500 ms, and prints the task's final status once it has ended. Check the position before you start a new controller. A program that exits without releasing its controls leaves them pressed for about 1 more second: the bridge releases the movement keys a program pressed once its connection has been closed that long (crash and `arena-task cancel` included). The character keeps moving during that second, so a controller should still call `bot.clearControlStates()` and `await bot.flush()` before it exits, as [navigate.mjs](../examples/navigate.mjs) does.
 
 ### I want something watched all the time. Will the example programs do that?
 
-No. [navigate.mjs](navigate.mjs) and the other examples exit when their job is done. For something that must keep running, write a listener that runs until you cancel it. It should report through `InboxClient` and use `requestJudgment` only when you must react now. See "Listener beside a controller" in [SKILL.md](SKILL.md).
+No. [navigate.mjs](../examples/navigate.mjs) and the other examples exit when their job is done. For something that must keep running, write a listener that runs until you cancel it. It should report through `InboxClient` and use `requestJudgment` only when you must react now. See "Listener beside a controller" in [SKILL.md](skills/minecraft-arena/SKILL.md).
 
 ## Shared character
 
 ### I equipped a block. Why am I now holding a sword or a melon?
 
-The main hand is shared by every program that controls the character. If an eating or guarding program equips food or a sword, the building program's next placement uses that item. Let one program own the hand at a time, and equip the right item again each time work resumes. [navigate-with-autoeat.mjs](navigate-with-autoeat.mjs) pauses the route to eat and then resumes. [build-with-autoeat.mjs](build-with-autoeat.mjs) keeps building and eating in one program and takes turns with the hand.
+The main hand is shared by every program that controls the character. If an eating or guarding program equips food or a sword, the building program's next placement uses that item. Let one program own the hand at a time, and equip the right item again each time work resumes. [navigate-with-autoeat.mjs](../examples/navigate-with-autoeat.mjs) pauses the route to eat and then resumes. [build-with-autoeat.mjs](../examples/build-with-autoeat.mjs) keeps building and eating in one program and takes turns with the hand.
 
 ### `pathfinder.stop()` returned. Can I use the hand right away?
 
@@ -34,11 +34,11 @@ No. `stop()` only asks Pathfinder to stop at the next path node. Wait until all 
 2. The character is on the ground (`bot.entity.onGround`).
 3. Pathfinder has finished any digging or placing (`bot.pathfinder.isMining()` and `isBuilding()` are false).
 
-[navigate-with-autoeat.mjs](navigate-with-autoeat.mjs) waits for these, eats, and then sets the original goal again.
+[navigate-with-autoeat.mjs](../examples/navigate-with-autoeat.mjs) waits for these, eats, and then sets the original goal again.
 
 ### I turned off digging for Pathfinder. Why does PvP still dig?
 
-PvP has its own movement settings, `bot.pvp.movements`, and gives them to Pathfinder when it attacks. Set `bot.pvp.movements.canDig = false` to keep terrain intact during a fight. [fight-target.mjs](fight-target.mjs) does this.
+PvP has its own movement settings, `bot.pvp.movements`, and gives them to Pathfinder when it attacks. Set `bot.pvp.movements.canDig = false` to keep terrain intact during a fight. [fight-target.mjs](../examples/fight-target.mjs) does this.
 
 ## Actions and what you see
 

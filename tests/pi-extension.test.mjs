@@ -294,7 +294,7 @@ test("bootstrap prepares an exact gateway provider without saving its bearer tok
   assert.equal(profile.extensions.length, 2);
   assert.equal(profile.extensions[1], "./local-extension.mjs");
   assert.equal((await lstat(join(dir, "node_modules"))).isSymbolicLink(), true);
-  for (const name of ["examples", "packages", "docs"])
+  for (const name of ["examples", "participant", "packages", "docs"])
     assert.equal((await lstat(join(dir, name))).isSymbolicLink(), true);
   const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
   const runtime = await ModelRuntime.create({
@@ -374,7 +374,7 @@ test(
     assert.equal(requests[0].path, "/v1/chat/completions");
     assert.equal(requests[0].authorization, "Bearer scoped-fixture-token");
     const guidance = await readFile(
-      new URL("../examples/PROMPT.md", import.meta.url),
+      new URL("../participant/PROMPT.md", import.meta.url),
       "utf8",
     );
     assert.ok(
@@ -384,7 +384,7 @@ test(
     );
     assert.match(
       JSON.stringify(requests[0].body.messages),
-      /examples\/SKILL\.md/,
+      /participant\/skills\/minecraft-arena\/SKILL\.md/,
     );
     const names = requests[0].body.tools.map((tool) => tool.function.name);
     assert.deepEqual(names.toSorted(), ["bash", "edit", "read", "write"]);

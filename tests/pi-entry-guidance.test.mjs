@@ -20,7 +20,7 @@ import { Vector } from "../packages/bot-sdk/index.mjs";
 import { arenaGuidanceArgs } from "../packages/pi-extension/bootstrap.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const guidance = join(root, "examples", "PROMPT.md");
+const guidance = join(root, "participant", "PROMPT.md");
 const append = ["--append-system-prompt", guidance];
 const defaultTools = ["bash", "edit", "read", "write"];
 
@@ -46,7 +46,7 @@ test("arena guidance matches physical cwd and symlinked instruction identity", a
   const { dir, agentDir } = await fixture(t);
   const alias = join(dir, "toolkit-alias");
   await symlink(root, alias, "dir");
-  for (const cwd of [alias, join(alias, "examples")])
+  for (const cwd of [alias, join(alias, "participant")])
     assert.deepEqual(await arenaGuidanceArgs({ cwd, agentDir }), append);
   const workspace = join(dir, "workspace");
   await mkdir(workspace);

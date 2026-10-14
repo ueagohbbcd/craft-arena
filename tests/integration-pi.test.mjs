@@ -1350,8 +1350,10 @@ test(
     assert.equal(child.exitCode, null);
     const first = JSON.stringify(requests[0].messages);
     assert.match(first, /# Minecraft AI Arena/);
-    assert.match(first, /minecraft-arena-programming/);
-    assert.match(first, /SKILL.md/);
+    // Pi lists the skill by name and path; the basics are in the system prompt.
+    assert.match(first, /minecraft-arena/);
+    assert.match(first, /skills\/minecraft-arena\/SKILL\.md/);
+    assert.match(first, /arena-task cancel/);
     const tools = requests[0].tools.map((x) => x.function.name);
     assert.deepEqual(tools.toSorted(), ["bash", "edit", "read", "write"]);
     const second = JSON.stringify(requests[1].messages);

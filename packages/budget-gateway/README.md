@@ -2,7 +2,7 @@
 
 The budget gateway is the only way a participant reaches a model. It accepts OpenAI-compatible `/chat/completions` calls from each participant, forwards them to the operator's real model API with the operator's key, and charges every call against that participant's and its team's budget. Calls wait in a queue when an account is over its rate. Participants never see the upstream key, the prices or any amounts; they get ratios and queue times back.
 
-It runs on the trusted side, in its own container with the only internet-routable network (`model-egress`). Deployment steps are in [infra/README.md](../../infra/README.md); what the model sees is explained for participants in [examples/BUDGET-AND-TEAM.md](../../examples/BUDGET-AND-TEAM.md).
+It runs on the trusted side, in its own container with the only internet-routable network (`model-egress`). Deployment steps are in [infra/README.md](../../infra/README.md); what the model sees is explained for participants in [participant/BUDGET-AND-TEAM.md](../../participant/BUDGET-AND-TEAM.md).
 
 ```sh
 node packages/budget-gateway/src/cli.mjs infra/budget.cash.example.json   # listens on $PORT, default 8081

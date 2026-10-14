@@ -22,7 +22,7 @@
 
 | 能力 | 当前等级 | 依据 | 说明 |
 | --- | --- | --- | --- |
-| 任务：`bash`／`task_wait`／`task_cancel`、等待时长、取消 | 真实 Pi 测试 | `tests/integration-pi.test.mjs`、`tests/inbox.test.mjs`、`tests/pi-extension.test.mjs` | 2026-10-11 实服跑过取消后按键释放，之后任务管理移到 `packages/tasks`，没有重跑 |
+| 任务：`bash`（`command`／`taskId`）、等待时长、`arena-task cancel`、任务文件 | 真实 Pi 测试 | `tests/integration-pi.test.mjs`、`tests/inbox.test.mjs`、`tests/pi-extension.test.mjs`、`tests/task-files.test.mjs` | 2026-10-11 实服跑过取消后按键释放，之后任务管理移到 `packages/tasks`，没有重跑 |
 | 收件箱：普通消息、紧急消息、晚到输出只交付一次 | 真实 Pi 测试 | `tests/integration-pi.test.mjs` | 见下方[Pi 集成测试覆盖](#pi-集成测试覆盖) |
 | 送达回执 `InboxClient.delivery` | 夹具测试 | `tests/inbox.test.mjs`（跨进程 IPC） | 没有真实 Pi 测试直接检查回执 |
 | 程序自报状态 `InboxClient.setStatus` | 夹具测试 | `tests/inbox-current.test.mjs`、`tests/runtime-state.test.mjs`、`tests/pi-extension.test.mjs` | 覆盖跨进程写入、替换、过期、`programStatus` 显示上限和 `observe({fullRuntime: true})` 读取；没有真实 Pi 测试 |
@@ -32,7 +32,7 @@
 | 请求恢复 | 真实 Pi 测试 | `tests/request-recovery.test.mjs`（真实 Pi RPC） | |
 | 默认观察器（默认脚本） | 夹具测试 | `tests/default-observer.test.mjs`、`tests/observation-*.test.mjs`、`tests/nearby-scan.test.mjs`、`tests/recent-blocks.test.mjs` | 改成脚本后**没有在真实服务器上跑过**。2026-10-11 的实服 9 项检查测的是已删除的会话内实现 |
 | 默认聊天转发 | 夹具测试 | `tests/chat-forwarder.test.mjs` | 用真实游戏桥 HTTP 接口，Pi 接口是桩 |
-| `observe` 工具 | 真实 Pi 测试 | `tests/integration-pi.test.mjs` | 经过真实游戏桥 HTTP 接口读取夹具 bot，不发出游戏动作 |
+| 按需采样 `examples/observe.mjs` | 真实 Pi 测试 | `tests/integration-pi.test.mjs` | 经过真实游戏桥 HTTP 接口读取夹具 bot，不发出游戏动作 |
 | 区块记忆 | 夹具测试 | `tests/block-memory.test.mjs`、`tests/world-memory-integration.test.mjs` | 没有在真实比赛中用过 |
 | bot SDK、Pathfinder 适配 | 实服验证（旧代码） | `tests/sdk-*.test.mjs`；2026-10-11 实服检查与单人试验 | 此后 SDK 有改动，没有重跑实服。与真实 Mineflayer 的差距见 `tests/sdk-fidelity.test.mjs` |
 | PvP 适配、战斗报告 | 夹具测试 | `tests/sdk-plugins.test.mjs`、`tests/combat-report.test.mjs` | 没有实战 |
@@ -116,14 +116,14 @@ npm run demo:screenshot           # 需要本地 Chromium 和可选依赖
 
 | 测试（名称开头） | 证明了什么 |
 | --- | --- |
-| `real Pi omitted bash and task_wait budgets` | 不给 `wait_seconds` 时，`bash` 和 `task_wait` 到等待时长后返回 `running` 和同一个 `taskId`；进程只启动一次，一直运行到正常结束 |
+| `real Pi omitted bash wait budgets` | 不给 `wait_seconds` 时，`bash` 启动和 `bash` 加 `taskId` 续等都在等待时长后返回 `running` 和同一个 `taskId`；进程只启动一次，一直运行到正常结束 |
 | `real Pi loads extension; normal program IPC` | 程序用 `InboxClient` 发的普通消息和命令输出一起出现在下一次请求里，不多调用模型 |
 | `real Pi urgent IPC releases a parallel bash batch` | 紧急消息让同一批两个 `bash` 等待都立刻返回 `running`，进程不被杀；它们之后结束时不唤醒模型，输出在下一次请求里各出现一次 |
 | `Pi steer queues by default` | 运行中插入的用户消息（Pi 的 `steer`）排队到命令结束，不会提前结束等待 |
 | `real codemode can filter its raw nested result` | 显式启用 codemode（默认关闭）时，嵌套命令的输出被脚本过滤掉，收件箱消息仍附在 codemode 自己的结果上送到模型 |
 | `ordinary Pi read ... preserves PNG` | `read` 读到的 PNG 经预算网关进入下一次请求（直接调用和 codemode 两种） |
-| `default observe tool ... returns durable state` | `observe` 经真实游戏桥 HTTP 接口读取夹具 bot，状态 JSON 留在工具结果里，不带图片、不发游戏动作 |
-| `bootstrap launches shipped Pi CLI` | 启动器生成的配置启动随包 Pi CLI；只用参赛者范围的 key；模型收到 7 个默认工具（`read`、`edit`、`write`、`bash`、`observe`、`task_wait`、`task_cancel`），`bash` 带 `wait_seconds`，没有 codemode；网关按模型描述限制输出并计费 |
+| `the observe script through bash` | `bash` 运行 `examples/observe.mjs`，经真实游戏桥 HTTP 接口读取夹具 bot，状态 JSON 留在工具结果里，不提交动作 |
+| `bootstrap launches shipped Pi CLI` | 启动器生成的配置启动随包 Pi CLI；只用参赛者范围的 key；模型收到 4 个默认工具（`read`、`edit`、`write`、`bash`），`bash` 带 `wait_seconds`，没有 codemode；网关按模型描述限制输出并计费 |
 | `gateway read-only budget snapshot` | `GET /budget` 区分进行中的预留和已结算用量 |
 | `positive gateway queue delay`、`uncontended gateway feedback` | 请求排队时，排队时长和剩余额度以平台消息送到模型；不排队时不声称排队；都不另起模型请求 |
 | `configured match clock` | 比赛主控的时钟作为平台消息送达，标明来源，不另起模型请求 |
@@ -148,6 +148,6 @@ npm run demo:screenshot           # 需要本地 Chromium 和可选依赖
 | [find-blocks-benchmark-2026-10-11.json](history/evidence/find-blocks-benchmark-2026-10-11.json) | `findBlocks` 剪枝前后的基准（合成区块） | 历史 |
 | [recent-block-benchmark-2026-10-11.json](history/evidence/recent-block-benchmark-2026-10-11.json)、[recent-block-interval-benchmark-2026-10-11.json](history/evidence/recent-block-interval-benchmark-2026-10-11.json) | 沿途方块采样耗时：半径 6，每次约 2 ms（P95 约 3–4 ms） | 采样算法仍在观察库中，未重测 |
 | [recent-block-context-2026-10-11.json](history/evidence/recent-block-context-2026-10-11.json) | 按旧比赛轨迹估算沿途方块报告的上下文长度 | 粗略估算 |
-| [pi-native-tools-2026-10-11.json](history/evidence/pi-native-tools-2026-10-11.json) | 改用 Pi 原生工具的批次（当时 10 个工具） | 工具已减到 7 个 |
+| [pi-native-tools-2026-10-11.json](history/evidence/pi-native-tools-2026-10-11.json) | 改用 Pi 原生工具的批次（当时 10 个工具） | 工具已减到 4 个（`read`、`edit`、`write`、`bash`） |
 | [pi-entry-audit-2026-10-11.json](history/evidence/pi-entry-audit-2026-10-11.json) | 参赛入口（提示、Skill、工具包路径）检查 | 入口文档已重写 |
 | [server-replay-integration-2026-10-11.json](history/evidence/server-replay-integration-2026-10-11.json) | 服务端录像接入：34 项聚焦测试；Docker、PowerShell、实服录像没有验证 | 仍未实服验收 |

@@ -1,6 +1,6 @@
 # Budget and team reference
 
-Read this when you need it. It covers how model calls are metered, how to read the budget feedback, and how to share code with teammates. The manual is [SKILL.md](SKILL.md).
+Read this when you need it. It covers how model calls are metered, how to read the budget feedback, and how to share code with teammates. The manual is [SKILL.md](skills/minecraft-arena/SKILL.md).
 
 ## How model calls are metered
 

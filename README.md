@@ -16,7 +16,7 @@ flowchart LR
     host -. "RCON：#arena:* 函数、读 arena:session" .- mc
   end
   subgraph box["参赛容器（每个参赛者一个）"]
-    pi["Pi + Pi 扩展<br/>bash / task_wait / task_cancel / observe<br/>收件箱、平台消息"]
+    pi["Pi + Pi 扩展<br/>bash（任务、等待）<br/>收件箱、平台消息"]
     scripts["默认脚本<br/>default observer / default chat"]
     progs["参赛者自己的程序<br/>（SDK、Pathfinder、PvP）"]
   end
@@ -39,19 +39,19 @@ flowchart LR
 
 ### 谁能改什么
 
-| 部分    | 包含                                                                                                   | 参赛者能做什么                                                                                          |
-| ------- | ------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
-| 可信侧  | 比赛主控、游戏桥、预算网关、Minecraft 服务器；游戏桥记录的区块记忆                                     | 不能访问或修改，只能通过游戏桥和预算网关的公开接口使用。运营者负责配置                                  |
-| Pi 扩展 | `bash`、`task_wait`、`task_cancel`、`observe` 工具；任务管理；收件箱；平台消息；会话开始时启动默认脚本 | 在容器里运行，Pi 启动时加载，比赛中不能换掉。它决定信息何时送到模型                                     |
-| 工具包  | `$ARENA_TOOLKIT_ROOT` 下的一切：SDK、观察库、默认脚本、截图与图像库、区块记忆查询客户端、示例和 Skill  | 可以读、运行、复制、改写或不用。默认观察器和聊天转发也只是普通任务，可以 `task_cancel` 后换成自己的版本 |
+| 部分    | 包含                                                                                                            | 参赛者能做什么                                                                                                |
+| ------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| 可信侧  | 比赛主控、游戏桥、预算网关、Minecraft 服务器；游戏桥记录的区块记忆                                              | 不能访问或修改，只能通过游戏桥和预算网关的公开接口使用。运营者负责配置                                        |
+| Pi 扩展 | `bash` 工具（启动任务、继续等待）；任务管理和任务文件；收件箱；平台消息；会话开始时启动默认脚本                 | 在容器里运行，Pi 启动时加载，比赛中不能换掉。它决定信息何时送到模型                                           |
+| 工具包  | `$ARENA_TOOLKIT_ROOT` 下的一切：SDK、观察库、默认脚本、截图与图像库、区块记忆查询客户端、示例、参赛说明和 Skill | 可以读、运行、复制、改写或不用。默认观察器和聊天转发也只是普通任务，可以 `arena-task cancel` 后换成自己的版本 |
 
 参赛 AI 目前是 Pi 1.1.0。游戏 SDK 和观察库不依赖 Pi；换别的 coding agent 时，替换的是 `packages/pi-extension`。
 
 ## 一场比赛怎么进行
 
 1. **准备。** 运营者选定地图、规则和时限，配置队伍、模型价格和速率上限，启动服务器和可信侧服务。比赛主控重置地图，为每个参赛者连上一个游戏桥，此时动作仍被拒绝。
-2. **开局。** 启动器在容器里启动 Pi，等比赛主控报告比赛开始，然后发出一次开局提示：[examples/PROMPT.md](examples/PROMPT.md)、比赛简报（队伍、地图、目标、时限等公开事实）。不附图像，模型需要时自己运行截图脚本。Pi 会话一开始，Pi 扩展就把默认观察器和默认聊天转发作为后台任务启动；第一个请求最多等观察器 5 秒，带上它的第一份状态报告。
-3. **比赛。** 模型在普通的工具调用循环里工作：调用工具、写程序、启动任务。`bash` 和 `task_wait` 默认最多等 30 秒，等满时返回 `running` 和 `taskId`，程序继续运行。模型思考和排队时，游戏照常进行。Pi 在模型回答结束后也不退出（持续会话）。模型停下、比赛仍在进行、又没有非后台任务在运行时，5 秒后 Pi 扩展会提醒它继续（空闲提醒）。
+2. **开局。** 启动器在容器里启动 Pi，等比赛主控报告比赛开始，然后发出一次开局提示，内容是比赛简报（队伍、地图、目标、时限等公开事实）。每局都要用的基本知识（任务怎样运行、信息怎样送达、东西在哪）在 [participant/PROMPT.md](participant/PROMPT.md)，追加在 Pi 的系统提示里。不附图像，模型需要时自己运行截图脚本。Pi 会话一开始，Pi 扩展就把默认观察器和默认聊天转发作为后台任务启动；第一个请求最多等观察器 5 秒，带上它的第一份状态报告。
+3. **比赛。** 模型在普通的工具调用循环里工作：调用工具、写程序、启动任务。`bash` 默认最多等 30 秒，等满时返回 `running` 和 `taskId`，程序继续运行；模型再用 `bash` 加 `taskId` 接着等。模型思考和排队时，游戏照常进行。Pi 在模型回答结束后也不退出（持续会话）。模型停下、比赛仍在进行、又没有非后台任务在运行时，5 秒后 Pi 扩展会提醒它继续（空闲提醒）。
 4. **结束。** 服务器上的规则数据包判定胜负（羊毛竞速：每刻检查纪念碑方块），比赛主控通过 RCON 轮询 `arena:session`；服务器宣布结束或时间到，比赛结束。游戏桥停止接受动作，比赛主控保存结果（默认还有服务端录像）。启动器读到结束状态后关闭 Pi，Pi 扩展随之停止所有任务。
 
 ## 模型看到的信息：三条通道
@@ -60,7 +60,7 @@ flowchart LR
 
 | 通道     | 来自                                                                  | 何时到达模型                                                         |
 | -------- | --------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| 工具结果 | 模型自己调用的工具（`bash`、`task_wait`、`observe` 等）               | 工具返回本身就是一个请求边界                                         |
+| 工具结果 | 模型自己调用的工具（`bash`，以及 Pi 的 `read` 等）                    | 工具返回本身就是一个请求边界                                         |
 | 收件箱   | 参赛者的程序（包括默认观察器和聊天转发）；Pi 扩展的任务与程序状态报告 | 普通消息随下一个请求边界附带；紧急消息提前结束等待，或唤醒空闲的会话 |
 | 平台消息 | 比赛主控（会话时钟）、预算网关（预算反馈）                            | 回合结束时排入，随下一个请求送达，自己不发起请求                     |
 
@@ -101,8 +101,8 @@ flowchart LR
 | Pi 扩展  | `packages/pi-extension`：加载进 Pi 的本项目代码，提供工具、收件箱、平台消息和默认脚本启动                                                                                                |
 | 工具包   | `$ARENA_TOOLKIT_ROOT` 下参赛者可以读、运行、复制或不用的全部代码和资料                                                                                                                   |
 | 默认脚本 | Pi 会话开始时由 Pi 扩展作为后台任务启动的普通脚本（`ARENA_DEFAULT_SCRIPTS` 选择）：`default observer`（报告状态变化、附近方块和告示牌、受伤死亡等事件）和 `default chat`（转发游戏聊天） |
-| 任务     | 通过 `bash` 启动、用 `taskId` 跟踪的进程；用 `task_wait` 继续等、`task_cancel` 停止                                                                                                      |
-| 等待时长 | 一次 `bash` / `task_wait` 调用最多阻塞多久（默认 30 秒，`wait_seconds` 可改）；到时返回 `running`，进程不停                                                                              |
+| 任务     | 通过 `bash` 启动、用 `taskId` 跟踪的进程；用 `bash` 加 `taskId` 继续等、`arena-task cancel` 停止；输出和状态写在任务目录里                                                               |
+| 等待时长 | 一次 `bash` 调用最多阻塞多久（默认 30 秒，`wait_seconds` 可改）；到时返回 `running`，进程不停                                                                                            |
 | 请求边界 | 向模型发出请求的时刻；新信息只能在这时进入模型                                                                                                                                           |
 | 收件箱   | Pi 扩展里的消息队列；程序用 `InboxClient` 发消息，随下一个请求边界送达并保留在历史中                                                                                                     |
 | 紧急消息 | 优先级为 urgent 的收件箱消息：提前结束正在进行的等待（程序继续运行），或唤醒空闲会话                                                                                                     |
@@ -113,10 +113,10 @@ flowchart LR
 
 **参赛模型**（容器内路径前缀为 `$ARENA_TOOLKIT_ROOT`）
 
-- [examples/PROMPT.md](examples/PROMPT.md)：开局提示
-- [examples/SKILL.md](examples/SKILL.md)：怎样玩、第一步、示例程序
-- [examples/FAQ.md](examples/FAQ.md)：常见的控制与时机错误
-- [examples/BUDGET-AND-TEAM.md](examples/BUDGET-AND-TEAM.md)：预算反馈与队内 Git
+- [participant/PROMPT.md](participant/PROMPT.md)：追加到系统提示的参赛说明：任务和等待、信息通道、文件位置
+- [participant/skills/minecraft-arena/SKILL.md](participant/skills/minecraft-arena/SKILL.md)：Skill：第一步、各类任务从哪个示例程序开始、程序写法
+- [participant/FAQ.md](participant/FAQ.md)：常见的控制与时机错误
+- [participant/BUDGET-AND-TEAM.md](participant/BUDGET-AND-TEAM.md)：预算反馈与队内 Git
 - [packages/observation/README.md](packages/observation/README.md)：默认观察器报告什么、怎样改
 - [packages/bot-sdk/README.md](packages/bot-sdk/README.md)：SDK 及与 Mineflayer 的差异
 - [packages/bot-sdk/BLOCK-MEMORY.md](packages/bot-sdk/BLOCK-MEMORY.md)：查询区块记忆
@@ -160,6 +160,7 @@ flowchart LR
 | 工具包   | `packages/observation`                      | 观察库：单次采样、事件、变化报告、附近扫描         |
 | 工具包   | `packages/default-scripts`                  | `observer.mjs`、`chat.mjs`                         |
 | 工具包   | `packages/world-visual`、`examples/`        | 图像渲染；示例程序与截图脚本                       |
+| 工具包   | `participant/`                              | 系统提示、Skill、FAQ、预算与队内 Git 说明          |
 | 运营工具 | `infra/`、`scripts/`、`tools/replay-myopia` | 部署模板、运营脚本、回放客户端                     |
 
 ## 本地快速开始

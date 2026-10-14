@@ -196,6 +196,9 @@ test("participant image carries only participant-side code", async () => {
       );
   for (const name of participant)
     assert.ok(copied.includes(`packages/${name}`), `missing packages/${name}`);
+  // The appended system prompt and the skill the launcher passes to Pi.
+  for (const path of ["examples", "participant"])
+    assert.ok(copied.includes(path), `missing ${path}`);
   for (const path of copied)
     assert.doesNotMatch(path, /^(?:tests|docs\/?$|scripts\/?$|README)/);
   // Participant code must not import trusted-side packages.
