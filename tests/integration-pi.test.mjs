@@ -647,10 +647,12 @@ for (const nested of [false, true])
         async (_body, n, dir) => {
           if (n !== 1) return "Image received.";
           const path = join(dir, "fixture.png");
+          // 2x2 RGBA: Pi's image library (Photon) panics on the 1x1
+          // grayscale PNG this test used before and drops the image.
           await writeFile(
             path,
             Buffer.from(
-              "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=",
+              "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAYAAABytg0kAAAAE0lEQVR4XmP4z8DwHwwZGP6DAQBJyAn3BVHP/wAAAABJRU5ErkJggg==",
               "base64",
             ),
           );
@@ -660,7 +662,8 @@ for (const nested of [false, true])
                   id: "outer-image",
                   name: "codemode",
                   args: {
-                    code: `const r=await tools.read(${JSON.stringify({ path })});for(const block of r.content){if(block.type==='image')image(block);else if(block.type==='text')text(block.text);}`,
+                    // Codemode's read resolves to the image block itself.
+                    code: `const r=await tools.read(${JSON.stringify({ path })});if(r?.type!=='image')throw new Error('read did not return an image block');image(r);`,
                   },
                 },
               ]
