@@ -57,7 +57,7 @@ export function createSectionDiff(
   let previous = new Map();
   let initialized = false;
   return {
-    prepare(snapshot) {
+    prepare(snapshot, { includeKeys = [] } = {}) {
       const state = compact(snapshot),
         changes = {},
         next = new Map();
@@ -68,6 +68,9 @@ export function createSectionDiff(
       }
       for (const key of previous.keys())
         if (!(key in state)) changes[key] = null;
+      // A producer may need to correct a queued report even when the state
+      // matches the delivered baseline. Its receipt still commits this sample.
+      for (const key of includeKeys) changes[key] = state[key] ?? null;
       if (initialized && !Object.keys(changes).length) return null;
       return {
         message: {

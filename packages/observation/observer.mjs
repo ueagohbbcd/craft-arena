@@ -4,7 +4,7 @@ import {
   projectRecentBlocks,
   startNearbyScan,
 } from "./nearby-scan.mjs";
-import { compactObservation, createSectionDiff } from "./section-diff.mjs";
+import { createSectionDiff } from "./section-diff.mjs";
 import { observationOptionsFromMatch } from "./match-options.mjs";
 import { observerOptions, readObserverConfig } from "./observer-config.mjs";
 
@@ -176,7 +176,9 @@ export async function startObserver({
   const connection = () =>
     status === "connected" ? {} : { connectionStatus: status };
   const changes = createSectionDiff();
-  let posted = null; // { signature, keys } of the report still waiting in the inbox
+  let posted = null; // { signature, keys, sequence } of the pending report
+  let sequence = 0;
+  let deliveredSequence = 0;
   function publish() {
     if (closed) return;
     let snapshot;
@@ -187,26 +189,22 @@ export async function startObserver({
       onError(error);
       return;
     }
-    const delivery = changes.prepare(snapshot);
-    let message = delivery?.message;
+    let delivery = changes.prepare(snapshot);
     if (!delivery) {
       if (!posted) return;
       // Everything returned to what the model last saw; replace the pending
       // report so it does not describe a state that no longer holds.
-      const state = compactObservation(snapshot);
-      message = {
-        type: "observation.changed",
-        observedAt: snapshot.observedAt,
-        changes: Object.fromEntries(
-          posted.keys.map((key) => [key, state[key] ?? null]),
-        ),
-      };
+      delivery = changes.prepare(snapshot, { includeKeys: posted.keys });
     }
+    const message = delivery.message;
     const signature = JSON.stringify(message.changes);
     if (signature === posted?.signature) return;
-    posted = delivery
-      ? { signature, keys: Object.keys(message.changes) }
-      : null;
+    const pending = {
+      signature,
+      keys: Object.keys(message.changes),
+      sequence: ++sequence,
+    };
+    posted = pending;
     post(
       {
         kind: "state",
@@ -216,8 +214,15 @@ export async function startObserver({
       },
       {
         onDelivered() {
-          delivery?.onDelivered();
-          if (posted?.signature === signature) posted = null;
+          if (pending.sequence > deliveredSequence) {
+            delivery?.onDelivered();
+            deliveredSequence = pending.sequence;
+          }
+          if (posted === pending) posted = null;
+        },
+        onLost() {
+          // Retry on the next sample, without erasing a newer pending report.
+          if (posted === pending) posted = null;
         },
       },
     );

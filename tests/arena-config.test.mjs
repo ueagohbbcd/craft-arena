@@ -35,6 +35,20 @@ const connector = {
   stop: async () => {},
 };
 
+test('team ID "draw" is reserved across session kinds', () => {
+  for (const config of [
+    match,
+    { ...open, teams: base.teams, participants: base.participants },
+  ]) {
+    const c = structuredClone(config);
+    const previous = c.teams[0].id;
+    c.teams[0].id = "draw";
+    for (const participant of c.participants)
+      if (participant.team === previous) participant.team = "draw";
+    assert.ok(validateMatchConfig(c).some((e) => /reserved/.test(e)));
+  }
+});
+
 test("pre-datapack race-of-wool configs are rejected with a pointer", () => {
   const legacy = {
     ...base,

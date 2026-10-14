@@ -22,7 +22,7 @@
 
 ## 常用命令
 
-需要 Node.js 24。
+需要 Node.js 24。全量测试使用 Linux（含 `/bin/bash`、Unix socket 和 POSIX 信号）；Windows 使用 Linux 容器或 WSL，并在其中安装依赖。测试复现见 [docs/VALIDATION.md](docs/VALIDATION.md#如何复现)。
 
 ```sh
 npm ci

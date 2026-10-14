@@ -4,6 +4,8 @@
 
 更新：2026-10-14（服务器协议与羊毛竞速数据包实服验证）。
 
+2026-10-15 修复复验（`codex/fix-review-findings`，合并进本分支前）：当前源码在隔离 Linux 容器、Node.js 24.21.0 下运行 `npm test`，595 项中 592 通过、0 失败、3 跳过（Chromium 需显式启用、Windows 初始化仅限 Windows、容器未安装 Docker Compose CLI）。依赖锁文件与镜像一致，源码复制到空目录后核对文件清单和摘要。覆盖观察报告丢失与延迟回执、开赛期间掉线、公开数据撤回、保留队伍名；同时修正 PNG 及 codemode 的旧测试夹具。语法和格式检查通过；本轮未运行实服或真实模型。
+
 ## 验证等级
 
 | 等级 | 含义 |
@@ -82,7 +84,7 @@
 
 ## 如何复现
 
-需要 Node.js 24。
+需要 Node.js 24 和 Linux 环境（`/bin/bash`、Unix socket、POSIX 信号，以及用例使用的 `git`、`unzip`）。Windows 使用 Linux 容器或 WSL，在该环境执行 `npm ci`；不要直接复用 Windows 的 `node_modules`。原生 Windows 的路径、进程和 socket 行为会使部分用例失败，不能据此判定 Linux 参赛运行时的状态。
 
 ```sh
 npm ci

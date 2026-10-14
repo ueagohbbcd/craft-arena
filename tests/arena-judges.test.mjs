@@ -10,6 +10,7 @@ import {
 } from "../packages/arena/src/live.mjs";
 import { parseSnbt } from "../packages/arena/src/snbt.mjs";
 import { fakeServer } from "./helpers/fake-server.mjs";
+import { EventEmitter } from "node:events";
 
 const base = {
   id: "dp",
@@ -56,6 +57,58 @@ async function live(config, s, extra = {}) {
   });
   return { match, states, clock: (t) => (now = t) };
 }
+
+test("participant disconnection during start cannot enter running", async () => {
+  for (const phase of ["release", "function #arena:start"]) {
+    const s = server();
+    const bots = [];
+    const c = structuredClone(base);
+    c.live.commands = { start: [{ command: "release", expect: "OK" }] };
+    const { match } = await live(c, s, {
+      rconFactory: () => {
+        const rcon = s.rcon();
+        const command = rcon.command;
+        rcon.command = async (c) => {
+          if (c === phase) bots[0].emit("end");
+          return command(c);
+        };
+        return rcon;
+      },
+      startLiveBridge: async () => {
+        const bot = new EventEmitter();
+        bot.entity = {};
+        bot.quit = () => bot.emit("end");
+        bots.push(bot);
+        return { bot, close: async () => {} };
+      },
+    });
+    await match.prepare();
+    await assert.rejects(match.start(), /Start cancelled/);
+    await match.host.ending;
+    assert.equal(match.host.state, "ended");
+    assert.equal(match.host.result().reason, "abandoned");
+    assert.equal(match.host.startedAt, undefined);
+    await match.close();
+  }
+});
+
+test("successful server reads retract public data while failed reads preserve it", async () => {
+  const s = server();
+  const { match, states } = await live(base, s);
+  await match.prepare();
+  s.session =
+    '{version:1,state:"running",public:{objectives:["flag"],hint:"old"}}';
+  await match.start();
+  assert.deepEqual(states[0]().objectives, ["flag"]);
+  s.session = null;
+  await match.poll();
+  assert.deepEqual(states[0]().objectives, ["flag"]);
+  s.session = '{version:1,state:"running"}';
+  await match.poll();
+  assert.equal(states[0]().objectives, undefined);
+  assert.deepEqual(states[0]().briefing.public, { hint: "north" });
+  await match.close();
+});
 
 test("datapack judge writes arena:config, runs tags and ends on the server verdict", async () => {
   const s = server();

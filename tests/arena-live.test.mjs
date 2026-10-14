@@ -86,6 +86,7 @@ test("operator commands are optional but must be command/expect pairs", () => {
   bad.live.commands.start = [{ command: "start" }];
   assert.throws(() => validateLive(bad), /start command/);
 });
+
 const packet = (id, type, text) => {
   const b = Buffer.from(text),
     p = Buffer.alloc(b.length + 14);

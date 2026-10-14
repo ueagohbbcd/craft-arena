@@ -25,6 +25,14 @@
 
 ## 准备 Minecraft 服务器镜像与地图
 
+以下命令在仓库根目录的 Bash 中执行。先复制 `infra/operator.env.example` 为 `.env`，填好其中的令牌、RCON 密码和上游配置；Compose 在构建时也会检查这些变量。后文的 `C` 是同一条 Compose 命令的简写：
+
+```sh
+cp infra/operator.env.example .env
+# 编辑 .env 后：
+C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
+```
+
 1. 阅读并接受 [Minecraft EULA](https://www.minecraft.net/eula)。
 2. 准备服务器构建目录。[`minecraft-download.json`](minecraft-download.json) 是唯一的下载清单：Minecraft 1.21.1、Fabric 加载器和安装器、各库的校验值、ServerReplay 及其依赖。脚本先校验大小和摘要，再生成构建目录：
 
@@ -35,7 +43,24 @@
 
    构建时需要联网；比赛时服务器不下载任何东西。镜像默认叫 `craft-arena-minecraft:local`。`MC_SERVER_BUILD_CONTEXT` 可换构建目录；已有审核过的镜像时设 `MC_SERVER_IMAGE` 并用 `--no-build` 启动，它必须支持下面的录像挂载，否则关掉录像。
 
-3. 把解压好的世界（含 `level.dat`）、`server.properties`（开启 RCON 并设私有密码，关闭命令方块）和 `eula.txt` 放进 `world` 卷（容器内 `/data`），再把规则数据包复制进世界的 `datapacks/`，羊毛竞速用 [`datapacks/race-of-wool`](datapacks/race-of-wool/README.md)（先在它的 `map.mcfunction` 里填好这张地图的纪念碑坐标）。参赛 bot 不能是服务器管理员（OP）。
+3. 在 `runtime/server-data/` 准备下面的目录。`server.properties` 设置 `level-name=world`、`enable-rcon=true`、与 `.env` 一致的 `rcon.password`、`enable-command-block=false`。再把规则数据包复制进 `world/datapacks/`，羊毛竞速用 [`datapacks/race-of-wool`](datapacks/race-of-wool/README.md)（先在它的 `map.mcfunction` 里填好这张地图的纪念碑坐标）。参赛 bot 不能是服务器管理员（OP）。
+
+   ```text
+   runtime/server-data/
+     eula.txt                 # 接受条款后填写 eula=true
+     server.properties
+     world/                   # level-name 对应的目录
+       level.dat
+       region/
+       ...                    # 地图的其他文件一并保留
+   ```
+
+   首次部署时用下面的临时容器导入命名卷；它只复制文件，不启动服务器。使用同一份 Compose 配置会自动找到正确的 `world` 卷，无需猜卷名前缀。若卷内已有世界，命令拒绝覆盖；下一场地图恢复见下文。
+
+   ```sh
+   C run --rm --no-deps -v "$(pwd)/runtime/server-data:/seed:ro" --entrypoint sh minecraft -c 'test ! -e /data/world && test ! -e /data/server.properties && cp -R /seed/. /data/'
+   ```
+
 4. 复制 [`match.live.template.json`](match.live.template.json) 为 `infra/match.live.json`，填好所有 `OPERATOR_...` 占位值：地图、参赛者、可选的准备／开赛／结束 RCON 命令和期望回应（例如传送、设出生点），以及给参赛者的 `briefing.text`。`session.durationMs` 决定比赛时长。比赛配置的字段说明见 [packages/arena/README.md](../packages/arena/README.md)。
    - 模板是羊毛竞速，用 `datapack` 判定器：纪念碑由服务器上的数据包判定，见下文[玩法与判定器](#玩法与判定器)。
    - 玩法提示 `briefing.promptFile` 相对配置文件解析；[`compose.live.yaml`](compose.live.yaml) 把 [`maps/`](maps/) 挂到 `/config/maps`。文件不存在时主控拒绝启动。
@@ -191,7 +216,7 @@ C stop minecraft                               # 最后停，且只在录像已�
 
 Docker 的 `internal: true` 去掉了普通的外网路由，但不能证明完全隔离（宿主机上的服务、IPv6、配置错误、后加的网络）。不要为了让参赛者用 Git 而给参赛容器接一个能出网的网络：队伍 Git 只用卷。确实需要外部访问时，用宿主机控制的白名单代理，并与模型凭据分开。
 
-运营配置（价格、速率、地图设置）留在 `infra/` 或独立的部署目录里，不要放进参赛者能看到的目录。参赛镜像只复制公开的代码、示例和文档；模型描述文件是唯一同时挂给参赛容器和网关的配置，里面没有 key 和价格。已做过的验收记录见 [docs/VALIDATION.md](../docs/VALIDATION.md)。
+运营配置（价格、速率、地图设置）留在 `infra/` 或独立的部署目录里，不要放进参赛者能看到的目录。当前参赛镜像复制整个 `packages/`、`docs/` 和 `tests/`，因此也能读到可信侧源码和开发文档；目录拆分见[路线图](../docs/ROADMAP.md)。私有运营配置不随镜像复制，模型描述文件是同时挂给参赛容器和网关的公开配置，里面没有 key 和价格。已做过的验收记录见 [docs/VALIDATION.md](../docs/VALIDATION.md)。
 
 ## 单组件调试：compose.yaml
 

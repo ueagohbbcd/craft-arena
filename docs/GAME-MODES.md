@@ -4,17 +4,9 @@
 
 **真实服务器验证（2026-10-14，1.21.1 原版）：** 协议 v1、示例数据包和羊毛竞速数据包都在真实服务器上跑过，包括比赛主控 `live-cli.mjs` 带两个真实 Mineflayer bot 的完整一局（见 [VALIDATION](VALIDATION.md)）。`MF_AUTH=microsoft` 登录和陪玩模板还没有实际跑过。剩下的事项见 [ROADMAP](ROADMAP.md)。
 
-## 要解决的问题
+## 适用范围
 
-改动之前，比赛主控只认一种玩法：
-
-- **配置写死。** `validateMatchConfig` 要求 `game: "race-of-wool"`、`rules.winner: "first-team-all-objectives"`。
-- **判定写死。** 一个可信裁判 bot 按 `live.goals` 轮询纪念碑方块，判定代码在 `packages/arena/src/live.mjs`。
-- **简报写死。** 开局简报和英文规则说明也写在 `live.mjs` 里。
-
-换一张地图、换一种规则，或者干脆不比赛（让模型在普通服务器里陪玩），都要改平台代码。
-
-有一半已经是对的：准备、开赛、结束三个阶段，比赛主控通过 RCON 执行运营者配置的服务器命令（`live.commands.prepare/start/end`），平台并不知道这些命令做什么。
+通过会话配置选择玩法和简报，通过判定器读取比赛结果。已有羊毛地图可继续使用纪念碑方块判定；数据包或插件可实现下面的服务器协议；陪玩使用没有胜负和时限的 `open` 会话。
 
 ## 原则：规则归服务器，平台只管会话
 
@@ -78,6 +70,8 @@ data merge storage arena:config {version:1, sessionId:"...", runId:"...", kind:"
 
 平台不解释 `scores` 和 `public` 的含义，只负责转交和记录。
 
+`draw` 是协议保留值，不能用作队伍 ID。成功读取的状态省略 `public` 时，会撤回上一份服务端公开数据；配置中的 `briefing.public` 仍保留。读取失败时暂时保留上次成功读取的数据。
+
 ### 平台自己决定的结束
 
 - **时限到：** 平台调用 `#arena:stop`，再读一次 `arena:session`。服务器已经给出 `winner` 就用它，否则按配置的 `onTimeout` 判平局。
@@ -89,7 +83,7 @@ RCON 断开或读到空的、格式错误的存储，`match` 会话容忍连续 
 
 ## 比赛主控配置
 
-`game` 和写死的 `rules.winner` 改为一个模式块：
+会话、判定器和简报分别配置：
 
 ```json
 {
@@ -126,7 +120,7 @@ RCON 断开或读到空的、格式错误的存储，`match` 会话容忍连续 
 | `BRIDGE_SESSION=open` | `/v1/session` 返回 `{kind:"open", state:"running"}` |
 | `MF_AUTH=microsoft`   | 用微软账号登录正版服务器；默认仍是 `offline`        |
 
-实现时另加了 `BRIDGE_SESSION_ID`、`BRIDGE_BRIEFING`、`BRIDGE_PROMPT_FILE`（玩法提示词）和 `MF_PROFILES_DIR`（微软登录缓存），见 [游戏桥 README](../packages/mf-bridge/README.md)。
+其他配置包括 `BRIDGE_SESSION_ID`、`BRIDGE_BRIEFING`、`BRIDGE_PROMPT_FILE`（玩法提示词）和 `MF_PROFILES_DIR`（微软登录缓存），见 [游戏桥 README](../packages/mf-bridge/README.md)。
 
 参赛容器、预算网关不用改。行为限制照样由服务器负责：服主给 bot 的账号设权限，和给真人设权限一样。
 
@@ -146,10 +140,8 @@ RCON 断开或读到空的、格式错误的存储，`match` 会话容忍连续 
 5. **示例数据包。** 写一个最小的示例数据包，演示协议：手动命令开始、按计分板判胜负。
 6. **移植羊毛竞速。** 纪念碑判定写成数据包 `infra/datapacks/race-of-wool`，在真实 1.21.1 服务器上验证后删除 `monument-blocks`、旧配置转换、`/v1/match` 别名和观察器里写死的羊毛规则。观察器改从 `briefing.public.goals` 和 `briefing.public.watchItems` 取目标物品和关注物品。
 
-## 未决问题
+## 当前边界
 
-实现时的取舍：SNBT 解析器只支持复合、列表、字符串、数值（含后缀），没有做通用解析器；v1 只用 RCON 轮询；`public` 在比赛中可以更新，最新的一份放进会话的 `briefing.public`，还没有大小上限，也没有单独的平台消息。
+SNBT 解析器支持复合、列表、字符串、数值（含后缀），不是通用解析器。协议 v1 使用 RCON 轮询。
 
-- **SNBT 解析器的范围。** 只解析平台读取的这几个字段，还是做一个完整的通用解析器。倾向于前者，只支持复合、列表、字符串、数值。
-- **插件服的接入方式。** 是否需要 RCON 以外的通道，例如插件直接推送事件，以降低轮询延迟。v1 先只用 RCON 轮询；500 ms 的判定延迟对现有玩法够用。
-- **`public` 的大小上限**，以及是否允许在比赛进行中更新。倾向于允许：模型通过平台消息收到变化的部分。
+`public` 可在会话中更新，最新值放进 `briefing.public` 供查询；它目前没有大小上限，变化也不会单独生成平台消息。后续工作统一记在 [路线图](ROADMAP.md)。

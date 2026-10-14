@@ -47,7 +47,8 @@ function datapackJudge(config, { rcon, host }) {
   const run = (phase) => runPhase(rcon, phase);
   const read = async () => {
     const session = await readSession(rcon);
-    if (session.public) published = session.public;
+    // A successful read without public data withdraws the previous one.
+    published = session.public;
     return session;
   };
   return {
