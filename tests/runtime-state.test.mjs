@@ -288,7 +288,7 @@ test(
       resourceLoader: loader,
       settingsManager,
       sessionManager: manager,
-      tools: ["read", "bash", "observe", "checkpoint"],
+      tools: ["read", "bash", "checkpoint"],
       customTools: [
         {
           name: "checkpoint",
@@ -532,7 +532,7 @@ test(
       assert(history.includes("EVENT_chat_survives"));
       assert(
         history.includes(openingPng),
-        "preexisting opening image is unchanged",
+        "a preexisting durable image is unchanged",
       );
     }
     assert.equal(

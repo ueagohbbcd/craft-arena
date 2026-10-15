@@ -345,6 +345,16 @@ test("bootstrap model access: a relay needs no participant key; without an endpo
     }),
     /without embedded credentials/,
   );
+  await assert.rejects(
+    preparePiProfile({
+      cwd: dir,
+      env: {
+        ARENA_MODEL_CONFIG: await modelConfig(dir, { contextWindow: "big" }),
+        OPENAI_BASE_URL: "http://relay:8080",
+      },
+    }),
+    /positive integer contextWindow/,
+  );
 });
 
 test(
@@ -1063,6 +1073,74 @@ test("public data changes ride the next platform message; a changed notice wakes
     h.platform.filter(([, options]) => options.triggerTurn).length,
     1,
   );
+});
+
+test("a notice that changed during a final answer gets one more turn", async (t) => {
+  const host = residentHost(t);
+  host.setPublic({ goal: "first" });
+  const h = await harness(t, {
+    env: { ...host.env, ARENA_IDLE_REMINDER_MS: "100000" },
+  });
+  await h.handlers.get("before_agent_start")({}, h.ctx);
+  host.setPublic({ goal: "first", notice: "come back" });
+  await delay(2100);
+  // A turn with tool calls continues anyway; the notice rides it passively.
+  const busy = await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [{}], outcome: "completed" },
+    h.ctx,
+  );
+  assert.equal(busy?.continue, undefined);
+  host.setPublic({ goal: "first", notice: "come back now" });
+  await delay(2100);
+  const final = await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [], outcome: "completed" },
+    h.ctx,
+  );
+  assert.equal(final.continue, true);
+  assert.equal(h.platform.at(-1)[0].details.notice, "come back now");
+  // Nothing new: a later final answer settles normally.
+  const settled = await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [], outcome: "completed" },
+    h.ctx,
+  );
+  assert.equal(settled?.continue, undefined);
+});
+
+test("an unusable task directory turns task files off, not the tools", async (t) => {
+  const { mkdtemp: tmp, writeFile: write } = await import("node:fs/promises");
+  const dir = await tmp(join(tmpdir(), "pi-extension-blocked-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const blocked = join(dir, "not-a-directory");
+  await write(blocked, "");
+  const h = await harness(t, { env: { ARENA_TASK_DIR: blocked } });
+  const result = await h.run("bash", { command: "printf ok", wait_seconds: 5 });
+  assert.equal(result.details.stdout, "ok");
+  assert.equal(result.details.logDir, undefined);
+  const boundary = await h.handlers.get("tool_result")(
+    { content: [{ type: "text", text: "x" }] },
+    h.ctx,
+  );
+  assert.match(JSON.stringify(boundary), /Task files unavailable/);
+});
+
+test("tasks a gone manager left running are marked lost at start", async (t) => {
+  const {
+    mkdtemp: tmp,
+    mkdir: md,
+    writeFile: write,
+  } = await import("node:fs/promises");
+  const dir = await tmp(join(tmpdir(), "pi-extension-stale-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await md(join(dir, "old"));
+  await write(
+    join(dir, "old", "status.json"),
+    JSON.stringify({ taskId: "old", status: "running", pgid: 1 }),
+  );
+  await harness(t, { env: { ARENA_TASK_DIR: dir } });
+  const stale = JSON.parse(
+    await readFile(join(dir, "old", "status.json"), "utf8"),
+  );
+  assert.equal(stale.status, "lost");
 });
 
 test("bash takes exactly one of command or taskId, and a kill deadline only for a new command", async (t) => {

@@ -102,7 +102,7 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
 
 ### 经模型转发
 
-[模型转发](../packages/model-relay/README.md)（`model-relay`）把收到的请求原样转发到一个基地址 `MODEL_UPSTREAM_URL`；设了 `MODEL_UPSTREAM_KEY` 时换上这个 key（`Authorization: Bearer`）。它就是参赛容器出网的白名单：参赛容器只能访问它，它只访问这一个地址。key 只在转发容器里。
+[模型转发](../packages/model-relay/README.md)（`model-relay`）把收到的请求原样转发到一个基地址 `MODEL_UPSTREAM_URL`；设了 `MODEL_UPSTREAM_KEY` 时换上这个 key（`Authorization: Bearer`）。它就是参赛容器出网的白名单：参赛容器只能访问它，它只访问这一个主机。基地址下的任何路径都会转发，所以有 key 时参赛者也能用上游在那里提供的其他接口（文件、批处理等）；需要限制时，在上游那一层过滤。key 只在转发容器里。
 
 上游可以是官方 API，也可以是宿主机上的任何服务，地址写 `http://host.docker.internal:PORT/v1`（模板为 Linux 加了 `host-gateway` 映射，Docker Desktop 自带）。OAuth 转 API、计量和限速、代理链这些都在那一层做，不属于本项目。
 

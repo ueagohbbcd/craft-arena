@@ -65,10 +65,10 @@ Results carry `logDir`. Each process gets `ARENA_TASK_LOG_DIR` (its own director
 ```sh
 arena-task list              # one JSON line per task, newest first
 arena-task status <taskId>   # that task's status.json
-arena-task cancel <taskId>   # SIGTERM to the process group, SIGKILL after 500 ms, then the final status
+arena-task cancel <taskId>   # SIGTERM to the process group, SIGKILL after 500 ms, then the status (completed once the exit is recorded, within 3 s)
 ```
 
-The files are a copy for the model and its programs; delivery does not depend on them. A write failure stops logging for that task and is noted as `logError`.
+The files are a copy for the model and its programs; delivery does not depend on them. A write failure stops logging for that task and is noted as `logError`; if the task directory cannot be created at all, the Pi extension runs without task files and says so in the runtime report (`taskFiles`). When the Pi extension starts, tasks still marked `running` by an earlier, gone manager are marked `lost`, and `arena-task cancel` does not signal them: their process group ID may belong to another process by then.
 
 ## Output and limits
 

@@ -82,8 +82,12 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $stage 'map-original/world') -Destination (Join-Path $stage 'minecraft-data/world') -Recurse
     $envLines = [Collections.Generic.List[string]]::new()
-    # Compose dotenv single quotes preserve dollar signs and backslashes literally.
-    function Quote-DotEnv([string]$value) { return "'" + $value.Replace("'", "\'") + "'" }
+    # Compose dotenv single quotes keep dollar signs and backslashes literally and
+    # have no escape for a single quote, so a value containing one is refused.
+    function Quote-DotEnv([string]$value) {
+        if ($value.Contains("'")) { throw 'A value written to .env contains a single quote; set it in .env by hand.' }
+        return "'" + $value + "'"
+    }
     $envLines.Add('ARENA_SOURCE_DIR=' + (Quote-DotEnv $repo.Replace('\','/')))
     $rcon = ''
     foreach ($name in @('MC_RCON_PASSWORD','RED1_BRIDGE_TOKEN','BLUE1_BRIDGE_TOKEN','ARENA_HOST_TOKEN')) {

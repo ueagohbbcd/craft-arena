@@ -5,7 +5,8 @@
  *   arena-task list              one JSON line per task, newest first
  *   arena-task status <taskId>   that task's status.json
  *   arena-task cancel <taskId>   SIGTERM to its process group, SIGKILL after
- *                                500 ms, then print its final status
+ *                                500 ms, then print its status (completed
+ *                                once the exit is recorded, within 3 s)
  *
  * Reads ARENA_TASK_DIR (set for every task the Pi extension starts).
  */
@@ -50,7 +51,9 @@ export async function cancelTask(
   { graceMs = 500, settleMs = 3000 } = {},
 ) {
   let status = await readStatus(dir, taskId);
-  if (status.status === "completed") return status;
+  // Only a task its manager still runs owns its process group; a "lost" task
+  // (left by an earlier manager) may name a group since reused by another.
+  if (status.status !== "running") return status;
   if (!status.pgid) throw new Error("Task has no process group to signal");
   try {
     process.kill(-status.pgid, "SIGTERM");

@@ -123,6 +123,18 @@ async function modelProfile({ env, directory, cwd }) {
   const model = JSON.parse(
     await readFile(resolve(cwd, env.ARENA_MODEL_CONFIG), "utf8"),
   );
+  const positive = (value) => Number.isSafeInteger(value) && value > 0;
+  if (
+    typeof model.id !== "string" ||
+    !model.id ||
+    typeof model.api !== "string" ||
+    !model.api ||
+    !positive(model.contextWindow) ||
+    !positive(model.maxOutputTokens)
+  )
+    throw new Error(
+      "ARENA_MODEL_CONFIG needs id and api strings and positive integer contextWindow and maxOutputTokens",
+    );
   const { contextWindow, maxOutputTokens: maxTokens } = model;
   const compaction = {
     enabled: true,
@@ -229,11 +241,31 @@ export async function launchPi({
       "ARENA_WAIT_FOR_MATCH requires authenticated ARENA_BRIDGE_URL and ARENA_BRIDGE_TOKEN",
     );
   const profile = await preparePiProfile({ env, cwd });
-  const guidanceArgs = await arenaGuidanceArgs({
-    cwd,
-    agentDir: profile.agentDir,
-    args,
-  });
+  const sessionDir =
+    env.PI_CODING_AGENT_SESSION_DIR || join(cwd, ".pi", "sessions");
+  // Copies of the trusted briefing for the model to re-read after compaction.
+  const ownSessionFilesDir = resident && !env.ARENA_SESSION_DIR;
+  let guidanceArgs, sessionFiles;
+  try {
+    guidanceArgs = await arenaGuidanceArgs({
+      cwd,
+      agentDir: profile.agentDir,
+      args,
+    });
+    await mkdir(sessionDir, { recursive: true, mode: 0o700 });
+    sessionFiles = resident
+      ? createSessionFiles({
+          directory:
+            env.ARENA_SESSION_DIR ||
+            (await mkdtemp(join(tmpdir(), "arena-session-"))),
+        })
+      : undefined;
+  } catch (error) {
+    // The exit cleanup below is not reached yet; drop the generated profile.
+    if (profile.generated)
+      await rm(profile.agentDir, { recursive: true, force: true });
+    throw error;
+  }
   const initialPrompt =
     env.ARENA_PROMPT ||
     "Participate in the Minecraft session using the local bridge and your available tools. Write and run your own programs as useful. Use the participant inbox for observations and urgent judgment. Follow the session briefing and keep going until its goal is complete or the host ends the session.";
@@ -248,18 +280,6 @@ export async function launchPi({
     ...profile.extensions.flatMap((path) => ["-e", path]),
     ...args,
   ];
-  const sessionDir =
-    env.PI_CODING_AGENT_SESSION_DIR || join(cwd, ".pi", "sessions");
-  await mkdir(sessionDir, { recursive: true, mode: 0o700 });
-  // Copies of the trusted briefing for the model to re-read after compaction.
-  const ownSessionFilesDir = resident && !env.ARENA_SESSION_DIR;
-  const sessionFiles = resident
-    ? createSessionFiles({
-        directory:
-          env.ARENA_SESSION_DIR ||
-          (await mkdtemp(join(tmpdir(), "arena-session-"))),
-      })
-    : undefined;
   const childEnv = {
     ...env,
     ARENA_TOOLKIT_ROOT: projectRoot,

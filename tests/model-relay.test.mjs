@@ -143,3 +143,36 @@ test("the upstream URL must be a plain HTTP(S) base", () => {
     "https://api.example/v1/",
   );
 });
+
+test(
+  "an upstream that dies mid-body ends the caller's response",
+  { timeout: 5000 },
+  async (t) => {
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.write("data: partial\n\n");
+      setTimeout(() => res.socket.destroy(), 20);
+    });
+    const url = await listen(server);
+    t.after(() => close(server));
+    const relay = await relayFor(t, { upstream: url });
+    const response = await fetch(`${relay}/chat/completions`, {
+      method: "POST",
+    });
+    await assert.rejects(response.text());
+  },
+);
+
+test("headers named in Connection are not forwarded", async (t) => {
+  const upstream = await upstreamFixture(t);
+  upstream.release();
+  const relay = await relayFor(t, { upstream: upstream.url });
+  const { port } = new URL(relay);
+  const socket = net.connect(port, "127.0.0.1");
+  socket.write(
+    "GET /models HTTP/1.1\r\nHost: x\r\nConnection: close, x-hop\r\nX-Hop: secret\r\nX-Kept: yes\r\n\r\n",
+  );
+  for await (const _ of socket);
+  assert.equal(upstream.seen[0].headers["x-hop"], undefined);
+  assert.equal(upstream.seen[0].headers["x-kept"], "yes");
+});

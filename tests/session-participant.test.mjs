@@ -487,6 +487,23 @@ test("session files copy public fields, skip an empty briefing and rewrite publi
     join(rules, "a.md"),
     join(rules, "b.md"),
   ]);
+  // Mounted rule files are often links; a link to a file counts, one to a
+  // directory or to nothing does not.
+  const { symlink } = await import("node:fs/promises");
+  await writeFile(join(dir, "target.md"), "");
+  await symlink(join(dir, "target.md"), join(rules, "c.md"));
+  await symlink(join(rules, "nested"), join(rules, "d"));
+  await symlink(join(dir, "missing"), join(rules, "e.md"));
+  assert.deepEqual(await listRuleFiles(rules), [
+    join(rules, "a.md"),
+    join(rules, "b.md"),
+    join(rules, "c.md"),
+  ]);
+  // Concurrent rewrites do not collide on one temporary file.
+  await Promise.all([
+    files.write({ ...host, briefing: { public: { a: 3 } } }),
+    files.updatePublic({ briefing: { public: { a: 4 } } }),
+  ]);
 });
 
 test("platform messages report public data against the opening baseline and inline only small data", async () => {

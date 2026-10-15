@@ -126,18 +126,26 @@ export class TaskManager {
     this.tasks.set(id, task);
     if (callId) this.calls.set(callId, { id, command, createdAt: this.now() });
     this.openLogs(task);
-    task.child = spawn("/bin/bash", ["-c", command], {
-      cwd,
-      env: {
-        ...process.env,
-        ...this.env,
-        ...env,
-        MC_INBOX_TASK_ID: id,
-        ...(task.logDir ? { ARENA_TASK_LOG_DIR: task.logDir } : {}),
-      },
-      detached: process.platform !== "win32",
-      stdio: ["ignore", "pipe", "pipe"],
-    });
+    try {
+      task.child = spawn("/bin/bash", ["-c", command], {
+        cwd,
+        env: {
+          ...process.env,
+          ...this.env,
+          ...env,
+          MC_INBOX_TASK_ID: id,
+          ...(task.logDir ? { ARENA_TASK_LOG_DIR: task.logDir } : {}),
+        },
+        detached: process.platform !== "win32",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+    } catch (error) {
+      // A synchronous spawn failure (such as a NUL byte) leaves no task behind.
+      this.closeLogs(task);
+      this.tasks.delete(id);
+      if (callId) this.calls.delete(callId);
+      throw error;
+    }
     this.writeStatus(task);
     const capture = (channel, data) => {
       task.written[channel] += data.length;
@@ -332,6 +340,7 @@ export class TaskManager {
         taskId: task.id,
         status: "delivered",
         channel: task.channel,
+        ...(task.logDir ? { logDir: task.logDir } : {}),
         exitCode: task.exitCode,
         signal: task.signal,
       };
@@ -352,9 +361,12 @@ export class TaskManager {
       const total = task.written[channel];
       const retainedFrom = total - task[channel].length;
       const from = Math.max(task.returned[channel], retainedFrom);
-      result[channel] = decodeTail(task[channel].subarray(from - retainedFrom));
+      // Hold back a character split across reads; the next result starts with it.
+      const unread = task[channel].subarray(from - retainedFrom);
+      const shown = unread.subarray(0, unread.length - partialUtf8(unread));
+      result[channel] = decodeTail(shown);
       if (from > retainedFrom) previously[channel] = from - retainedFrom;
-      task.returned[channel] = total;
+      task.returned[channel] = from + shown.length;
     }
     if (Object.keys(previously).length)
       result.previouslyReturnedBytes = previously;
@@ -400,7 +412,7 @@ export class TaskManager {
     this.urgentReason = null;
   }
   signalTree(task, signal) {
-    if (!task.child.pid) return;
+    if (!task.child?.pid) return;
     try {
       if (process.platform !== "win32") process.kill(-task.child.pid, signal);
       else task.child.kill(signal);
@@ -435,6 +447,17 @@ export class TaskManager {
       ),
     );
   }
+}
+
+/** Bytes of an incomplete UTF-8 sequence at the end of `buffer`. */
+function partialUtf8(buffer) {
+  for (let back = 1; back <= Math.min(3, buffer.length); back++) {
+    const byte = buffer[buffer.length - back];
+    if ((byte & 0xc0) === 0x80) continue;
+    const need = byte >= 0xf0 ? 4 : byte >= 0xe0 ? 3 : byte >= 0xc0 ? 2 : 1;
+    return need > back ? back : 0;
+  }
+  return 0;
 }
 
 function decodeTail(buffer) {

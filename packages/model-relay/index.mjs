@@ -14,6 +14,21 @@ const HOP_BY_HOP = new Set([
   "upgrade",
 ]);
 
+/** Headers to forward: end-to-end only, minus those `Connection` names. */
+function endToEnd(headers, skip = []) {
+  const named = new Set(
+    String(headers.connection ?? "")
+      .split(",")
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const out = {};
+  for (const [name, value] of Object.entries(headers))
+    if (!HOP_BY_HOP.has(name) && !named.has(name) && !skip.includes(name))
+      out[name] = value;
+  return out;
+}
+
 /** Parse and check the one upstream base URL the relay may reach. */
 export function parseUpstream(value) {
   let url;
@@ -35,7 +50,8 @@ export function parseUpstream(value) {
 
 /**
  * A participant's model endpoint: forwards every request to one configured
- * upstream base URL, streaming both ways, and reaches nothing else. With
+ * upstream base URL (any path below it), streaming both ways, and reaches no
+ * other host. With
  * `apiKey` it replaces the caller's Authorization header, so the key stays
  * outside the participant container. It does no metering, queueing or
  * rewriting; anything more belongs in a service the upstream URL points at.
@@ -48,9 +64,7 @@ export function createModelRelay({ upstream, apiKey, onEvent = () => {} }) {
     // Only the path and query of the request target are used, so "//host" or
     // "http://host/" in the request line still lands below the upstream base.
     const { pathname, search } = new URL(req.url, "http://relay.invalid");
-    const headers = {};
-    for (const [name, value] of Object.entries(req.headers))
-      if (!HOP_BY_HOP.has(name) && name !== "host") headers[name] = value;
+    const headers = endToEnd(req.headers, ["host"]);
     if (apiKey) headers.authorization = `Bearer ${apiKey}`;
     const started = Date.now();
     const outgoing = client.request(
@@ -63,11 +77,12 @@ export function createModelRelay({ upstream, apiKey, onEvent = () => {} }) {
         headers,
       },
       (upstreamRes) => {
-        const out = {};
-        for (const [name, value] of Object.entries(upstreamRes.headers))
-          if (!HOP_BY_HOP.has(name)) out[name] = value;
-        res.writeHead(upstreamRes.statusCode, out);
+        res.writeHead(upstreamRes.statusCode, endToEnd(upstreamRes.headers));
         upstreamRes.pipe(res);
+        // An upstream that dies mid-body must not leave the caller waiting.
+        upstreamRes.on("close", () => {
+          if (!upstreamRes.complete) res.destroy();
+        });
         upstreamRes.on("end", () =>
           onEvent({
             method: req.method,

@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { renameSync, writeFileSync } from "node:fs";
 import { Inbox, createInboxServer } from "../inbox/index.mjs";
 import { TaskManager } from "../tasks/index.mjs";
@@ -44,6 +44,21 @@ const taskBin = fileURLToPath(new URL("../tasks/bin", import.meta.url));
 /** Task directory; under a workspace .arena/ it is kept out of Git. */
 async function prepareTaskDir(dir) {
   await mkdir(dir, { recursive: true });
+  // Tasks still marked running belong to an earlier manager that is gone.
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const path = join(dir, entry.name, "status.json");
+    try {
+      const status = JSON.parse(await readFile(path, "utf8"));
+      if (status.status === "running")
+        await writeFile(
+          path,
+          `${JSON.stringify({ ...status, status: "lost" }, null, 2)}\n`,
+        );
+    } catch {
+      /* Unreadable leftovers are left as they are. */
+    }
+  }
   const parent = dirname(dir);
   if (basename(parent) === ".arena")
     await writeFile(join(parent, ".gitignore"), "*\n");
@@ -85,10 +100,11 @@ export default function arenaExtension(pi) {
       append = () => "",
     } = {},
   ) {
-    const { matchEnded, update } = await platform.collect();
+    const { matchEnded, update, wake } = await platform.collect();
     if (matchEnded) r.matchEnded = true;
     if (runtime !== r || r.closed || (!update && !extra)) return false;
     if (triggerTurn && r.matchEnded) return false;
+    r.platformWake = wake;
     const message = { type: "arena.platform", ...update, ...extra };
     pi.sendMessage(
       {
@@ -162,11 +178,18 @@ export default function arenaExtension(pi) {
           : {}),
       };
       // Task output and status live on disk too, for read/tail/grep and
-      // arena-task; delivery to the model does not depend on these files.
-      const taskDir =
+      // arena-task; delivery to the model does not depend on these files, so
+      // an unwritable directory only turns them off.
+      let taskDir =
         process.env.ARENA_TASK_DIR || join(ctx.cwd, ".arena", "tasks");
-      await prepareTaskDir(taskDir);
-      env.ARENA_TASK_DIR = taskDir;
+      let taskDirError;
+      try {
+        await prepareTaskDir(taskDir);
+        env.ARENA_TASK_DIR = taskDir;
+      } catch (error) {
+        taskDirError = `Task files unavailable: ${error.message}`;
+        taskDir = undefined;
+      }
       env.PATH = `${taskBin}${delimiter}${process.env.PATH ?? ""}`;
       const tasks = new TaskManager({
         inbox,
@@ -178,7 +201,8 @@ export default function arenaExtension(pi) {
         sessionId,
         inbox,
         tasks,
-        runtimeFile: join(taskDir, "runtime.json"),
+        runtimeFile: taskDir && join(taskDir, "runtime.json"),
+        taskDirError,
         server,
         env,
         runtimeChanges: createSectionDiff(compactRuntime, {
@@ -337,10 +361,12 @@ export default function arenaExtension(pi) {
         projection: displayLimits,
         fullFile: r.runtimeFile,
       }),
+      ...(r.taskDirError ? { taskFiles: r.taskDirError } : {}),
     };
   };
   /** Uncut task and program state, for read or a program to load. */
   function writeRuntimeFile(r) {
+    if (!r.runtimeFile) return;
     try {
       const full = runtimeState(r.tasks, r.inbox, { fullRuntime: true });
       writeFileSync(`${r.runtimeFile}.tmp`, `${JSON.stringify(full)}\n`);
@@ -404,8 +430,20 @@ export default function arenaExtension(pi) {
     lastStopReason = event.message?.stopReason ?? event.outcome;
     const r = await ensure(ctx);
     r.tasks.resumeWaits();
+    r.platformWake = false;
     await sendPlatformUpdate(r);
-    if (!r.inbox.pending) return;
+    // A final answer (no tool calls, not aborted) gets one more turn when
+    // this boundary carries something that needs a decision.
+    const finalTurn =
+      !r.matchEnded &&
+      event.outcome !== "aborted" &&
+      event.outcome !== "error" &&
+      !event.toolResults?.length;
+    // A notice that changed during this turn would otherwise wait in history.
+    if (!r.inbox.pending)
+      return finalTurn && r.platformWake
+        ? { entries: event.entries, continue: true }
+        : undefined;
     const batch = r.inbox.drain();
     // Boundary entries persist in Pi session history. Passive delivery never requests an extra turn.
     return {
@@ -419,11 +457,7 @@ export default function arenaExtension(pi) {
           details: batch,
         },
       ],
-      ...(!r.matchEnded &&
-      event.outcome !== "aborted" &&
-      event.outcome !== "error" &&
-      !event.toolResults?.length &&
-      batch.messages.some(requestsDecision)
+      ...(finalTurn && (r.platformWake || batch.messages.some(requestsDecision))
         ? { continue: true }
         : {}),
     };

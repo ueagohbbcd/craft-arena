@@ -25,7 +25,7 @@
 | 任务：`bash`（`command`／`taskId`）、等待时长、`arena-task cancel`、任务文件 | 真实 Pi 测试 | `tests/integration-pi.test.mjs`、`tests/inbox.test.mjs`、`tests/pi-extension.test.mjs`、`tests/task-files.test.mjs` | 2026-10-11 实服跑过取消后按键释放，之后任务管理移到 `packages/tasks`，没有重跑 |
 | 收件箱：普通消息、紧急消息、晚到输出只交付一次 | 真实 Pi 测试 | `tests/integration-pi.test.mjs` | 见下方[Pi 集成测试覆盖](#pi-集成测试覆盖) |
 | 送达回执 `InboxClient.delivery` | 夹具测试 | `tests/inbox.test.mjs`（跨进程 IPC） | 没有真实 Pi 测试直接检查回执 |
-| 程序自报状态 `InboxClient.setStatus` | 夹具测试 | `tests/inbox-current.test.mjs`、`tests/runtime-state.test.mjs`、`tests/pi-extension.test.mjs` | 覆盖跨进程写入、替换、过期、`programStatus` 显示上限和 `observe({fullRuntime: true})` 读取；没有真实 Pi 测试 |
+| 程序自报状态 `InboxClient.setStatus` | 夹具测试 | `tests/inbox-current.test.mjs`、`tests/runtime-state.test.mjs`、`tests/pi-extension.test.mjs` | 覆盖跨进程写入、替换、过期、`programStatus` 显示上限和完整的 `runtime.json`；没有真实 Pi 测试 |
 | 运行时报告 `runtime.snapshot`／`runtime.changed` | 真实 Pi 测试 | `tests/integration-pi.test.mjs` 最后一项 | 报告写进对话历史 |
 | 平台消息（时钟） | 真实 Pi 测试 | `tests/integration-pi.test.mjs`（clock 一项）、`tests/pi-extension.test.mjs` | 没有实服或部署运行 |
 | 持续会话、空闲提醒 | 真实 Pi 测试 | 持续会话启动测试、`tests/pi-extension.test.mjs` | |

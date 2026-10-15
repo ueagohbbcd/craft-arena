@@ -28,7 +28,7 @@ Pi 在下面这些时刻发出请求：
 
 - **工具结果**：模型自己调用的工具返回的内容。
 - **收件箱**：参赛者程序（包括默认脚本）通过 `InboxClient` 发来的消息，以及 Pi 扩展自己发的运行时报告。
-- **平台**：可信侧和启动器发来的内容，包括会话时钟（来自比赛主控，独立运行时来自游戏桥）、开局提示和图像。
+- **平台**：可信侧和启动器发来的内容，包括会话时钟（来自比赛主控，独立运行时来自游戏桥）、开局提示（含会话简报）、公开数据的变化和通知。
 
 相对请求边界，信息有四种到达方式：
 
@@ -128,7 +128,7 @@ Pi 在下面这些时刻发出请求：
 | 默认脚本启动                               | [packages/pi-extension/default-scripts.mjs](../packages/pi-extension/default-scripts.mjs)                                                                                                                                           |
 | 默认观察器与紧急事件                       | [packages/default-scripts/observer.mjs](../packages/default-scripts/observer.mjs)、[packages/observation/observer.mjs](../packages/observation/observer.mjs)、[packages/observation/events.mjs](../packages/observation/events.mjs) |
 | 变化报告                                   | [packages/observation/section-diff.mjs](../packages/observation/section-diff.mjs)                                                                                                                                                   |
-| 开局提示与图像                             | [packages/pi-extension/bootstrap.mjs](../packages/pi-extension/bootstrap.mjs)                                                                                                                                                       |
+| 开局提示与会话文件                         | [packages/pi-extension/bootstrap.mjs](../packages/pi-extension/bootstrap.mjs)                                                                                                                                                       |
 
 各包的用法见 [Pi 扩展](../packages/pi-extension/README.md)、[收件箱](../packages/inbox/README.md)、[观察库](../packages/observation/README.md)、[区块记忆](../packages/bot-sdk/BLOCK-MEMORY.md)。
 
