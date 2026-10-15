@@ -35,12 +35,12 @@ const positiveInteger = (value, fallback) => {
 };
 
 /**
- * Append the participant prompt (examples/PROMPT.md) once, without disabling
+ * Append the participant prompt (participant/PROMPT.md) once, without disabling
  * Pi's own discovery of user/project context files. The repository's root
  * AGENTS.md is the developer guide, not this prompt.
  */
 export async function arenaGuidanceArgs({ cwd, agentDir, args = [] }) {
-  const guidance = join(projectRoot, "examples", "PROMPT.md");
+  const guidance = join(projectRoot, "participant", "PROMPT.md");
   if (!args.includes("--no-context-files") && !args.includes("-nc")) {
     const { loadProjectContextFiles } =
       await import("@earendil-works/pi-coding-agent");
@@ -170,7 +170,13 @@ export async function preparePiProfile({
     .filter(Boolean);
   // A mounted participant workspace resolves official dependencies through the installed toolkit.
   if (resolve(cwd) !== projectRoot)
-    for (const name of ["node_modules", "examples", "packages", "docs"]) {
+    for (const name of [
+      "node_modules",
+      "examples",
+      "participant",
+      "packages",
+      "docs",
+    ]) {
       const link = join(cwd, name);
       try {
         await lstat(link);
@@ -222,7 +228,7 @@ export async function launchPi({
     ...(args.includes("--mode") ? [] : ["--mode", resident ? "rpc" : "json"]),
     ...guidanceArgs,
     "--skill",
-    join(projectRoot, "examples/SKILL.md"),
+    join(projectRoot, "participant/skills/minecraft-arena/SKILL.md"),
     ...profile.extensions.flatMap((path) => ["-e", path]),
     ...args,
   ];

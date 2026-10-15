@@ -1,6 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
@@ -138,8 +141,11 @@ test("Pi starts the default chat script per session and replaces it on session s
     Object.assign(process.env, saved);
   });
   let session = "first";
+  const cwd = await mkdtemp(join(tmpdir(), "chat-forwarder-cwd-"));
+  t.after(() => rm(cwd, { recursive: true, force: true }));
   const ctx = {
-    cwd: process.cwd(),
+    // Task files go to ARENA_TASK_DIR or <cwd>/.arena; keep them out of the repo.
+    cwd,
     sessionManager: { getSessionId: () => session },
     isIdle: () => true,
     hasPendingMessages: () => false,

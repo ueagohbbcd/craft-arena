@@ -1,5 +1,14 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import {
+  closeSync,
+  mkdirSync,
+  openSync,
+  renameSync,
+  writeFileSync,
+  writeSync,
+} from "node:fs";
+import { join } from "node:path";
 
 /** Child lifetime belongs to this manager. Releasing a waiter never kills a child. */
 export class TaskManager {
@@ -13,6 +22,9 @@ export class TaskManager {
     retentionMs = 300000,
     idempotencyMs = 3600000,
     maxCallIds = 4096,
+    logDir,
+    maxLogFileBytes = 16 * 1024 * 1024,
+    maxLogBytes = 256 * 1024 * 1024,
     now = Date.now,
   } = {}) {
     if (!inbox) throw new Error("inbox required");
@@ -37,8 +49,12 @@ export class TaskManager {
       retentionMs,
       idempotencyMs,
       maxCallIds,
+      logDir,
+      maxLogFileBytes,
+      maxLogBytes,
       now,
     });
+    this.logBytes = 0;
     this.tasks = new Map();
     this.calls = new Map();
     this.urgentReason = null;
@@ -102,20 +118,30 @@ export class TaskManager {
       written: { stdout: 0, stderr: 0 },
       returned: { stdout: 0, stderr: 0 },
       startedAt: this.now(),
+      cwd,
       waiters: new Set(),
       delivered: false,
       eventId: null,
     };
     this.tasks.set(id, task);
     if (callId) this.calls.set(callId, { id, command, createdAt: this.now() });
+    this.openLogs(task);
     task.child = spawn("/bin/bash", ["-c", command], {
       cwd,
-      env: { ...process.env, ...this.env, ...env, MC_INBOX_TASK_ID: id },
+      env: {
+        ...process.env,
+        ...this.env,
+        ...env,
+        MC_INBOX_TASK_ID: id,
+        ...(task.logDir ? { ARENA_TASK_LOG_DIR: task.logDir } : {}),
+      },
       detached: process.platform !== "win32",
       stdio: ["ignore", "pipe", "pipe"],
     });
+    this.writeStatus(task);
     const capture = (channel, data) => {
       task.written[channel] += data.length;
+      this.appendLog(task, channel, data);
       const joined = Buffer.concat([task[channel], data]);
       if (joined.length > this.maxOutputBytes) {
         task.outputDroppedBytes += joined.length - this.maxOutputBytes;
@@ -137,6 +163,8 @@ export class TaskManager {
         signal,
         completedAt: this.now(),
       });
+      this.closeLogs(task);
+      this.writeStatus(task);
       try {
         // A live claiming waiter owns this completion; avoid evicting unrelated inbox data.
         if (!task.waiters.size) {
@@ -185,11 +213,99 @@ export class TaskManager {
       )
         this.calls.delete(id);
   }
+  /**
+   * Task files: `<logDir>/<taskId>/stdout.log`, `stderr.log` (everything the
+   * process printed, up to the size limits) and `status.json`. They are a
+   * copy for the model and its programs (read, tail, grep, kill by pgid);
+   * delivery rules do not depend on them. A write failure stops logging for
+   * that task and is recorded in status.json.
+   */
+  openLogs(task) {
+    if (!this.logDir) return;
+    try {
+      const dir = join(this.logDir, task.id);
+      mkdirSync(dir, { recursive: true });
+      task.logDir = dir;
+      task.logs = {};
+      for (const channel of ["stdout", "stderr"])
+        task.logs[channel] = {
+          fd: openSync(join(dir, `${channel}.log`), "a"),
+          bytes: 0,
+        };
+    } catch (error) {
+      task.logError = error.message;
+      this.closeLogs(task);
+    }
+  }
+  appendLog(task, channel, data) {
+    const log = task.logs?.[channel];
+    if (!log || log.fd === undefined) return;
+    const room = Math.min(
+      this.maxLogFileBytes - log.bytes,
+      this.maxLogBytes - this.logBytes,
+    );
+    try {
+      if (room > 0) writeSync(log.fd, data, 0, Math.min(room, data.length));
+      const written = Math.max(0, Math.min(room, data.length));
+      log.bytes += written;
+      this.logBytes += written;
+      if (written < data.length && !task.logLimited) {
+        task.logLimited = true;
+        this.writeStatus(task);
+      }
+    } catch (error) {
+      task.logError = error.message;
+      this.closeLogs(task);
+      this.writeStatus(task);
+    }
+  }
+  closeLogs(task) {
+    for (const log of Object.values(task.logs ?? {}))
+      if (log.fd !== undefined) {
+        try {
+          closeSync(log.fd);
+        } catch {}
+        log.fd = undefined;
+      }
+  }
+  writeStatus(task) {
+    if (!task.logDir) return;
+    const status = {
+      taskId: task.id,
+      ...(task.label ? { label: task.label } : {}),
+      command: task.command,
+      cwd: task.cwd,
+      ...(task.background ? { background: true } : {}),
+      status: task.status,
+      pid: task.child?.pid ?? null,
+      // Each task leads its own process group: `kill -TERM -<pgid>` stops it.
+      pgid: process.platform === "win32" ? null : (task.child?.pid ?? null),
+      startedAt: task.startedAt,
+      ...(task.status === "completed"
+        ? {
+            completedAt: task.completedAt,
+            exitCode: task.exitCode,
+            signal: task.signal,
+            ...(task.timedOut ? { timedOut: true } : {}),
+          }
+        : {}),
+      ...(task.logLimited ? { logLimited: true } : {}),
+      ...(task.logError ? { logError: task.logError } : {}),
+    };
+    const path = join(task.logDir, "status.json");
+    try {
+      writeFileSync(`${path}.tmp`, `${JSON.stringify(status, null, 2)}\n`);
+      renameSync(`${path}.tmp`, path);
+    } catch (error) {
+      task.logError ??= error.message;
+    }
+  }
   snapshot(task) {
     return {
       taskId: task.id,
       ...(task.label ? { label: task.label } : {}),
       status: task.status,
+      ...(task.logDir ? { logDir: task.logDir } : {}),
       stdout: decodeTail(task.stdout),
       stderr: decodeTail(task.stderr),
       outputDroppedBytes: task.outputDroppedBytes,

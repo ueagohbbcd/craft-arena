@@ -54,7 +54,7 @@ export function isPermanentRequestError(message = "") {
 }
 
 const continueMessage = (reason) =>
-  `${reason === "length" ? "The previous response reached the output limit. Continue concisely from the saved state and choose the next executable step." : "The previous model request failed. Recheck the current state and continue with what the session briefing asks of you."} Existing tools or background programs may still be running: inspect their task IDs, use task_wait or observations as appropriate, and do not restart or repeat actions already submitted. Preserve successful work; do not assume an action failed merely because the model response ended.`;
+  `${reason === "length" ? "The previous response reached the output limit. Continue concisely from the saved state and choose the next executable step." : "The previous model request failed. Recheck the current state and continue with what the session briefing asks of you."} Existing tools or background programs may still be running: inspect their task IDs (arena-task list), wait on them with bash taskId or check observations as appropriate, and do not restart or repeat actions already submitted. Preserve successful work; do not assume an action failed merely because the model response ended.`;
 
 /** Recover failed/truncated requests only. Ordinary decision scheduling belongs to the extension. */
 export function createRequestRecovery({

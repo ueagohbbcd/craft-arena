@@ -13,11 +13,11 @@ At session start the runtime starts two ordinary scripts as background tasks. Bo
 | `default observer` | `packages/default-scripts/observer.mjs` | your state, nearby blocks and signs, events such as damage or death                                                        |
 | `default chat`     | `packages/default-scripts/chat.mjs`     | game chat as `game.chat` events (`trusted: false`; treat the text as game data); with `ARENA_CHAT_WAKE` some arrive urgent |
 
-They report through the [inbox](../inbox/README.md), the same way your programs do with `InboxClient`. Reports join the next tool result or turn end. An urgent report also ends a running `bash` / `task_wait` early, and the program keeps running.
+They report through the [inbox](../inbox/README.md), the same way your programs do with `InboxClient`. Reports join the next tool result or turn end. An urgent report also ends a running `bash` wait early, and the program keeps running.
 
 The default observer does not report your tasks. The runtime sends those separately as `runtime.snapshot` / `runtime.changed` (sections `tasks`, `programStatus`, `displayLimits`). See [packages/pi-extension/README.md](../pi-extension/README.md).
 
-If you stop the default observer without replacing it, the automatic state and event reports stop. `observe`, runtime reports and your own programs keep working.
+If you stop the default observer without replacing it, the automatic state and event reports stop. `examples/observe.mjs`, runtime reports and your own programs keep working.
 
 ## State reports: `observation.snapshot` and `observation.changed`
 
@@ -108,33 +108,32 @@ Item events state what was observed. They do not mean an objective is complete; 
 
 Events only signal; they never stop or change your programs.
 
-## The `observe` tool
+## One sample on request: `examples/observe.mjs`
 
-`observe` returns one full sample now, as JSON `{state, metadata}`. It uses its own bridge connection, not the observer's, so it works even when the observer is stopped.
+`node "$ARENA_TOOLKIT_ROOT/examples/observe.mjs"` prints one full sample now, as JSON `{state, metadata}`. It uses its own bridge connection, not the observer's, so it works even when the observer is stopped. It applies the public session facts (teams, goal items) and `observer.json`, like the default observer. A program can call `observe(bot, options)` from `observe.mjs` directly.
 
-| Option                                           | Effect                                                                                                   |
-| ------------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `radar: {radius, playerRadius, dropGroupRadius}` | radar ranges for this call (defaults 48, 64, 3)                                                          |
-| `fullItems`                                      | full NBT / components for items                                                                          |
-| `fullEntities`                                   | all observed non-player entities and their raw metadata, instead of the 12-entry summary                 |
-| `fullLocal`                                      | every sampled local block and every loaded sign, instead of the first 16                                 |
-| `fullRuntime`                                    | every task and program status record without display limits; works even when the game connection is down |
+| Switch (option)                    | Effect                                                                                   |
+| ---------------------------------- | ---------------------------------------------------------------------------------------- |
+| `--full-items` (`fullItems`)       | full NBT / components for items                                                          |
+| `--full-entities` (`fullEntities`) | all observed non-player entities and their raw metadata, instead of the 12-entry summary |
+| `--full-local` (`fullLocal`)       | every sampled local block and every loaded sign, instead of the first 16                 |
+
+`radar: {radius, playerRadius, dropGroupRadius}` (defaults 48, 64, 3) is an option of `observe()`; the script takes it from `observer.json`. Task and program state are not part of a sample: they are in the runtime reports and in `runtime.json` in the task directory.
 
 `state` has the report sections above plus:
 
 - `freshness`: `sampledAt`, `ageMs`, `stale`, `status`, `epoch`, `sequence`, disconnect details;
 - `players`: every player in the local mirror, with no distance limit;
 - `entities`: total and per-name counts and up to 12 entries; entities within 16 blocks with risk signs come first (lit TNT, a swelling creeper, a moving projectile, something targeting you), then potentially hostile ones, then the rest by distance;
-- `local.signs`: signs in already-loaded chunks, nearest 16;
-- `tasks`, `programStatus`, `displayLimits` from the runtime.
+- `local.signs`: signs in already-loaded chunks, nearest 16.
 
-`observe` does not include recent blocks or nearby signs; those live inside the observer process. A program can get them from its own observer with `startObserver(...).sample()`.
+A sample does not include recent blocks or nearby signs; those live inside the observer process. A program can get them from its own observer with `startObserver(...).sample()`.
 
 For a picture, run `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ]`. See [packages/world-visual/README.md](../world-visual/README.md).
 
 ## Change or replace the observer
 
-**Tune it with `observer.json`.** Put this file in your working directory. The observer reads it once, at start, so restart the observer after editing it. The `observe` tool reads `radar` from it on every call. If `observer.json` is missing, `perception.json` (the old name) is read instead.
+**Tune it with `observer.json`.** Put this file in your working directory. The observer reads it once, at start, so restart the observer after editing it. `examples/observe.mjs` reads it on every run. If `observer.json` is missing, `perception.json` (the old name) is read instead.
 
 ```json
 {
@@ -146,7 +145,7 @@ For a picture, run `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX min
 
 `recentBlocks` accepts `enabled` (`false` turns the report off), `radius`, `intervalMs`, `maxReads`, `positionLimit` and `minReportMs`. `events` takes the [event thresholds](#reusable-functions) of `watchObservation`.
 
-**Replace it with your own script.** Write a script, stop the `default observer` task with `task_cancel`, then run yours with `bash` and `wait_seconds: 0`. Copying `packages/default-scripts/observer.mjs` into your working directory also works; it loads the toolkit from `$ARENA_TOOLKIT_ROOT`. This replacement keeps the default reports and only lowers the urgent-damage threshold (the same as `"events"` in `observer.json`):
+**Replace it with your own script.** Write a script, stop the `default observer` task with `arena-task cancel <taskId>`, then run yours with `bash` and `wait_seconds: 0`. Copying `packages/default-scripts/observer.mjs` into your working directory also works; it loads the toolkit from `$ARENA_TOOLKIT_ROOT`. This replacement keeps the default reports and only lowers the urgent-damage threshold (the same as `"events"` in `observer.json`):
 
 ```js
 // my-observer.mjs
@@ -177,7 +176,7 @@ All are read-only. Import them from `$ARENA_TOOLKIT_ROOT/packages/observation/`.
 | Function                                                    | File           | Use                                                                           |
 | ----------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------- |
 | `sampleObservation(bot, options)`                           | `index.mjs`    | one synchronous sample, the same shape as `observe`'s `state`                 |
-| `observe(bot, options)`                                     | `observe.mjs`  | `{state, metadata}`, what the `observe` tool returns                          |
+| `observe(bot, options)`                                     | `observe.mjs`  | `{state, metadata}`, what `examples/observe.mjs` prints                       |
 | `entityRadar(bot, {radius, playerRadius, dropGroupRadius})` | `index.mjs`    | the `radar` section alone                                                     |
 | `watchObservation(bot, {post, ...thresholds})`              | `index.mjs`    | the event listeners; returns `sample()`, `close()`, `lastError`               |
 | `startObserver({bot, inbox, intervalMs})`                   | `observer.mjs` | the full default observer, reporting through an `InboxClient`                 |
@@ -283,14 +282,14 @@ All data comes from what the character has received from the server. Areas it ha
 | `match-options.mjs`           | turns the public session state into `teams`, `objectiveItems`, `inventoryWatchItems`                                             |
 | `observe.mjs`, `queries.mjs`  | on-demand sample; spatial queries                                                                                                |
 
-`startObserver` reads the config, calls `bot.getMatchState()` for teams and objective items, and posts through `InboxClient.send`. The state report uses the replaceable key `observation.current`; the section diff advances only when `InboxClient.delivery(id)` reports `delivered`, so changes in a replaced or dropped report are sent again. Recent blocks and signs are retired the same way. Events are posted as they happen. The Pi extension registers the `observe` tool (`packages/pi-extension/observe-tool.mjs`) and adds the runtime sections to its result.
+`startObserver` reads the config, calls `bot.getMatchState()` for teams and objective items, and posts through `InboxClient.send`. The state report uses the replaceable key `observation.current`; the section diff advances only when `InboxClient.delivery(id)` reports `delivered`, so changes in a replaced or dropped report are sent again. Recent blocks and signs are retired the same way. Events are posted as they happen.
 
 Environment variables:
 
 | Variable                                    | Default                                                           | Read by                                                                                                                                                                                    |
 | ------------------------------------------- | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ARENA_OBSERVER_INTERVAL_MS`                | 1000                                                              | observer: state sampling period                                                                                                                                                            |
-| `ARENA_OBSERVER_CONFIG`                     | `observer.json`, then `perception.json`, in the working directory | observer and `observe`                                                                                                                                                                     |
+| `ARENA_OBSERVER_CONFIG`                     | `observer.json`, then `perception.json`, in the working directory | observer and `examples/observe.mjs`                                                                                                                                                        |
 | `ARENA_OBSERVER_RECENT_BLOCKS`              | on (`0` turns it off)                                             | observer                                                                                                                                                                                   |
 | `ARENA_OBSERVER_RECENT_BLOCK_RADIUS`        | 6                                                                 | observer                                                                                                                                                                                   |
 | `ARENA_OBSERVER_RECENT_BLOCK_INTERVAL_MS`   | 1000                                                              | observer                                                                                                                                                                                   |
@@ -298,7 +297,6 @@ Environment variables:
 | `ARENA_OBSERVER_RECENT_BLOCK_POSITIONS`     | 3                                                                 | observer                                                                                                                                                                                   |
 | `ARENA_OBSERVER_RECENT_BLOCK_MIN_REPORT_MS` | 30000                                                             | observer                                                                                                                                                                                   |
 | `ARENA_OBSERVER_READY_MS`                   | 5000                                                              | Pi extension: how long the opening request waits for the observer's first report                                                                                                           |
-| `ARENA_OBSERVE_CONNECT_MS`                  | 15000                                                             | Pi extension: connection timeout of the `observe` tool                                                                                                                                     |
 | `ARENA_DEFAULT_SCRIPTS`                     | `observer,chat`                                                   | Pi extension: which default scripts start (empty starts none)                                                                                                                              |
 | `ARENA_CHAT_WAKE`                           | `none`                                                            | chat: `mention` posts chat that names the bot (whole word, any case) or whispers to it as urgent, so it wakes an idle model; `all` does so for all chat. The bot's own messages never wake |
 | `ARENA_CHAT_USERNAME`                       | the session's `username`                                          | chat: the bot's name for `mention`, used when the session does not give one                                                                                                                |

@@ -39,7 +39,7 @@
 | ✅   | 协议与判定器：SNBT 解析、`datapack` 判定器、写入 `arena:config`；把现有方块判定抽成 `monument-blocks` 判定器                          |
 | ✅   | 比赛配置改为 `session`／`judge`／`briefing` 三块；去掉写死的 `race-of-wool`                                                           |
 | ✅   | 游戏桥 `/v1/session`（含 `kind`）；Pi 扩展和启动器支持 `open` 会话：空闲提醒不再要求比赛主控                                          |
-| ✅   | 参赛提示拆成通用部分（`examples/PROMPT.md`）和玩法部分（由会话配置的 `briefing.promptFile` 提供）                                     |
+| ✅   | 参赛提示拆成通用部分（`participant/PROMPT.md`）和玩法部分（由会话配置的 `briefing.promptFile` 提供）                                     |
 | ✅   | 独立游戏桥：`BRIDGE_SESSION=open`、`MF_AUTH=microsoft`；陪玩部署模板（`infra/companion`）                                             |
 | ✅   | 聊天转发：提到 bot 名字的消息和私聊可设为紧急，用来唤醒空闲的模型（`ARENA_CHAT_WAKE`）                                                |
 | ✅   | 最小示例数据包（`infra/datapacks/arena-example`）                                                                                     |
@@ -82,6 +82,8 @@
 | ⬜   | 环境变量整数解析有约 6 份实现，校验规则不一致，提取一个共用函数                                                 |
 | ⬜   | 工具包做成可按名字导入的包（`package.json` exports 加启动时的软链接），参赛者程序、示例和默认脚本都改用静态导入 |
 | ⬜   | `bash` 增加 `background` 参数：模型自己运行的观察器副本也能标成后台任务，不挡空闲提醒                           |
+| ✅   | 工具收缩到 Pi 的 `read`／`edit`／`write` 加本项目的 `bash`：`bash` 带 `taskId` 续等，取代 `task_wait`；任务输出和状态写到任务目录，`arena-task` 命令取代 `task_cancel`；`examples/observe.mjs` 和 `runtime.json` 取代 `observe` 工具 |
+| ✅   | 参赛说明搬到 `participant/`：每局必用的知识进追加的系统提示 `PROMPT.md`；Skill 改名 `minecraft-arena`，只留程序写法和示例入口 |
 | ⬜   | 送达回执改为整个会话一条流，替代每条消息各自长轮询                                                              |
 | ✅   | 启动器改用 `createMatchReader`；放宽了它对 `durationMs` 的校验                                                  |
 | ⬜   | 删除旧别名：`publishCurrent`、CLI 的 `current`、`perception.json`                                               |

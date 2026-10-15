@@ -484,6 +484,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
             ARENA_EXTRA_EXTENSIONS:
               scenario === "queued" ? queuedExtension : "",
             PI_CODING_AGENT_SESSION_DIR: join(dir, "sessions"),
+            ARENA_TASK_DIR: join(dir, "tasks"),
             MC_INBOX_TRANSPORT: "http",
             MC_INBOX_TOKEN: "resident-inbox-fixture-token",
             MC_INBOX_SOCKET: "",
