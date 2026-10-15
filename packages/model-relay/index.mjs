@@ -63,7 +63,14 @@ export function createModelRelay({ upstream, apiKey, onEvent = () => {} }) {
   return http.createServer((req, res) => {
     // Only the path and query of the request target are used, so "//host" or
     // "http://host/" in the request line still lands below the upstream base.
-    const { pathname, search } = new URL(req.url, "http://relay.invalid");
+    let pathname, search;
+    try {
+      ({ pathname, search } = new URL(req.url, "http://relay.invalid"));
+    } catch {
+      // A target Node's parser accepts but URL rejects (e.g. "http://[").
+      res.writeHead(400).end();
+      return;
+    }
     const headers = endToEnd(req.headers, ["host"]);
     if (apiKey) headers.authorization = `Bearer ${apiKey}`;
     const started = Date.now();

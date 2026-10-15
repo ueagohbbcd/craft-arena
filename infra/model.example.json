@@ -7,5 +7,5 @@
     "image"
   ],
   "contextWindow": 1047576,
-  "maxOutputTokens": 32768,
+  "maxOutputTokens": 32768
 }

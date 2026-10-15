@@ -176,3 +176,17 @@ test("headers named in Connection are not forwarded", async (t) => {
   assert.equal(upstream.seen[0].headers["x-hop"], undefined);
   assert.equal(upstream.seen[0].headers["x-kept"], "yes");
 });
+
+test("a target URL cannot parse is a 400, and the relay keeps serving", async (t) => {
+  const upstream = await upstreamFixture(t);
+  upstream.release();
+  const relay = await relayFor(t, { upstream: upstream.url });
+  const { port } = new URL(relay);
+  const socket = net.connect(port, "127.0.0.1");
+  socket.write("GET http://[ HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n");
+  let reply = "";
+  for await (const chunk of socket) reply += chunk;
+  assert.match(reply, /^HTTP\/1\.1 400/);
+  assert.equal(upstream.seen.length, 0);
+  assert.equal((await fetch(`${relay}/models`)).status, 201);
+});

@@ -44,3 +44,26 @@ for (const suffix of [".red", ".blue"]) {
     }
   });
 }
+
+test("every shipped model descriptor is valid for the launcher", async () => {
+  for (const path of [
+    "../infra/model.example.json",
+    "../infra/companion/model.json",
+    "../infra/windows-local/model.red.json",
+    "../infra/windows-local/model.blue.json",
+  ]) {
+    const directory = await mkdtemp(join(tmpdir(), "arena-descriptor-"));
+    try {
+      const profile = await preparePiProfile({
+        env: {
+          ARENA_MODEL_CONFIG: fileURLToPath(new URL(path, import.meta.url)),
+          OPENAI_BASE_URL: "http://model-relay:8080",
+        },
+        directory,
+      });
+      assert.equal(profile.generated, true, path);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
+  }
+});
