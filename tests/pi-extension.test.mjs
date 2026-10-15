@@ -249,7 +249,7 @@ test("idle urgent remains queued by default", async (t) => {
   assert.match(boundary.entries[0].content, /deferred until/);
 });
 
-test("bootstrap prepares an exact gateway provider without saving its bearer token", async (t) => {
+test("bootstrap prepares an exact endpoint provider without saving its bearer token", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-profile-test-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const token = "participant-only-test-token";
@@ -307,6 +307,54 @@ test("bootstrap prepares an exact gateway provider without saving its bearer tok
   assert.equal(model.id, "fake-model");
   assert.equal(model.api, "openai-completions");
   assert.equal(model.baseUrl, "http://127.0.0.1:1234/v1");
+});
+
+test("bootstrap model access: a relay needs no participant key; without an endpoint Pi keeps its own profile", async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), "pi-profile-modes-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const config = await modelConfig(dir, { id: "relay-model" });
+  const relayed = await preparePiProfile({
+    directory: join(dir, "relay"),
+    cwd: dir,
+    env: { ARENA_MODEL_CONFIG: config, OPENAI_BASE_URL: "http://relay:8080" },
+  });
+  assert.equal(relayed.generated, true);
+  assert.equal(relayed.models.providers.arena.apiKey, "unused");
+  const own = await preparePiProfile({
+    cwd: dir,
+    env: { PI_CODING_AGENT_DIR: join(dir, "operator-profile") },
+  });
+  assert.equal(own.generated, false);
+  assert.equal(own.agentDir, join(dir, "operator-profile"));
+  assert.equal(own.models, undefined);
+  await assert.rejects(
+    preparePiProfile({ cwd: dir, env: { ARENA_MODEL_CONFIG: config } }),
+    /set both, or neither/,
+  );
+  await assert.rejects(
+    preparePiProfile({
+      cwd: dir,
+      env: { OPENAI_BASE_URL: "http://relay:8080" },
+    }),
+    /needs ARENA_MODEL_CONFIG/,
+  );
+  await assert.rejects(
+    preparePiProfile({
+      cwd: dir,
+      env: { ARENA_MODEL_CONFIG: config, OPENAI_BASE_URL: "http://u:p@relay" },
+    }),
+    /without embedded credentials/,
+  );
+  await assert.rejects(
+    preparePiProfile({
+      cwd: dir,
+      env: {
+        ARENA_MODEL_CONFIG: await modelConfig(dir, { contextWindow: "big" }),
+        OPENAI_BASE_URL: "http://relay:8080",
+      },
+    }),
+    /positive integer contextWindow/,
+  );
 });
 
 test(
@@ -391,19 +439,9 @@ test(
   },
 );
 
-test("budget headers become deduplicated platform feedback with explicit reservation semantics", async (t) => {
+test("the session clock is deduplicated platform feedback, never inbox data", async (t) => {
   const h = await harness(t);
-  const event = {
-    status: 200,
-    headers: {
-      "X-Arena-Queue-Delay-Ms": "12",
-      "X-Arena-Reserved-Tokens": "2048",
-      "X-Arena-Participant-Remaining-Tokens": "8000",
-      "X-Arena-Team-Remaining-Tokens": "16000",
-    },
-  };
-  await h.handlers.get("after_provider_response")(event, h.ctx);
-  // Platform feedback no longer rides the participant inbox.
+  // Platform feedback does not ride the participant inbox.
   const boundary = await h.handlers.get("tool_result")(
     { content: [{ type: "text", text: "finished" }] },
     h.ctx,
@@ -418,20 +456,15 @@ test("budget headers become deduplicated platform feedback with explicit reserva
   const [message, options] = h.platform[0];
   assert.deepEqual(options, { triggerTurn: false });
   assert.match(message.content, /^Arena platform message/);
-  const { budget, clock } = message.details;
-  assert.equal(budget.type, undefined);
-  assert.equal(budget.queueDelayMs, 12);
-  assert.equal(budget.requestReservedTokens, 2048);
-  assert.match(budget.accounting, /final settled usage can differ/);
+  assert.deepEqual(Object.keys(message.details).sort(), ["clock", "type"]);
+  const { clock } = message.details;
   assert.equal(clock.remainingMs, undefined);
   assert.match(clock.basis, /match start is unknown/);
-  const zero = { status: 200, headers: { "x-arena-queue-delay-ms": "0" } };
-  await h.handlers.get("after_provider_response")(zero, h.ctx);
   await await h.handlers.get("turn_end")(
     { entries: [], toolResults: [], outcome: "completed" },
     h.ctx,
   );
-  assert.equal(h.platform.length, 1, "unchanged feedback is not repeated");
+  assert.equal(h.platform.length, 1, "an unchanged clock is not repeated");
   assert.equal(h.sent.length, 0);
 });
 
@@ -868,122 +901,6 @@ test("bootstrap derives capabilities and compaction from the shared model descri
   );
 });
 
-test("cash snapshot refresh is bounded to the turn boundary and strips private host fields", async (t) => {
-  const http = await import("node:http");
-  const { once } = await import("node:events");
-  let reads = 0;
-  const cash = {
-    mode: "ratios-only",
-    basis: "official-api-list-price-reference",
-    coverage: "current-window-priced-usage-only",
-    quality: "estimated",
-    costShare: {
-      uncachedInput: 0.2,
-      cachedInput: 0.1,
-      output: 0.7,
-      amount: "HOST_ONLY_AMOUNT",
-    },
-    rate: {
-      windowMs: 60000,
-      windowLoadRatio: 0.8,
-      overRateRatioBeforeWait: 0.25,
-      queueDelayMs: 0,
-      price: "HOST_ONLY_AMOUNT",
-    },
-    calls: { priced: 3, estimated: 1, unknown: 0 },
-    enforcement: "cash-rate-queue",
-    spentToTargetRatio: 10,
-    overrunRatio: 9,
-    amount: "HOST_ONLY_AMOUNT",
-    currency: "HOST_ONLY_AMOUNT",
-  };
-  const server = http.createServer((req, res) => {
-    assert.equal(req.url, "/v1/budget");
-    assert.equal(
-      req.headers.authorization,
-      "Bearer snapshot-scoped-fixture-token",
-    );
-    reads++;
-    res.setHeader("content-type", "application/json");
-    res.end(
-      JSON.stringify({
-        participant: {
-          remainingTokens: 7500,
-          cash,
-          amount: "HOST_ONLY_AMOUNT",
-        },
-        team: { remainingTokens: 15000, cash },
-        lastRequest: { queueDelayMs: 0, reservedTokens: 2048 },
-        price: "HOST_ONLY_AMOUNT",
-      }),
-    );
-  });
-  server.listen(0, "127.0.0.1");
-  await once(server, "listening");
-  t.after(async () => {
-    server.closeAllConnections();
-    await new Promise((resolve) => server.close(resolve));
-  });
-  const h = await harness(t, {
-    env: {
-      OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
-      OPENAI_API_KEY: "snapshot-scoped-fixture-token",
-    },
-  });
-  await h.handlers.get("after_provider_response")(
-    {
-      headers: {
-        "x-arena-cash-ratios": JSON.stringify({
-          participant: {
-            ...cash,
-            quality: "no-usage",
-            costShare: { uncachedInput: null, cachedInput: null, output: null },
-          },
-          amount: "HOST_ONLY_AMOUNT",
-        }),
-      },
-    },
-    h.ctx,
-  );
-  assert.equal(reads, 0);
-  assert.equal(
-    await h.handlers.get("tool_result")(
-      { parentToolCallId: "outer", content: [] },
-      h.ctx,
-    ),
-    undefined,
-  );
-  await h.handlers.get("tool_result")(
-    { content: [{ type: "text", text: "selected output" }] },
-    h.ctx,
-  );
-  assert.equal(reads, 0, "settled usage is read once, at the turn boundary");
-  await await h.handlers.get("turn_end")(
-    { entries: [], toolResults: [], outcome: "completed" },
-    h.ctx,
-  );
-  assert.equal(reads, 1);
-  assert.equal(h.sent.length, 0);
-  assert.equal(h.platform.length, 1);
-  const rendered = JSON.stringify(h.platform[0][0]);
-  assert.doesNotMatch(
-    rendered,
-    /HOST_ONLY_AMOUNT|spentToTargetRatio|overrunRatio|\"currency\"|\"price\"|\"amount\"/,
-  );
-  const { budget } = h.platform[0][0].details;
-  assert.equal(budget.cash.participant.costShare.output, 0.7);
-  assert.equal(budget.cash.participant.quality, "estimated");
-  assert.equal(budget.cash.participant.rate.overRateRatioBeforeWait, 0.25);
-  assert.equal(budget.participantRemainingTokens, 7500);
-  assert.match(budget.accounting, /authenticated budget snapshot/);
-  await await h.handlers.get("turn_end")(
-    { entries: [], toolResults: [], outcome: "completed" },
-    h.ctx,
-  );
-  assert.equal(reads, 1);
-  assert.equal(h.sent.length, 0);
-});
-
 function residentHost(t) {
   let state = "running";
   let published = null;
@@ -1156,6 +1073,74 @@ test("public data changes ride the next platform message; a changed notice wakes
     h.platform.filter(([, options]) => options.triggerTurn).length,
     1,
   );
+});
+
+test("a notice that changed during a final answer gets one more turn", async (t) => {
+  const host = residentHost(t);
+  host.setPublic({ goal: "first" });
+  const h = await harness(t, {
+    env: { ...host.env, ARENA_IDLE_REMINDER_MS: "100000" },
+  });
+  await h.handlers.get("before_agent_start")({}, h.ctx);
+  host.setPublic({ goal: "first", notice: "come back" });
+  await delay(2100);
+  // A turn with tool calls continues anyway; the notice rides it passively.
+  const busy = await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [{}], outcome: "completed" },
+    h.ctx,
+  );
+  assert.equal(busy?.continue, undefined);
+  host.setPublic({ goal: "first", notice: "come back now" });
+  await delay(2100);
+  const final = await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [], outcome: "completed" },
+    h.ctx,
+  );
+  assert.equal(final.continue, true);
+  assert.equal(h.platform.at(-1)[0].details.notice, "come back now");
+  // Nothing new: a later final answer settles normally.
+  const settled = await h.handlers.get("turn_end")(
+    { entries: [], toolResults: [], outcome: "completed" },
+    h.ctx,
+  );
+  assert.equal(settled?.continue, undefined);
+});
+
+test("an unusable task directory turns task files off, not the tools", async (t) => {
+  const { mkdtemp: tmp, writeFile: write } = await import("node:fs/promises");
+  const dir = await tmp(join(tmpdir(), "pi-extension-blocked-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const blocked = join(dir, "not-a-directory");
+  await write(blocked, "");
+  const h = await harness(t, { env: { ARENA_TASK_DIR: blocked } });
+  const result = await h.run("bash", { command: "printf ok", wait_seconds: 5 });
+  assert.equal(result.details.stdout, "ok");
+  assert.equal(result.details.logDir, undefined);
+  const boundary = await h.handlers.get("tool_result")(
+    { content: [{ type: "text", text: "x" }] },
+    h.ctx,
+  );
+  assert.match(JSON.stringify(boundary), /Task files unavailable/);
+});
+
+test("tasks a gone manager left running are marked lost at start", async (t) => {
+  const {
+    mkdtemp: tmp,
+    mkdir: md,
+    writeFile: write,
+  } = await import("node:fs/promises");
+  const dir = await tmp(join(tmpdir(), "pi-extension-stale-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  await md(join(dir, "old"));
+  await write(
+    join(dir, "old", "status.json"),
+    JSON.stringify({ taskId: "old", status: "running", pgid: 1 }),
+  );
+  await harness(t, { env: { ARENA_TASK_DIR: dir } });
+  const stale = JSON.parse(
+    await readFile(join(dir, "old", "status.json"), "utf8"),
+  );
+  assert.equal(stale.status, "lost");
 });
 
 test("bash takes exactly one of command or taskId, and a kill deadline only for a new command", async (t) => {

@@ -209,7 +209,7 @@ test("participant image carries only participant-side code", async () => {
       if (file.endsWith(".mjs"))
         assert.doesNotMatch(
           await readFile(new URL(file, dir), "utf8"),
-          /\.\.\/(?:arena|mf-bridge|budget-gateway|system-proxy-relay)\//,
+          /\.\.\/(?:arena|mf-bridge|model-relay)\//,
           `packages/${name}/${file}`,
         );
   }

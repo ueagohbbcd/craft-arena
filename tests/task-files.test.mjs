@@ -99,3 +99,56 @@ test("arena-task lists tasks and cancels one by its process group", async (t) =>
     /taskId must be a task ID/,
   );
 });
+
+test("a running result never splits a UTF-8 character", async (t) => {
+  const { tasks } = await manager(t);
+  // "中" is e4 b8 ad: the first read sees only its first byte.
+  const id = tasks.start(
+    "printf 'a\\xe4'; sleep 0.3; printf '\\xb8\\xad b'; sleep 0.3",
+  );
+  await sleep(150);
+  const first = await tasks.wait(id, { timeoutMs: 0 });
+  assert.equal(first.stdout, "a");
+  await sleep(300);
+  const second = await tasks.wait(id, { timeoutMs: 0 });
+  assert.equal(second.stdout, "中 b");
+  await tasks.wait(id);
+});
+
+test("a command that cannot be spawned leaves no task behind", async (t) => {
+  const { tasks, logDir } = await manager(t);
+  assert.throws(() => tasks.start("printf a\0b", { callId: "nul" }));
+  assert.equal(tasks.tasks.size, 0);
+  // The same call ID can be used again, and closing does not throw.
+  const id = tasks.start("printf ok", { callId: "nul" });
+  assert.equal((await tasks.wait(id)).stdout, "ok");
+});
+
+test("a delivered receipt still carries logDir", async (t) => {
+  const { tasks, logDir } = await manager(t);
+  const id = tasks.start("printf done");
+  await tasks.wait(id);
+  const receipt = await tasks.wait(id);
+  assert.equal(receipt.status, "delivered");
+  assert.equal(receipt.logDir, join(logDir, id));
+});
+
+test("arena-task does not signal a task left running by a gone manager", async (t) => {
+  const { logDir } = await manager(t);
+  const { mkdir, writeFile } = await import("node:fs/promises");
+  await mkdir(join(logDir, "lost-task"));
+  const stale = {
+    taskId: "lost-task",
+    command: "x",
+    status: "lost",
+    pid: 1,
+    pgid: 1,
+    startedAt: 0,
+  };
+  await writeFile(
+    join(logDir, "lost-task", "status.json"),
+    JSON.stringify(stale),
+  );
+  const result = await cancelTask(logDir, "lost-task");
+  assert.equal(result.status, "lost");
+});

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { spawn } from "node:child_process";
 import { EventEmitter, once } from "node:events";
-import { mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -14,11 +14,7 @@ import {
   SettingsManager,
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
-import {
-  BudgetLedger,
-  createBudgetGateway,
-} from "../packages/budget-gateway/src/index.mjs";
-import { ReferenceCostLedger } from "../packages/budget-gateway/src/reference-cost.mjs";
+import { createModelRelay } from "../packages/model-relay/index.mjs";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
 import { Vector } from "../packages/bot-sdk/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
@@ -46,13 +42,13 @@ async function harness(
     extensions = [],
     tools = ["bash"],
     settings = {},
-    gateway = false,
-    cash,
+    relay = false,
     usage = { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
   } = {},
 ) {
   const dir = await mkdtemp(join(tmpdir(), "mc-pi-integration-"));
   const requests = [],
+    auths = [],
     errors = [],
     events = [];
   const server = http.createServer(async (req, res) => {
@@ -61,6 +57,7 @@ async function harness(
       for await (const c of req) raw += c;
       const body = JSON.parse(raw);
       requests.push(body);
+      auths.push(req.headers.authorization);
       const message = await reply(body, requests.length, dir);
       res.writeHead(200, { "content-type": "text/event-stream" });
       const chunk = (delta, finish_reason = null) =>
@@ -93,93 +90,24 @@ async function harness(
   });
   server.listen(0, "127.0.0.1");
   await once(server, "listening");
-  let proxy, ledger, cashLedger;
-  const gatewayRequests = [],
-    gatewayResponses = [];
+  let proxy;
+  const relayRequests = [];
   let baseUrl = `http://127.0.0.1:${server.address().port}/v1`;
-  if (gateway) {
-    const participants = {
-      fixture: {
-        token: "participant-fixture-token",
-        team: "blue",
-        tokens: 1000000,
-        tpm: 1000000,
-        concurrency: 2,
-        ...(cash ? { cashRateLimit: cash.participantRate ?? "1" } : {}),
-      },
-    };
-    const teams = {
-      blue: {
-        tokens: 1000000,
-        tpm: 1000000,
-        concurrency: 2,
-        ...(cash ? { cashRateLimit: cash.teamRate ?? "2" } : {}),
-      },
-    };
-    ledger = new BudgetLedger({
-      participants,
-      teams,
+  if (relay) {
+    proxy = createModelRelay({
+      upstream: baseUrl,
+      apiKey: "upstream-fake-only",
     });
-    if (cash)
-      cashLedger = new ReferenceCostLedger({
-        config: {
-          mode: "official-api-list-price",
-          currency: "USD",
-          windowMs: cash.windowMs ?? 60000,
-          models: {
-            fixture: {
-              provider: "openai",
-              inputPerMillion: "2",
-              cachedInputPerMillion: "0.5",
-              outputPerMillion: "8",
-              sourceUrl:
-                "https://developers.openai.com/api/docs/models/gpt-4.1",
-              verifiedAt: "2026-10-10",
-            },
-          },
-        },
-        participants,
-        teams,
-        models: ["fixture"],
-      });
-    proxy = createBudgetGateway({
-      ledger,
-      cashLedger,
-      participants,
-      upstream: {
-        url: `${baseUrl}/chat/completions`,
-        apiKey: "upstream-fake-only",
-      },
-      models: ["fixture"],
-      limits: {
-        defaultOutputTokens: 2000,
-        maxBodyBytes: 2000000,
-      },
-    });
-    proxy.on("request", (req, res) => {
-      res.on("finish", () =>
-        gatewayResponses.push({
-          method: req.method,
-          url: req.url,
-          status: res.statusCode,
-          headers: res.getHeaders(),
-        }),
-      );
-      gatewayRequests.push({
+    proxy.on("request", (req) =>
+      relayRequests.push({
         method: req.method,
         url: req.url,
         auth: req.headers.authorization,
-      });
-      let raw = "";
-      req.on("data", (c) => (raw += c));
-      req.on("end", () => {
-        if (raw)
-          events.push({ type: "gateway_payload", body: JSON.parse(raw) });
-      });
-    });
+      }),
+    );
     proxy.listen(0, "127.0.0.1");
     await once(proxy, "listening");
-    baseUrl = `http://127.0.0.1:${proxy.address().port}/participants/fixture/v1`;
+    baseUrl = `http://127.0.0.1:${proxy.address().port}`;
   }
   const runtime = await ModelRuntime.create({
     authPath: join(dir, "auth.json"),
@@ -191,7 +119,7 @@ async function harness(
   runtime.registerProvider("local-integration", {
     baseUrl,
     api: "openai-completions",
-    apiKey: gateway ? "participant-fixture-token" : "fake-local-only",
+    apiKey: "fake-local-only",
     models: [
       {
         id: "fixture",
@@ -218,28 +146,7 @@ async function harness(
     noThemes: true,
     noContextFiles: true,
     noExtensions: true,
-    extensionFactories: [
-      (pi) => {
-        const oldUrl = process.env.OPENAI_BASE_URL,
-          oldToken = process.env.OPENAI_API_KEY;
-        try {
-          if (gateway) {
-            process.env.OPENAI_BASE_URL = baseUrl;
-            process.env.OPENAI_API_KEY = "participant-fixture-token";
-          } else {
-            delete process.env.OPENAI_BASE_URL;
-            delete process.env.OPENAI_API_KEY;
-          }
-          inboxExtension(pi);
-        } finally {
-          if (oldUrl === undefined) delete process.env.OPENAI_BASE_URL;
-          else process.env.OPENAI_BASE_URL = oldUrl;
-          if (oldToken === undefined) delete process.env.OPENAI_API_KEY;
-          else process.env.OPENAI_API_KEY = oldToken;
-        }
-      },
-      ...extensions,
-    ],
+    extensionFactories: [inboxExtension, ...extensions],
   });
   await resourceLoader.reload();
   assert.deepEqual(resourceLoader.getExtensions().errors, []);
@@ -264,8 +171,6 @@ async function harness(
     });
     session.dispose();
     if (proxy) {
-      ledger.close();
-      cashLedger?.close();
       proxy.closeAllConnections();
       await new Promise((r) => proxy.close(r));
     }
@@ -279,11 +184,9 @@ async function harness(
     requests,
     events,
     dir,
-    ledger,
-    cashLedger,
     baseUrl,
-    gatewayRequests,
-    gatewayResponses,
+    auths,
+    relayRequests,
   };
 }
 function nodeCommand(script) {
@@ -639,7 +542,7 @@ test(
 
 for (const nested of [false, true])
   test(
-    `ordinary Pi read ${nested ? "via real codemode" : "direct"} preserves PNG through the budget gateway`,
+    `ordinary Pi read ${nested ? "via real codemode" : "direct"} preserves PNG through the model relay`,
     { timeout: 20000 },
     async (t) => {
       const h = await harness(
@@ -674,7 +577,7 @@ for (const nested of [false, true])
             ? [createCodemodeExtension({ models: false })]
             : [],
           tools: ["read", ...(nested ? ["codemode"] : [])],
-          gateway: true,
+          relay: true,
         },
       );
       await h.session.prompt("Read the generated image.");
@@ -687,8 +590,12 @@ for (const nested of [false, true])
         h.requests[1].messages.filter((m) => m.role === "tool").length,
         1,
       );
-      assert.equal(h.ledger.snapshot("fixture")[0].usedTokens, 30);
-      assert.equal(h.ledger.snapshot("fixture")[1].usedTokens, 30);
+      // The relay forwards below the upstream base and swaps in its own key.
+      assert.deepEqual(
+        h.relayRequests.map((r) => [r.method, r.url, r.auth]),
+        Array(2).fill(["POST", "/chat/completions", "Bearer fake-local-only"]),
+      );
+      assert.deepEqual(h.auths, Array(2).fill("Bearer upstream-fake-only"));
     },
   );
 
@@ -752,23 +659,19 @@ test(
         else process.env[name] = value;
       }
     });
-    const h = await harness(
-      t,
-      (_body, n) => {
-        if (n !== 1) return "Current state received.";
-        return [
-          {
-            id: "observe-script",
-            name: "bash",
-            args: {
-              command: `${quote(process.execPath)} ${quote(resolve("examples/observe.mjs"))}`,
-              wait_seconds: 15,
-            },
+    const h = await harness(t, (_body, n) => {
+      if (n !== 1) return "Current state received.";
+      return [
+        {
+          id: "observe-script",
+          name: "bash",
+          args: {
+            command: `${quote(process.execPath)} ${quote(resolve("examples/observe.mjs"))}`,
+            wait_seconds: 15,
           },
-        ];
-      },
-      { gateway: true },
-    );
+        },
+      ];
+    });
     await h.session.prompt("Inspect the current state and nearby layer.");
     assert.equal(h.requests.length, 2);
     const transcript = JSON.stringify(h.requests[1].messages);
@@ -793,350 +696,213 @@ test(
       0,
       "requested observation and runtime setup do not act",
     );
-    assert.equal(h.ledger.snapshot("fixture")[0].usedTokens, 30);
   },
 );
 
+/** Run the shipped launcher once with --print against a fixture upstream. */
+async function runBootstrapPrint(t, configure) {
+  const dir = await mkdtemp(join(tmpdir(), "mc-bootstrap-integration-"));
+  const received = [];
+  let child;
+  const closers = [];
+  const upstream = http.createServer(async (req, res) => {
+    let raw = "";
+    for await (const c of req) raw += c;
+    received.push({
+      url: req.url,
+      body: JSON.parse(raw),
+      auth: req.headers.authorization,
+    });
+    res.writeHead(200, { "content-type": "text/event-stream" });
+    res.end(
+      `data: ${JSON.stringify({ id: "bootstrap-fixture", object: "chat.completion.chunk", created: 0, model: "fixture", choices: [{ index: 0, delta: { role: "assistant", content: "bootstrap-cli-success" }, finish_reason: "stop" }] })}\n\ndata: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\ndata: [DONE]\n\n`,
+    );
+  });
+  t.after(async () => {
+    if (child?.exitCode === null) {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {}
+    }
+    for (const server of [...closers, upstream]) {
+      server.closeAllConnections();
+      if (server.listening)
+        await new Promise((resolve) => server.close(resolve));
+    }
+    await rm(dir, { recursive: true, force: true });
+  });
+  upstream.listen(0, "127.0.0.1");
+  await once(upstream, "listening");
+  const env = {
+    ...process.env,
+    HOME: dir,
+    ARENA_PROMPT: "Return a short completion for this local fixture.",
+    MC_INBOX_TRANSPORT: "http",
+    MC_INBOX_TOKEN: "fixture-cli-loopback-token",
+  };
+  // Verify shipped defaults, not inherited local model overrides.
+  for (const name of [
+    "PI_MAX_TOKENS",
+    "PI_CONTEXT_WINDOW",
+    "ARENA_EXTRA_EXTENSIONS",
+    "ARENA_MODEL_CONFIG",
+    "OPENAI_BASE_URL",
+    "OPENAI_API_KEY",
+    "PI_CODING_AGENT_DIR",
+    "PI_CODING_AGENT_SESSION_DIR",
+  ])
+    delete env[name];
+  const upstreamBase = `http://127.0.0.1:${upstream.address().port}/v1`;
+  Object.assign(
+    env,
+    await configure({ dir, upstreamBase, listen: (s) => closers.push(s) }),
+  );
+  child = spawn(
+    process.execPath,
+    [
+      resolve("packages/pi-extension/bootstrap.mjs"),
+      "--print",
+      env.ARENA_PROMPT,
+    ],
+    { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let stdout = "",
+    stderr = "";
+  child.stdout.on("data", (c) => (stdout += c));
+  child.stderr.on("data", (c) => (stderr += c));
+  const result = await new Promise((resolveExit, reject) => {
+    const timer = setTimeout(() => {
+      try {
+        process.kill(-child.pid, "SIGKILL");
+      } catch {}
+      reject(new Error(`CLI timeout: ${stderr}`));
+    }, 20000);
+    child.once("error", (e) => {
+      clearTimeout(timer);
+      reject(e);
+    });
+    child.once("exit", (code, signal) => {
+      clearTimeout(timer);
+      resolveExit({ code, signal });
+    });
+  });
+  assert.equal(result.code, 0, stderr);
+  assert.match(stdout, /bootstrap-cli-success/);
+  assert.equal(received.length, 1, stderr);
+  const names = received[0].body.tools.map((x) => x.function.name);
+  assert.deepEqual(names.toSorted(), ["bash", "edit", "read", "write"]);
+  assert.ok(
+    received[0].body.tools.find((x) => x.function.name === "bash").function
+      .parameters.properties.wait_seconds,
+    "extension overrides built-in bash",
+  );
+  assert.match(
+    JSON.stringify(received[0].body.messages),
+    /Inbox: programs started through bash/,
+  );
+  return { dir, received, stdout };
+}
+
 test(
-  "bootstrap launches shipped Pi CLI with shared model profile, scoped auth, cash reference configuration and the arena extension",
+  "bootstrap launches shipped Pi CLI through the model relay, which alone holds the upstream key",
   { timeout: 25000 },
   async (t) => {
-    const dir = await mkdtemp(join(tmpdir(), "mc-bootstrap-integration-"));
-    const received = [];
-    const gatewayRequests = [];
-    let ledger, cashLedger, proxy, child;
-    const upstream = http.createServer(async (req, res) => {
-      let raw = "";
-      for await (const c of req) raw += c;
-      received.push({ body: JSON.parse(raw), auth: req.headers.authorization });
-      res.writeHead(200, { "content-type": "text/event-stream" });
-      res.end(
-        `data: ${JSON.stringify({ id: "bootstrap-fixture", object: "chat.completion.chunk", created: 0, model: "fixture", choices: [{ index: 0, delta: { role: "assistant", content: "bootstrap-cli-success" }, finish_reason: "stop" }] })}\n\ndata: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\ndata: [DONE]\n\n`,
-      );
-    });
-    t.after(async () => {
-      if (child?.exitCode === null) {
-        try {
-          process.kill(-child.pid, "SIGKILL");
-        } catch {}
-      }
-      ledger?.close();
-      cashLedger?.close();
-      for (const server of [proxy, upstream]) {
-        server?.closeAllConnections();
-        if (server?.listening)
-          await new Promise((resolve) => server.close(resolve));
-      }
-      await rm(dir, { recursive: true, force: true });
-    });
-    upstream.listen(0, "127.0.0.1");
-    await once(upstream, "listening");
-    const shippedBudget = JSON.parse(
-      await readFile(resolve("infra/budget.cash.example.json"), "utf8"),
-    );
-    const shippedModel = JSON.parse(
-      await readFile(resolve("infra", shippedBudget.modelConfig), "utf8"),
-    );
-    const participants = {
-      fixture: {
-        ...shippedBudget.participants.blue1,
-        token: "scoped-bootstrap-fixture-token",
-        cashRateLimit: "1",
-      },
-    };
-    const teams = Object.fromEntries(
-      Object.entries(shippedBudget.teams).map(([id, team]) => [
-        id,
-        { ...team, cashRateLimit: "2" },
-      ]),
-    );
-    ledger = new BudgetLedger({ participants, teams });
-    cashLedger = new ReferenceCostLedger({
-      config: {
-        ...shippedBudget.referenceCost,
-        models: {
-          fixture: shippedBudget.referenceCost.models[shippedModel.id],
-        },
-      },
-      participants,
-      teams,
-      models: ["fixture"],
-    });
-    proxy = createBudgetGateway({
-      ledger,
-      cashLedger,
-      participants,
-      upstream: {
-        url: `http://127.0.0.1:${upstream.address().port}/chat/completions`,
-        apiKey: "fake-upstream-credential",
-      },
-      models: ["fixture"],
-      limits: {
-        ...shippedBudget.limits,
-        defaultOutputTokens: shippedModel.maxOutputTokens,
-        requestTimeoutMs: shippedModel.requestTimeoutMs,
-      },
-    });
-    proxy.on("request", (req) =>
-      gatewayRequests.push({
-        method: req.method,
-        url: req.url,
-        auth: req.headers.authorization,
-      }),
-    );
-    proxy.listen(0, "127.0.0.1");
-    await once(proxy, "listening");
-    await writeFile(
-      join(dir, "model.json"),
-      JSON.stringify({
-        id: "fixture",
-        api: "openai-completions",
-        contextWindow: 32768,
-        maxOutputTokens: 2048,
-      }),
-    );
-    const env = {
-      ...process.env,
-      HOME: dir,
-      ARENA_MODEL_CONFIG: join(dir, "model.json"),
-      OPENAI_BASE_URL: `http://127.0.0.1:${proxy.address().port}/participants/fixture/v1`,
-      OPENAI_API_KEY: participants.fixture.token,
-      ARENA_PROMPT: "Return a short completion for this local fixture.",
-      MC_INBOX_TRANSPORT: "http",
-      MC_INBOX_TOKEN: "fixture-cli-loopback-token",
-    };
-    // Verify shipped defaults, not inherited local model overrides.
-    for (const name of [
-      "PI_MAX_TOKENS",
-      "PI_CONTEXT_WINDOW",
-      "ARENA_EXTRA_EXTENSIONS",
-      "PI_CODING_AGENT_DIR",
-      "PI_CODING_AGENT_SESSION_DIR",
-    ])
-      delete env[name];
-    child = spawn(
-      process.execPath,
-      [
-        resolve("packages/pi-extension/bootstrap.mjs"),
-        "--print",
-        env.ARENA_PROMPT,
-      ],
-      { cwd: dir, env, detached: true, stdio: ["ignore", "pipe", "pipe"] },
-    );
-    let stdout = "",
-      stderr = "";
-    child.stdout.on("data", (c) => (stdout += c));
-    child.stderr.on("data", (c) => (stderr += c));
-    const result = await new Promise((resolveExit, reject) => {
-      const timer = setTimeout(() => {
-        try {
-          process.kill(-child.pid, "SIGKILL");
-        } catch {}
-        reject(new Error(`CLI timeout: ${stderr}`));
-      }, 20000);
-      child.once("error", (e) => {
-        clearTimeout(timer);
-        reject(e);
-      });
-      child.once("exit", (code, signal) => {
-        clearTimeout(timer);
-        resolveExit({ code, signal });
-      });
-    });
-    assert.equal(result.code, 0, stderr);
-    assert.match(stdout, /bootstrap-cli-success/);
-    assert.equal(received.length, 1, stderr);
-    assert.deepEqual(
-      gatewayRequests.filter((r) => r.method === "POST"),
-      [
-        {
-          method: "POST",
-          url: "/participants/fixture/v1/chat/completions",
-          auth: `Bearer ${participants.fixture.token}`,
-        },
-      ],
-    );
-    assert.ok(
-      gatewayRequests.some(
-        (r) =>
-          r.method === "GET" && r.url === "/participants/fixture/v1/budget",
-      ),
-    );
-    for (const r of gatewayRequests) {
-      assert.equal(r.auth, `Bearer ${participants.fixture.token}`);
-      assert.ok(
-        (r.method === "POST" &&
-          r.url === "/participants/fixture/v1/chat/completions") ||
-          (r.method === "GET" && r.url === "/participants/fixture/v1/budget"),
-        `Unexpected request ${r.method} ${r.url}`,
-      );
-    }
-    assert.equal(received[0].auth, "Bearer fake-upstream-credential");
-    assert.equal(received[0].body.max_completion_tokens, 2048);
-    const names = received[0].body.tools.map((x) => x.function.name);
-    assert.deepEqual(names.toSorted(), ["bash", "edit", "read", "write"]);
-    assert.ok(
-      received[0].body.tools.find((x) => x.function.name === "bash").function
-        .parameters.properties.wait_seconds,
-      "extension overrides built-in bash",
-    );
-    assert.match(
-      JSON.stringify(received[0].body.messages),
-      /Inbox: programs started through bash/,
-    );
-    assert.equal(ledger.snapshot("fixture")[0].usedTokens, 15);
-    assert.equal(
-      cashLedger.operatorSnapshot("fixture").accounts[0]
-        .referenceCostPricedUsage,
-      "0.00006",
-    );
-    assert.match(stdout, /ratios-only/);
-    assert.doesNotMatch(
-      stdout,
-      /inputPerMillion|cachedInputPerMillion|cashRateLimit|referenceCostPricedUsage/,
-    );
-  },
-);
-
-test(
-  "gateway read-only budget snapshot distinguishes live reservations from settled actual usage",
-  { timeout: 15000 },
-  async (t) => {
-    const h = await harness(t, () => "Budget fixture complete.", {
-      gateway: true,
-    });
-    const get = (token) =>
-      fetch(`${h.baseUrl}/budget`, {
-        headers: { authorization: `Bearer ${token}` },
-      });
-    assert.equal((await get("wrong-token")).status, 403);
-    const hold = await h.ledger.acquire("fixture", 123);
-    const pending = await (await get("participant-fixture-token")).json();
-    assert.equal(pending.participantId, "fixture");
-    assert.equal(pending.teamId, "blue");
-    assert.equal(pending.participant.reservedTokens, 123);
-    assert.equal(pending.participant.settledTokens, 0);
-    assert.equal(pending.participant.remainingTokens, 999877);
-    assert.equal(pending.lastRequest, null);
-    hold.settle(0);
-    await h.session.prompt("Complete the fixture.");
-    assert.equal(h.requests.length, 1);
-    const settled = await (await get("participant-fixture-token")).json();
-    assert.equal(settled.participant.reservedTokens, 0);
-    assert.equal(settled.participant.settledTokens, 15);
-    assert.equal(settled.team.settledTokens, 15);
-    assert.equal(settled.participant.remainingTokens, 999985);
-    assert.ok(settled.lastRequest.reservedTokens > 15);
-    assert.equal(settled.participant.limits.concurrency, 2);
-    await sleep(50);
-    assert.equal(
-      h.requests.length,
-      1,
-      "feedback alone must not cause an extra model round",
-    );
-  },
-);
-
-test(
-  "positive gateway queue delay and reserved remaining balance enter next natural Pi tool context",
-  { timeout: 15000 },
-  async (t) => {
-    const responses = [];
-    const observer = (pi) =>
-      pi.on("after_provider_response", (event) => responses.push(event));
-    const h = await harness(
+    const relayed = [];
+    const { received } = await runBootstrapPrint(
       t,
-      (_body, n) =>
-        n === 1
-          ? [
-              {
-                id: "budget-boundary",
-                name: "bash",
-                args: { command: "printf budget-boundary-output" },
-              },
-            ]
-          : "Budget feedback seen.",
-      { gateway: true, extensions: [observer] },
+      async ({ dir, upstreamBase, listen }) => {
+        const relay = createModelRelay({
+          upstream: upstreamBase,
+          apiKey: "fake-upstream-credential",
+        });
+        relay.on("request", (req) =>
+          relayed.push({
+            method: req.method,
+            url: req.url,
+            auth: req.headers.authorization,
+          }),
+        );
+        listen(relay);
+        relay.listen(0, "127.0.0.1");
+        await once(relay, "listening");
+        await writeFile(
+          join(dir, "model.json"),
+          JSON.stringify({
+            id: "fixture",
+            api: "openai-completions",
+            contextWindow: 32768,
+            maxOutputTokens: 2048,
+          }),
+        );
+        // No OPENAI_API_KEY: the participant never sees a credential.
+        return {
+          ARENA_MODEL_CONFIG: join(dir, "model.json"),
+          OPENAI_BASE_URL: `http://127.0.0.1:${relay.address().port}`,
+        };
+      },
     );
-    const holds = await Promise.all([
-      h.ledger.acquire("fixture", 1),
-      h.ledger.acquire("fixture", 1),
+    assert.deepEqual(relayed, [
+      { method: "POST", url: "/chat/completions", auth: "Bearer unused" },
     ]);
-    const run = h.session.prompt("Run the boundary fixture.");
-    for (let n = 0; n < 100 && h.ledger.queue.length === 0; n++)
-      await sleep(10);
-    assert.equal(
-      h.ledger.queue.length,
-      1,
-      "request actually queues behind held concurrency slots",
-    );
-    assert.equal(h.requests.length, 0);
-    await sleep(30);
-    for (const hold of holds) hold.settle(0);
-    await run;
-    assert.equal(h.requests.length, 2);
-    assert.equal(responses.length, 2);
-    const headers = responses[0].headers;
-    assert.ok(Number(headers["x-arena-queue-delay-ms"]) > 0);
-    assert.ok(Number(headers["x-arena-reserved-tokens"]) > 15);
-    const toolTranscript = JSON.stringify(
-      h.requests[1].messages.filter((m) => m.role === "tool"),
-    );
-    assert.doesNotMatch(
-      toolTranscript,
-      /arena\.budget/,
-      "budget is platform feedback, not inbox data",
-    );
-    const message = { data: budgetFromToolRequest(h.requests[1]) };
-    assert.match(JSON.stringify(message.data), /reservation|reserved/i);
-    assert.equal(
-      message.data.queueDelayMs,
-      Number(headers["x-arena-queue-delay-ms"]),
-    );
-    assert.equal(
-      message.data.requestReservedTokens,
-      Number(headers["x-arena-reserved-tokens"]),
-    );
-    assert.equal(message.data.participantRemainingTokens, 999985);
-    assert.equal(message.data.teamRemainingTokens, 999985);
-    assert.match(message.data.accounting, /authenticated budget snapshot/);
-    assert.match(
-      message.data.accounting,
-      /token remaining excludes in-flight reservations/,
-    );
-    await sleep(50);
-    assert.equal(
-      h.requests.length,
-      2,
-      "budget observations do not force another model request",
-    );
+    assert.equal(received[0].url, "/v1/chat/completions");
+    assert.equal(received[0].auth, "Bearer fake-upstream-credential");
+    assert.equal(received[0].body.model, "fixture");
+    assert.equal(received[0].body.max_completion_tokens, 2048);
   },
 );
 
 test(
-  "uncontended gateway feedback remains passive and faithfully reports measured delay",
-  { timeout: 15000 },
+  "bootstrap without OPENAI_BASE_URL runs Pi on the operator's own profile, unchanged",
+  { timeout: 25000 },
   async (t) => {
-    const h = await harness(t, () => "No queue wait.", { gateway: true });
-    h.ledger.now = () => 1000;
-    await h.session.prompt("Finish without tools.");
-    assert.equal(h.requests.length, 1);
-    const [update] = platformFromSession(h.session);
-    assert.ok(update, "passive feedback persists at final boundary");
-    const message = { data: update.budget };
-    const measuredDelay = Number(
-      h.gatewayResponses.find((r) => r.method === "POST").headers[
-        "x-arena-queue-delay-ms"
-      ],
+    let agentDir, models;
+    const { received } = await runBootstrapPrint(
+      t,
+      async ({ dir, upstreamBase }) => {
+        // What an operator prepares: any provider Pi supports, its own key or
+        // login, reaching the network directly.
+        agentDir = join(dir, "operator-pi");
+        await mkdir(agentDir);
+        models = JSON.stringify({
+          providers: {
+            direct: {
+              baseUrl: upstreamBase,
+              api: "openai-completions",
+              apiKey: "operator-own-key",
+              models: [
+                {
+                  id: "operator-model",
+                  name: "operator-model",
+                  reasoning: false,
+                  input: ["text"],
+                  contextWindow: 32768,
+                  maxTokens: 1024,
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+                },
+              ],
+            },
+          },
+        });
+        await writeFile(join(agentDir, "models.json"), models);
+        await writeFile(
+          join(agentDir, "settings.json"),
+          JSON.stringify({
+            defaultProvider: "direct",
+            defaultModel: "operator-model",
+            retry: { enabled: false },
+          }),
+        );
+        return { PI_CODING_AGENT_DIR: agentDir };
+      },
     );
+    assert.equal(received[0].url, "/v1/chat/completions");
+    assert.equal(received[0].auth, "Bearer operator-own-key");
+    assert.equal(received[0].body.model, "operator-model");
     assert.equal(
-      message.data.queueDelayMs,
-      measuredDelay > 0 ? measuredDelay : undefined,
+      await readFile(join(agentDir, "models.json"), "utf8"),
+      models,
+      "the launcher neither rewrites nor deletes the operator's profile",
     );
-    assert.ok(message.data.requestReservedTokens > 0);
-    assert.match(message.data.accounting, /authenticated budget snapshot/);
-    await sleep(50);
-    assert.equal(h.requests.length, 1);
   },
 );
 
@@ -1236,28 +1002,6 @@ test(
     });
     upstream.listen(0, "127.0.0.1");
     await once(upstream, "listening");
-    const config = JSON.parse(
-      await readFile(resolve("infra/budget.example.json"), "utf8"),
-    );
-    const participants = {
-      fixture: {
-        ...config.participants.blue1,
-        token: "resident-participant-model-token",
-      },
-    };
-    const ledger = new BudgetLedger({ participants, teams: config.teams });
-    const proxy = createBudgetGateway({
-      ledger,
-      participants,
-      upstream: {
-        url: `http://127.0.0.1:${upstream.address().port}/chat/completions`,
-        apiKey: "fake-resident-upstream",
-      },
-      models: ["fixture"],
-      limits: config.limits,
-    });
-    proxy.listen(0, "127.0.0.1");
-    await once(proxy, "listening");
     t.after(async () => {
       if (child?.exitCode === null) {
         child.kill("SIGTERM");
@@ -1271,9 +1015,6 @@ test(
         try {
           process.kill(workerPid, "SIGKILL");
         } catch {}
-      ledger.close();
-      proxy.closeAllConnections();
-      await new Promise((r) => proxy.close(r));
       upstream.closeAllConnections();
       await new Promise((r) => upstream.close(r));
       await bridge.close();
@@ -1292,8 +1033,8 @@ test(
       ...process.env,
       HOME: dir,
       ARENA_MODEL_CONFIG: join(dir, "model.json"),
-      OPENAI_BASE_URL: `http://127.0.0.1:${proxy.address().port}/participants/fixture/v1`,
-      OPENAI_API_KEY: participants.fixture.token,
+      OPENAI_BASE_URL: `http://127.0.0.1:${upstream.address().port}`,
+      OPENAI_API_KEY: "resident-fixture-key",
       ARENA_PROMPT: "Start the resident fixture and keep its program alive.",
       ARENA_BRIDGE_URL: bridge.url,
       ARENA_BRIDGE_TOKEN: matchToken,
@@ -1383,7 +1124,6 @@ test(
       { code: "ESRCH" },
       "session shutdown reaps background worker",
     );
-    assert.equal(ledger.snapshot("fixture")[0].settledTokens, 45);
     const final = await (
       await fetch(`${bridge.url}/v1/session`, {
         headers: { authorization: `Bearer ${matchToken}` },
@@ -1468,15 +1208,6 @@ for (const urgent of [false, true])
     },
   );
 
-const cachedUsageFixture = {
-  prompt_tokens: 1000,
-  prompt_tokens_details: { cached_tokens: 600 },
-  completion_tokens: 100,
-  completion_tokens_details: { reasoning_tokens: 40 },
-  total_tokens: 1100,
-  cost_usd: 12345,
-  invoice_amount: 67890,
-};
 /** The platform update (clock/budget) as the model received it in a request. */
 function platformFromRequest(request) {
   for (const m of request.messages) {
@@ -1495,309 +1226,6 @@ function platformFromSession(session) {
     .filter((m) => m.role === "custom" && m.customType === "arena-platform")
     .map((m) => m.details);
 }
-function budgetFromToolRequest(request) {
-  return platformFromRequest(request).budget;
-}
-function assertRatiosOnly(cash) {
-  assert.deepEqual(Object.keys(cash).sort(), [
-    "basis",
-    "calls",
-    "costShare",
-    "coverage",
-    "enforcement",
-    "mode",
-    "quality",
-    "rate",
-  ]);
-  assert.equal(cash.mode, "ratios-only");
-  assert.equal(cash.basis, "official-api-list-price-reference");
-  assert.deepEqual(Object.keys(cash.costShare).sort(), [
-    "cachedInput",
-    "output",
-    "uncachedInput",
-  ]);
-  assert.deepEqual(Object.keys(cash.rate).sort(), [
-    "overRateRatioBeforeWait",
-    "queueDelayMs",
-    "windowLoadRatio",
-    "windowMs",
-  ]);
-  assert.equal(cash.enforcement, "cash-rate-queue");
-}
-function assertGatewayRoutes(h) {
-  for (const r of h.gatewayRequests) {
-    assert.equal(r.auth, "Bearer participant-fixture-token");
-    assert.ok(
-      (r.method === "POST" &&
-        r.url === "/participants/fixture/v1/chat/completions") ||
-        (r.method === "GET" && r.url === "/participants/fixture/v1/budget"),
-      `Unexpected gateway request ${r.method} ${r.url}`,
-    );
-  }
-}
-
-test(
-  "real Pi receives settled cash cost shares via bounded GET while cache tokens and reasoning are never double-counted",
-  { timeout: 15000 },
-  async (t) => {
-    const rawStream = [];
-    const observer = (pi) =>
-      pi.on("provider_stream_event", (event) => rawStream.push(event.data));
-    const h = await harness(
-      t,
-      (_body, n) =>
-        n === 1
-          ? [
-              {
-                id: "cash-boundary",
-                name: "bash",
-                args: { command: "printf cash-fixture" },
-              },
-            ]
-          : "Cost shares received.",
-      {
-        gateway: true,
-        cash: {},
-        usage: cachedUsageFixture,
-        extensions: [observer],
-      },
-    );
-    await h.session.prompt("Inspect the accounting fixture.");
-    assert.equal(h.requests.length, 2);
-    const modelBudget = budgetFromToolRequest(h.requests[1]);
-    assert.match(modelBudget.accounting, /authenticated budget snapshot/);
-    const cost = modelBudget.cash.participant;
-    assertRatiosOnly(cost);
-    assert.equal(cost.quality, "exact");
-    assert.equal(cost.calls.priced, 1);
-    assert.equal(cost.calls.unknown, 0);
-    assert.ok(Math.abs(cost.costShare.uncachedInput - 8 / 19) < 1e-8);
-    assert.ok(Math.abs(cost.costShare.cachedInput - 3 / 19) < 1e-8);
-    assert.ok(Math.abs(cost.costShare.output - 8 / 19) < 1e-8);
-    assert.deepEqual(modelBudget.cash.team.costShare, cost.costShare);
-    const operator = h.cashLedger.operatorSnapshot("fixture");
-    assert.equal(operator.currency, "USD");
-    assert.equal(operator.accounts[0].referenceCostPricedUsage, "0.0038");
-    assert.deepEqual(operator.accounts[0].costs, {
-      uncachedInput: "0.0016",
-      cachedInput: "0.0006",
-      output: "0.0016",
-    });
-    assert.equal(operator.accounts[0].requestCount, 2);
-    const publicBody = await (
-      await fetch(`${h.baseUrl}/budget`, {
-        headers: { authorization: "Bearer participant-fixture-token" },
-      })
-    ).json();
-    assertRatiosOnly(publicBody.participant.cash);
-    assert.equal(publicBody.participant.cash.calls.priced, 2);
-    assert.equal(
-      publicBody.participant.cash.coverage,
-      "current-window-priced-usage-only",
-    );
-    const modelText = JSON.stringify(h.requests[1].messages);
-    for (const forbidden of [
-      "referenceCostPricedUsage",
-      "cashRateLimit",
-      "inputPerMillion",
-      "outputPerMillion",
-      "currency",
-      "cost_usd",
-      "invoice_amount",
-    ])
-      assert.ok(
-        !modelText.includes(forbidden),
-        `${forbidden} must remain outside model context`,
-      );
-    assert.doesNotMatch(
-      JSON.stringify(rawStream),
-      /cost_usd|invoice_amount|12345|67890/,
-      "upstream monetary extensions are stripped before Pi receives them",
-    );
-    assert.equal(
-      h.gatewayRequests.filter((r) => r.method === "POST").length,
-      2,
-    );
-    assert.equal(
-      h.gatewayRequests.filter((r) => r.method === "GET").length,
-      3,
-      "one natural-boundary read per response plus explicit test read",
-    );
-    assertGatewayRoutes(h);
-    await sleep(50);
-    assert.equal(
-      h.requests.length,
-      2,
-      "settled feedback does not invoke another model",
-    );
-  },
-);
-
-test(
-  "cash-window pressure queues a real Pi request and exposes delay and ratios without amounts",
-  { timeout: 15000 },
-  async (t) => {
-    const responses = [];
-    const h = await harness(
-      t,
-      (_body, n) =>
-        n === 1
-          ? [
-              {
-                id: "cash-wait-boundary",
-                name: "bash",
-                args: { command: "printf waited-for-window" },
-              },
-            ]
-          : "Window pressure seen.",
-      {
-        gateway: true,
-        cash: { participantRate: "0.06", teamRate: "0.12" },
-        usage: cachedUsageFixture,
-        extensions: [
-          (pi) => pi.on("after_provider_response", (e) => responses.push(e)),
-        ],
-      },
-    );
-    const holdQuote = h.cashLedger.quote("fixture", "fixture", {
-      input: 30000,
-      output: 0,
-    });
-    const hold = await h.cashLedger.acquire("fixture", holdQuote, {
-      requestId: "operator-fixture-hold",
-    });
-    const run = h.session.prompt("Wait for the rate window.");
-    for (let n = 0; n < 100 && !h.cashLedger.rateLedger.queue.length; n++)
-      await sleep(10);
-    assert.equal(h.cashLedger.rateLedger.queue.length, 1);
-    assert.equal(h.requests.length, 0, "rate gate prevents upstream dispatch");
-    await sleep(30);
-    hold.settle(undefined, { dispatched: false });
-    await run;
-    assert.equal(h.requests.length, 2);
-    const header = JSON.parse(responses[0].headers["x-arena-cash-ratios"]);
-    assert.ok(header.participant.rate.overRateRatioBeforeWait > 0);
-    assert.ok(header.participant.rate.queueDelayMs > 0);
-    assertRatiosOnly(header.participant);
-    const budget = budgetFromToolRequest(h.requests[1]);
-    assertRatiosOnly(budget.cash.participant);
-    assert.ok(budget.cash.participant.rate.overRateRatioBeforeWait > 0);
-    assert.equal(
-      budget.cash.participant.rate.queueDelayMs,
-      header.participant.rate.queueDelayMs,
-    );
-    assert.equal(budget.cash.participant.calls.priced, 1);
-    assert.match(budget.accounting, /pre-wait projected pressure/);
-    assert.doesNotMatch(
-      JSON.stringify(budget.cash),
-      /USD|cashRateLimit|PerMillion|referenceCost/,
-    );
-    assert.equal(
-      h.cashLedger.operatorSnapshot("fixture").accounts[0].requestCount,
-      2,
-      "cancelled hold is not charged as a request",
-    );
-    assertGatewayRoutes(h);
-    await sleep(50);
-    assert.equal(h.requests.length, 2);
-  },
-);
-
-test(
-  "oversized cash quote dispatches and Pi receives settled debt ratios with no extra inference",
-  { timeout: 15000 },
-  async (t) => {
-    const responses = [];
-    const h = await harness(t, () => "Oversized quote admitted.", {
-      gateway: true,
-      cash: { participantRate: "0.000001", teamRate: "0.000002" },
-      extensions: [
-        (pi) => pi.on("after_provider_response", (e) => responses.push(e)),
-      ],
-    });
-    await h.session.prompt("Oversized rate fixture.");
-    assert.equal(h.requests.length, 1);
-    const admitted = h.gatewayResponses.find((r) => r.method === "POST");
-    assert.equal(admitted.status, 200);
-    const header = JSON.parse(admitted.headers["x-arena-cash-ratios"]);
-    assert.ok(header.participant.rate.overRateRatioBeforeWait > 0);
-    assertRatiosOnly(header.participant);
-    const budget = platformFromSession(h.session).find((u) => u.budget)?.budget;
-    const feedback = budget && { data: budget };
-    assert.ok(
-      feedback,
-      JSON.stringify(
-        h.events.map((e) => ({
-          type: e.type,
-          stopReason: e.message?.stopReason,
-          errorMessage: e.message?.errorMessage,
-        })),
-      ),
-    );
-    assertRatiosOnly(feedback.data.cash.participant);
-    assert.ok(feedback.data.cash.participant.rate.overRateRatioBeforeWait > 0);
-    assert.equal(feedback.data.cash.participant.calls.priced, 1);
-    assert.ok(feedback.data.cash.participant.rate.windowLoadRatio > 1);
-    assert.equal(
-      h.cashLedger.operatorSnapshot("fixture").accounts[0].requestCount,
-      1,
-    );
-    assertGatewayRoutes(h);
-    assert.equal(
-      h.gatewayRequests.filter((r) => r.method === "POST").length,
-      1,
-    );
-    assert.equal(h.gatewayRequests.filter((r) => r.method === "GET").length, 1);
-    await sleep(50);
-    assert.equal(h.requests.length, 1);
-  },
-);
-
-test(
-  "cancelling a queued Pi request does not masquerade as a rate rejection or trigger a budget GET",
-  { timeout: 15000 },
-  async (t) => {
-    const h = await harness(t, () => "must not dispatch cancelled request", {
-      gateway: true,
-      cash: {},
-    });
-    const holds = await Promise.all([
-      h.ledger.acquire("fixture", 1),
-      h.ledger.acquire("fixture", 1),
-    ]);
-    const run = h.session.prompt("Cancel this queued fixture.");
-    for (let n = 0; n < 100 && !h.ledger.queue.length; n++) await sleep(10);
-    assert.equal(h.ledger.queue.length, 1);
-    await h.session.abort();
-    await run;
-    // Allow the transport cancellation to reach the gateway before freeing a slot.
-    for (let n = 0; n < 100 && h.ledger.queue.length; n++) await sleep(10);
-    assert.equal(
-      h.ledger.queue.length,
-      0,
-      "cancelled request leaves gateway queue",
-    );
-    for (const hold of holds) hold.settle(0);
-    assert.equal(h.requests.length, 0);
-    assert.equal(
-      h.gatewayRequests.filter((r) => r.method === "POST").length,
-      1,
-    );
-    assert.equal(h.gatewayRequests.filter((r) => r.method === "GET").length, 0);
-    assert.ok(
-      h.session.messages.some(
-        (m) => m.role === "assistant" && m.stopReason === "aborted",
-      ),
-    );
-    assert.equal(
-      h.cashLedger.operatorSnapshot("fixture").accounts[0].requestCount,
-      0,
-    );
-    await sleep(50);
-    assert.equal(h.requests.length, 0);
-  },
-);
-
 test("default real Pi persists runtime task changes and has no temporary tail", async (t) => {
   const h = await harness(t, async (_body, n) =>
     n === 1

@@ -22,10 +22,7 @@ export async function superviseDeployment({
   signal,
 }) {
   const directory = resolve(deploymentDir);
-  const files = envFiles ?? [
-    join(directory, ".env"),
-    join(directory, ".proxy.env"),
-  ];
+  const files = envFiles ?? [join(directory, ".env")];
   const compose = [
     "compose",
     ...files.flatMap((file) => ["--env-file", file]),

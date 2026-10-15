@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `packages/arena` | 比赛主控：会话生命周期、经 RCON 读服务器判定、结果 | 可信侧 |
 | `packages/mf-bridge` | 游戏桥：每个参赛者一个真实 Mineflayer 角色，只接受校验过的语义动作 | 可信侧 |
-| `packages/budget-gateway` | 预算网关：OpenAI 兼容的模型调用入口，计量、限速 | 可信侧 |
+| `packages/model-relay` | 模型转发：参赛者没有外网时，把模型请求原样转发到一个配置好的地址；不计量、不限速 | 可信侧 |
 | `packages/pi-extension` | Pi 扩展与启动器：`bash` 工具、收件箱服务、默认脚本启动、平台消息、请求恢复 | 参赛容器内的平台代码 |
 | `packages/tasks` | 任务管理：`bash` 启动的进程、等待时长、取消 | 参赛容器内的平台代码 |
 | `packages/inbox` | 收件箱与 `InboxClient`：程序发给模型的消息、送达回执 | 参赛者程序 |
@@ -17,7 +17,7 @@
 | `packages/default-scripts` | 开局自动启动的默认脚本：观察器、聊天转发 | 参赛者程序 |
 | `packages/world-visual` | 按需截图 | 参赛者程序 |
 | `examples/` | 示例程序（导航、采样 `observe.mjs`、截图等） | 参赛模型 |
-| `participant/` | 追加到系统提示的 `PROMPT.md`、Skill（`skills/minecraft-arena/`）、FAQ、预算与队内 Git 说明 | 参赛模型 |
+| `participant/` | 追加到系统提示的 `PROMPT.md`、Skill（`skills/minecraft-arena/`）、FAQ、队内 Git 与程序调用模型的说明 | 参赛模型 |
 | `infra/` | 部署模板、运营指南、规则数据包（`infra/datapacks/`） | 运营者 |
 | `docs/` | 设计、验证、路线图；`docs/history/` 是按日期保存的记录 | 开发者 |
 
@@ -39,7 +39,7 @@ CI（`.github/workflows/ci.yml`）在 Node 24 上跑前三项，并单独跑 `ve
 
 - 参赛模型和插件都是照着真实 Mineflayer 写的。SDK 与真实 bot 的差距由 `tests/sdk-fidelity.test.mjs` 跟踪；补上一个方法后，从它的 `KNOWN_GAPS` 中删掉对应条目。
 - 观察器、聊天转发是普通脚本（`packages/default-scripts/`）。不要把新的自动报告做进 Pi 扩展进程，写成脚本，通过 `InboxClient` 交付。
-- 会话时钟、预算、公开数据、通知这类来自可信侧的信息走平台消息（`packages/pi-extension/platform-messages.mjs`，由 `index.mjs` 的 `deliverPlatform` 统一发出），不走收件箱。新的可信信息加成平台消息的一段，不要另开发送路径。
+- 会话时钟、公开数据、通知这类来自可信侧的信息走平台消息（`packages/pi-extension/platform-messages.mjs`，由 `index.mjs` 的 `deliverPlatform` 统一发出），不走收件箱。新的可信信息加成平台消息的一段，不要另开发送路径。
 - 改动参赛者能看到的行为时，同步更新 `participant/PROMPT.md`、`participant/skills/minecraft-arena/SKILL.md` 和对应包的 README。每局都要用的基本知识放 `PROMPT.md`（系统提示，模型一定看到）；只在写某类程序时才用的放 Skill。
 - 给模型的工具只有 Pi 的 `read`／`edit`／`write` 和本项目的 `bash`。`bash` 必须是工具，因为它的等待规则决定模型什么时候收到新请求。其他能力一律做成文件或命令行（例如任务目录、`arena-task`、`examples/observe.mjs`），让模型和它的程序拿到同样的东西；不要再加工具，也不要靠 codemode 绕。
 - 待办只记在 [docs/ROADMAP.md](docs/ROADMAP.md)。

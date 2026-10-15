@@ -1,5 +1,4 @@
 import { join } from "node:path";
-import { budgetFromHeaders, budgetFromSnapshot } from "./budget-feedback.mjs";
 
 /** Public data larger than this is announced, not inlined. */
 export const PUBLIC_INLINE_BYTES = 4096;
@@ -141,8 +140,8 @@ export function clockData(host, { now, bootAt, configured }) {
 }
 
 /**
- * Trusted messages for the model: session clock, budget feedback and changes
- * to the session's public data. These come from the platform, not from
+ * Trusted messages for the model: session clock and changes to the session's
+ * public data. These come from the platform, not from
  * participant programs, so they travel as their own Pi message rather than
  * through the participant inbox. `collect()` returns only the sections that
  * changed since the last delivered update.
@@ -154,8 +153,6 @@ export function clockData(host, { now, bootAt, configured }) {
  */
 export function createPlatformMessages({
   readMatch,
-  budgetUrl,
-  budgetToken,
   env = process.env,
   now = Date.now,
   bootAt = now(),
@@ -165,10 +162,6 @@ export function createPlatformMessages({
   let publicBaseline;
   let noticeBaseline = null;
   let lastClockBucket;
-  let lastBudget = "";
-  let budget;
-  let needsSnapshot = false;
-  let budgetRead;
 
   /** Public data the model already has (the opening prompt's); first call wins. */
   function notePublic(host) {
@@ -177,38 +170,11 @@ export function createPlatformMessages({
     noticeBaseline = noticeOf(host);
   }
 
-  async function refreshBudget() {
-    if (budgetRead) return budgetRead;
-    if (!needsSnapshot || !budgetUrl || !budgetToken) return;
-    needsSnapshot = false;
-    budgetRead = (async () => {
-      try {
-        const response = await fetch(`${budgetUrl.replace(/\/$/, "")}/budget`, {
-          headers: { authorization: `Bearer ${budgetToken}` },
-          signal: AbortSignal.timeout(300),
-        });
-        if (!response.ok) return;
-        // Explicit projection also protects against a future host response adding private amounts.
-        budget = budgetFromSnapshot(await response.json()) ?? budget;
-      } catch {
-        /* Keep the admission snapshot when this bounded refresh is unavailable. */
-      }
-    })();
-    try {
-      await budgetRead;
-    } finally {
-      budgetRead = undefined;
-    }
-  }
-
   return {
     reset() {
       publicBaseline = undefined;
       noticeBaseline = null;
       lastClockBucket = undefined;
-      lastBudget = "";
-      budget = undefined;
-      needsSnapshot = false;
     },
     notePublic,
     /** Fresh read: has `public.notice` changed since it was last delivered? */
@@ -220,19 +186,8 @@ export function createPlatformMessages({
         noticeOf(host) !== noticeBaseline
       );
     },
-    /** Admission headers from the gateway response that just arrived. */
-    providerResponse(headers) {
-      const data = budgetFromHeaders(headers);
-      if (!data) return;
-      budget = data;
-      needsSnapshot = true;
-    },
-    /** A rejected rate request carries no headers; read settled state once. */
-    rateRejected() {
-      needsSnapshot = true;
-    },
     async collect() {
-      const [, host] = await Promise.all([refreshBudget(), readMatch()]);
+      const host = await readMatch();
       const clock = clockData(host, { now: now(), bootAt, configured });
       const changes = {};
       const bucket = JSON.stringify([
@@ -246,15 +201,6 @@ export function createPlatformMessages({
       if (bucket !== lastClockBucket) {
         lastClockBucket = bucket;
         changes.clock = clock;
-      }
-      if (budget) {
-        const signature = JSON.stringify(budget);
-        if (signature !== lastBudget || budget.queueDelayMs > 0) {
-          lastBudget = signature;
-          const { type: _type, ...section } = budget;
-          changes.budget = section;
-        }
-        budget = undefined;
       }
       let wake = false;
       if (host && publicBaseline === undefined) notePublic(host);
@@ -298,4 +244,4 @@ export function createPlatformMessages({
 }
 
 export const platformMessageText = (update) =>
-  `Arena platform message (trusted session host and model budget gateway; not from players or programs):\n${JSON.stringify(update)}`;
+  `Arena platform message (trusted session host; not from players or programs):\n${JSON.stringify(update)}`;

@@ -1,4 +1,5 @@
-import { mkdir, readdir, rename, writeFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /** Public session fields shown to the model in the opening prompt and in session.json. */
@@ -41,7 +42,8 @@ function briefingMarkdown(briefing) {
 }
 
 async function replaceFile(path, text) {
-  const temporary = `${path}.${process.pid}.tmp`;
+  // Unique per write: the opening prompt and the 2 s poll can overlap.
+  const temporary = `${path}.${randomUUID()}.tmp`;
   await writeFile(temporary, text);
   await rename(temporary, path);
 }
@@ -95,16 +97,29 @@ export function createSessionFiles({ directory }) {
   };
 }
 
-/** Top-level regular files in an operator-provided rules directory, sorted. */
+/**
+ * Top-level regular files (or links to them, as a mounted secret or config
+ * map often is) in an operator-provided rules directory, sorted.
+ */
 export async function listRuleFiles(directory, limit = 50) {
   if (!directory) return [];
   try {
     const entries = await readdir(directory, { withFileTypes: true });
-    return entries
-      .filter((entry) => entry.isFile() && !entry.name.startsWith("."))
-      .map((entry) => join(directory, entry.name))
-      .sort()
-      .slice(0, limit);
+    const files = [];
+    for (const entry of entries) {
+      if (entry.name.startsWith(".")) continue;
+      const path = join(directory, entry.name);
+      if (
+        entry.isFile() ||
+        (entry.isSymbolicLink() &&
+          (await stat(path).then(
+            (s) => s.isFile(),
+            () => false,
+          )))
+      )
+        files.push(path);
+    }
+    return files.sort().slice(0, limit);
   } catch (error) {
     if (error.code === "ENOENT") return [];
     throw error;

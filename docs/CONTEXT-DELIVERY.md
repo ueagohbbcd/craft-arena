@@ -28,14 +28,14 @@ Pi 在下面这些时刻发出请求：
 
 - **工具结果**：模型自己调用的工具返回的内容。
 - **收件箱**：参赛者程序（包括默认脚本）通过 `InboxClient` 发来的消息，以及 Pi 扩展自己发的运行时报告。
-- **平台**：可信侧和启动器发来的内容，包括会话时钟（来自比赛主控，独立运行时来自游戏桥）、预算网关的预算反馈、开局提示和图像。
+- **平台**：可信侧和启动器发来的内容，包括会话时钟（来自比赛主控，独立运行时来自游戏桥）、开局提示（含会话简报）、公开数据的变化和通知。
 
 相对请求边界，信息有四种到达方式：
 
 | 时机                 | 工具结果                                                                                                                                                   | 收件箱                                                                                                                                                                                                                                                                           | 平台                                                                           |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | **本身就是边界**     | `bash` 返回 `completed` 或 `running`                                                                                                                       | 无（收件箱不单独构成边界）                                                                                                                                                                                                                                                       | 开局提示（会话简报、玩法说明、观察器第一份报告）；请求恢复的续写提示 |
-| **随下一次边界附带** | 无                                                                                                                                                         | 默认观察器的 `observation.snapshot`／`observation.changed`、沿途方块报告、附近告示牌、普通事件；默认聊天转发的 `game.chat`；程序的 `post`／`upsert`；运行时报告 `runtime.snapshot`／`runtime.changed`（含程序自报状态 `programStatus`）；没有等待者时完成的任务 `task.completed` | 平台消息 `Arena platform message`：只含变化了的 `clock`／`budget`／`public`／`notice` |
+| **随下一次边界附带** | 无                                                                                                                                                         | 默认观察器的 `observation.snapshot`／`observation.changed`、沿途方块报告、附近告示牌、普通事件；默认聊天转发的 `game.chat`；程序的 `post`／`upsert`；运行时报告 `runtime.snapshot`／`runtime.changed`（含程序自报状态 `programStatus`）；没有等待者时完成的任务 `task.completed` | 平台消息 `Arena platform message`：只含变化了的 `clock`／`public`／`notice`          |
 | **提前制造边界**     | 无                                                                                                                                                         | 紧急消息：默认观察器的生命危急（`critical_health`，生命 ≤ 6）、短时大量掉血、死亡、断线；程序的 `requestJudgment`；设置了 `ARENA_CHAT_WAKE` 时提到 bot 或私聊 bot 的聊天。持续会话中，空闲时到达的 `task.completed` 也会唤醒模型                                                 | 空闲提醒；`public.notice` 变化（空闲时，包括模型在等自己的程序时）             |
 | **只在查询时读取**   | 采样脚本 `examples/observe.mjs`（`--full-*` 展开明细）；任务目录里的日志、`status.json` 和 `runtime.json`；截图脚本 `examples/screenshot.mjs`；程序里用 `createBlockMemoryClient()` 查询区块记忆；读程序自己写的日志或文件 | 无                                                                                                                                                                                                                                                                               | 无                                                                             |
 
@@ -59,7 +59,7 @@ Pi 在下面这些时刻发出请求：
 
 ## 平台消息何时送达
 
-平台消息不进收件箱。`turn_end` 时 Pi 扩展通过游戏桥的 `/v1/session` 读取会话状态（缓存 2 秒，超时 300 ms），并取出预算网关在模型响应头里给出的预算（请求被限速拒绝时改读网关的 `/budget`），只把变化的部分组成一条 `arena-platform` 消息，用 `triggerTurn: false` 交给 Pi。会话进行中的时间按 10 秒分档去重；会话状态或胜者一变，下一次 `turn_end` 就会发出。`open` 会话没有时限，时钟只报已运行时长（`elapsedMs`），不报 `durationMs`／`remainingMs`。
+平台消息不进收件箱。`turn_end` 时 Pi 扩展通过游戏桥的 `/v1/session` 读取会话状态（缓存 2 秒，超时 300 ms），时钟有变化时组成一条 `arena-platform` 消息，用 `triggerTurn: false` 交给 Pi。会话进行中的时间按 10 秒分档去重；会话状态或胜者一变，下一次 `turn_end` 就会发出。`open` 会话没有时限，时钟只报已运行时长（`elapsedMs`），不报 `durationMs`／`remainingMs`。
 
 `public` 段：开局提示带的 `briefing.public` 是基线，之后它一变，下一条平台消息就带 `public`（JSON 超过 4096 字节时只报大小和 `public.json` 的路径）。`public.notice` 是给模型的通知：变化时另带 `notice` 段（超过 2000 字符截断）。Pi 空闲时扩展每 `ARENA_NOTICE_POLL_MS`（2000 ms）读一次会话，通知一变就用 `triggerTurn: true` 发一条平台消息开启新一轮，模型在等自己的程序时也算空闲；模型忙时，通知随下一次 `turn_end` 送达。
 
@@ -128,7 +128,7 @@ Pi 在下面这些时刻发出请求：
 | 默认脚本启动                               | [packages/pi-extension/default-scripts.mjs](../packages/pi-extension/default-scripts.mjs)                                                                                                                                           |
 | 默认观察器与紧急事件                       | [packages/default-scripts/observer.mjs](../packages/default-scripts/observer.mjs)、[packages/observation/observer.mjs](../packages/observation/observer.mjs)、[packages/observation/events.mjs](../packages/observation/events.mjs) |
 | 变化报告                                   | [packages/observation/section-diff.mjs](../packages/observation/section-diff.mjs)                                                                                                                                                   |
-| 开局提示与图像                             | [packages/pi-extension/bootstrap.mjs](../packages/pi-extension/bootstrap.mjs)                                                                                                                                                       |
+| 开局提示与会话文件                         | [packages/pi-extension/bootstrap.mjs](../packages/pi-extension/bootstrap.mjs)                                                                                                                                                       |
 
 各包的用法见 [Pi 扩展](../packages/pi-extension/README.md)、[收件箱](../packages/inbox/README.md)、[观察库](../packages/observation/README.md)、[区块记忆](../packages/bot-sdk/BLOCK-MEMORY.md)。
 

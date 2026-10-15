@@ -62,7 +62,7 @@ Blank cells are blocks the character has not received. They are unknown, not air
 
 The shipped script supports copying: it resolves imports through `ARENA_TOOLKIT_ROOT`. Check that this variable points to the toolkit in the process running your copy, and that the referenced files exist. Without it, the script falls back to its original location inside the toolkit.
 
-## Clock and budget
+## Clock and model calls
 
 ### How much session time is left?
 
@@ -74,4 +74,4 @@ Only if the operator turned it on. Then chat that mentions your name, or a whisp
 
 ### Why did my last model request take so long?
 
-Model calls go through the budget gateway, which queues requests when you or your team use too much too fast. The `budget` section of the platform message shows how long you queued (`rate.queueDelayMs`) and how loaded the rate window is. The game and your programs keep running while you wait, so keep useful programs running. See [BUDGET-AND-TEAM.md](BUDGET-AND-TEAM.md).
+Long context, long replies, a busy model service or limits set by the operator's model service all add time. The game and your programs keep running while you wait, so keep useful programs running, and keep each request's new context short.

@@ -25,9 +25,9 @@
 | 任务：`bash`（`command`／`taskId`）、等待时长、`arena-task cancel`、任务文件 | 真实 Pi 测试 | `tests/integration-pi.test.mjs`、`tests/inbox.test.mjs`、`tests/pi-extension.test.mjs`、`tests/task-files.test.mjs` | 2026-10-11 实服跑过取消后按键释放，之后任务管理移到 `packages/tasks`，没有重跑 |
 | 收件箱：普通消息、紧急消息、晚到输出只交付一次 | 真实 Pi 测试 | `tests/integration-pi.test.mjs` | 见下方[Pi 集成测试覆盖](#pi-集成测试覆盖) |
 | 送达回执 `InboxClient.delivery` | 夹具测试 | `tests/inbox.test.mjs`（跨进程 IPC） | 没有真实 Pi 测试直接检查回执 |
-| 程序自报状态 `InboxClient.setStatus` | 夹具测试 | `tests/inbox-current.test.mjs`、`tests/runtime-state.test.mjs`、`tests/pi-extension.test.mjs` | 覆盖跨进程写入、替换、过期、`programStatus` 显示上限和 `observe({fullRuntime: true})` 读取；没有真实 Pi 测试 |
+| 程序自报状态 `InboxClient.setStatus` | 夹具测试 | `tests/inbox-current.test.mjs`、`tests/runtime-state.test.mjs`、`tests/pi-extension.test.mjs` | 覆盖跨进程写入、替换、过期、`programStatus` 显示上限和完整的 `runtime.json`；没有真实 Pi 测试 |
 | 运行时报告 `runtime.snapshot`／`runtime.changed` | 真实 Pi 测试 | `tests/integration-pi.test.mjs` 最后一项 | 报告写进对话历史 |
-| 平台消息（时钟、预算） | 真实 Pi 测试 | `tests/integration-pi.test.mjs`（clock、gateway、cash 几项）、`tests/pi-extension.test.mjs` | 没有实服或部署运行 |
+| 平台消息（时钟） | 真实 Pi 测试 | `tests/integration-pi.test.mjs`（clock 一项）、`tests/pi-extension.test.mjs` | 没有实服或部署运行 |
 | 持续会话、空闲提醒 | 真实 Pi 测试 | 持续会话启动测试、`tests/pi-extension.test.mjs` | |
 | 请求恢复 | 真实 Pi 测试 | `tests/request-recovery.test.mjs`（真实 Pi RPC） | |
 | 默认观察器（默认脚本） | 夹具测试 | `tests/default-observer.test.mjs`、`tests/observation-*.test.mjs`、`tests/nearby-scan.test.mjs`、`tests/recent-blocks.test.mjs` | 改成脚本后**没有在真实服务器上跑过**。2026-10-11 的实服 9 项检查测的是已删除的会话内实现 |
@@ -37,12 +37,12 @@
 | bot SDK、Pathfinder 适配 | 实服验证（旧代码） | `tests/sdk-*.test.mjs`；2026-10-11 实服检查与单人试验 | 此后 SDK 有改动，没有重跑实服。与真实 Mineflayer 的差距见 `tests/sdk-fidelity.test.mjs` |
 | PvP 适配、战斗报告 | 夹具测试 | `tests/sdk-plugins.test.mjs`、`tests/combat-report.test.mjs` | 没有实战 |
 | 游戏桥：动作校验、背压、错误 | 夹具测试 | `tests/bridge*.test.mjs` | 2026-10-11 的实服检查经过游戏桥；之后有改动 |
-| 预算网关：计量、限速、排队、只给比例 | 真实 Pi 测试 | `tests/budget-*.test.mjs`、`tests/integration-pi.test.mjs` | 2026-10-11 部署时连过真实模型，当时走的是已删除的 OAuth 适配器 |
+| 模型转发、启动器的两种模型接入 | 真实 Pi 测试 | `tests/model-relay.test.mjs`、`tests/integration-pi.test.mjs`、`tests/pi-extension.test.mjs` | 本地假上游；没有连过真实模型，也没有在部署里跑过 |
 | 比赛主控：生命周期、RCON、判定 | 实服验证 | `tests/arena-*.test.mjs`（含本地 TCP RCON）；2026-10-14 实服运行，见下方[服务器协议实服运行](#服务器协议实服运行) | `live-cli.mjs` 带两个真实 Mineflayer bot 跑完准备、开赛、数据包判胜、结束；没有参赛模型 |
 | 服务器协议 v1、`race-of-wool`／`arena-example` 数据包 | 实服验证 | `tests/datapack-*.test.mjs`（静态）；2026-10-14 实服运行 | 胜、平、时限停止、拆除目标回落、区块强制加载与释放；Direct Fire 地图本身没有装进去跑 |
 | 游戏桥独立服务（`BRIDGE_SESSION=host`）与无主控模式（`BRIDGE_SESSION=server`） | 实服验证 | `tests/bridge-session-source.test.mjs`、`tests/arena-live.test.mjs`；`npm run verify:server`（CI 每次推送） | 外部游戏桥跑完一局并在结束时停掉 bot；无主控模式手动开关一轮，动作按状态放行 |
 | 程序断开后自动松开按键 | 实服验证 | `tests/bridge-control-lease.test.mjs`；2026-10-14 实服复现与复验 | 修复前程序退出后 bot 一直走（约 30 格），修复后约 1 秒后停下 |
-| 预算网关只读状态令牌 | 夹具测试 | `tests/bridge-status-token.test.mjs`、`tests/check-deployment.test.mjs` | |
+| 游戏桥只读状态令牌 | 夹具测试 | `tests/bridge-status-token.test.mjs` | 模板不再使用，留给外部读者 |
 | 参赛镜像只含参赛侧代码 | 夹具测试 | `tests/deployment.test.mjs`；按清单复制的目录能加载全部参赛侧模块 | 没有在这个环境里构建镜像（没有 Docker 守护进程） |
 | 部署配置一致性检查 | 夹具测试 | `tests/check-deployment.test.mjs` | Windows 初始化时自动运行，PowerShell 部分没有在 Windows 上跑过 |
 | 服务端录像 | 夹具测试 | `tests/server-replay.test.mjs` | 真实服务器录像输出与回放播放都没验收 |
@@ -57,8 +57,8 @@
 
 1. **完整自主对局**：从开局到判胜，全程无人干预。
 2. **默认观察器的实服重跑**：用 `scripts/validate-observation-live.mjs`（已改为调用 `startObserver`）在隔离服务器上重跑。
-3. **Windows 部署重跑**：`budget.red.json`／`budget.blue.json` 的新上游配置下，`initialize-windows-arena.ps1` 和 `windows-arena.ps1` 的完整流程，见 [infra/windows-local/README.md](../infra/windows-local/README.md)。
-4. **部署隔离**：Compose 网络与卷隔离、资源上限、参赛容器不能绕过预算网关或直连 Minecraft，在目标主机上复验。
+3. **Windows 部署重跑**：改用模型转发之后，`initialize-windows-arena.ps1` 和 `windows-arena.ps1` 的完整流程，见 [infra/windows-local/README.md](../infra/windows-local/README.md)。
+4. **部署隔离**：Compose 网络与卷隔离、资源上限、参赛容器（经模型转发时）不能出网或直连 Minecraft，在目标主机上复验。
 5. **真实 Chromium 截图**：部署后用 `MC_TEST_CHROMIUM=1` 复验。
 6. **实战插件表现**：动态地形寻路、PvP、完整容器交互，按选定地图验证。
 7. **服务端录像**：实服录像输出、保存，以及 [近视回放客户端](../tools/replay-myopia/README.md) 播放。
@@ -78,7 +78,7 @@
 
 ## 持续限制
 
-- 预算账本只在网关进程内存里，重启即清零，不能多副本。持久化在路线图上。
+- 平台不计量模型用量。参赛者自己访问模型时（不经模型转发），网络隔离和用量由运营者负责。
 - `npm audit`（2026-10-13）：9 个 moderate、0 high、0 critical，来自 Minecraft 认证链路上的 `uuid`（[GHSA-w5hq-g745-h8pq](https://github.com/advisories/GHSA-w5hq-g745-h8pq)），上游暂无修复。部署前复查。
 - 仓库不含 `node_modules`、真实凭证、地图、世界存档或模型运行日志。
 
@@ -121,16 +121,13 @@ npm run demo:screenshot           # 需要本地 Chromium 和可选依赖
 | `real Pi urgent IPC releases a parallel bash batch` | 紧急消息让同一批两个 `bash` 等待都立刻返回 `running`，进程不被杀；它们之后结束时不唤醒模型，输出在下一次请求里各出现一次 |
 | `Pi steer queues by default` | 运行中插入的用户消息（Pi 的 `steer`）排队到命令结束，不会提前结束等待 |
 | `real codemode can filter its raw nested result` | 显式启用 codemode（默认关闭）时，嵌套命令的输出被脚本过滤掉，收件箱消息仍附在 codemode 自己的结果上送到模型 |
-| `ordinary Pi read ... preserves PNG` | `read` 读到的 PNG 经预算网关进入下一次请求（直接调用和 codemode 两种） |
+| `ordinary Pi read ... preserves PNG` | `read` 读到的 PNG 经模型转发进入下一次请求（直接调用和 codemode 两种）；转发把参赛者的 key 换成自己的 |
 | `the observe script through bash` | `bash` 运行 `examples/observe.mjs`，经真实游戏桥 HTTP 接口读取夹具 bot，状态 JSON 留在工具结果里，不提交动作 |
-| `bootstrap launches shipped Pi CLI` | 启动器生成的配置启动随包 Pi CLI；只用参赛者范围的 key；模型收到 4 个默认工具（`read`、`edit`、`write`、`bash`），`bash` 带 `wait_seconds`，没有 codemode；网关按模型描述限制输出并计费 |
-| `gateway read-only budget snapshot` | `GET /budget` 区分进行中的预留和已结算用量 |
-| `positive gateway queue delay`、`uncontended gateway feedback` | 请求排队时，排队时长和剩余额度以平台消息送到模型；不排队时不声称排队；都不另起模型请求 |
+| `bootstrap launches shipped Pi CLI through the model relay` | 启动器生成的配置启动随包 Pi CLI，经模型转发访问上游；参赛者没有 key，上游只看到转发的 key；输出上限取自模型描述；模型收到 4 个默认工具（`read`、`edit`、`write`、`bash`），`bash` 带 `wait_seconds`，没有 codemode |
+| `bootstrap without OPENAI_BASE_URL` | 不设端点时 Pi 按运营者自己的配置目录运行，用其中的提供方、模型和 key；启动器不改写这个目录 |
 | `configured match clock` | 比赛主控的时钟作为平台消息送达，标明来源，不另起模型请求 |
 | `resident bootstrap keeps child alive` | 持续会话：模型给出最终回答后后台任务继续运行，空闲时不调用模型；紧急消息在同一对话里恰好触发一次新回合；比赛结束时启动器退出并回收子进程 |
 | `real Pi urgent/passive IPC during final response stream` | 模型正在输出最终回答时：紧急消息恰好续一轮；普通消息只记录一次，不额外调用模型 |
-| `real Pi receives settled cash cost shares` 等三项 cash 测试 | 参考价格计费：缓存和推理 token 不重复计算；模型只看到成本占比、窗口负载和排队时长，看不到价格、币种和现金上限；超大单笔请求结算为后续排队，不另起模型调用 |
-| `cancelling a queued Pi request` | 取消排队中的请求不被当成限速拒绝，也不触发 `GET /budget` |
 | `default real Pi persists runtime task changes` | 任务变化以 `runtime.snapshot`／`runtime.changed` 写进对话历史 |
 
 升级 Pi 版本前要重跑这些测试，并检查事件签名、并行执行、请求格式、codemode 和退出行为。

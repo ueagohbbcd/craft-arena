@@ -51,12 +51,12 @@ async function sourceText(path) {
   return out.join("\n");
 }
 
-test("companion compose runs an open bridge, a gateway and an isolated participant", async () => {
+test("companion compose runs an open bridge, a model relay and an isolated participant", async () => {
   const text = await read("compose.yaml");
   const services = sections(text);
   assert.deepEqual(Object.keys(services).sort(), [
     "bridge",
-    "budget-gateway",
+    "model-relay",
     "participant",
   ]);
   for (const section of Object.values(services)) {
@@ -81,25 +81,31 @@ test("companion compose runs an open bridge, a gateway and an isolated participa
   assert.equal(participant.ARENA_BRIDGE_URL, "http://bridge:8080");
   assert.equal(participant.ARENA_CONTINUOUS_SESSION, "1");
   assert.match(participant.ARENA_CHAT_WAKE, /mention/);
-  assert.match(
-    participant.OPENAI_BASE_URL,
-    /^http:\/\/budget-gateway:8081\/participants\/companion\/v1$/,
+  assert.equal(participant.OPENAI_BASE_URL, "http://model-relay:8080");
+  assert.equal(
+    participant.OPENAI_API_KEY,
+    undefined,
+    "the key stays in the relay",
   );
   assert.match(services.participant, /^    networks: \[companion\]$/m);
   // ARENA_BRIDGE_TOKEN is the participant's own token; the bridge's
   // BRIDGE_TOKEN variable, the upstream key and the prompt mount stay outside.
   assert.doesNotMatch(
     services.participant,
-    /UPSTREAM_API_KEY|^      BRIDGE_TOKEN:|PROMPT\.md|mf-profiles/m,
+    /MODEL_UPSTREAM|^      BRIDGE_TOKEN:|PROMPT\.md|mf-profiles/m,
   );
   // Microsoft device login can hold the bridge back for a long time.
   assert(Number(participant.ARENA_START_TIMEOUT_MS) >= 3600000);
 
+  const relay = environment(services["model-relay"]);
+  assert.match(services["model-relay"], /packages\/model-relay\/cli\.mjs/);
+  assert.match(relay.MODEL_RELAY_UPSTREAM, /^\$\{MODEL_UPSTREAM_URL:\?/);
+  assert.match(relay.MODEL_RELAY_API_KEY, /^\$\{MODEL_UPSTREAM_KEY:-\}$/);
   assert.match(
-    services["budget-gateway"],
+    services["model-relay"],
     /networks: \[companion, model-egress\]/,
   );
-  assert.doesNotMatch(services.bridge, /UPSTREAM_API_KEY|MODEL_TOKEN/);
+  assert.doesNotMatch(services.bridge, /MODEL_UPSTREAM/);
 });
 
 test("every bridge and participant variable is defined by the code or the contract", async () => {
@@ -123,23 +129,9 @@ test("every bridge and participant variable is defined by the code or the contra
   }
 });
 
-test("budget, model and env examples agree with the compose file", async () => {
+test("model and env examples agree with the compose file", async () => {
   const compose = await read("compose.yaml");
-  const services = sections(compose);
-  const gatewayEnv = environment(services["budget-gateway"]);
-  const budget = JSON.parse(await read("budget.json"));
   const model = JSON.parse(await read("model.json"));
-  assert.equal(budget.modelConfig, "model.json");
-  assert.equal(budget.requireRunningMatch, true);
-  assert(budget.referenceCost.models[model.id], "priced model");
-  for (const [id, p] of Object.entries(budget.participants)) {
-    assert.equal(id, "companion");
-    assert(budget.teams[p.team], "participant team exists");
-    assert(gatewayEnv[p.tokenEnv], p.tokenEnv);
-    assert(gatewayEnv[p.matchTokenEnv], p.matchTokenEnv);
-    assert.equal(p.matchStatusUrl, "http://bridge:8080/v1/session");
-  }
-  assert(gatewayEnv[budget.upstream.apiKeyEnv], budget.upstream.apiKeyEnv);
   for (const key of ["id", "api", "contextWindow", "maxOutputTokens"])
     assert(key in model, key);
 

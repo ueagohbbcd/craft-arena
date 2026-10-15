@@ -820,7 +820,8 @@ export function createBridgeServer({
   timer.unref();
   const server = http.createServer(async (req, res) => {
     const auth = req.headers.authorization;
-    // The status token (for the budget gateway) may only read the session.
+    // The status token (for an outside reader, such as the operator's own
+    // metering service) may only read the session.
     const statusOnly =
       statusToken !== undefined &&
       req.method === "GET" &&

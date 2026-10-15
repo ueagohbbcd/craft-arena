@@ -1,10 +1,9 @@
 #requires -Version 7.0
 [CmdletBinding()]
 param(
-  [ValidateSet('status','build','up','start','stop','logs','proxy','reset')]
+  [ValidateSet('status','build','up','start','stop','logs','reset')]
   [string]$Action = 'status',
-  [string]$DeploymentDir = (Join-Path $PSScriptRoot '../runtime/deploy'),
-  [ValidateRange(1024,65535)][int]$ProxyPort = 18181
+  [string]$DeploymentDir = (Join-Path $PSScriptRoot '../runtime/deploy')
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot/arena-paths.ps1"
@@ -15,7 +14,7 @@ $docker = (Get-Command docker -ErrorAction SilentlyContinue).Source
 if (-not $docker) { $docker = "$env:ProgramFiles/Docker/Docker/resources/bin/docker.exe" }
 if (-not (Test-Path -LiteralPath $docker)) { throw 'Install and start Docker Desktop first.' }
 $env:PATH = (Split-Path $docker -Parent) + ';' + $env:PATH
-$compose = @('compose','--env-file',"$deployment/.env",'--env-file',"$deployment/.proxy.env",'-f',"$deployment/compose.yaml",'--profile','agents')
+$compose = @('compose','--env-file',"$deployment/.env",'-f',"$deployment/compose.yaml",'--profile','agents')
 function Invoke-Compose {
   param([Parameter(ValueFromRemainingArguments)][string[]]$CommandArgs)
   & $docker @compose @CommandArgs
@@ -65,44 +64,6 @@ function Start-RuntimeSupervisor {
   }
   throw 'Runtime supervisor readiness timed out; inspect runtime-supervisor.err.log.'
 }
-function Start-ProxyRelay {
-  $secretFile = Join-Path $deployment 'proxy-secret'
-  if (-not (Test-Path -LiteralPath $secretFile)) {
-    [IO.File]::WriteAllText($secretFile,[Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant())
-  }
-  $secret = [IO.File]::ReadAllText($secretFile).Trim()
-  $headers = @{Authorization="Bearer $secret"}
-  $healthUrl = "http://127.0.0.1:$ProxyPort/health"
-  $healthy = $false
-  try { $healthy = (Invoke-RestMethod -Uri $healthUrl -Headers $headers -NoProxy -TimeoutSec 2).kind -eq 'arena-system-proxy-relay' } catch {}
-  if (-not $healthy) {
-    $node = Find-Node
-    $cli = Join-Path $repo 'packages/system-proxy-relay/cli.mjs'
-    # Start-Process joins ArgumentList; quote paths, never put the secret in argv.
-    # Allow exactly the upstream hosts the gateways are configured to call.
-    $hosts = foreach ($team in 'red','blue') { ([uri](Get-Content -LiteralPath (Join-Path $deployment "budget.$team.json") -Raw | ConvertFrom-Json).upstream.url).Host }
-    $arguments = @('"'+$cli+'"','--secret-file','"'+$secretFile+'"','--port',"$ProxyPort",'--allow',(($hosts | Sort-Object -Unique) -join ','))
-    $process = Start-Process -FilePath $node -ArgumentList $arguments -WindowStyle Hidden -PassThru -RedirectStandardOutput "$deployment/proxy-relay.log" -RedirectStandardError "$deployment/proxy-relay.err.log"
-    @{pid=$process.Id;startedAt=$process.StartTime.ToUniversalTime().Ticks} | ConvertTo-Json | Set-Content -LiteralPath "$deployment/proxy-process.json" -Encoding utf8
-    for ($i=0; $i -lt 20; $i++) {
-      if ($process.HasExited) { throw 'Proxy relay failed to start; inspect proxy-relay.err.log for a port conflict.' }
-      try { $healthy = (Invoke-RestMethod -Uri $healthUrl -Headers $headers -NoProxy -TimeoutSec 1).kind -eq 'arena-system-proxy-relay' } catch {}
-      if ($healthy) { break }
-      Start-Sleep -Milliseconds 250
-    }
-    if (-not $healthy) { throw 'Proxy relay did not become ready.' }
-  }
-  [IO.File]::WriteAllText("$deployment/.proxy.env","ARENA_OPENAI_PROXY=http://relay:$secret@host.docker.internal:$ProxyPort`n")
-}
-function Stop-ProxyRelay {
-  $record = Join-Path $deployment 'proxy-process.json'
-  if (Test-Path -LiteralPath $record) {
-    $saved = Get-Content -LiteralPath $record -Raw | ConvertFrom-Json
-    $process = Get-Process -Id $saved.pid -ErrorAction SilentlyContinue
-    if ($process -and $process.StartTime.ToUniversalTime().Ticks -eq $saved.startedAt) { Stop-Process -InputObject $process }
-    Remove-Item -LiteralPath $record
-  }
-}
 function Read-MatchState {
   $script = "const r=await fetch('http://127.0.0.1:9000/v1/participants/red1/session',{headers:{authorization:'Bearer '+process.env.ARENA_HOST_TOKEN}});if(!r.ok)process.exit(1);console.log((await r.json()).result.state)"
   $state = & $docker @compose exec -T arena-host node --input-type=module -e $script 2>$null
@@ -122,19 +83,13 @@ function Stop-Arena {
     }
   }
   Invoke-Compose @('stop','minecraft')
-  Stop-ProxyRelay
 }
 switch ($Action) {
   'status' { Invoke-Compose @('ps','-a') }
   'build' { Invoke-Compose @('build','minecraft','arena-host','participant-red1') }
   'logs' { Invoke-Compose @('logs','--tail','80') }
-  'proxy' {
-    Start-ProxyRelay
-    Invoke-Compose @('up','-d','--no-deps','budget-red','budget-blue')
-  }
   'up' {
     if (Test-Path -LiteralPath "$deployment/control/start") { throw 'An earlier match has a start marker. Use status, or reset for a new match.' }
-    Start-ProxyRelay
     Invoke-Compose @('up','-d','minecraft')
     $ready = $false
     for ($i=0; $i -lt 60; $i++) {
@@ -181,10 +136,10 @@ switch ($Action) {
     Copy-Item -LiteralPath $original -Destination $world -Recurse
     if (Test-Path -LiteralPath $result) { Move-Item -LiteralPath $result -Destination (Join-Path $archive 'match-result.json') }
     if (Test-Path -LiteralPath $start) { Move-Item -LiteralPath $start -Destination (Join-Path $archive 'start') }
-    # Remove containers, not volumes: fresh host/ledgers, retained code and run archives.
+    # Remove containers, not volumes: fresh host and relays, retained code and run archives.
     $services = & $docker @compose config --services
     if ($LASTEXITCODE -ne 0) { throw 'Cannot discover Compose services.' }
-    Invoke-Compose (@('rm','-f','arena-host') + @($services | Where-Object { $_ -like 'participant-*' -or $_ -like 'budget-*' -or $_ -like 'bridge-*' }))
+    Invoke-Compose (@('rm','-f','arena-host') + @($services | Where-Object { $_ -like 'participant-*' -or $_ -like 'model-*' -or $_ -like 'bridge-*' }))
     Write-Output "World reset; previous world/result/start marker are in $archive. Participant sessions and match-artifacts moved to .arena-history/$archiveId in each work volume. Code and team Git are retained. Run up next."
   }
 }

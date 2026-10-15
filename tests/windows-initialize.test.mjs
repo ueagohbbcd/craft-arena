@@ -68,7 +68,7 @@ test(
           "-ServerJar",
           jar,
           "-AcceptEula",
-          "-DeepSeekApiKeyEnv",
+          "-BlueModelKeyEnv",
           "ARENA_TEST_UNUSED_KEY",
         ],
         {
@@ -125,10 +125,8 @@ test("Windows Compose applies resource defaults and operator overrides", (t) => 
     "MC_RCON_PASSWORD",
     "RED1_BRIDGE_TOKEN",
     "BLUE1_BRIDGE_TOKEN",
-    "RED1_MODEL_TOKEN",
-    "BLUE1_MODEL_TOKEN",
-    "RED_UPSTREAM_API_KEY",
-    "DEEPSEEK_API_KEY",
+    "RED_MODEL_KEY",
+    "BLUE_MODEL_KEY",
   ])
     env[key] = "test-placeholder";
   for (const [values, expected] of [
@@ -178,24 +176,19 @@ test("Windows Compose applies resource defaults and operator overrides", (t) => 
       return t.skip("Docker Compose CLI unavailable");
     assert.equal(result.status, 0, result.stderr || String(result.error));
     const { services } = JSON.parse(result.stdout);
-    for (const [participant, gateway] of [
-      ["participant-red1", "budget-red"],
-      ["participant-blue1", "budget-blue"],
+    for (const [participant, relay] of [
+      ["participant-red1", "model-red"],
+      ["participant-blue1", "model-blue"],
     ]) {
       const player = services[participant];
       const descriptor = player.environment.ARENA_MODEL_CONFIG;
       const playerMount = player.volumes.find(
         (volume) => volume.target === descriptor,
       );
-      const gatewayMount = services[gateway].volumes.find(
-        (volume) => volume.target === descriptor,
-      );
       assert.ok(playerMount?.read_only, participant);
-      assert.ok(gatewayMount?.read_only, gateway);
-      assert.equal(playerMount.source, gatewayMount.source);
-      assert.ok(
-        !player.volumes.some((volume) => /budget.*\.json$/.test(volume.target)),
-      );
+      assert.equal(player.environment.OPENAI_BASE_URL, `http://${relay}:8080`);
+      assert.equal(player.environment.OPENAI_API_KEY, undefined);
+      assert.ok(services[relay].environment.MODEL_RELAY_UPSTREAM, relay);
       for (const name of Object.keys(player.environment))
         assert.ok(
           !/^PI_(MAX_TOKENS|CONTEXT_WINDOW|COMPACTION_)|^MODEL_ID$/.test(name),

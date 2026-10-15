@@ -9,8 +9,13 @@ param(
     [string]$ServerDownload = (Join-Path $PSScriptRoot '../infra/minecraft-download.json'),
     # Datapacks installed into the world; the default judges the race-of-wool monuments.
     [string[]]$Datapacks = @(Join-Path $PSScriptRoot '../infra/datapacks/race-of-wool'),
-    [string]$DeepSeekApiKeyEnv = 'DEEPSEEK_API_KEY',
-    [string]$RedUpstreamApiKeyEnv = 'RED_UPSTREAM_API_KEY'
+    # Each team's model relay forwards to one OpenAI-compatible base URL: an
+    # official API, or a forwarder on this host (http://host.docker.internal:PORT/v1).
+    [string]$RedModelUrl = 'https://api.openai.com/v1',
+    [string]$BlueModelUrl = 'https://api.deepseek.com',
+    # Names of environment variables holding each team's key (optional).
+    [string]$RedModelKeyEnv = 'RED_MODEL_KEY',
+    [string]$BlueModelKeyEnv = 'BLUE_MODEL_KEY'
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -31,12 +36,10 @@ if ($ServerJar) { $ServerJar = (Resolve-Path -LiteralPath $ServerJar).Path }
 if ($matchDocument.live.minecraft.version -ne $download.minecraftVersion) { throw 'Match Minecraft version must match ServerDownload.minecraftVersion.' }
 $node = (Get-Command node -ErrorAction Stop).Source
 if ((& $node -p 'Number(process.versions.node.split(".")[0]) >= 24') -ne 'true') { throw 'Node.js 24 or newer is required.' }
-# Model upstream keys are optional here; the gateways refuse to start without them.
-$upstreamKeys = [ordered]@{ DEEPSEEK_API_KEY = $DeepSeekApiKeyEnv; RED_UPSTREAM_API_KEY = $RedUpstreamApiKeyEnv }
-foreach ($name in @($upstreamKeys.Keys)) {
-    $value = [Environment]::GetEnvironmentVariable($upstreamKeys[$name])
-    if ($value -match '[\r\n\x00]') { throw "$name contains unsupported characters." }
-    $upstreamKeys[$name] = $value
+# Model settings go into .env as given; the relays forward without checking them.
+$modelSettings = [ordered]@{ RED_MODEL_URL = $RedModelUrl; BLUE_MODEL_URL = $BlueModelUrl; RED_MODEL_KEY = [Environment]::GetEnvironmentVariable($RedModelKeyEnv); BLUE_MODEL_KEY = [Environment]::GetEnvironmentVariable($BlueModelKeyEnv) }
+foreach ($name in @($modelSettings.Keys)) {
+    if ($modelSettings[$name] -match '[\r\n\x00]') { throw "$name contains unsupported characters." }
 }
 # Assemble in a private sibling directory; Directory.Move refuses an existing destination.
 $parent = Split-Path -Parent $destination
@@ -56,12 +59,12 @@ try {
     Set-Acl -LiteralPath $stage -AclObject $acl
     foreach ($dir in @('minecraft-data','map-original','results','control','replay-config')) { New-Item -ItemType Directory -Path (Join-Path $stage $dir) | Out-Null }
     $template = Join-Path $repo 'infra/windows-local'
-    foreach ($file in @('compose.yaml','budget.red.json','budget.blue.json','model.red.json','model.blue.json')) { Copy-Item -LiteralPath (Join-Path $template $file) -Destination $stage }
+    foreach ($file in @('compose.yaml','model.red.json','model.blue.json')) { Copy-Item -LiteralPath (Join-Path $template $file) -Destination $stage }
     $matchDocument.live | Add-Member -NotePropertyName runtimeFaultSignalFile -NotePropertyValue '/control/runtime-fault.json' -Force
     $matchDocument | ConvertTo-Json -Depth 100 | Set-Content -LiteralPath (Join-Path $stage 'match.live.json') -Encoding utf8
-    # The operator's match config must agree with the Compose and budget templates.
-    & $node (Join-Path $repo 'scripts/check-deployment.mjs') --compose (Join-Path $stage 'compose.yaml') --match (Join-Path $stage 'match.live.json') --budget (Join-Path $stage 'budget.red.json') --budget (Join-Path $stage 'budget.blue.json')
-    if ($LASTEXITCODE -ne 0) { throw 'Participant roster differs between match config, Compose and budget files (see above).' }
+    # The operator's match config must agree with the Compose template.
+    & $node (Join-Path $repo 'scripts/check-deployment.mjs') --compose (Join-Path $stage 'compose.yaml') --match (Join-Path $stage 'match.live.json')
+    if ($LASTEXITCODE -ne 0) { throw 'Participant roster differs between match config and Compose file (see above).' }
     $prepareArgs = @((Join-Path $repo 'scripts/prepare-minecraft-server.mjs'), (Join-Path $stage 'server'), '--manifest', $ServerDownload)
     if ($ServerJar) { $prepareArgs += @('--server-jar', $ServerJar) }
     & $node @prepareArgs
@@ -79,18 +82,21 @@ try {
     }
     Copy-Item -LiteralPath (Join-Path $stage 'map-original/world') -Destination (Join-Path $stage 'minecraft-data/world') -Recurse
     $envLines = [Collections.Generic.List[string]]::new()
-    # Compose dotenv single quotes preserve dollar signs and backslashes literally.
-    function Quote-DotEnv([string]$value) { return "'" + $value.Replace("'", "\'") + "'" }
+    # Compose dotenv single quotes keep dollar signs and backslashes literally and
+    # have no escape for a single quote, so a value containing one is refused.
+    function Quote-DotEnv([string]$value) {
+        if ($value.Contains("'")) { throw 'A value written to .env contains a single quote; set it in .env by hand.' }
+        return "'" + $value + "'"
+    }
     $envLines.Add('ARENA_SOURCE_DIR=' + (Quote-DotEnv $repo.Replace('\','/')))
     $rcon = ''
-    foreach ($name in @('MC_RCON_PASSWORD','RED1_BRIDGE_TOKEN','BLUE1_BRIDGE_TOKEN','RED1_MODEL_TOKEN','BLUE1_MODEL_TOKEN','ARENA_HOST_TOKEN','RED1_STATUS_TOKEN','BLUE1_STATUS_TOKEN')) {
+    foreach ($name in @('MC_RCON_PASSWORD','RED1_BRIDGE_TOKEN','BLUE1_BRIDGE_TOKEN','ARENA_HOST_TOKEN')) {
         $token = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
         $envLines.Add("$name=$token")
         if ($name -eq 'MC_RCON_PASSWORD') { $rcon = $token }
     }
-    foreach ($name in $upstreamKeys.Keys) { if ($upstreamKeys[$name]) { $envLines.Add("$name=" + (Quote-DotEnv $upstreamKeys[$name])) } }
+    foreach ($name in $modelSettings.Keys) { if ($modelSettings[$name]) { $envLines.Add("$name=" + (Quote-DotEnv $modelSettings[$name])) } }
     [IO.File]::WriteAllLines((Join-Path $stage '.env'), $envLines)
-    [IO.File]::WriteAllText((Join-Path $stage '.proxy.env'), '')
     [IO.File]::WriteAllText((Join-Path $stage 'minecraft-data/eula.txt'), "eula=true`n")
     $properties = @('level-name=world','server-port=25565','enable-rcon=true','rcon.port=25575',"rcon.password=$rcon",'online-mode=false','enforce-secure-profile=false','spawn-protection=0','gamemode=survival','difficulty=normal','pvp=true','allow-flight=true','view-distance=8','simulation-distance=6','max-players=10','enable-command-block=false','motd=Craft Arena','max-tick-time=120000')
     [IO.File]::WriteAllLines((Join-Path $stage 'minecraft-data/server.properties'), $properties)
@@ -102,4 +108,4 @@ try {
         Remove-Item -LiteralPath $stage -Recurse -Force
     }
 }
-Write-Output "Initialized deployment at $destination. Review server.properties, match.live.json and the model upstreams in budget.red.json / budget.blue.json (keys: RED_UPSTREAM_API_KEY, DEEPSEEK_API_KEY in .env) before starting agents."
+Write-Output "Initialized deployment at $destination. Review server.properties, match.live.json, model.red.json / model.blue.json and the model settings in .env (RED_MODEL_URL, BLUE_MODEL_URL and optional RED_MODEL_KEY, BLUE_MODEL_KEY) before starting agents."

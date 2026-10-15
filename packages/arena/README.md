@@ -94,7 +94,7 @@ End reasons:
 | `runtime-fault`  | a participant container stopped during `prepared`/`running` (see [Runtime faults](#run-state-files-and-runtime-faults)) |
 | `judge-decision` | the server set `arena:session` `state` to `ended` (`datapack`)                                                          |
 
-Result fields: `matchId`, `runId`, `kind`, `judge` (type), `mode`, `state`, `reason`, `winner` (team or `null`), `draw` (true for a no-winner `timeout` or `judge-decision`), `scores` and `message` (from the server judge), `judgeError` (first judge failure), `startedAt`, `endedAt`, `elapsedMs`, `metrics` (`deaths`, `disconnects` per participant), `events`, `map`, `versions`, `stopConfirmed` (true only if `connector.stop` succeeded), `stopError`, `runtimeError`, `stateReportError`, and `replay` when recording is configured. Model cost comes from the budget gateway, not from here.
+Result fields: `matchId`, `runId`, `kind`, `judge` (type), `mode`, `state`, `reason`, `winner` (team or `null`), `draw` (true for a no-winner `timeout` or `judge-decision`), `scores` and `message` (from the server judge), `judgeError` (first judge failure), `startedAt`, `endedAt`, `elapsedMs`, `metrics` (`deaths`, `disconnects` per participant), `events`, `map`, `versions`, `stopConfirmed` (true only if `connector.stop` succeeded), `stopError`, `runtimeError`, `stateReportError`, and `replay` when recording is configured. Model usage is not recorded here; meter it wherever the model endpoint is served.
 
 ## Validate and simulate
 
@@ -164,7 +164,7 @@ What participants read: each bridge's `GET /v1/session` returns the session obje
 | `briefing`                                    | `{text, prompt, public}`: text, the `promptFile` contents, merged public data |
 | `objectives`                                  | `public.objectives` when the server publishes it                              |
 
-With `requireRunningMatch`, the budget gateway reads this route before each model call and admits it only while `state` is `running`. Replay data and private paths are never included.
+Replay data and private paths are never included.
 
 RCON: `RconClient` sends commands one at a time. After each command it sends an empty command and collects reply packets until that one is answered, so multi-packet replies arrive whole; check that the chosen server answers empty commands. Packets over 4 MiB or replies over 1 MiB close the connection. Commands are trusted operator input. RCON credentials exist only in the arena host, and the backend network has no published ports.
 
