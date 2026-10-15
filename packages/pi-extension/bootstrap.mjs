@@ -17,8 +17,13 @@ import {
   createRequestRecovery,
   observeRpcOutput,
 } from "./request-recovery.mjs";
-import { createOpeningViews } from "./opening-views.mjs";
 import { createMatchReader } from "./platform-messages.mjs";
+import {
+  briefingFields,
+  briefingOf,
+  createSessionFiles,
+  listRuleFiles,
+} from "./session-files.mjs";
 
 const extensionPath = fileURLToPath(new URL("./index.mjs", import.meta.url));
 const projectRoot = resolve(dirname(extensionPath), "../..");
@@ -30,12 +35,12 @@ const positiveInteger = (value, fallback) => {
 };
 
 /**
- * Append the participant prompt (examples/PROMPT.md) once, without disabling
+ * Append the participant prompt (participant/PROMPT.md) once, without disabling
  * Pi's own discovery of user/project context files. The repository's root
  * AGENTS.md is the developer guide, not this prompt.
  */
 export async function arenaGuidanceArgs({ cwd, agentDir, args = [] }) {
-  const guidance = join(projectRoot, "examples", "PROMPT.md");
+  const guidance = join(projectRoot, "participant", "PROMPT.md");
   if (!args.includes("--no-context-files") && !args.includes("-nc")) {
     const { loadProjectContextFiles } =
       await import("@earendil-works/pi-coding-agent");
@@ -52,40 +57,32 @@ export async function arenaGuidanceArgs({ cwd, agentDir, args = [] }) {
   return ["--append-system-prompt", guidance];
 }
 
-const briefingKeys = [
-  "kind",
-  "sessionId",
-  "matchId",
-  "participantId",
-  "teamId",
-  "username",
-  "teams",
-  "map",
-  "objectives",
-  "startedAt",
-  "durationMs",
-];
-
 /**
  * Opening prompt with the session briefing: public session fields, briefing
  * text, public data and the mode instructions, all from the trusted host.
+ * `sessionFiles` are the copies in the session directory and `ruleFiles` the
+ * operator's rule files; both are listed so the model can re-read them.
  */
-export function openingPromptText(initialPrompt, host) {
-  if (!host) return initialPrompt;
-  const fields = Object.fromEntries(
-    briefingKeys
-      .filter((key) => host[key] !== undefined)
-      .map((key) => [key, host[key]]),
-  );
-  const briefing =
-    host.briefing && typeof host.briefing === "object" ? host.briefing : {};
-  let message = `${initialPrompt}\n\nTrusted host session briefing (configuration data):\n${JSON.stringify(fields)}`;
-  if (typeof briefing.text === "string" && briefing.text)
-    message += `\n\nSession briefing text (from the trusted session host):\n${briefing.text}`;
-  if (briefing.public && typeof briefing.public === "object")
-    message += `\n\nPublic session data (from the trusted session host):\n${JSON.stringify(briefing.public)}`;
-  if (typeof briefing.prompt === "string" && briefing.prompt.trim())
-    message += `\n\nMode instructions (from the trusted session host; they describe this session's mode and rules):\n${briefing.prompt.trim()}`;
+export function openingPromptText(
+  initialPrompt,
+  host,
+  { sessionFiles = [], ruleFiles = [] } = {},
+) {
+  let message = initialPrompt;
+  if (host) {
+    const briefing = briefingOf(host);
+    message += `\n\nTrusted host session briefing (configuration data):\n${JSON.stringify(briefingFields(host))}`;
+    if (typeof briefing.text === "string" && briefing.text)
+      message += `\n\nSession briefing text (from the trusted session host):\n${briefing.text}`;
+    if (briefing.public && typeof briefing.public === "object")
+      message += `\n\nPublic session data (from the trusted session host):\n${JSON.stringify(briefing.public)}`;
+    if (typeof briefing.prompt === "string" && briefing.prompt.trim())
+      message += `\n\nMode instructions (from the trusted session host; they describe this session's mode and rules):\n${briefing.prompt.trim()}`;
+  }
+  if (sessionFiles.length)
+    message += `\n\nSession files (copies of this briefing written by the launcher; public.json is rewritten when the host changes public data; read them again when you need the exact text):\n${sessionFiles.join("\n")}`;
+  if (ruleFiles.length)
+    message += `\n\nRule files from the operator (read-only):\n${ruleFiles.join("\n")}`;
   return message;
 }
 
@@ -195,7 +192,13 @@ export async function preparePiProfile({
     .filter(Boolean);
   // A mounted participant workspace resolves official dependencies through the installed toolkit.
   if (resolve(cwd) !== projectRoot)
-    for (const name of ["node_modules", "examples", "packages", "docs"]) {
+    for (const name of [
+      "node_modules",
+      "examples",
+      "participant",
+      "packages",
+      "docs",
+    ]) {
       const link = join(cwd, name);
       try {
         await lstat(link);
@@ -241,19 +244,29 @@ export async function launchPi({
     ...(args.includes("--mode") ? [] : ["--mode", resident ? "rpc" : "json"]),
     ...guidanceArgs,
     "--skill",
-    join(projectRoot, "examples/SKILL.md"),
+    join(projectRoot, "participant/skills/minecraft-arena/SKILL.md"),
     ...profile.extensions.flatMap((path) => ["-e", path]),
     ...args,
   ];
   const sessionDir =
     env.PI_CODING_AGENT_SESSION_DIR || join(cwd, ".pi", "sessions");
   await mkdir(sessionDir, { recursive: true, mode: 0o700 });
+  // Copies of the trusted briefing for the model to re-read after compaction.
+  const ownSessionFilesDir = resident && !env.ARENA_SESSION_DIR;
+  const sessionFiles = resident
+    ? createSessionFiles({
+        directory:
+          env.ARENA_SESSION_DIR ||
+          (await mkdtemp(join(tmpdir(), "arena-session-"))),
+      })
+    : undefined;
   const childEnv = {
     ...env,
     ARENA_TOOLKIT_ROOT: projectRoot,
     PI_OFFLINE: "1", // Capabilities and extensions are installed locally; skip unrelated startup network.
     ...(profile.generated ? { PI_CODING_AGENT_DIR: profile.agentDir } : {}),
     PI_CODING_AGENT_SESSION_DIR: sessionDir,
+    ...(sessionFiles ? { ARENA_SESSION_DIR: sessionFiles.directory } : {}),
     ...(resident
       ? {
           ARENA_WAKE_ON_URGENT: env.ARENA_WAKE_ON_URGENT ?? "1",
@@ -278,23 +291,14 @@ export async function launchPi({
   let initialSent = false;
   // Without the wait, the first prompt is already on its way; the poll must not send it.
   let initialQueued = !waitForMatch;
-  let preparedOpening;
-  let openingPrepared = false;
-  let pendingCourseView;
   let startupTimedOut = false;
   let runtimeFailed = false;
   let recovery;
   let detachRpc;
-  const openingViews = createOpeningViews({
-    url: bridgeUrl,
-    token,
-    report: (message) => process.stderr.write(`${message}\n`),
-  });
   const startupAt = Date.now();
   const shutdown = (signal) => {
     if (stopping || child.exitCode !== null) return;
     stopping = true;
-    openingViews.close();
     recovery?.close();
     clearInterval(matchTimer);
     if (resident) child.stdin.end();
@@ -347,13 +351,7 @@ export async function launchPi({
     const sendInitial = async (host) => {
       if (initialSent || stopping) return;
       initialSent = true;
-      let message = openingPromptText(initialPrompt, host);
-      const view = openingPrepared
-        ? preparedOpening
-        : await openingViews.capture(host, true);
       if (host) {
-        preparedOpening = view;
-        openingPrepared = true;
         const fresh = await readMatch();
         if (fresh?.state === "ended") {
           shutdown();
@@ -365,9 +363,25 @@ export async function launchPi({
         }
       }
       if (stopping) return;
-      if (view) message += `\n\n${view.message}`;
+      let written = [];
+      if (host)
+        written = await sessionFiles.write(host).catch((error) => {
+          process.stderr.write(`Session files: ${error.message}\n`);
+          return [];
+        });
+      const ruleFiles = await listRuleFiles(env.ARENA_RULES_DIR).catch(
+        (error) => {
+          process.stderr.write(`Rule files: ${error.message}\n`);
+          return [];
+        },
+      );
+      if (stopping) return;
+      const message = openingPromptText(initialPrompt, host, {
+        sessionFiles: written,
+        ruleFiles,
+      });
       child.stdin.write(
-        `${JSON.stringify({ id: "arena-initial-prompt", type: "prompt", message, images: view?.images })}\n`,
+        `${JSON.stringify({ id: "arena-initial-prompt", type: "prompt", message })}\n`,
       );
     };
     if (!waitForMatch) {
@@ -403,14 +417,7 @@ export async function launchPi({
         try {
           const host = await readMatch();
           if (host) {
-            if (
-              host.state === "prepared" &&
-              host.openingViews &&
-              !openingPrepared
-            ) {
-              preparedOpening = await openingViews.capture(host, true);
-              openingPrepared = true;
-            } else if (host.state === "ended") {
+            if (host.state === "ended") {
               if (!initialSent)
                 process.stderr.write(
                   "Arena ended before the initial prompt was submitted.\n",
@@ -422,24 +429,10 @@ export async function launchPi({
               !initialQueued
             )
               await sendInitial(host);
-            else if (host.state === "running" && initialSent) {
-              pendingCourseView ??= await openingViews.capture(host);
-              if (
-                pendingCourseView &&
-                !stopping &&
-                (await readMatch())?.state === "running"
-              ) {
-                child.stdin.write(
-                  `${JSON.stringify({
-                    id: "arena-course-view",
-                    type: "prompt",
-                    streamingBehavior: "steer",
-                    ...pendingCourseView,
-                  })}\n`,
-                );
-                pendingCourseView = undefined;
-              }
-            }
+            else if (host.state === "running" && initialSent)
+              await sessionFiles.updatePublic(host).catch((error) => {
+                process.stderr.write(`Session files: ${error.message}\n`);
+              });
           }
         } catch {
           /* The host remains authoritative; temporary unavailability does not invent a match end. */
@@ -463,7 +456,6 @@ export async function launchPi({
       );
     });
   } finally {
-    openingViews.close();
     recovery?.close();
     detachRpc?.();
     clearInterval(matchTimer);
@@ -473,6 +465,8 @@ export async function launchPi({
     process.off("SIGINT", interrupt);
     if (profile.generated)
       await rm(profile.agentDir, { recursive: true, force: true });
+    if (ownSessionFilesDir)
+      await rm(sessionFiles.directory, { recursive: true, force: true });
   }
 }
 

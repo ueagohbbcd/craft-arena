@@ -2,7 +2,7 @@
 // Default observer. The runtime starts this ordinary script at session start
 // (it appears in the task list as "default observer"). It reports your state,
 // nearby blocks and signs, and events such as damage or death through the
-// same InboxClient any program can use. Stop it with task_cancel; to change
+// same InboxClient any program can use. Stop it with arena-task cancel <taskId>; to change
 // what it reports, copy it into your working directory, edit the copy and run
 // that instead. Sampling options can also be set in the workspace
 // observer.json (read at start).

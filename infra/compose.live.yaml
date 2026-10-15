@@ -66,6 +66,7 @@ services:
     - red-work:/workspace
     - red-git:/team-git
     - ./model.example.json:/config/model.example.json:ro
+    - ./rules:/arena/rules:ro
     tmpfs:
     - /tmp:rw,nosuid,size=256m
     stdin_open: true
@@ -88,6 +89,7 @@ services:
     - blue-work:/workspace
     - blue-git:/team-git
     - ./model.example.json:/config/model.example.json:ro
+    - ./rules:/arena/rules:ro
     tmpfs:
     - /tmp:rw,nosuid,size=256m
     stdin_open: true

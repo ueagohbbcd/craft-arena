@@ -21,9 +21,13 @@ COPY --chown=node:node packages/observation ./packages/observation
 COPY --chown=node:node packages/default-scripts ./packages/default-scripts
 COPY --chown=node:node packages/world-visual ./packages/world-visual
 COPY --chown=node:node examples ./examples
+COPY --chown=node:node participant ./participant
 COPY --chown=node:node docs/CONTEXT-DELIVERY.md ./docs/CONTEXT-DELIVERY.md
 COPY --chown=node:node scripts/archive-participant-state.mjs ./scripts/archive-participant-state.mjs
-RUN mkdir -p /workspace /team-git && chown node:node /workspace /team-git
+RUN mkdir -p /workspace /team-git /arena/session && chown node:node /workspace /team-git /arena/session
+# The launcher writes briefing copies to ARENA_SESSION_DIR; operators may mount
+# read-only rule files at ARENA_RULES_DIR (listed in the opening prompt).
+ENV ARENA_SESSION_DIR="/arena/session" ARENA_RULES_DIR="/arena/rules"
 ENV CHROMIUM_PATH="/usr/bin/chromium"
 ENV PATH="/opt/arena/node_modules/.bin:${PATH}"
 USER node

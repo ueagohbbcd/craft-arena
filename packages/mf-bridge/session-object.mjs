@@ -14,7 +14,6 @@ export function sessionObject({
   teams = [],
   participants = [],
   map = null,
-  openingViews,
   now,
   startedAt = null,
   endedAt = null,
@@ -39,7 +38,6 @@ export function sessionObject({
     ...(Array.isArray(published?.objectives)
       ? { objectives: published.objectives }
       : {}),
-    ...(openingViews !== undefined ? { openingViews } : {}),
     now,
     startedAt,
     durationMs,

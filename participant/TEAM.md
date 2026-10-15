@@ -1,6 +1,6 @@
 # Team and model reference
 
-Read this when you need it. It covers how to share code with teammates and how your own programs can call a model. The manual is [SKILL.md](SKILL.md).
+Read this when you need it. It covers how to share code with teammates and how your own programs can call a model. The manual is [SKILL.md](skills/minecraft-arena/SKILL.md).
 
 ## Model calls from your programs
 

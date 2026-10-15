@@ -1,6 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, readFile, writeFile, lstat } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  rm,
+  readFile,
+  writeFile,
+  lstat,
+} from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import extension, {
@@ -30,6 +37,9 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
   process.env.MC_INBOX_TOKEN = "unit-test-scoped-token";
   process.env.ARENA_WAKE_ON_URGENT = idleWake ? "1" : "0";
   delete process.env.MC_INBOX_SOCKET;
+  const taskDir = await mkdtemp(join(tmpdir(), "pi-extension-tasks-"));
+  t.after(() => rm(taskDir, { recursive: true, force: true }));
+  process.env.ARENA_TASK_DIR = taskDir;
   Object.assign(process.env, env);
   const handlers = new Map();
   const tools = new Map();
@@ -101,10 +111,10 @@ test("Pi shared wait budget defaults to 30 seconds and validates configuration",
 
 test("Pi per-call wait overrides preserve longer waits and explicit kill deadlines", async (t) => {
   const h = await harness(t, { env: { ARENA_TOOL_WAIT_SECONDS: "0.02" } });
-  for (const name of ["bash", "task_wait"])
-    assert.match(h.tools.get(name).description, /defaults to 0\.02 seconds/);
+  assert.deepEqual([...h.tools.keys()], ["bash"]);
+  assert.match(h.tools.get("bash").description, /default 0\.02;/);
   const connection = await h.handlers.get("before_agent_start")({}, h.ctx);
-  assert.match(connection.message.content, /wait 0\.02 seconds by default/);
+  assert.match(connection.message.content, /waits 0\.02 seconds by default/);
   const longer = await h.run(
     "bash",
     { command: "sleep 0.1; printf longer-bash", wait_seconds: 2 },
@@ -118,14 +128,14 @@ test("Pi per-call wait overrides preserve longer waits and explicit kill deadlin
     "longer-wait",
   );
   assert.equal(started.details.status, "running");
-  const immediate = await h.run("task_wait", {
+  const immediate = await h.run("bash", {
     taskId: started.details.taskId,
     wait_seconds: 0,
   });
   assert.equal(immediate.details.status, "running");
   assert.equal(immediate.details.taskId, started.details.taskId);
   assert.equal(immediate.details.reason, "wait timeout");
-  const waited = await h.run("task_wait", {
+  const waited = await h.run("bash", {
     taskId: started.details.taskId,
     wait_seconds: 2,
   });
@@ -167,7 +177,7 @@ test("Pi hooks coalesce at one top-level return and preserve existing result con
   assert.equal(h.sent.length, 0);
 });
 
-test("observe fullRuntime retrieves retained raw program state even while the game observer is unavailable", async (t) => {
+test("the full runtime file keeps program state the compact report omits", async (t) => {
   const h = await harness(t, {
     env: {
       ARENA_BRIDGE_URL: "",
@@ -187,11 +197,12 @@ test("observe fullRuntime retrieves retained raw program state even while the ga
   assert.equal(compact.programStatus[0].data, undefined);
   assert.equal(compact.displayLimits.programStatus.dataOmitted, 1);
   assert(Buffer.byteLength(JSON.stringify(compact.programStatus)) < 8192);
-  const full = await h.run("observe", { fullRuntime: true }, "full-current");
-  assert.deepEqual(full.details.state.programStatus[0].data, value);
-  assert.equal(full.details.state.displayLimits.mode, "full");
-  assert.equal(full.details.state.freshness.status, "unavailable");
-  assert.equal(full.details.state.tasks.length, 1);
+  const full = JSON.parse(
+    await readFile(compact.displayLimits.fullFile, "utf8"),
+  );
+  assert.deepEqual(full.programStatus[0].data, value);
+  assert.equal(full.displayLimits.mode, "full");
+  assert.equal(full.tasks.length, 1);
   assert.equal(h.sent.length, 0);
 });
 
@@ -283,7 +294,7 @@ test("bootstrap prepares an exact endpoint provider without saving its bearer to
   assert.equal(profile.extensions.length, 2);
   assert.equal(profile.extensions[1], "./local-extension.mjs");
   assert.equal((await lstat(join(dir, "node_modules"))).isSymbolicLink(), true);
-  for (const name of ["examples", "packages", "docs"])
+  for (const name of ["examples", "participant", "packages", "docs"])
     assert.equal((await lstat(join(dir, name))).isSymbolicLink(), true);
   const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
   const runtime = await ModelRuntime.create({
@@ -401,7 +412,7 @@ test(
     assert.equal(requests[0].path, "/v1/chat/completions");
     assert.equal(requests[0].authorization, "Bearer scoped-fixture-token");
     const guidance = await readFile(
-      new URL("../examples/PROMPT.md", import.meta.url),
+      new URL("../participant/PROMPT.md", import.meta.url),
       "utf8",
     );
     assert.ok(
@@ -411,18 +422,10 @@ test(
     );
     assert.match(
       JSON.stringify(requests[0].body.messages),
-      /examples\/SKILL\.md/,
+      /participant\/skills\/minecraft-arena\/SKILL\.md/,
     );
     const names = requests[0].body.tools.map((tool) => tool.function.name);
-    assert.deepEqual(names.toSorted(), [
-      "bash",
-      "edit",
-      "observe",
-      "read",
-      "task_cancel",
-      "task_wait",
-      "write",
-    ]);
+    assert.deepEqual(names.toSorted(), ["bash", "edit", "read", "write"]);
   },
 );
 
@@ -707,13 +710,14 @@ test("urgent at a final boundary continues exactly once; late settled urgent is 
 
 test(
   "live resident waits for running, sends one public briefing, then exits on host end",
-  { timeout: 15000 },
+  { timeout: 20000 },
   async (t) => {
     const http = await import("node:http");
     const { once } = await import("node:events");
     const { spawn } = await import("node:child_process");
     const dir = await mkdtemp(join(tmpdir(), "pi-start-guard-"));
     let state = "prepared";
+    let published = { goal: "first" };
     const requests = [];
     let child;
     let stderr = "";
@@ -731,7 +735,11 @@ test(
               teams: [{ id: "blue" }, { id: "red" }],
               map: { id: "public-map", version: "v1" },
               objectives: ["wool"],
-              briefing: { text: "public fixture briefing" },
+              briefing: {
+                text: "public fixture briefing",
+                prompt: "fixture mode rules",
+                public: published,
+              },
               privateSecret: "never forward",
               state,
               startedAt: state === "prepared" ? null : Date.now() - 1000,
@@ -760,6 +768,10 @@ test(
       await rm(dir, { recursive: true, force: true });
     });
     const url = `http://127.0.0.1:${server.address().port}`;
+    const sessionDir = join(dir, "session");
+    const rulesDir = join(dir, "rules");
+    await mkdir(rulesDir);
+    await writeFile(join(rulesDir, "RULES.md"), "fixture rulebook");
     child = spawn(
       process.execPath,
       [
@@ -779,6 +791,8 @@ test(
           ARENA_DEFAULT_SCRIPTS: "",
           ARENA_WAIT_FOR_MATCH: "1",
           ARENA_START_TIMEOUT_MS: "10000",
+          ARENA_SESSION_DIR: sessionDir,
+          ARENA_RULES_DIR: rulesDir,
           MC_INBOX_TRANSPORT: "http",
           MC_INBOX_TOKEN: "guard-loopback-fixture-token",
         },
@@ -802,6 +816,29 @@ test(
     assert.match(context, /blue-one/);
     assert.match(context, /teamId/);
     assert.doesNotMatch(context, /never forward/);
+    assert.ok(context.includes(join(sessionDir, "session.json")));
+    assert.ok(context.includes(join(rulesDir, "RULES.md")));
+    const session = JSON.parse(
+      await readFile(join(sessionDir, "session.json"), "utf8"),
+    );
+    assert.equal(session.participantId, "blue-one");
+    assert.equal(session.privateSecret, undefined);
+    assert.match(
+      await readFile(join(sessionDir, "briefing.md"), "utf8"),
+      /public fixture briefing[\s\S]*fixture mode rules/,
+    );
+    const publicFile = join(sessionDir, "public.json");
+    assert.deepEqual(JSON.parse(await readFile(publicFile, "utf8")), {
+      goal: "first",
+    });
+    published = { goal: "second" };
+    const publicDeadline = Date.now() + 5000;
+    while (
+      JSON.parse(await readFile(publicFile, "utf8")).goal !== "second" &&
+      Date.now() < publicDeadline
+    )
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.equal(JSON.parse(await readFile(publicFile, "utf8")).goal, "second");
     state = "ended";
     const [code] = await once(child, "exit");
     assert.equal(code, 0, stderr);
@@ -856,6 +893,7 @@ test("bootstrap derives capabilities and compaction from the shared model descri
 
 function residentHost(t) {
   let state = "running";
+  let published = null;
   t.mock.method(globalThis, "fetch", async () =>
     Response.json({
       ok: true,
@@ -864,6 +902,7 @@ function residentHost(t) {
         now: Date.now(),
         durationMs: 60000,
         elapsedMs: 1000,
+        ...(published ? { briefing: { public: published } } : {}),
       },
     }),
   );
@@ -878,6 +917,9 @@ function residentHost(t) {
     },
     setState: (value) => {
       state = value;
+    },
+    setPublic: (value) => {
+      published = value;
     },
   };
 }
@@ -919,7 +961,7 @@ test("resident waits for a live program then delivers its actual completion exac
     1,
     "a claimed wake is not reissued at another settlement",
   );
-  const receipt = await h.run("task_wait", { taskId: started.details.taskId });
+  const receipt = await h.run("bash", { taskId: started.details.taskId });
   assert.equal(receipt.details.status, "delivered");
 });
 
@@ -976,4 +1018,76 @@ test("idle inbox events join an already queued turn without scheduling a second 
   assert.equal(h.sent.length, 0);
   const result = await h.handlers.get("tool_result")({ content: [] }, h.ctx);
   assert.match(result.content[0].text, /deliver with the queued turn/);
+});
+
+test("public data changes ride the next platform message; a changed notice wakes an idle model once", async (t) => {
+  const host = residentHost(t);
+  host.setPublic({ goal: "first" });
+  const h = await harness(t, {
+    env: {
+      ...host.env,
+      ARENA_IDLE_REMINDER_MS: "100000",
+      ARENA_NOTICE_POLL_MS: "20",
+    },
+  });
+  await h.handlers.get("before_agent_start")({}, h.ctx);
+  // Busy: a notice waits for the next boundary instead of starting a turn.
+  host.setPublic({ goal: "second", notice: "regroup at spawn" });
+  // Past the 2 s session cache the boundary read sees the change.
+  await delay(2100);
+  assert.equal(h.sent.length, 0);
+  assert.equal(
+    h.platform.filter(([, options]) => options.triggerTurn).length,
+    0,
+  );
+  await h.handlers.get("turn_end")(
+    { entries: [], message: { stopReason: "toolUse" } },
+    h.ctx,
+  );
+  const passive = h.platform.at(-1);
+  assert.equal(passive[1].triggerTurn, false);
+  assert.deepEqual(passive[0].details.public, {
+    data: { goal: "second", notice: "regroup at spawn" },
+  });
+  assert.equal(passive[0].details.notice, "regroup at spawn");
+  assert.match(passive[0].content, /^Arena platform message \(trusted/);
+  // Idle (even while its own programs run): the next notice starts one turn.
+  h.setIdle(true);
+  host.setPublic({ goal: "second", notice: "hold position" });
+  await delay(150);
+  const woke = h.platform.filter(([, options]) => options.triggerTurn);
+  assert.equal(woke.length, 1);
+  assert.equal(woke[0][0].details.notice, "hold position");
+  await delay(100);
+  assert.equal(
+    h.platform.filter(([, options]) => options.triggerTurn).length,
+    1,
+  );
+});
+
+test("bash takes exactly one of command or taskId, and a kill deadline only for a new command", async (t) => {
+  const h = await harness(t);
+  await assert.rejects(h.run("bash", {}), /exactly one of command or taskId/);
+  await assert.rejects(
+    h.run("bash", { command: "true", taskId: "x" }),
+    /exactly one of command or taskId/,
+  );
+  await assert.rejects(
+    h.run("bash", { taskId: "x", timeout: 1 }),
+    /timeout applies only when starting a command/,
+  );
+  const result = await h.run("bash", { command: "printf hi", wait_seconds: 5 });
+  assert.equal(result.details.stdout, "hi");
+  assert.equal(
+    await readFile(join(result.details.logDir, "stdout.log"), "utf8"),
+    "hi",
+  );
+  // A runtime report (here the opening one) rewrites the full runtime file.
+  await h.handlers.get("before_agent_start")({}, h.ctx);
+  const runtime = JSON.parse(
+    await readFile(join(process.env.ARENA_TASK_DIR, "runtime.json"), "utf8"),
+  );
+  assert.ok(
+    runtime.tasks.some((task) => task.taskId === result.details.taskId),
+  );
 });

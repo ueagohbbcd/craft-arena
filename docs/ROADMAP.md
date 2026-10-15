@@ -13,7 +13,7 @@
 | ✅   | Pathfinder 按键状态经过桥接后丢失，寻路规划成功却走不动                                                    | 报告第 2 条 |
 | ⬜   | 新开局时可选清空工作区旧代码（先归档再清空）。现在重置只归档会话，上一场的脚本会留下来被模型读到或直接运行 | 报告第 7 条 |
 | ⬜   | 在地图副本里人工触发大厅起点机关，记录按钮、红石、活塞前后的状态，确认它在 1.21 下能用                     | 报告第 3 条 |
-| ⬜   | 开局图标出角色位置、朝向、少量坐标刻度和裁剪边界。位置数据已经传给渲染函数，只是没画出来                   | 报告第 1 条 |
+| ✅   | 删除开局图：不再按地图配置推送大厅图和赛道图，模型需要时自己运行截图脚本（`live.openingViews` 配置会被拒绝） | 报告第 1 条 |
 | ⬜   | 比赛记录里统计时间去向：模型思考、排队、工具等待、程序执行、无进展各占多少                                 | 报告补充    |
 
 ## 架构调整（10‑13 定下的方向）
@@ -39,14 +39,16 @@
 | ✅   | 协议与判定器：SNBT 解析、`datapack` 判定器、写入 `arena:config`；把现有方块判定抽成 `monument-blocks` 判定器                          |
 | ✅   | 比赛配置改为 `session`／`judge`／`briefing` 三块；去掉写死的 `race-of-wool`                                                           |
 | ✅   | 游戏桥 `/v1/session`（含 `kind`）；Pi 扩展和启动器支持 `open` 会话：空闲提醒不再要求比赛主控                                          |
-| ✅   | 参赛提示拆成通用部分（`examples/PROMPT.md`）和玩法部分（由会话配置的 `briefing.promptFile` 提供）                                     |
+| ✅   | 参赛提示拆成通用部分（`participant/PROMPT.md`）和玩法部分（由会话配置的 `briefing.promptFile` 提供）                                     |
 | ✅   | 独立游戏桥：`BRIDGE_SESSION=open`、`MF_AUTH=microsoft`；陪玩部署模板（`infra/companion`）                                             |
 | ✅   | 聊天转发：提到 bot 名字的消息和私聊可设为紧急，用来唤醒空闲的模型（`ARENA_CHAT_WAKE`）                                                |
 | ✅   | 最小示例数据包（`infra/datapacks/arena-example`）                                                                                     |
 | ✅   | 把羊毛竞速地图移植成数据包（`infra/datapacks/race-of-wool`），删除 `monument-blocks`、旧配置转换和 `/v1/match` 别名；实服验证         |
 | ⬜   | 补测试：游戏桥 CLI（`cliOptions`、提示词大小上限、`MF_AUTH`）、`open` 会话的时钟、开局提示里的简报、启动器的 `open` 会话、`chatWakes` |
 | ⬜   | 协议 v1 给没有队伍的 `open` 会话传玩家名单（现在 `arena:config` 的 `teams` 为空，数据包看不到 bot）                                   |
-| ⬜   | `briefing.public` 的大小上限；比赛中 `public` 变化时发平台消息                                                                        |
+| ✅   | 会话目录：启动器把简报复制到 `ARENA_SESSION_DIR`（`session.json`、`briefing.md`、`public.json`，`public` 变化时更新），开局提示列出这些文件和 `ARENA_RULES_DIR` 下的规则书 |
+| ✅   | 可信消息统一走平台消息（`deliverPlatform`）：`public` 变化发 `public` 段（超过 4096 字节只报路径），`public.notice` 变化发 `notice` 段并唤醒空闲的模型；空闲提醒也用平台消息格式 |
+| ⬜   | `open` 会话的通知：没有服务器协议时运营者怎样给模型发 `notice`（例如游戏桥提供一个只给运营者的接口）                                    |
 | ✅   | 观察器的目标物品和关注物品改读 `briefing.public.goals`／`watchItems`（不再写死羊毛）                                                  |
 
 ## 模型接入
@@ -77,6 +79,8 @@
 | ⬜   | 环境变量整数解析有约 6 份实现，校验规则不一致，提取一个共用函数                                                 |
 | ⬜   | 工具包做成可按名字导入的包（`package.json` exports 加启动时的软链接），参赛者程序、示例和默认脚本都改用静态导入 |
 | ⬜   | `bash` 增加 `background` 参数：模型自己运行的观察器副本也能标成后台任务，不挡空闲提醒                           |
+| ✅   | 工具收缩到 Pi 的 `read`／`edit`／`write` 加本项目的 `bash`：`bash` 带 `taskId` 续等，取代 `task_wait`；任务输出和状态写到任务目录，`arena-task` 命令取代 `task_cancel`；`examples/observe.mjs` 和 `runtime.json` 取代 `observe` 工具 |
+| ✅   | 参赛说明搬到 `participant/`：每局必用的知识进追加的系统提示 `PROMPT.md`；Skill 改名 `minecraft-arena`，只留程序写法和示例入口 |
 | ⬜   | 送达回执改为整个会话一条流，替代每条消息各自长轮询                                                              |
 | ✅   | 启动器改用 `createMatchReader`；放宽了它对 `durationMs` 的校验                                                  |
 | ⬜   | 删除旧别名：`publishCurrent`、CLI 的 `current`、`perception.json`                                               |
@@ -89,7 +93,7 @@
 - ⬜ 附近告示牌报告：跨报告去重有没有必要。
 - ⬜ 沿途方块摘要：最小方块数、边界面积等报告阈值有没有收益。
 - ⬜ 实体按类别分级摘要（掉落物、动物、敌对生物）。
-- ⬜ 开局图选择：地下时俯视图会被地表盖住，需要用真实决策案例比较其他视图。
+- ⬜ 截图脚本标出角色位置、朝向和坐标刻度（原"开局图标注"一项，开局图删除后改为截图脚本的可选改进）。
 - ⬜ 服务端录像 → 保存 → 近视回放客户端的完整流程。
 - ⬜ Windows 部署的 PowerShell 脚本，包括改用模型转发之后的初始化和操作流程（这里没有 Windows，未运行）。
 - ⬜ `scripts/validate-observation-live.mjs` 在真实服务器上重跑，覆盖默认脚本和 `onLost` 重发。
@@ -100,4 +104,4 @@
 
 - 报告第 4 条：手写移动脚本"时间到就返回"，不报告是否到达。可以在示例和 Skill 里示范怎样核验到达。
 - 报告第 5 条：拿物品不看数量。只作为模型行为的观察记录。
-- 报告第 6 条：复活后不重新发开局图。死亡和复活事件已经带坐标，改为观察器脚本的可选功能。
+- 报告第 6 条：复活后不重新发开局图。开局图已删除；死亡和复活事件带坐标，模型需要时自己截图。

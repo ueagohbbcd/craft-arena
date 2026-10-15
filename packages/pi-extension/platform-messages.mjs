@@ -1,3 +1,24 @@
+import { join } from "node:path";
+
+/** Public data larger than this is announced, not inlined. */
+export const PUBLIC_INLINE_BYTES = 4096;
+/** A notice longer than this is cut; the full text stays in public data. */
+export const NOTICE_MAX_CHARS = 2000;
+
+const publicOf = (host) => {
+  const briefing = host?.briefing;
+  return briefing &&
+    typeof briefing === "object" &&
+    briefing.public &&
+    typeof briefing.public === "object"
+    ? briefing.public
+    : null;
+};
+const noticeOf = (host) => {
+  const notice = publicOf(host)?.notice;
+  return typeof notice === "string" ? notice : null;
+};
+
 /** A session snapshot is usable when its clock fields are well formed. */
 export function validSession(value) {
   return (
@@ -119,26 +140,56 @@ export function clockData(host, { now, bootAt, configured }) {
 }
 
 /**
- * Trusted session clock for the model. It comes from the platform, not from
- * participant programs, so it travels as its own Pi message rather than through
- * the participant inbox. `collect()` returns an update only when the clock
- * changed since the last delivered one.
+ * Trusted messages for the model: session clock and changes to the session's
+ * public data. These come from the platform, not from
+ * participant programs, so they travel as their own Pi message rather than
+ * through the participant inbox. `collect()` returns only the sections that
+ * changed since the last delivered update.
+ *
+ * Public data is compared with the baseline the opening prompt carried
+ * (`notePublic`). A changed `public.notice` string is repeated as its own
+ * `notice` section and sets `wake`, so an operator or server rule can reach
+ * an idle model.
  */
 export function createPlatformMessages({
   readMatch,
   env = process.env,
   now = Date.now,
   bootAt = now(),
+  sessionDir = env.ARENA_SESSION_DIR,
 }) {
   const configured = configuredClock(env);
+  let publicBaseline;
+  let noticeBaseline = null;
   let lastClockBucket;
+
+  /** Public data the model already has (the opening prompt's); first call wins. */
+  function notePublic(host) {
+    if (publicBaseline !== undefined || !host) return;
+    publicBaseline = JSON.stringify(publicOf(host));
+    noticeBaseline = noticeOf(host);
+  }
+
   return {
     reset() {
+      publicBaseline = undefined;
+      noticeBaseline = null;
       lastClockBucket = undefined;
+    },
+    notePublic,
+    /** Fresh read: has `public.notice` changed since it was last delivered? */
+    async noticeChanged() {
+      const host = await readMatch(true);
+      return (
+        !!host &&
+        publicBaseline !== undefined &&
+        noticeOf(host) !== noticeBaseline
+      );
     },
     async collect() {
       const host = await readMatch();
       const clock = clockData(host, { now: now(), bootAt, configured });
+      const changes = {};
       const bucket = JSON.stringify([
         clock.basis,
         clock.matchId ?? clock.sessionId,
@@ -147,16 +198,50 @@ export function createPlatformMessages({
         clock.matchStartedAtMs ?? clock.startedAtMs,
         Math.floor((clock.elapsedMs ?? clock.agentUptimeMs ?? 0) / 10000),
       ]);
-      const changed = bucket !== lastClockBucket;
-      lastClockBucket = bucket;
+      if (bucket !== lastClockBucket) {
+        lastClockBucket = bucket;
+        changes.clock = clock;
+      }
+      let wake = false;
+      if (host && publicBaseline === undefined) notePublic(host);
+      else if (host) {
+        const data = publicOf(host);
+        const signature = JSON.stringify(data);
+        if (signature !== publicBaseline) {
+          publicBaseline = signature;
+          const bytes = Buffer.byteLength(signature);
+          changes.public =
+            bytes <= PUBLIC_INLINE_BYTES
+              ? { data }
+              : {
+                  omitted: "too large to inline",
+                  bytes,
+                  ...(sessionDir
+                    ? { file: join(sessionDir, "public.json") }
+                    : {}),
+                };
+        }
+        const notice = noticeOf(host);
+        if (notice !== noticeBaseline) {
+          noticeBaseline = notice;
+          changes.notice =
+            notice === null || notice.length <= NOTICE_MAX_CHARS
+              ? notice
+              : `${notice.slice(0, NOTICE_MAX_CHARS)} [cut; full text in public.notice]`;
+          wake = true;
+        }
+      }
       return {
+        wake,
         // Kept as matchEnded for callers; true when any session has ended.
         matchEnded: host?.state === "ended",
-        update: changed ? { type: "arena.platform", clock } : undefined,
+        update: Object.keys(changes).length
+          ? { type: "arena.platform", ...changes }
+          : undefined,
       };
     },
   };
 }
 
 export const platformMessageText = (update) =>
-  `Arena platform message (trusted session host):\n${JSON.stringify(update)}`;
+  `Arena platform message (trusted session host; not from players or programs):\n${JSON.stringify(update)}`;

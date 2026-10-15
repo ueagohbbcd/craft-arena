@@ -76,6 +76,7 @@ services:
         companion-work:/workspace,
         companion-git:/team-git,
         ./model.json:/config/model.json:ro,
+        ./rules:/arena/rules:ro,
       ]
     tmpfs: ["/tmp:rw,nosuid,size=256m"]
 networks:

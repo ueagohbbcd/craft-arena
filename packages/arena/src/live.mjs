@@ -54,36 +54,10 @@ function validateLive(config) {
       "External bridges need live.sessionServer {port, tokenEnv, host?}",
     );
   validateReplay(c);
-  for (const [team, views] of Object.entries(c.live.openingViews ?? {})) {
-    if (!c.teams.some((t) => t.id === team))
-      throw new Error("Unknown openingViews team");
-    for (const box of [
-      views.course?.bounds,
-      views.course?.entryBounds,
-      ...(views.lobby ? [views.lobby.bounds] : []),
-    ]) {
-      if (
-        !box ||
-        !["x", "y", "z"].every(
-          (a) =>
-            Number.isSafeInteger(box.min?.[a]) &&
-            Number.isSafeInteger(box.max?.[a]) &&
-            box.min[a] <= box.max[a],
-        )
-      )
-        throw new Error(
-          "Opening views require integer inclusive bounds and course.entryBounds",
-        );
-    }
-    for (const view of [views.lobby, views.course].filter(Boolean)) {
-      const volume = ["x", "y", "z"].reduce(
-        (n, a) => n * (view.bounds.max[a] - view.bounds.min[a] + 1),
-        1,
-      );
-      if (volume > 1_000_000)
-        throw new Error("Opening view exceeds 1,000,000 cells");
-    }
-  }
+  if (c.live.openingViews !== undefined)
+    throw new Error(
+      "live.openingViews is no longer supported: participants take screenshots on demand (examples/screenshot.mjs)",
+    );
 }
 export { validateLive };
 /**
@@ -324,7 +298,6 @@ export async function createLiveMatch(
       map: config.map
         ? { id: config.map.id, version: config.map.version }
         : null,
-      openingViews: p.team ? config.live.openingViews?.[p.team] : undefined,
       briefing: {
         text: config.briefing.text,
         prompt: briefingPrompt,
