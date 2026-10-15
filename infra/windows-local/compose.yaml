@@ -90,8 +90,8 @@ services:
       - ./control:/control
       - ./replay-config:/replay-config
   # Each team's model relay forwards to one base URL and adds that team's key:
-  # an official API, or any forwarder on this Windows host (for example one that
-  # goes through the system proxy) at http://host.docker.internal:PORT/v1.
+  # an official API, or any forwarder on this Windows host at
+  # http://host.docker.internal:PORT/v1.
   model-red:
     <<: *common
     profiles: [agents]

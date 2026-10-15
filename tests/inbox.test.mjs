@@ -439,7 +439,7 @@ test("out-of-process producers receive delivery receipts for queued messages", a
 
   // Unknown ids and current facts (which are never queued) are not pending.
   assert.equal((await client.delivery("no-such-id")).outcome, "unknown");
-  const fact = await client.publishCurrent("phase", "mining");
+  const fact = await client.setStatus("phase", "mining");
   assert.equal((await client.delivery(fact.id)).outcome, "unknown");
 
   // Expiry and explicit removal are reported, not mistaken for delivery.

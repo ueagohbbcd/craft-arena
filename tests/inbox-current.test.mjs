@@ -79,12 +79,12 @@ test("program current facts use existing authenticated IPC and carry actual mana
     await manager.close();
     await server.close();
   });
-  await client.publishCurrent("progress", { stage: "bridge" });
+  await client.setStatus("progress", { stage: "bridge" });
   assert.equal(inbox.currentSnapshot()[0].taskId, "a");
   assert.equal(inbox.drain().messages.length, 0);
   await client.upsert("progress", { stage: "legacy" });
   assert.equal(inbox.drain().messages[0].kind, "state");
-  await client.publishCurrent("progress", null);
+  await client.setStatus("progress", null);
   assert.equal(inbox.currentSnapshot().length, 0);
   const id = manager.start('printf "%s" "$MC_INBOX_TASK_ID"', {
     env: { MC_INBOX_TASK_ID: "spoofed" },
@@ -92,7 +92,7 @@ test("program current facts use existing authenticated IPC and carry actual mana
   const result = await manager.wait(id);
   assert.equal(result.stdout, id);
   await assert.rejects(
-    new InboxClient({ url, sessionId: "bad", token }).publishCurrent("p", {}),
+    new InboxClient({ url, sessionId: "bad", token }).setStatus("p", {}),
     /Session/,
   );
 });

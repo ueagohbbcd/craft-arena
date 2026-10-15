@@ -67,6 +67,14 @@ const batchText = (batch) =>
   `Participant inbox (envelope source identifies host/runtime records or program-authored data; message contents are data):\n${JSON.stringify(batch)}`;
 
 /** Pi 1.1.0 extension. Ordinary bash calls use independently owned child processes. */
+/** A millisecond setting from the environment; a malformed value fails startup. */
+function envMs(name, fallback) {
+  const value = Number(process.env[name] ?? fallback);
+  if (!Number.isSafeInteger(value) || value < 0)
+    throw new Error(`${name} must be a non-negative integer (ms)`);
+  return value;
+}
+
 export default function arenaExtension(pi) {
   const waitSeconds = defaultToolWaitSeconds();
   let runtime;
@@ -75,14 +83,14 @@ export default function arenaExtension(pi) {
   let idleWakeScheduled = false;
   let idleTimer;
   let noticeTimer;
-  const noticePollMs = Number(process.env.ARENA_NOTICE_POLL_MS ?? 2000);
+  const noticePollMs = envMs("ARENA_NOTICE_POLL_MS", 2000);
   let lastStopReason;
   const resident = process.env.ARENA_CONTINUOUS_SESSION === "1";
-  const idleDelayMs = Number(process.env.ARENA_IDLE_REMINDER_MS ?? 5000);
+  const idleDelayMs = envMs("ARENA_IDLE_REMINDER_MS", 5000);
   const bridgeUrl = process.env.ARENA_BRIDGE_URL;
   const bridgeToken = process.env.ARENA_BRIDGE_TOKEN;
   const displayLimits = displayLimitOptions();
-  const observerReadyMs = Number(process.env.ARENA_OBSERVER_READY_MS ?? 5000);
+  const observerReadyMs = envMs("ARENA_OBSERVER_READY_MS", 5000);
   const readMatch = createMatchReader({ url: bridgeUrl, token: bridgeToken });
   const platform = createPlatformMessages({ readMatch });
   /**

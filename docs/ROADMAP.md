@@ -83,7 +83,7 @@
 | ✅   | 参赛说明搬到 `participant/`：每局必用的知识进追加的系统提示 `PROMPT.md`；Skill 改名 `minecraft-arena`，只留程序写法和示例入口 |
 | ⬜   | 送达回执改为整个会话一条流，替代每条消息各自长轮询                                                              |
 | ✅   | 启动器改用 `createMatchReader`；放宽了它对 `durationMs` 的校验                                                  |
-| ⬜   | 删除旧别名：`publishCurrent`、CLI 的 `current`、`perception.json`                                               |
+| ✅   | 删除旧别名：`publishCurrent`、CLI 的 `current`、`perception.json`                                               |
 
 ## 待实战验证
 

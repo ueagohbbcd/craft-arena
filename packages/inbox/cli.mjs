@@ -7,8 +7,8 @@ try {
   if (action === "post") result = await client.post(JSON.parse(args.join(" ")));
   else if (action === "upsert")
     result = await client.upsert(args[0], JSON.parse(args.slice(1).join(" ")));
-  else if (action === "status" || action === "current")
-    result = await client.publishCurrent(
+  else if (action === "status")
+    result = await client.setStatus(
       args[0],
       JSON.parse(args.slice(1).join(" ")),
     );

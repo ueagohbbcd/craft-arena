@@ -167,10 +167,6 @@ export class InboxClient {
    * programStatus until replaced, cleared with null, or expired).
    */
   setStatus(key, data, options = {}) {
-    return this.publishCurrent(key, data, options);
-  }
-  /** Older name for setStatus. */
-  publishCurrent(key, data, options = {}) {
     return this.send({
       ...options,
       kind: "current",

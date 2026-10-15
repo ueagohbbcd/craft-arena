@@ -1,5 +1,5 @@
 /** Task and program-state facts owned by the runtime, projected for the model. */
-export const DEFAULT_DISPLAY_LIMITS = Object.freeze({
+const DEFAULT_DISPLAY_LIMITS = Object.freeze({
   taskLimit: 16,
   programStatusLimit: 8,
   programStatusBytes: 8192,

@@ -222,7 +222,7 @@ export async function preparePiProfile({
   return { ...profile, extensions: [extensionPath, ...extras] };
 }
 
-export async function launchPi({
+async function launchPi({
   env = process.env,
   args = process.argv.slice(2),
   cwd = process.cwd(),

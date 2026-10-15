@@ -3,10 +3,10 @@ import { readConfig, readSession } from "../arena/src/server-protocol.mjs";
 import { sessionObject } from "./session-object.mjs";
 
 // A reading older than this cannot vouch that the session still runs.
-export const STALE_AFTER_MS = 3000;
+const STALE_AFTER_MS = 3000;
 
 /** Releases what a bot holds without leaving the game. */
-export function releaseHeld(bot) {
+function releaseHeld(bot) {
   for (const method of ["clearControlStates", "stopDigging", "deactivateItem"])
     try {
       bot?.[method]?.();

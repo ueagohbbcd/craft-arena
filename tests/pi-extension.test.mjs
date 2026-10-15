@@ -185,7 +185,7 @@ test("the full runtime file keeps program state the compact report omits", async
     },
   });
   const value = { phase: "reported phase", payload: "x".repeat(24000) };
-  await h.client.publishCurrent("large-program-state", value);
+  await h.client.setStatus("large-program-state", value);
   // The request-only tail is retired; the compact projection arrives as an
   // ordinary durable observation message at a natural boundary.
   const connection = await h.handlers.get("before_agent_start")({}, h.ctx);
