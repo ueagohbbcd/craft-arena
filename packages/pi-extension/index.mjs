@@ -62,6 +62,8 @@ export default function arenaExtension(pi) {
   let context;
   let idleWakeScheduled = false;
   let idleTimer;
+  let noticeTimer;
+  const noticePollMs = Number(process.env.ARENA_NOTICE_POLL_MS ?? 2000);
   let lastStopReason;
   const resident = process.env.ARENA_CONTINUOUS_SESSION === "1";
   const idleDelayMs = Number(process.env.ARENA_IDLE_REMINDER_MS ?? 5000);
@@ -78,21 +80,39 @@ export default function arenaExtension(pi) {
     budgetUrl: process.env.OPENAI_BASE_URL,
     budgetToken: process.env.OPENAI_API_KEY,
   });
-  /** Trusted clock/budget changes ride the next model request as one Pi message. */
-  async function sendPlatformUpdate(r) {
+  /**
+   * The one path for trusted platform messages: clock, budget, public data
+   * and notices, and the idle reminder. Changed sections are collected here;
+   * `extra` adds sections and `append()` (called only when a message is sent)
+   * adds text after it. Returns whether a message was sent.
+   */
+  async function deliverPlatform(
+    r,
+    {
+      triggerTurn = false,
+      customType = "arena-platform",
+      extra,
+      append = () => "",
+    } = {},
+  ) {
     const { matchEnded, update } = await platform.collect();
     if (matchEnded) r.matchEnded = true;
-    if (!update || runtime !== r || r.closed) return;
+    if (runtime !== r || r.closed || (!update && !extra)) return false;
+    if (triggerTurn && r.matchEnded) return false;
+    const message = { type: "arena.platform", ...update, ...extra };
     pi.sendMessage(
       {
-        customType: "arena-platform",
-        content: platformMessageText(update),
+        customType,
+        content: platformMessageText(message) + append(),
         display: true,
-        details: update,
+        details: message,
       },
-      { triggerTurn: false },
+      { triggerTurn },
     );
+    return true;
   }
+  /** Trusted changes ride the next model request as one Pi message. */
+  const sendPlatformUpdate = (r) => deliverPlatform(r);
   const idleWake = process.env.ARENA_WAKE_ON_URGENT === "1";
   async function close(old) {
     old.closed = true;
@@ -103,6 +123,8 @@ export default function arenaExtension(pi) {
   }
   async function stop() {
     clearTimeout(idleTimer);
+    clearInterval(noticeTimer);
+    noticeTimer = undefined;
     if (starting) await starting;
     if (!runtime) return;
     const old = runtime;
@@ -174,6 +196,10 @@ export default function arenaExtension(pi) {
           ]),
         );
       platform.reset();
+      if (resident && bridgeUrl && bridgeToken && !noticeTimer) {
+        noticeTimer = setInterval(() => void checkNotice(), noticePollMs);
+        noticeTimer.unref?.();
+      }
       inbox.on("message", () => {
         // Busy tools have already been released by TaskManager's listener. No steer abort is needed.
         if (context?.isIdle()) wakeIdle(runtime);
@@ -237,19 +263,48 @@ export default function arenaExtension(pi) {
       // A normal stop with no process or queued turn left to wait for is a
       // genuine stall. Background programs choose when a new decision is needed.
       idleWakeScheduled = true;
-      const batch = r.inbox.drain();
-      pi.sendMessage(
-        {
-          customType: "arena-continue",
-          content:
-            "The trusted host still reports a running session, and no background task or queued turn is pending. Check progress and continue with what the session briefing asks of you." +
-            (batch.messages.length ? `\n${batchText(batch)}` : ""),
-          display: true,
+      const sent = await deliverPlatform(r, {
+        triggerTurn: true,
+        customType: "arena-continue",
+        extra: {
+          reminder:
+            "The trusted host still reports a running session, and no background task or queued turn is pending. Check progress and continue with what the session briefing asks of you.",
         },
-        { triggerTurn: true },
-      );
+        append: () => {
+          const batch = r.inbox.drain();
+          return batch.messages.length ? `\n${batchText(batch)}` : "";
+        },
+      });
+      if (!sent) idleWakeScheduled = false;
     }, idleDelayMs);
   }
+  /**
+   * A changed `public.notice` wakes an idle model (also one waiting for its
+   * own programs). A busy model gets it with its next platform message.
+   */
+  const awaitingInput = (r) =>
+    runtime === r &&
+    !r.closed &&
+    !r.matchEnded &&
+    !idleWakeScheduled &&
+    context?.isIdle() &&
+    !context.hasPendingMessages?.();
+  async function checkNotice() {
+    const r = runtime;
+    if (!r || !awaitingInput(r) || !(await platform.noticeChanged())) return;
+    if (!awaitingInput(r)) return;
+    idleWakeScheduled = true;
+    clearTimeout(idleTimer);
+    const sent = await deliverPlatform(r, {
+      triggerTurn: true,
+      append: () => {
+        if (!r.inbox.pending) return "";
+        return `\n${batchText(r.inbox.drain())}`;
+      },
+    });
+    if (!sent) idleWakeScheduled = false;
+  }
+
   pi.on("agent_start", () => {
     clearTimeout(idleTimer);
     idleWakeScheduled = false;
@@ -374,6 +429,11 @@ export default function arenaExtension(pi) {
   });
   pi.on("before_agent_start", async (_event, ctx) => {
     const r = await ensure(ctx);
+    // The opening prompt carried the public data read just before it.
+    if (!r.publicNoted) {
+      r.publicNoted = true;
+      platform.notePublic(await readMatch(true));
+    }
     await observerReady(r);
     const initial = r.runtimeChanges.prepare(runtimeSnapshot(r));
     // This baseline and any ready inbox reports (such as the observer's first
@@ -425,7 +485,7 @@ export default function arenaExtension(pi) {
   pi.registerTool({
     name: "bash",
     label: "bash",
-    description: `Run command once in the workspace. Returns JSON taskId, status and retained stdout/stderr; completed adds exitCode/signal. wait_seconds defaults to ${waitSeconds} seconds; 0 returns immediately. Wait expiry or urgent input returns running without stopping the process. timeout is a separate kill deadline in seconds. Resume with task_wait; stop with task_cancel.`,
+    description: `Run command once in the workspace. Returns JSON taskId, status and retained stdout/stderr; completed adds exitCode/signal. Later running results from task_wait carry only new output. wait_seconds defaults to ${waitSeconds} seconds; 0 returns immediately. Wait expiry or urgent input returns running without stopping the process. timeout is a separate kill deadline in seconds. Resume with task_wait; stop with task_cancel.`,
     parameters: {
       ...object({ command: string, timeout: seconds, wait_seconds: seconds }),
       required: ["command"],
@@ -454,9 +514,12 @@ export default function arenaExtension(pi) {
   pi.registerTool({
     name: "task_wait",
     label: "Wait for process",
-    description: `Wait on an existing taskId without restarting it. wait_seconds defaults to ${waitSeconds} seconds; 0 polls. Wait expiry or urgent release returns running with retained stdout/stderr and leaves the process alive. Final output is delivered once here or by a task.completed inbox event; later waits return a delivered receipt with exitCode/signal.`,
+    description: `Wait on an existing taskId without restarting it. wait_seconds defaults to ${waitSeconds} seconds; 0 polls. Wait expiry or urgent release returns running and leaves the process alive; its stdout/stderr hold only output not returned by an earlier running result (previouslyReturnedBytes counts the rest). Final output (the full retained tail) is delivered once here or by a task.completed inbox event; later waits return a delivered receipt with exitCode/signal.`,
     parameters: {
-      ...object({ taskId: string, wait_seconds: seconds }),
+      ...object({
+        taskId: string,
+        wait_seconds: seconds,
+      }),
       required: ["taskId"],
     },
     executionMode: "parallel",

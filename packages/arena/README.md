@@ -123,7 +123,6 @@ Start from [infra/match.live.template.json](../../infra/match.live.template.json
 | `startSignalFile`                    | wait for this file before starting (template: `/control/start`)                                                        |
 | `runtimeFaultSignalFile`             | runtime-fault marker path                                                                                              |
 | `readyTimeoutMs` / `stopTimeoutMs`   | 30000 / 5000 (the poll interval is `judge.pollMs`)                                                                     |
-| `openingViews`                       | see [Opening images](#opening-images)                                                                                  |
 | `replay`                             | see [Replay](#replay)                                                                                                  |
 | `eventTokenEnv`                      | environment variable holding the `ingest` token                                                                        |
 | `bridges`                            | `internal` (default): bridges run in this process; `external`: each participant's bridge is its own service, see below |
@@ -164,7 +163,6 @@ What participants read: each bridge's `GET /v1/session` returns the session obje
 | `winner`, `scores`                            | team ID, `"draw"` or `null`; last scores from the server judge or `null`      |
 | `briefing`                                    | `{text, prompt, public}`: text, the `promptFile` contents, merged public data |
 | `objectives`                                  | `public.objectives` when the server publishes it                              |
-| `openingViews`                                | own team only                                                                 |
 
 With `requireRunningMatch`, the budget gateway reads this route before each model call and admits it only while `state` is `running`. Replay data and private paths are never included.
 
@@ -229,21 +227,6 @@ Runtime faults: `scripts/supervise-participants.mjs` runs on the operator's mach
 ```
 
 The runner looks for it at `ARENA_RUNTIME_FAULT_FILE`, else `live.runtimeFaultSignalFile`, else `runtime-fault.json` next to `startSignalFile`, and checks it every 100 ms. A marker for this `runId` ends the match `runtime-fault` with the marker in `runtimeError`; a marker from another run is ignored, and so is one that arrives after the match ended. Participants cannot reach this file, and the arena host has no Docker socket. How to run the supervisor is in [infra/README.md](../../infra/README.md).
-
-## Opening images
-
-`live.openingViews` is keyed by team ID; each participant sees only its own team's entry in `/v1/session`.
-
-```json
-"openingViews": {
-  "red": {
-    "lobby":  { "bounds": { "min": {"x":0,"y":60,"z":0}, "max": {"x":20,"y":70,"z":20} } },
-    "course": { "bounds": { ... }, "entryBounds": { ... } }
-  }
-}
-```
-
-All boxes are inclusive integer `{min, max}`; `lobby` and `course` `bounds` may each cover at most 1,000,000 blocks. `bounds` is the area drawn; `course.entryBounds` is the course entrance. The launcher attaches one image to the opening prompt: the lobby image if the character stands inside `lobby.bounds` and not inside `course.entryBounds`, otherwise the course image. If that was the lobby image, the course image follows once, when the character first enters `course.entryBounds`. Omit `lobby` when players start on the course. Images are drawn from the chunks the participant's own bot has loaded, not from map files. The observation library also uses `course.bounds` as the public map bounds. Choose these boxes together with the map's spawn and start commands.
 
 ## Replay
 

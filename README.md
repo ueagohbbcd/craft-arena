@@ -50,7 +50,7 @@ flowchart LR
 ## 一场比赛怎么进行
 
 1. **准备。** 运营者选定地图、规则和时限，配置队伍、模型价格和速率上限，启动服务器和可信侧服务。比赛主控重置地图，为每个参赛者连上一个游戏桥，此时动作仍被拒绝。
-2. **开局。** 启动器在容器里启动 Pi，等比赛主控报告比赛开始，然后发出一次开局提示：[examples/PROMPT.md](examples/PROMPT.md)、比赛简报（队伍、地图、目标、时限等公开事实），地图配置了开局图时附上图像。Pi 会话一开始，Pi 扩展就把默认观察器和默认聊天转发作为后台任务启动；第一个请求最多等观察器 5 秒，带上它的第一份状态报告。
+2. **开局。** 启动器在容器里启动 Pi，等比赛主控报告比赛开始，然后发出一次开局提示：[examples/PROMPT.md](examples/PROMPT.md)、比赛简报（队伍、地图、目标、时限等公开事实）。不附图像，模型需要时自己运行截图脚本。Pi 会话一开始，Pi 扩展就把默认观察器和默认聊天转发作为后台任务启动；第一个请求最多等观察器 5 秒，带上它的第一份状态报告。
 3. **比赛。** 模型在普通的工具调用循环里工作：调用工具、写程序、启动任务。`bash` 和 `task_wait` 默认最多等 30 秒，等满时返回 `running` 和 `taskId`，程序继续运行。模型思考和排队时，游戏照常进行。Pi 在模型回答结束后也不退出（持续会话）。模型停下、比赛仍在进行、又没有非后台任务在运行时，5 秒后 Pi 扩展会提醒它继续（空闲提醒）。
 4. **结束。** 服务器上的规则数据包判定胜负（羊毛竞速：每刻检查纪念碑方块），比赛主控通过 RCON 轮询 `arena:session`；服务器宣布结束或时间到，比赛结束。游戏桥停止接受动作，比赛主控保存结果（默认还有服务端录像）。启动器读到结束状态后关闭 Pi，Pi 扩展随之停止所有任务。
 
@@ -64,7 +64,7 @@ flowchart LR
 | 收件箱   | 参赛者的程序（包括默认观察器和聊天转发）；Pi 扩展的任务与程序状态报告 | 普通消息随下一个请求边界附带；紧急消息提前结束等待，或唤醒空闲的会话 |
 | 平台消息 | 比赛主控（会话时钟）、预算网关（预算反馈）                            | 回合结束时排入，随下一个请求送达，自己不发起请求                     |
 
-另有只在查询时才读的信息：`observe` 的完整状态、区块记忆、程序日志。详细规则见 [docs/CONTEXT-DELIVERY.md](docs/CONTEXT-DELIVERY.md)。
+另有只在查询时才读的信息：`observe` 的完整状态、区块记忆、程序日志，以及 `/arena/session` 下的简报副本和 `/arena/rules` 下的规则书。详细规则见 [docs/CONTEXT-DELIVERY.md](docs/CONTEXT-DELIVERY.md)。
 
 ## 当前优先级
 
@@ -72,7 +72,6 @@ flowchart LR
 
 - 新开局时可选清空工作区里上一场的代码（先归档）。
 - 在地图副本里人工确认大厅起点机关在 1.21 下能用。
-- 开局图标出角色位置、朝向和坐标刻度。
 - 比赛记录统计时间去向：模型思考、排队、工具等待、程序执行、无进展。
 - 之后：容器内 Pi 自己 OAuth 登录时的计量（出网代理 + 账本服务）。
 
@@ -122,7 +121,7 @@ flowchart LR
 - [packages/bot-sdk/README.md](packages/bot-sdk/README.md)：SDK 及与 Mineflayer 的差异
 - [packages/bot-sdk/BLOCK-MEMORY.md](packages/bot-sdk/BLOCK-MEMORY.md)：查询区块记忆
 - [packages/inbox/README.md](packages/inbox/README.md)：程序怎样给模型发消息
-- [packages/world-visual/README.md](packages/world-visual/README.md)：开局图与按需截图
+- [packages/world-visual/README.md](packages/world-visual/README.md)：按需截图
 
 **运营者**
 

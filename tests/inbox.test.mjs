@@ -451,3 +451,41 @@ test("out-of-process producers receive delivery receipts for queued messages", a
   inbox.remove(removed.id);
   assert.equal((await client.delivery(removed.id)).outcome, "removed");
 });
+
+test("running results carry only new output; the final result carries the retained tail", async (t) => {
+  const inbox = new Inbox();
+  const tasks = new TaskManager({ inbox });
+  t.after(() => tasks.close());
+  const dir = await mkdtemp(join(tmpdir(), "arena-incremental-"));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const step = join(dir, "step");
+  const command = `${process.execPath} -e 'const fs=require("node:fs");let seen=0;const timer=setInterval(()=>{const n=fs.existsSync(process.env.STEP)?Number(fs.readFileSync(process.env.STEP,"utf8")):0;for(;seen<n;seen++){console.log("line"+seen);console.error("warn"+seen)}if(n>=3)clearInterval(timer)},5)'`;
+  const id = tasks.start(command, { env: { STEP: step } });
+  const until = async (n) => {
+    await writeFile(step, String(n));
+    // Both channels, which arrive separately.
+    const task = tasks.get(id);
+    while (
+      !task.stdout.toString().includes(`line${n - 1}`) ||
+      !task.stderr.toString().includes(`warn${n - 1}`)
+    )
+      await sleep(5);
+  };
+  await until(1);
+  const first = await tasks.wait(id, { timeoutMs: 0 });
+  assert.equal(first.status, "running");
+  assert.equal(first.stdout, "line0\n");
+  assert.equal(first.stderr, "warn0\n");
+  assert.equal(first.previouslyReturnedBytes, undefined);
+  await until(2);
+  const second = await tasks.wait(id, { timeoutMs: 0 });
+  assert.equal(second.stdout, "line1\n");
+  assert.equal(second.stderr, "warn1\n");
+  assert.deepEqual(second.previouslyReturnedBytes, { stdout: 6, stderr: 6 });
+  const nothing = await tasks.wait(id, { timeoutMs: 0 });
+  assert.equal(nothing.stdout, "");
+  await writeFile(step, "3");
+  const done = await tasks.wait(id);
+  assert.equal(done.status, "completed");
+  assert.equal(done.stdout, "line0\nline1\nline2\n");
+});

@@ -48,11 +48,6 @@ test("trusted session projection takes teams, own goal items and watched items f
         ],
       },
     },
-    openingViews: {
-      course: {
-        bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 20, z: 30 } },
-      },
-    },
   });
   assert.deepEqual(options.teams, {
     selfTeam: "red",
@@ -60,7 +55,6 @@ test("trusted session projection takes teams, own goal items and watched items f
   });
   assert.deepEqual(options.objectiveItems, ["red_wool"]);
   assert.deepEqual(options.inventoryWatchItems, ["white_wool", "red_wool"]);
-  assert.deepEqual(options.publicMapBounds.max, { x: 10, y: 20, z: 30 });
   assert.doesNotMatch(
     JSON.stringify(options),
     /private-not-copied|wool-a|secret-goal/,

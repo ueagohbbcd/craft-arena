@@ -43,8 +43,5 @@ export function observationOptionsFromMatch(match) {
     },
     objectiveItems: names(goals.map((goal) => goal.block)),
     ...(watchItems.length ? { inventoryWatchItems: watchItems } : {}),
-    ...(match.openingViews?.course?.bounds
-      ? { publicMapBounds: match.openingViews.course.bounds }
-      : {}),
   };
 }

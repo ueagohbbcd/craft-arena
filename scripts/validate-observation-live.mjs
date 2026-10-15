@@ -81,7 +81,6 @@ const sourceFiles = [
   "packages/default-scripts/observer.mjs",
   "packages/tasks/index.mjs",
   "examples/navigate.mjs",
-  "packages/world-visual/index.mjs",
   "packages/world-visual/prismarine.mjs",
   "scripts/validate-observation-live.mjs",
 ];

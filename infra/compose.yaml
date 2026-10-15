@@ -65,7 +65,7 @@ services:
       ARENA_MODEL_CONFIG: /config/model.example.json
       TEAM_GIT_DIR: /team-git
     networks: [red1]
-    volumes: [red-work:/workspace, red-git:/team-git, ./model.example.json:/config/model.example.json:ro]
+    volumes: [red-work:/workspace, red-git:/team-git, ./model.example.json:/config/model.example.json:ro, ./rules:/arena/rules:ro]
     tmpfs: ['/tmp:rw,nosuid,size=256m']
     stdin_open: true
     tty: true
@@ -80,7 +80,7 @@ services:
       ARENA_MODEL_CONFIG: /config/model.example.json
       TEAM_GIT_DIR: /team-git
     networks: [blue1]
-    volumes: [blue-work:/workspace, blue-git:/team-git, ./model.example.json:/config/model.example.json:ro]
+    volumes: [blue-work:/workspace, blue-git:/team-git, ./model.example.json:/config/model.example.json:ro, ./rules:/arena/rules:ro]
     tmpfs: ['/tmp:rw,nosuid,size=256m']
     stdin_open: true
     tty: true

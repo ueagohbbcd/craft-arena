@@ -98,6 +98,9 @@ export class TaskManager {
       stdout: Buffer.alloc(0),
       stderr: Buffer.alloc(0),
       outputDroppedBytes: 0,
+      // Bytes captured so far, and how far running results have shown them.
+      written: { stdout: 0, stderr: 0 },
+      returned: { stdout: 0, stderr: 0 },
       startedAt: this.now(),
       waiters: new Set(),
       delivered: false,
@@ -112,6 +115,7 @@ export class TaskManager {
       stdio: ["ignore", "pipe", "pipe"],
     });
     const capture = (channel, data) => {
+      task.written[channel] += data.length;
       const joined = Buffer.concat([task[channel], data]);
       if (joined.length > this.maxOutputBytes) {
         task.outputDroppedBytes += joined.length - this.maxOutputBytes;
@@ -220,6 +224,26 @@ export class TaskManager {
     if (task.eventId) this.inbox.remove(task.eventId);
     return this.snapshot(task);
   }
+  /**
+   * A running result shows only output not shown by an earlier running
+   * result, so repeated waits on a chatty program do
+   * not repeat it. `previouslyReturnedBytes` counts what was left out.
+   */
+  running(task, reason) {
+    const result = { ...this.snapshot(task), reason };
+    const previously = {};
+    for (const channel of ["stdout", "stderr"]) {
+      const total = task.written[channel];
+      const retainedFrom = total - task[channel].length;
+      const from = Math.max(task.returned[channel], retainedFrom);
+      result[channel] = decodeTail(task[channel].subarray(from - retainedFrom));
+      if (from > retainedFrom) previously[channel] = from - retainedFrom;
+      task.returned[channel] = total;
+    }
+    if (Object.keys(previously).length)
+      result.previouslyReturnedBytes = previously;
+    return result;
+  }
   async wait(id, { timeoutMs = Infinity, signal } = {}) {
     if (
       timeoutMs !== Infinity &&
@@ -230,12 +254,11 @@ export class TaskManager {
     const finish = () => this.claim(task);
     if (task.status === "completed") return finish();
     if (this.urgentReason || signal?.aborted || timeoutMs === 0)
-      return {
-        ...this.snapshot(task),
-        reason:
-          this.urgentReason ||
+      return this.running(
+        task,
+        this.urgentReason ||
           (signal?.aborted ? "caller detached" : "wait timeout"),
-      };
+      );
     const reason = await new Promise((resolve) => {
       let timer;
       const wake = (reason) => {
@@ -250,9 +273,7 @@ export class TaskManager {
       if (timeoutMs !== Infinity)
         timer = setTimeout(() => wake("wait timeout"), timeoutMs);
     });
-    return task.status === "completed"
-      ? finish()
-      : { ...this.snapshot(task), reason };
+    return task.status === "completed" ? finish() : this.running(task, reason);
   }
   releaseAll(reason = "urgent inbox message") {
     this.urgentReason = reason;
