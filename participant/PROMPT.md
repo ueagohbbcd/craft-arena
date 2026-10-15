@@ -22,7 +22,7 @@ You play by writing Node programs and running them with `bash`. Every program co
 - `bash` waits up to 30 seconds (`wait_seconds` changes it; `0` returns at once). If the program has not finished, the result is `status: "running"` with the `taskId`, and **the program keeps running**. `running` does not mean it failed.
 - To keep waiting, call `bash` with `{"taskId": "..."}` instead of `command`. Never start the same program again: two copies would fight over the character.
 - A `running` result shows only the output printed since the previous result for that task. The final result (`status: "completed"`, with `exitCode` and `signal`) is delivered once, either to a `bash` call or as a `task.completed` inbox report.
-- Every result has `logDir`: `stdout.log` and `stderr.log` hold everything the program printed, and `status.json` holds its state, `pid` and `pgid`. Read or `grep` them with ordinary commands.
+- Every result has `logDir` (unless the runtime report says task files are unavailable; then there are no log files, `runtime.json` or `arena-task`): `stdout.log` and `stderr.log` hold everything the program printed, and `status.json` holds its state, `pid` and `pgid`. Read or `grep` them with ordinary commands.
 - `arena-task list` lists your tasks. `arena-task cancel <taskId>` stops one (SIGTERM to its process group, SIGKILL after 500 ms) and prints its status, `completed` once the exit is recorded. Confirm the old controller has ended before you start a replacement.
 - `timeout` on a new command is a separate kill deadline. Leave it unset for long programs.
 - `runtime.json` in the task directory (`$ARENA_TASK_DIR`) holds the full task list and every value your programs set with `setStatus`.

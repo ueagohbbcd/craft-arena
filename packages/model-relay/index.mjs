@@ -85,6 +85,9 @@ export function createModelRelay({ upstream, apiKey, onEvent = () => {} }) {
       },
       (upstreamRes) => {
         res.writeHead(upstreamRes.statusCode, endToEnd(upstreamRes.headers));
+        // Send them now: a queued or streaming upstream may hold its first
+        // body byte for a long time, and the caller waits on the headers.
+        res.flushHeaders();
         upstreamRes.pipe(res);
         // An upstream that dies mid-body must not leave the caller waiting.
         upstreamRes.on("close", () => {

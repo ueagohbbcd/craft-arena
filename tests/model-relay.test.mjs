@@ -190,3 +190,25 @@ test("a target URL cannot parse is a 400, and the relay keeps serving", async (t
   assert.equal(upstream.seen.length, 0);
   assert.equal((await fetch(`${relay}/models`)).status, 201);
 });
+
+test(
+  "upstream headers reach the caller before the first body byte",
+  { timeout: 5000 },
+  async (t) => {
+    let send;
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      res.flushHeaders();
+      send = () => res.end("data: late\n\n");
+    });
+    const url = await listen(server);
+    t.after(() => close(server));
+    const relay = await relayFor(t, { upstream: url });
+    const response = await fetch(`${relay}/chat/completions`, {
+      method: "POST",
+    });
+    assert.equal(response.status, 200);
+    send();
+    assert.equal(await response.text(), "data: late\n\n");
+  },
+);
