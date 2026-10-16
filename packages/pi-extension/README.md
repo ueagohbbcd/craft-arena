@@ -107,6 +107,8 @@ With an endpoint, the launcher turns on Pi's automatic compaction with values de
 
 Pi compacts when the context reaches `contextWindow − reserveTokens`. The summary request goes through the same `arena` provider as any other call. The Windows local models ([infra/windows-local](../../infra/windows-local/README.md)) use context 300000, output 32768, reserve 50000 and keep 20000, so compaction starts at 250000 tokens.
 
+After each compaction the extension sends one `arena-after-compaction` message before the next model request (as a steering message while Pi is working). It carries one full sample of the character from `examples/observe.mjs` (5 s limit; on failure it says why), a full `runtime.snapshot`, and the inbox reports that were waiting. A waiting `runtime.current` change, and a waiting `observation.current` change when the sample succeeded, are left out because the full state replaces them. Later observer and runtime reports are changes against that state.
+
 ## Configuration
 
 Launcher (read by [bootstrap.mjs](bootstrap.mjs)):
@@ -145,7 +147,7 @@ Extension (read by [index.mjs](index.mjs) and its modules):
 | `ARENA_COST_PER_HOUR`                         | unset (no limit)                           | Spending limit in USD per hour at list price; see [Spending limit](#spending-limit).                    |
 | `ARENA_COST_BURST`                            | `ARENA_COST_PER_HOUR / 6`                  | Most that can be spent at once before requests wait (USD).                                              |
 | `ARENA_MATCH_STARTED_AT`, `ARENA_DURATION_MS` | unset                                      | Fallback clock when the arena host is unreachable (start as epoch ms or a date string; duration in ms). |
-| `ARENA_RUNTIME_TASK_LIMIT`                    | `16`                                       | Tasks shown in full in the runtime report; extra running tasks show only ID and status.                 |
+| `ARENA_RUNTIME_TASK_LIMIT`                    | `3`                                        | Finished tasks shown in the runtime report, newest first. Running tasks are always shown.               |
 | `ARENA_RUNTIME_STATUS_LIMIT`                  | `8`                                        | Program status entries shown.                                                                           |
 | `ARENA_RUNTIME_STATUS_BYTES`                  | `8192`                                     | Total bytes of program status shown.                                                                    |
 | `ARENA_RUNTIME_STATUS_ENTRY_BYTES`            | `2048`                                     | Bytes per program status entry; larger data is replaced by `dataOmitted`.                               |
@@ -154,7 +156,7 @@ Extension (read by [index.mjs](index.mjs) and its modules):
 | `MC_INBOX_PORT`                               | ephemeral                                  | HTTP port.                                                                                              |
 | `MC_INBOX_TOKEN`                              | unset                                      | Bearer token for the HTTP transport.                                                                    |
 
-The four `ARENA_RUNTIME_*` limits take nonnegative integers and change only what the report shows; `displayLimits` in the report counts what was left out, and `runtime.json` in the task directory has everything. The default observer's own settings (`ARENA_OBSERVER_*`, `observer.json`) are in the [observation README](../observation/README.md).
+The four `ARENA_RUNTIME_*` limits take nonnegative integers and change only what the report shows; when program status is cut, the report's `omitted` section says how much, and `runtime.json` in the task directory has everything. The default observer's own settings (`ARENA_OBSERVER_*`, `observer.json`) are in the [observation README](../observation/README.md).
 
 ## Verification
 

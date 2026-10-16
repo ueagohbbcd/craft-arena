@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { basename, delimiter, dirname, join } from "node:path";
@@ -41,7 +42,15 @@ const compactRuntime = ({ observedAt, tasks, ...state }) => ({
   ...state,
   tasks: tasks?.map(({ durationMs, ...task }) => task),
 });
+const runtimeDiff = () =>
+  createSectionDiff(compactRuntime, {
+    snapshotType: "runtime.snapshot",
+    changedType: "runtime.changed",
+  });
 const taskBin = fileURLToPath(new URL("../tasks/bin", import.meta.url));
+const observeScript = fileURLToPath(
+  new URL("../../examples/observe.mjs", import.meta.url),
+);
 /** Task directory; under a workspace .arena/ it is kept out of Git. */
 async function prepareTaskDir(dir) {
   await mkdir(dir, { recursive: true });
@@ -98,6 +107,7 @@ export default function arenaExtension(pi) {
   const bridgeToken = process.env.ARENA_BRIDGE_TOKEN;
   const displayLimits = displayLimitOptions();
   const observerReadyMs = envMs("ARENA_OBSERVER_READY_MS", 5000);
+  const observeAfterCompactionMs = 5000;
   const readMatch = createMatchReader({ url: bridgeUrl, token: bridgeToken });
   const platform = createPlatformMessages({ readMatch });
   const rateOptions = modelRateOptions();
@@ -229,10 +239,7 @@ export default function arenaExtension(pi) {
         taskDirError,
         server,
         env,
-        runtimeChanges: createSectionDiff(compactRuntime, {
-          snapshotType: "runtime.snapshot",
-          changedType: "runtime.changed",
-        }),
+        runtimeChanges: runtimeDiff(),
       };
       // Default scripts are ordinary tasks: listed, cancellable, replaceable.
       if (bridgeUrl && bridgeToken)
@@ -372,6 +379,60 @@ export default function arenaExtension(pi) {
     await ensure(ctx);
   });
   pi.on("session_shutdown", stop);
+  /** One full state sample from examples/observe.mjs, or why there is none. */
+  const observeCharacter = (r, cwd) =>
+    new Promise((resolve) => {
+      if (!bridgeUrl || !bridgeToken)
+        return resolve({ unavailable: "no bridge configured" });
+      execFile(
+        process.execPath,
+        [observeScript],
+        {
+          cwd,
+          env: { ...process.env, ...r.env },
+          timeout: observeAfterCompactionMs,
+          maxBuffer: 4 * 1024 * 1024,
+        },
+        (error, stdout) => {
+          try {
+            if (error) throw error;
+            resolve(JSON.parse(stdout));
+          } catch (failure) {
+            resolve({ unavailable: failure.message.split("\n")[0] });
+          }
+        },
+      );
+    });
+  // Compaction summarizes away the reports the model built its picture from,
+  // and the observer and runtime then send only changes. Before the next
+  // request, send the waiting reports, a full runtime snapshot and one full
+  // sample of the character.
+  pi.on("session_compact", async (_event, ctx) => {
+    const r = await ensure(ctx);
+    r.runtimeChanges = runtimeDiff();
+    const runtimeReport = r.runtimeChanges.prepare(runtimeSnapshot(r));
+    runtimeReport.onDelivered();
+    const character = await observeCharacter(r, ctx.cwd);
+    if (runtime !== r || r.closed) return;
+    const batch = r.inbox.pending ? r.inbox.drain() : undefined;
+    // The snapshots below replace pending change reports of the same kind.
+    const replaced = new Set(["runtime.current"]);
+    if (!character.unavailable) replaced.add("observation.current");
+    if (batch)
+      batch.messages = batch.messages.filter(
+        (message) => !replaced.has(message.key),
+      );
+    const details = { character, runtime: runtimeReport.message, batch };
+    pi.sendMessage(
+      {
+        customType: "arena-after-compaction",
+        content: `Context was compacted. Current state, in full (later reports are changes against it):\n${JSON.stringify({ character, runtime: runtimeReport.message })}${batch?.messages.length ? `\n${batchText(batch)}` : ""}`,
+        display: true,
+        details,
+      },
+      { deliverAs: "steer" },
+    );
+  });
   pi.on("turn_start", async (_event, ctx) => {
     const r = await ensure(ctx);
     r.tasks.resumeWaits();
