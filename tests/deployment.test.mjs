@@ -99,6 +99,11 @@ test("Docker dependency layers precede source copies and participant image exclu
         /apt-get[^\n]*install[^\n]*\bripgrep\b[^\n]*\bfd-find\b/,
         "offline Pi search tools must be present in the image",
       );
+      assert.match(
+        dockerfile,
+        /RUN npm ci[^\n]*&& node scripts\/prune-node-modules\.mjs node_modules 1\.21\.1/,
+        "participant image drops Minecraft data for other versions",
+      );
     }
   }
 });
