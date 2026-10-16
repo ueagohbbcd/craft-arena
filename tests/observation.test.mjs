@@ -274,8 +274,16 @@ test("local blocks distinguish unknown from air and expose sign text without inv
   const sign = putBlock(bot, "oak_sign", { x: -1, y: 64, z: 0 });
   sign.setSignText(["Supplies", "Read the route"], ["Back"]);
   const sample = sampleObservation(bot, { now: 1000, localRadius: 1 });
-  assert.equal(sample.local.counts.unknown, 23);
-  assert.equal(sample.local.counts.air, 1);
+  assert.equal(sample.local.counts, undefined); // cube counts only with fullLocal
+  assert.equal("local" in sampleObservation(bot, { local: false }), false);
+  assert.equal(sample.local.around.north, "unknown");
+  const full = sampleObservation(bot, {
+    now: 1000,
+    localRadius: 1,
+    fullLocal: true,
+  });
+  assert.equal(full.local.counts.unknown, 23);
+  assert.equal(full.local.counts.air, 1);
   assert.equal(sample.self.support.below.name, "stone");
   assert.equal(sample.local.signs[0].text[0], "Supplies\nRead the route");
   assert.equal(sample.local.signs[0].text[1], "Back");

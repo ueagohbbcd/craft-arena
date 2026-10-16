@@ -5,3 +5,11 @@
  */
 export { entityRadar, sampleObservation, signSummary } from "./snapshot.mjs";
 export { watchObservation } from "./events.mjs";
+export {
+  reachMap,
+  reachGraph,
+  reachDefaults,
+  terrainProfile,
+  aroundSummary,
+  cellKind,
+} from "./reach.mjs";

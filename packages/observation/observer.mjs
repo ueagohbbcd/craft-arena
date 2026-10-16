@@ -184,7 +184,12 @@ export async function startObserver({
     let snapshot;
     try {
       // Signs in loaded columns are reported by the nearby scan, not here.
-      snapshot = core.sampleState({ ...connection(), loadedSigns: false });
+      // The local cube is on request only (observe.mjs --full-local, reach-map.mjs).
+      snapshot = core.sampleState({
+        ...connection(),
+        loadedSigns: false,
+        local: false,
+      });
     } catch (error) {
       onError(error);
       return;

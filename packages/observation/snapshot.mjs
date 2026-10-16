@@ -1,6 +1,7 @@
 /** One on-demand state sample (sampleObservation) and its helpers. Read-only: no actions, goals or task policy. */
 import { createHash } from "node:crypto";
 import { entityRadar, chunkEntities } from "./entity-radar.mjs";
+import { aroundSummary } from "./reach.mjs";
 export { entityRadar } from "./entity-radar.mjs";
 
 const axes = ["x", "y", "z"];
@@ -598,12 +599,20 @@ export function signSummary(
     source,
   };
 }
+// Water is told by `around` and self.media; listing every water cell drowned the notable blocks.
+const commonLocal = new Set([
+  "water",
+  "bubble_column",
+  "seagrass",
+  "tall_seagrass",
+  "kelp",
+  "kelp_plant",
+]);
 function localSummary(bot, options, origin) {
   if (!origin)
     return {
-      bounds: null,
-      cells: null,
-      counts: null,
+      around: null,
+      above: null,
       blocks: [],
       omitted: 0,
       signs: [],
@@ -630,7 +639,11 @@ function localSummary(bot, options, origin) {
         const position = { x, y, z },
           block = readBlock(bot, position);
         counts[classify(block)]++;
-        if (block && (interesting(block) || options.fullLocal))
+        if (
+          block &&
+          (options.fullLocal ||
+            (interesting(block) && !commonLocal.has(blockName(block))))
+        )
           blocks.push(blockSummary(block, position));
         addSign(block, position, bot?.sampledAt, "local-block");
       }
@@ -661,10 +674,13 @@ function localSummary(bot, options, origin) {
   const shown = options.fullLocal
     ? blocks
     : blocks.slice(0, options.blockLimit);
+  const { around, above } = safe(() =>
+    aroundSummary({ blockAt: (q) => readBlock(bot, q), origin }),
+  ) ?? { around: null, above: null };
   return {
-    bounds,
-    cells: (2 * r + 1) ** 3,
-    counts,
+    around,
+    above,
+    ...(options.fullLocal ? { bounds, cells: (2 * r + 1) ** 3, counts } : {}),
     blocks: shown,
     omitted: blocks.length - shown.length,
     signs: options.fullLocal ? allSigns : allSigns.slice(0, options.signLimit),
@@ -672,7 +688,7 @@ function localSummary(bot, options, origin) {
       ? 0
       : Math.max(0, allSigns.length - options.signLimit),
     coverage:
-      "Current local blocks; unknown cells are not air. Signs may include already-loaded columns and carry their source time. Block geometry is not a route, purpose, or line-of-sight judgment.",
+      "around: what walking 3 blocks each way meets (flat, up 1, wall, down or drop N, water, unknown). blocks: notable blocks within the local crop. Unknown cells are not air. Signs may include already-loaded columns and carry their source time. Block geometry is not a route, purpose, or line-of-sight judgment.",
   };
 }
 
@@ -859,7 +875,11 @@ export function sampleObservation(bot, options = {}) {
     window: windowSummary(bot, options),
     ...observedEntities,
     radar,
-    local: localSummary(bot, options, position),
+    // The default observer leaves it out: self.support.below and recent
+    // blocks already cover it, and it changed with every step.
+    ...(options.local === false
+      ? {}
+      : { local: localSummary(bot, options, position) }),
   };
 }
 

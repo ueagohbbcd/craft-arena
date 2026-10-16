@@ -28,12 +28,13 @@ function fakeBot() {
   };
   return bot;
 }
-function fakeSample(bot, { now = Date.now, connectionStatus } = {}) {
+function fakeSample(bot, { now = Date.now, connectionStatus, local } = {}) {
   return {
     type: "observation",
     observedAt: now(),
     freshness: { status: connectionStatus ?? "fresh" },
     self: bot ? { health: bot.health } : null,
+    ...(local === false ? {} : { local: { around: null } }),
   };
 }
 function fakeWatch(bot, { post, now }) {
@@ -238,6 +239,11 @@ test("default observer reports state changes only after the previous report was 
   assert.equal(baseline.data.type, "observation.snapshot");
   assert.equal(baseline.data.changes.self.health, 20);
   assert.equal(baseline.data.changes.connection.status, "fresh");
+  assert.equal(
+    "local" in baseline.data.changes,
+    false,
+    "local is on request only",
+  );
   await delay(40);
   assert.equal(inbox.items.length, 0, "nothing changed, nothing is reported");
 
