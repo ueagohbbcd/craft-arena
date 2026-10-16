@@ -231,7 +231,7 @@ test(
         let tasks = [];
         for (const message of body.messages) {
           if (typeof message.content !== "string") continue;
-          const marker = message.content.indexOf("Participant inbox");
+          const marker = message.content.indexOf("Inbox reports");
           if (marker < 0) continue;
           const batch = JSON.parse(
             message.content.slice(message.content.indexOf("\n", marker) + 1),

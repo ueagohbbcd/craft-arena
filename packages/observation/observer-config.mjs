@@ -3,13 +3,12 @@ import { join } from "node:path";
 
 /**
  * Optional workspace observer.json: { radar?, recentBlocks?, events? } for the default
- * observer. ARENA_OBSERVER_CONFIG names another file. perception.json, the
- * previous name, is still read when observer.json is absent.
+ * observer. ARENA_OBSERVER_CONFIG names another file.
  */
 export async function readObserverConfig(cwd, env = process.env) {
   const candidates = env.ARENA_OBSERVER_CONFIG
     ? [env.ARENA_OBSERVER_CONFIG]
-    : [join(cwd, "observer.json"), join(cwd, "perception.json")];
+    : [join(cwd, "observer.json")];
   for (const path of candidates) {
     let text;
     try {

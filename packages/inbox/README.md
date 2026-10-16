@@ -30,13 +30,13 @@ const { id } = await inbox.requestJudgment({
 const { outcome } = await inbox.delivery(id, { timeoutMs: 60000 });
 ```
 
-| Call                              | What it sends                                                | Use it for                                                                                                                                              |
-| --------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `post(data, options?)`            | An event (`kind: "event"`)                                   | Something that happened and should be seen once, such as a step finished                                                                                |
-| `upsert(key, data, options?)`     | A replaceable report (`kind: "state"`)                       | Progress. A newer report with the same key replaces the older one if the model has not seen it yet                                                      |
-| `setStatus(key, data, options?)`  | Program status (`kind: "current"`)                           | The program's current value, shown as `programStatus` until replaced, cleared with `null`, or expired. `publishCurrent` is the old name and still works |
-| `requestJudgment(data, options?)` | An urgent message (`kind: "judgment"`, `priority: "urgent"`) | A decision the model must make now. The program keeps running                                                                                           |
-| `delivery(id, { timeoutMs })`     | Nothing; asks for a delivery receipt                         | Finding out whether the model saw a message                                                                                                             |
+| Call                              | What it sends                                                | Use it for                                                                                             |
+| --------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `post(data, options?)`            | An event (`kind: "event"`)                                   | Something that happened and should be seen once, such as a step finished                               |
+| `upsert(key, data, options?)`     | A replaceable report (`kind: "state"`)                       | Progress. A newer report with the same key replaces the older one if the model has not seen it yet     |
+| `setStatus(key, data, options?)`  | Program status (`kind: "current"`)                           | The program's current value, shown as `programStatus` until replaced, cleared with `null`, or expired. |
+| `requestJudgment(data, options?)` | An urgent message (`kind: "judgment"`, `priority: "urgent"`) | A decision the model must make now. The program keeps running                                          |
+| `delivery(id, { timeoutMs })`     | Nothing; asks for a delivery receipt                         | Finding out whether the model saw a message                                                            |
 
 Options for the send calls:
 
@@ -56,11 +56,11 @@ The constructor reads `MC_INBOX_SOCKET` or `MC_INBOX_URL`, `MC_INBOX_SESSION`, `
 
 New information reaches the model only at a request boundary: when a tool call returns, when a turn ends, or when a message starts a new turn. [docs/CONTEXT-DELIVERY.md](../../docs/CONTEXT-DELIVERY.md) describes all sources and timings.
 
-| Message                   | When the model sees it                                                                                                                                                                                                                           |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Event, replaceable report | Appended to the next top-level tool result, or added at turn end or at the start of the next model run. It does not wake the model                                                                                                               |
+| Message                   | When the model sees it                                                                                                                                                                                                             |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Event, replaceable report | Appended to the next top-level tool result, or added at turn end or at the start of the next model run. It does not wake the model                                                                                                 |
 | Urgent message            | Ends every active `bash` wait at once (the result says `urgent inbox message ...`). If the session is idle, it wakes the model. The launcher sets `ARENA_WAKE_ON_URGENT=1`; with any other value, an idle session leaves it queued |
-| Program status            | Read at each top-level tool result and at the start of each model run; a change appears in the runtime report delivered at that moment                                                                                                           |
+| Program status            | Read at each top-level tool result and at the start of each model run; a change appears in the runtime report delivered at that moment                                                                                             |
 
 Delivered messages stay in the model's history, so an old report describes the past. Each delivered batch is one JSON object: `{sessionId, messages, dropped, totalDropped}`. Each message carries `source`, `kind`, `key` (if any), `data`, `priority`, `createdAt`, `expiresAt` and `taskId` (if any).
 
@@ -118,7 +118,7 @@ node "$inbox" status build null
 node "$inbox" urgent '{"question":"Retreat?"}'
 ```
 
-`current` is accepted as an old name for `status`. The CLI prints the JSON result and exits with 1 on failure. It has no options for `ttlMs`, delays or receipts; use `InboxClient` for those.
+The CLI prints the JSON result and exits with 1 on failure. It has no options for `ttlMs`, delays or receipts; use `InboxClient` for those.
 
 ## Raw HTTP
 

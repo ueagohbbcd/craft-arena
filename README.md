@@ -32,7 +32,7 @@ flowchart LR
 
 - 每个参赛者的游戏桥是独立服务，只接在后端网络和本队网络上；参赛容器访问不到别队的游戏桥和比赛主控。游戏桥从比赛主控读会话状态，也可以不要比赛主控、直接从服务器读（手动开局的小游戏、陪玩）。
 - 只有游戏桥连接 Minecraft。它只接受经过校验的语义动作（移动、挖、放、攻击、交互等），不转发自定义数据包。比赛开始前和结束后，所有动作都被拒绝。
-- 模型接入由运营者配置，平台不计量也不限速。模板里参赛容器没有外网，模型请求经模型转发发往一个配置好的地址（官方 API 或宿主机上的任何服务），key 只在转发那里；也可以让参赛容器带着自己的 Pi 配置直接访问模型。见 [infra/README.md](infra/README.md#模型接入)。
+- 模型接入由运营者配置。限速在参赛容器内的 Pi 扩展里按标价花费做（`ARENA_COST_PER_HOUR`），不在转发或网关上。模板里参赛容器没有外网，模型请求经模型转发发往一个配置好的地址（官方 API 或宿主机上的任何服务），key 只在转发那里；也可以让参赛容器带着自己的 Pi 配置直接访问模型。见 [infra/README.md](infra/README.md#模型接入)。
 - Pathfinder、PvP 等 Mineflayer 插件在参赛者自己的程序里运行，基于本地镜像（`connectBot()` 在程序里保存的 bot 状态副本）计算，算出的动作再发给游戏桥。
 - Pi 扩展从游戏桥的 `/v1/session` 读取会话状态和时钟：比赛由比赛主控提供，陪玩等 `open` 会话由独立运行的游戏桥自己提供。
 - Minecraft 服务器只在内部网络，不对宿主机开放端口。
@@ -115,7 +115,7 @@ flowchart LR
 - [participant/PROMPT.md](participant/PROMPT.md)：追加到系统提示的参赛说明：任务和等待、信息通道、文件位置
 - [participant/skills/minecraft-arena/SKILL.md](participant/skills/minecraft-arena/SKILL.md)：Skill：第一步、各类任务从哪个示例程序开始、程序写法
 - [participant/FAQ.md](participant/FAQ.md)：常见的控制与时机错误
-- [participant/TEAM.md](participant/TEAM.md)：队内 Git，程序里调用模型
+- [participant/TEAM.md](participant/TEAM.md)：队内 Git
 - [packages/observation/README.md](packages/observation/README.md)：默认观察器报告什么、怎样改
 - [packages/bot-sdk/README.md](packages/bot-sdk/README.md)：SDK 及与 Mineflayer 的差异
 - [packages/bot-sdk/BLOCK-MEMORY.md](packages/bot-sdk/BLOCK-MEMORY.md)：查询区块记忆

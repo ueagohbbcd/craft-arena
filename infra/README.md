@@ -21,7 +21,7 @@
 
 [`compose.yaml`](compose.yaml) 只用于单独调试各组件，见[最后一节](#单组件调试composeyaml)。
 
-运营者自己负责：地图和比赛配置、Minecraft EULA、RCON 密码、所有令牌、模型和它的接入方式（含计量与限速，如果需要），以及比赛开始和结束。
+运营者自己负责：地图和比赛配置、Minecraft EULA、RCON 密码、所有令牌、模型和它的接入方式、花费上限，以及比赛开始和结束。
 
 ## 准备 Minecraft 服务器镜像与地图
 
@@ -93,7 +93,9 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
 
 ## 模型接入
 
-平台不计量、不限速、不转换模型请求。参赛容器怎样访问模型由运营者决定，下面两种都是正常用法：
+平台不转换模型请求，也不在转发或网关上限速。限速在参赛容器内的 Pi 扩展里做：设 `ARENA_COST_PER_HOUR`（美元／小时，按标价）后，花费超过上限时 Pi 的下一次模型请求会等待，模型在下一条平台消息里看到限额和等待时间，见 [Pi 扩展 README](../packages/pi-extension/README.md#spending-limit)。它只管 Pi 自己的请求，参赛者程序直接调模型不在内；要硬上限，在供应商那里给 key 设花费上限。模板把 `.env` 里的 `MODEL_COST_PER_HOUR` 传给每个参赛容器，留空就不限。
+
+参赛容器怎样访问模型由运营者决定，下面两种都是正常用法：
 
 | 方式                   | 参赛容器的设置                                                                              | 网络                                                               |
 | ---------------------- | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ |
@@ -104,12 +106,12 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
 
 [模型转发](../packages/model-relay/README.md)（`model-relay`）把收到的请求原样转发到一个基地址 `MODEL_UPSTREAM_URL`；设了 `MODEL_UPSTREAM_KEY` 时换上这个 key（`Authorization: Bearer`）。它就是参赛容器出网的白名单：参赛容器只能访问它，它只访问这一个主机。基地址下的任何路径都会转发，所以有 key 时参赛者也能用上游在那里提供的其他接口（文件、批处理等）；需要限制时，在上游那一层过滤。key 只在转发容器里。
 
-上游可以是官方 API，也可以是宿主机上的任何服务，地址写 `http://host.docker.internal:PORT/v1`（模板为 Linux 加了 `host-gateway` 映射，Docker Desktop 自带）。OAuth 转 API、计量和限速、代理链这些都在那一层做，不属于本项目。
+上游可以是官方 API，也可以是宿主机上的任何服务，地址写 `http://host.docker.internal:PORT/v1`（模板为 Linux 加了 `host-gateway` 映射，Docker Desktop 自带）。OAuth 转 API、代理链这些都在那一层做，不属于本项目。
 
-| 文件                                                             | 内容                                                                                                                                                      | 谁能读               |
-| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
-| [`model.example.json`](model.example.json)                       | 上游那个模型的公开描述：`id`、`api`（Pi 的接口类型）、`reasoning`、`input`、`contextWindow`、`maxOutputTokens`、可选 `compaction`。启动器据此生成 Pi 配置 | 参赛容器（只读挂载） |
-| `.env`（从 [`operator.env.example`](operator.env.example) 复制） | RCON 密码、模型地址和 key、游戏桥令牌、资源上限                                                                                                           | 只有 Compose         |
+| 文件                                                             | 内容                                                                                                                                                                                                            | 谁能读               |
+| ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
+| [`model.example.json`](model.example.json)                       | 上游那个模型的公开描述：`id`、`api`（Pi 的接口类型）、`reasoning`、`input`、`contextWindow`、`maxOutputTokens`、可选 `compaction` 和 `cost`（标价，美元／百万 token；设了限速就必须有）。启动器据此生成 Pi 配置 | 参赛容器（只读挂载） |
+| `.env`（从 [`operator.env.example`](operator.env.example) 复制） | RCON 密码、模型地址和 key、游戏桥令牌、资源上限                                                                                                                                                                 | 只有 Compose         |
 
 1. 在 `model.example.json` 里写定模型。上下文和输出上限只改这一个文件。
 2. 在 `.env` 里填 `MODEL_UPSTREAM_URL`（OpenAI 兼容的基地址，Pi 在后面接 `/chat/completions`）和可选的 `MODEL_UPSTREAM_KEY`。

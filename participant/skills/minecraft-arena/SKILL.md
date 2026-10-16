@@ -32,27 +32,27 @@ After `NoPath` or a stall, compare your position with the terrain. `node "$ARENA
 
 ## Find the right entry
 
-| You want to                                              | Start from                                                                                                                            |
-| -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Read position, inventory or exact blocks                 | [Query program](#query-program)                                                                                                       |
-| Walk to a coordinate                                     | [navigate.mjs](../../../examples/navigate.mjs)                                                                                        |
-| See the terrain as a picture                             | [screenshot.mjs](../../../examples/screenshot.mjs), see [Look at the world](#look-at-the-world)                                       |
-| Check local terrain and connectivity as numbers          | [summarize-terrain.mjs](../../../examples/summarize-terrain.mjs)                                                                      |
-| See which entities are near you                          | `examples/observe.mjs --full-entities`, or [entity-radar.mjs](../../../examples/entity-radar.mjs)                                     |
-| Find blocks seen earlier, also in unloaded chunks        | [query-block-memory.mjs](../../../examples/query-block-memory.mjs) and [BLOCK-MEMORY.md](../../../packages/bot-sdk/BLOCK-MEMORY.md)   |
-| Find the logs of one tree                                | `queryTreeCandidate` in `packages/observation/queries.mjs`, see the [observation README](../../../packages/observation/README.md)     |
-| Check that no entity blocks a placement                  | [inspect-placement-entities.mjs](../../../examples/inspect-placement-entities.mjs)                                                    |
-| Be told when something specific appears                  | [watch-surroundings.mjs](../../../examples/watch-surroundings.mjs), see [Listener beside a controller](#listener-beside-a-controller) |
-| Dig, place, equip, craft or chat                         | [Control program](#control-program) and the [SDK README](../../../packages/bot-sdk/README.md)                                         |
-| Open a chest and decide before taking items              | [Container in two steps](#container-in-two-steps)                                                                                     |
-| Eat while walking                                        | [navigate-with-autoeat.mjs](../../../examples/navigate-with-autoeat.mjs)                                                              |
-| Defend yourself while walking                            | [navigate-with-defense.mjs](../../../examples/navigate-with-defense.mjs)                                                              |
-| Fight a chosen entity                                    | [fight-target.mjs](../../../examples/fight-target.mjs)                                                                                |
-| Build and eat in one program                             | [build-with-autoeat.mjs](../../../examples/build-with-autoeat.mjs)                                                                    |
-| Report progress or ask yourself for a decision           | [Report from your programs](#report-from-your-programs) and the [inbox README](../../../packages/inbox/README.md)                     |
-| Change what the default observer reports                 | [Change the default observer](#change-the-default-observer)                                                                           |
-| Share code with teammates or call a model from a program | [TEAM.md](../../TEAM.md)                                                                                                              |
-| Avoid common control mistakes                            | [FAQ.md](../../FAQ.md)                                                                                                                |
+| You want to                                       | Start from                                                                                                                            |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Read position, inventory or exact blocks          | [Query program](#query-program)                                                                                                       |
+| Walk to a coordinate                              | [navigate.mjs](../../../examples/navigate.mjs)                                                                                        |
+| See the terrain as a picture                      | [screenshot.mjs](../../../examples/screenshot.mjs), see [Look at the world](#look-at-the-world)                                       |
+| Check local terrain and connectivity as numbers   | [summarize-terrain.mjs](../../../examples/summarize-terrain.mjs)                                                                      |
+| See which entities are near you                   | `examples/observe.mjs --full-entities`, or [entity-radar.mjs](../../../examples/entity-radar.mjs)                                     |
+| Find blocks seen earlier, also in unloaded chunks | [query-block-memory.mjs](../../../examples/query-block-memory.mjs) and [BLOCK-MEMORY.md](../../../packages/bot-sdk/BLOCK-MEMORY.md)   |
+| Find the logs of one tree                         | `queryTreeCandidate` in `packages/observation/queries.mjs`, see the [observation README](../../../packages/observation/README.md)     |
+| Check that no entity blocks a placement           | [inspect-placement-entities.mjs](../../../examples/inspect-placement-entities.mjs)                                                    |
+| Be told when something specific appears           | [watch-surroundings.mjs](../../../examples/watch-surroundings.mjs), see [Listener beside a controller](#listener-beside-a-controller) |
+| Dig, place, equip, craft or chat                  | [Control program](#control-program) and the [SDK README](../../../packages/bot-sdk/README.md)                                         |
+| Open a chest and decide before taking items       | [Container in two steps](#container-in-two-steps)                                                                                     |
+| Eat while walking                                 | [navigate-with-autoeat.mjs](../../../examples/navigate-with-autoeat.mjs)                                                              |
+| Defend yourself while walking                     | [navigate-with-defense.mjs](../../../examples/navigate-with-defense.mjs)                                                              |
+| Fight a chosen entity                             | [fight-target.mjs](../../../examples/fight-target.mjs)                                                                                |
+| Build and eat in one program                      | [build-with-autoeat.mjs](../../../examples/build-with-autoeat.mjs)                                                                    |
+| Report progress or ask yourself for a decision    | [Report from your programs](#report-from-your-programs) and the [inbox README](../../../packages/inbox/README.md)                     |
+| Change what the default observer reports          | [Change the default observer](#change-the-default-observer)                                                                           |
+| Share code with teammates                         | [TEAM.md](../../TEAM.md)                                                                                                              |
+| Avoid common control mistakes                     | [FAQ.md](../../FAQ.md)                                                                                                                |
 
 ## Program patterns
 
@@ -278,8 +278,8 @@ Without coordinates it frames 25×25 blocks around you, from 8 below to 16 above
 
 An observer you start yourself is an ordinary task, not a background one. While it runs you get no five-second continue prompt; only a finished task or an urgent report wakes you.
 
-## Clock, model calls and team
+## Clock and team
 
 - The session clock comes in platform messages. Programs can call `await bot.getSessionState()`. In an open session there is no time limit, so the clock only reports elapsed time.
-- A model request can take a while. Your programs keep running while you wait. See [TEAM.md](../../TEAM.md) for team Git and for calling a model from your own programs.
+- A model request can take a while. Your programs keep running while you wait. See [TEAM.md](../../TEAM.md) for team Git.
 - Common control mistakes are covered in [FAQ.md](../../FAQ.md).

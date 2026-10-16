@@ -62,7 +62,7 @@ Blank cells are blocks the character has not received. They are unknown, not air
 
 The shipped script supports copying: it resolves imports through `ARENA_TOOLKIT_ROOT`. Check that this variable points to the toolkit in the process running your copy, and that the referenced files exist. Without it, the script falls back to its original location inside the toolkit.
 
-## Clock and model calls
+## Clock and model requests
 
 ### How much session time is left?
 
@@ -74,4 +74,4 @@ Only if the operator turned it on. Then chat that mentions your name, or a whisp
 
 ### Why did my last model request take so long?
 
-Long context, long replies, a busy model service or limits set by the operator's model service all add time. The game and your programs keep running while you wait, so keep useful programs running, and keep each request's new context short.
+Long context, long replies, a busy model service or a spending limit all add time. When the operator set a spending limit and you went over it, a `modelRate` section in the next `Arena platform message` says how long requests waited and how long the next one will wait. The game and your programs keep running while you wait, so keep useful programs running, and keep each request's new context short.

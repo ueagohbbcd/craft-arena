@@ -90,8 +90,8 @@ services:
       - ./control:/control
       - ./replay-config:/replay-config
   # Each team's model relay forwards to one base URL and adds that team's key:
-  # an official API, or any forwarder on this Windows host (for example one that
-  # goes through the system proxy) at http://host.docker.internal:PORT/v1.
+  # an official API, or any forwarder on this Windows host at
+  # http://host.docker.internal:PORT/v1.
   model-red:
     <<: *common
     profiles: [agents]
@@ -121,6 +121,7 @@ services:
       ARENA_BRIDGE_URL: http://bridge-red1:8080
       ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://model-red:8080
+      ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.red.json
       TEAM_GIT_DIR: /team-git
       ARENA_WAIT_FOR_MATCH: '1'
@@ -136,6 +137,7 @@ services:
       ARENA_BRIDGE_URL: http://bridge-blue1:8080
       ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://model-blue:8080
+      ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.blue.json
       TEAM_GIT_DIR: /team-git
       ARENA_WAIT_FOR_MATCH: '1'

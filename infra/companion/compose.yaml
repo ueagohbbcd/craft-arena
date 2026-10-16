@@ -62,6 +62,7 @@ services:
       ARENA_BRIDGE_URL: http://bridge:8080
       ARENA_BRIDGE_TOKEN: ${COMPANION_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://model-relay:8080
+      ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.json
       TEAM_GIT_DIR: /team-git
       ARENA_CONTINUOUS_SESSION: "1"

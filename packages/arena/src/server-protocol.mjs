@@ -5,10 +5,10 @@ import { parseStorageReply, serializeSnbt } from "./snbt.mjs";
  * datapack or plugin only through these RCON commands. Shared by the
  * datapack judge, host-less bridges and scripts/verify-server-protocol.mjs.
  */
-export const PROTOCOL_VERSION = 1;
+const PROTOCOL_VERSION = 1;
 // Consecutive unreadable polls tolerated before the match ends `map-fault`.
 export const MAX_FAILED_POLLS = 3;
-export const REJECTED =
+const REJECTED =
   /Unknown or incomplete command|Incorrect argument|Unknown function|Unknown storage|Expected |Invalid |Can't |Cannot |Could not /i;
 
 /** Validated `arena:session` contents, or an error for a malformed one. */

@@ -15,7 +15,7 @@ import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { setTimeout as delay } from "node:timers/promises";
 
-export async function readStatus(dir, taskId) {
+async function readStatus(dir, taskId) {
   if (!/^[A-Za-z0-9-]+$/.test(taskId ?? ""))
     throw new Error("taskId must be a task ID");
   return JSON.parse(await readFile(join(dir, taskId, "status.json"), "utf8"));

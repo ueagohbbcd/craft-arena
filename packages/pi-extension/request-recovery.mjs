@@ -48,13 +48,13 @@ export function observeRpcOutput(
 export function isPermanentRequestError(message = "") {
   // Status numbers and words such as "unsupported" in arbitrary provider text
   // are not a diagnosis. In particular, a host end can reject a request with 403.
-  return /invalid api[ _-]?key|incorrect api[ _-]?key|api[ _-]?key (?:is )?(?:missing|not configured)|no api key|missing api key|insufficient_quota|(?:token|cash|model) budget exhausted|request exceeds maximum budget|model is not allowed|no model (?:selected|configured)|context[_ ]length[_ ]exceeded|context overflow|prompt (?:is )?too long/i.test(
+  return /invalid api[ _-]?key|incorrect api[ _-]?key|api[ _-]?key (?:is )?(?:missing|not configured)|no api key|missing api key|insufficient_quota|model is not allowed|no model (?:selected|configured)|context[_ ]length[_ ]exceeded|context overflow|prompt (?:is )?too long/i.test(
     message,
   );
 }
 
 const continueMessage = (reason) =>
-  `${reason === "length" ? "The previous response reached the output limit. Continue concisely from the saved state and choose the next executable step." : "The previous model request failed. Recheck the current state and continue with what the session briefing asks of you."} Existing tools or background programs may still be running: inspect their task IDs (arena-task list), wait on them with bash taskId or check observations as appropriate, and do not restart or repeat actions already submitted. Preserve successful work; do not assume an action failed merely because the model response ended.`;
+  `${reason === "length" ? "The previous response reached the output limit. Continue concisely and choose the next executable step." : "The previous model request failed. Recheck the current state and continue with what the session briefing asks of you."} Existing tools or background programs may still be running: inspect their task IDs (arena-task list), wait on them with bash taskId, or read the latest observer report or run examples/observe.mjs, as appropriate, and do not restart or repeat actions already submitted. Preserve successful work; do not assume an action failed merely because the model response ended.`;
 
 /** Recover failed/truncated requests only. Ordinary decision scheduling belongs to the extension. */
 export function createRequestRecovery({

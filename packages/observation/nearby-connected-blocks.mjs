@@ -1,4 +1,4 @@
-import { signSummary } from "./index.mjs";
+import { signSummary } from "./snapshot.mjs";
 
 /** Coarse observation connectivity, deliberately not optical or walkable space. */
 export function coarseBlockTransparency(block) {

@@ -3,7 +3,7 @@ import { mkdir, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /** Public session fields shown to the model in the opening prompt and in session.json. */
-export const briefingKeys = [
+const briefingKeys = [
   "kind",
   "sessionId",
   "matchId",
