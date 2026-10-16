@@ -57,6 +57,22 @@ test("sub-decimeter idle jitter does not create repeated reports", () => {
   assert.equal(c.next(s), null);
 });
 
+test("listed entity positions are rounded to 0.1 block in reports", () => {
+  const c = deliveredChanges(),
+    s = sample();
+  s.radar.entities = [
+    { id: 2, name: "zombie", position: { x: 1.23456, y: 64.0001, z: -3.98 } },
+  ];
+  const first = c.next(s);
+  assert.deepEqual(first.changes.radar.entities[0].position, {
+    x: 1.2,
+    y: 64,
+    z: -4,
+  });
+  s.radar.entities[0].position.x += 0.001;
+  assert.equal(c.next(s), null);
+});
+
 test("interval and sign producers retain their own delivery cadence", () => {
   const c = deliveredChanges(),
     s = sample();
