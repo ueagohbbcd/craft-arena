@@ -46,6 +46,7 @@ test("prepare writes arena:config, runs the prepare commands, then #arena:prepar
     "data remove storage arena:config briefing",
     "data remove storage arena:config runId",
     'data merge storage arena:config {version:1,kind:"match",teams:[{id:"red",players:["arena_red1"]},{id:"blue",players:["arena_blue1"]}],runId:"run-1",sessionId:"fixture",durationMs:60000,briefing:"Place your wool."}',
+    "data get storage arena:config",
     "gamerule doMobSpawning false",
     "function #arena:prepare",
   ]);
@@ -100,12 +101,36 @@ test("a missing datapack tag or a rejected config fails", async () => {
     /install the arena datapack/,
   );
   s.replies["function #arena:prepare"] = "Running function x:prepare";
+  s.config = "{}";
   for (const c of s.commands.splice(0))
     if (c.startsWith("data merge")) s.replies[c] = "Invalid tag";
   await assert.rejects(
     cli(s, ["prepare", "match.json"]),
-    /rejected arena:config/,
+    /arena:config was not written: .*sessionId/,
   );
+});
+
+test("another RCON client's output mixed into replies does not fail a run", async () => {
+  // Vanilla RCON shares one output buffer between connections, so a bridge's
+  // empty fence command can add its error to the CLI's reply.
+  const noise = "Unknown or incomplete command, see below for error<--[HERE]";
+  const s = fakeServer();
+  const merge = s.rcon().command;
+  const rcon = s.rcon();
+  rcon.command = async function (c) {
+    const reply = await merge.call(this, c);
+    if (c === "data get storage arena:config")
+      return `${noise}${reply}${noise}`;
+    return `${reply}${noise}`;
+  };
+  s.rcon = () => rcon;
+  s.commands.length = 0;
+  assert.deepEqual(await cli(s, ["prepare", "match.json"]), {
+    phase: "prepare",
+    sessionId: "fixture",
+    runId: "run-1",
+  });
+  assert.equal(s.commands.at(-1), "function #arena:prepare");
 });
 
 test("match files and arena:config values are checked", () => {

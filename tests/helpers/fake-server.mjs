@@ -6,7 +6,8 @@ export const storageReply = (id, snbt) =>
 /**
  * A fake server. Set `session` / `config` (SNBT, or null for a failed read),
  * `players` (a Set; answers `list`) and exact `replies`. `commands` records
- * every command plus "rcon-close"; `rcon` is an RconClient factory.
+ * every command plus "rcon-close"; `rcon` is an RconClient factory. A
+ * `data merge` into arena:config replaces `config` unless `replies` has it.
  */
 export function fakeServer({ commands = [] } = {}) {
   const s = {
@@ -37,8 +38,11 @@ export function fakeServer({ commands = [] } = {}) {
         return storageReply("arena:config", s.config);
       if (c === "data remove storage arena:config durationMs")
         return "Found no elements matching durationMs";
-      if (c.startsWith("data merge storage arena:config "))
+      if (c.startsWith("data merge storage arena:config ")) {
+        // Remove-then-merge replaces the whole compound in practice.
+        s.config = c.slice("data merge storage arena:config ".length);
         return "Modified storage arena:config";
+      }
       if (c.startsWith("function #arena:"))
         // Real 1.21.1 reply for a one-function tag.
         return `Running function example:${c.slice(16)}`;

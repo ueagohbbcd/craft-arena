@@ -7,6 +7,14 @@ const BARE = /^[A-Za-z0-9._+-]+$/;
 const NUMBER = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?([bslfd])?$/i;
 
 export function parseSnbt(text) {
+  const { value, end } = parseSnbtPrefix(text);
+  if (end !== text.length)
+    throw new SyntaxError(`SNBT trailing data at ${end}`);
+  return value;
+}
+
+/** Reads one SNBT value from the start of `text`; `end` is where it stopped. */
+export function parseSnbtPrefix(text) {
   if (typeof text !== "string") throw new TypeError("SNBT text required");
   let i = 0;
   const fail = (message) => {
@@ -107,8 +115,7 @@ export function parseSnbt(text) {
   };
   const result = value();
   space();
-  if (i !== text.length) fail("trailing data");
-  return result;
+  return { value: result, end: i };
 }
 
 const quote = (s) => `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
@@ -137,22 +144,29 @@ export function serializeSnbt(value) {
  * Reads the reply to `data get storage <id>`. Returns the stored compound, or
  * null when the storage holds nothing. Throws on any other reply (unknown
  * command, permission error, malformed SNBT).
+ *
+ * Vanilla RCON collects every client's command output in one buffer, so with
+ * several clients connected (bridges polling, the operator CLI) a reply can
+ * carry another command's text before or after this one. Only the
+ * `Storage <id> has the following contents: {...}` part is read.
  */
 export function parseStorageReply(reply, id) {
   const text = String(reply ?? "")
     .replace(/§./g, "")
     .trim();
   const marker = "has the following contents:";
-  const at = text.indexOf(marker);
+  const head = id ? `Storage ${id} ${marker}` : null;
+  const at = head ? text.indexOf(head) : text.indexOf(marker);
   if (at >= 0) {
-    const head = text.slice(0, at).trim();
-    if (id && head !== `Storage ${id}`)
-      throw new Error(`Reply is for another storage: ${head}`);
-    const value = parseSnbt(text.slice(at + marker.length).trim());
+    const start = at + (head ? head.length : marker.length);
+    const { value } = parseSnbtPrefix(text.slice(start));
     if (!value || typeof value !== "object" || Array.isArray(value))
       throw new Error("Storage contents are not a compound");
     return Object.keys(value).length ? value : null;
   }
-  if (/^Found no elements matching/.test(text)) return null;
+  if (/Found no elements matching/.test(text)) return null;
+  const other = /Storage (\S+) has the following contents:/.exec(text);
+  if (other)
+    throw new Error(`Reply is for another storage: Storage ${other[1]}`);
   throw new Error(`Unrecognised storage reply: ${text.slice(0, 200)}`);
 }

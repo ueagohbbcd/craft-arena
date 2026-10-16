@@ -7,8 +7,8 @@ import { parseStorageReply, serializeSnbt } from "./snbt.mjs";
  * scripts/verify-server-protocol.mjs.
  */
 const PROTOCOL_VERSION = 1;
-const REJECTED =
-  /Unknown or incomplete command|Incorrect argument|Unknown function|Unknown storage|Expected |Invalid |Can't |Cannot |Could not /i;
+// Optional arena:config keys, removed before each write so none is left over.
+const OPTIONAL_KEYS = ["durationMs", "briefing", "runId"];
 
 /** Validated `arena:session` contents, or an error for a malformed one. */
 export function readServerSession(reply) {
@@ -105,15 +105,30 @@ export async function writeServerConfig(rcon, config) {
   // `data modify` needs a path, so the root cannot be replaced in one
   // command: drop the optional keys a previous session may have left, then
   // merge (lists and scalars in the merge replace the old values).
-  for (const key of ["durationMs", "briefing", "runId"])
+  for (const key of OPTIONAL_KEYS)
     await rcon.command(`data remove storage arena:config ${key}`);
-  const reply = await rcon.command(
-    `data merge storage arena:config ${serializeSnbt(value)}`,
+  await rcon.command(`data merge storage arena:config ${serializeSnbt(value)}`);
+  // Vanilla RCON shares one output buffer between clients, so the merge
+  // reply may carry a bridge's text; read the storage back instead.
+  const written = JSON.parse(JSON.stringify(value));
+  const stored = (await readConfig(rcon)) ?? {};
+  const wrong = [
+    ...new Set([...Object.keys(written), ...OPTIONAL_KEYS]),
+  ].filter((key) => !same(stored[key], written[key]));
+  if (wrong.length)
+    throw new Error(`arena:config was not written: ${wrong.join(", ")} differ`);
+}
+
+/** Deep equality of parsed SNBT and JSON values, ignoring key order. */
+function same(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  const keys = Object.keys(a);
+  return (
+    keys.length === Object.keys(b).length &&
+    keys.every((k) => Object.hasOwn(b, k) && same(a[k], b[k]))
   );
-  if (REJECTED.test(reply))
-    throw new Error(
-      `Server rejected arena:config: ${String(reply).slice(0, 200)}`,
-    );
 }
 
 /**
@@ -138,29 +153,45 @@ export async function runCommands(rcon, list = []) {
   return replies;
 }
 
-/** Runs `#arena:<phase>`; throws when no datapack provides it. */
+/**
+ * Runs `#arena:<phase>`; throws when no datapack provides it. Other error
+ * text is not checked: with several RCON clients it may be another client's.
+ */
 export async function runPhase(rcon, phase) {
-  const reply = await rcon.command(`function #arena:${phase}`);
+  const reply = String(await rcon.command(`function #arena:${phase}`));
   // 1.21.1 answers "Can't find any functions for name arena:<phase>".
-  if (/Unknown function|Can't find any functions/i.test(reply))
+  if (
+    reply.includes(`Can't find any functions for name arena:${phase}`) ||
+    reply.includes(`Unknown function #arena:${phase}`)
+  )
     throw new Error(
       `Server has no #arena:${phase} function tag; install the arena datapack`,
     );
-  if (REJECTED.test(reply))
-    throw new Error(`Server rejected #arena:${phase}: ${reply.slice(0, 200)}`);
+}
+
+/**
+ * Reads a storage, trying up to three times: vanilla RCON clears its shared
+ * output buffer for each client's command, so another client can empty a
+ * reply before it is sent.
+ */
+async function readStorage(rcon, id, parse) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return parse(await rcon.command(`data get storage ${id}`));
+    } catch (error) {
+      if (attempt >= 3) throw error;
+    }
+  }
 }
 
 /** The validated `arena:session` (see readServerSession). */
-export async function readSession(rcon) {
-  return readServerSession(
-    await rcon.command("data get storage arena:session"),
-  );
+export function readSession(rcon) {
+  return readStorage(rcon, "arena:session", readServerSession);
 }
 
 /** The `arena:config` compound, or null when nobody wrote one. */
-export async function readConfig(rcon) {
-  return parseStorageReply(
-    await rcon.command("data get storage arena:config"),
-    "arena:config",
+export function readConfig(rcon) {
+  return readStorage(rcon, "arena:config", (reply) =>
+    parseStorageReply(reply, "arena:config"),
   );
 }
