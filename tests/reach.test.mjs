@@ -9,6 +9,13 @@ import {
   cellKind,
 } from "../packages/observation/reach.mjs";
 import { parseReachArgs } from "../examples/reach-map.mjs";
+import {
+  findRoute,
+  routeTable,
+  routeConfigs,
+  parseWaypoints,
+} from "../packages/observation/routes.mjs";
+import { parseRoutesArgs, configsFor } from "../examples/routes.mjs";
 import { parseProfileArgs } from "../examples/profile.mjs";
 
 const require = createRequire(import.meta.url);
@@ -326,4 +333,80 @@ test("reach-map and profile arguments", () => {
     target: { x: 10, z: -4 },
   });
   assert.throws(() => parseProfileArgs(["up"]), /Give X Z/);
+});
+
+test("route table connects places by walking and says what else a one-way pit needs", () => {
+  const blockAt = house();
+  const points = parseWaypoints({
+    yard: [0, 64, 0],
+    upstairs: { x: 5.5, y: 68, z: 0.5, note: "upper floor" },
+  });
+  assert.deepEqual(points[1], {
+    name: "upstairs",
+    x: 5,
+    y: 68,
+    z: 0,
+    note: "upper floor",
+  });
+  const walk = routeTable({
+    blockAt,
+    registry,
+    points,
+    configs: routeConfigs.slice(0, 1),
+  });
+  assert.match(walk.text, /^yard → upstairs: walk \d+$/m);
+  assert.match(walk.text, /^upstairs → yard: walk \d+$/m);
+  assert.equal(walk.pairs[0].results.walk.status, "ok");
+
+  const out = findRoute({
+    blockAt,
+    registry,
+    from: { x: -7, y: 61, z: 0 },
+    to: { x: 0, y: 64, z: 0 },
+  });
+  assert.equal(out.status, "none");
+  assert.ok(out.short > 0);
+  const placed = findRoute({
+    blockAt,
+    registry,
+    from: { x: -7, y: 61, z: 0 },
+    to: { x: 0, y: 64, z: 0 },
+    blocks: 16,
+  });
+  assert.equal(placed.status, "ok");
+  assert.ok(placed.placed > 0);
+
+  const pit = routeTable({
+    blockAt,
+    registry,
+    points: [
+      { name: "pit", x: -7, y: 61, z: 0 },
+      { name: "yard", x: 0, y: 64, z: 0 },
+    ],
+    configs: configsFor(16).filter((c) => c.name !== "dig"),
+    fromName: "pit",
+  });
+  assert.match(
+    pit.text,
+    /^pit → yard: walk none, closest .+ \| place \d+ \(\d+ placed\) \| gates none either$/m,
+  );
+});
+
+test("routes arguments", () => {
+  assert.deepEqual(
+    parseRoutesArgs(["--here", "--from", "here", "--blocks", "0"]),
+    {
+      file: "waypoints.json",
+      blocks: 0,
+      here: true,
+      from: "here",
+    },
+  );
+  assert.deepEqual(
+    configsFor(0).map((c) => c.name),
+    ["walk", "gates", "dig"],
+  );
+  assert.deepEqual(configsFor(8)[2].settings, { blocks: 8 });
+  assert.throws(() => parseRoutesArgs(["--fly"]), /Unknown argument/);
+  assert.throws(() => parseWaypoints([{ name: "a", x: 1 }]), /needs numbers/);
 });

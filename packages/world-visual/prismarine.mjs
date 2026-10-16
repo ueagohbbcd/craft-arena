@@ -413,3 +413,110 @@ export async function capturePrismarineSnapshot(
     }
   }
 }
+
+/** Compass corner names for the camera positions `viewDirection` accepts. */
+export const viewCorners = Object.freeze({
+  "+x+z": "south-east",
+  "-x+z": "south-west",
+  "-x-z": "north-west",
+  "+x-z": "north-east",
+});
+
+/**
+ * Several views of one snapshot stitched into one PNG, two per row, each
+ * labelled with the corner the camera looks from. Reuses one viewer and
+ * browser for all views. Returns `{imagePath, metadata}`; the metadata lists
+ * each view's camera.
+ */
+export async function capturePrismarineViews(
+  snapshot,
+  {
+    outputPath,
+    directions = Object.keys(viewCorners),
+    width = 480,
+    height = 360,
+    ...options
+  } = {},
+) {
+  if (!outputPath) throw new TypeError("outputPath is required");
+  if (!directions.length) throw new RangeError("give at least one direction");
+  const session = {};
+  const dir = await mkdtemp(join(tmpdir(), "arena-views-"));
+  try {
+    const views = [];
+    for (const [i, viewDirection] of directions.entries()) {
+      const { imagePath, metadata } = await capturePrismarineSnapshot(
+        snapshot,
+        {
+          ...options,
+          outputPath: join(dir, `view-${i}.png`),
+          width,
+          height,
+          viewDirection,
+          captureSession: session,
+        },
+      );
+      views.push({
+        viewDirection,
+        label: `from ${viewCorners[viewDirection] ?? viewDirection}`,
+        png: (await readFile(imagePath)).toString("base64"),
+        metadata,
+      });
+    }
+    const columns = Math.min(2, views.length);
+    const rows = Math.ceil(views.length / columns);
+    validateImageDimensions(width * columns, height * rows);
+    const stitched = await session.page.evaluate(
+      async ({ views, width, height, columns, rows }) => {
+        const canvas = document.createElement("canvas");
+        canvas.width = width * columns;
+        canvas.height = height * rows;
+        const ctx = canvas.getContext("2d");
+        for (const [i, v] of views.entries()) {
+          const image = new Image();
+          image.src = "data:image/png;base64," + v.png;
+          await image.decode();
+          const x = (i % columns) * width,
+            y = Math.floor(i / columns) * height;
+          ctx.drawImage(image, x, y, width, height);
+          ctx.strokeStyle = "#000";
+          ctx.lineWidth = 2;
+          ctx.strokeRect(x + 1, y + 1, width - 2, height - 2);
+          ctx.font = "bold 18px sans-serif";
+          const w = ctx.measureText(v.label).width;
+          ctx.fillStyle = "rgba(0,0,0,0.65)";
+          ctx.fillRect(x + 6, y + 6, w + 12, 26);
+          ctx.fillStyle = "#fff";
+          ctx.fillText(v.label, x + 12, y + 25);
+        }
+        return canvas.toDataURL("image/png").split(",")[1];
+      },
+      { views, width, height, columns, rows },
+    );
+    await mkdir(dirname(outputPath), { recursive: true });
+    await writeFile(outputPath, Buffer.from(stitched, "base64"));
+    const { camera, ...shared } = views[0].metadata;
+    const metadata = {
+      ...shared,
+      width: width * columns,
+      height: height * rows,
+      capture: "actual Chromium canvas screenshots, stitched",
+      views: views.map((v, i) => ({
+        label: v.label,
+        viewDirection: v.viewDirection,
+        column: i % columns,
+        row: Math.floor(i / columns),
+        camera: v.metadata.camera,
+      })),
+    };
+    await writeFile(
+      outputPath.replace(/\.png$/i, "") + ".json",
+      JSON.stringify(metadata, null, 2) + "\n",
+    );
+    return { imagePath: outputPath, metadata };
+  } finally {
+    await session.browser?.close();
+    await session.server?.close();
+    await rm(dir, { recursive: true, force: true });
+  }
+}

@@ -223,6 +223,16 @@ Grid characters: digits are feet height, `4` = the start's, one block per digit,
 
 `examples/reach-map.mjs` and `examples/profile.mjs` print them for your character and fill unloaded columns from block memory.
 
+Routes between named places come from [routes.mjs](routes.mjs), with Pathfinder's own search (`AStar` over the same `Movements`), so nothing moves:
+
+| Function                                                                                                       | Returns                                                                                                                                                               |
+| -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `findRoute({blockAt, registry, from, to, timeoutMs = 1000, ...switches})`                                      | `{status, steps, dug, placed, end, short}`: `ok`, `none` or `timeout`; arrival is the target's X and Z with feet within one block of its Y, as navigate.mjs counts it |
+| `routeTable({blockAt, registry, points, configs = routeConfigs, fromName, timeoutMs, budgetMs = 20000, base})` | `{pairs, text}`: every ordered pair under each config (`walk`, `gates`, `place` 16 blocks, `dig`), one line per pair, the other configs only where they beat walking  |
+| `parseWaypoints(json)`                                                                                         | `[{name, x, y, z, note?}]` from an array or a `{name: [x, y, z]}` object                                                                                              |
+
+`examples/routes.mjs` reads `waypoints.json` and prints the table for your character.
+
 ```js
 const { players, drops } = entityRadar(bot, { radius: 24 });
 ```

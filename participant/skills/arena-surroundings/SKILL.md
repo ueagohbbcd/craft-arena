@@ -24,7 +24,7 @@ node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"
 node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ
 ```
 
-Without coordinates it frames 25×25 blocks around you, from 8 below to 16 above your feet. With six coordinates it captures that box. It prints JSON with `imagePath`, `bounds`, `knownFraction` and `notes`. Read that JSON first, then open `imagePath` with `read`. Blank areas are blocks the character has not received, not air; `knownFraction` says how much of the box is known. Each picture costs render time and tokens, so use `blockAt`, `findBlocks` and block memory for exact coordinates.
+Without coordinates it frames 25×25 blocks around you, from 8 below to 16 above your feet. One angle hides what is behind a wall or under a floor: add `--views` (before the coordinates) to get the box from all four corners stitched into one image, each labelled with the corner it looks from, or `--views 2` for two opposite corners. The stitched image is 960×720, under twice the pixels of one 768×512 picture, and takes a few seconds longer; use it for broken ladders, stacked floors and enclosed rooms. With six coordinates it captures that box. It prints JSON with `imagePath`, `bounds`, `knownFraction` and `notes`. Read that JSON first, then open `imagePath` with `read`. Blank areas are blocks the character has not received, not air; `knownFraction` says how much of the box is known. Each picture costs render time and tokens, so use `blockAt`, `findBlocks` and block memory for exact coordinates.
 
 ## Change the default observer
 

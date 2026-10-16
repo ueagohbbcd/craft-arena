@@ -52,3 +52,40 @@ Look before you try again: `node "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" --
 3. Pathfinder has finished any digging or placing (`bot.pathfinder.isMining()` and `isBuilding()` are false).
 
 [navigate-with-autoeat.mjs](../../../examples/navigate-with-autoeat.mjs) waits for these, eats, and then sets the original goal again.
+
+## Waypoints and a route table
+
+Once you know how a place is laid out, write down a few representative footholds in `waypoints.json` in your working directory: one per floor of a building, a doorway, a bridge end, a resource spot. Use the feet position (the air cell you stand in), and add more places worth coming back to as you find them:
+
+```json
+[
+  {
+    "name": "castle 1F",
+    "x": 12,
+    "y": 64,
+    "z": -30,
+    "note": "inside the main door"
+  },
+  { "name": "castle 2F", "x": 14, "y": 69, "z": -28 },
+  { "name": "wheat door", "x": -5, "y": 64, "z": 8 }
+]
+```
+
+[routes.mjs](../../../examples/routes.mjs) searches between every pair with Pathfinder (nobody moves) and prints one line per pair:
+
+```sh
+node "$ARENA_TOOLKIT_ROOT/examples/routes.mjs"                 # all pairs in waypoints.json
+node "$ARENA_TOOLKIT_ROOT/examples/routes.mjs" --here --from here  # from where you stand to each place
+```
+
+```
+castle 1F ⇄ wheat door: walk 41
+castle 1F → castle 2F: walk none, closest 13 64 -29 (5 short) | place 9 (4 placed) | gates, dig none either
+```
+
+- Numbers are blocks of walking. `walk` moves like the reach map (parkour, no digging, no placing, gates closed).
+- `gates`, `place` (up to `--blocks`, 16 by default) and `dig` are listed only when they do better than walking. `none` means no route with those settings in the blocks your character has; `closest` is where the search got nearest.
+- A pair whose two directions differ is printed both ways: a one-way drop or a place you can enter but not leave.
+- Each search stops after `--timeout` ms (1000) and the table after `--budget` seconds (20); `--only a,b,c` limits it to some places.
+
+Keep the table's result in your notes rather than rerunning it, and run it again after the terrain changes (a bridge built, a ladder broken).
