@@ -1,14 +1,20 @@
 /**
- * Walkable reach around a point, computed from the blocks a program already
- * has: a flood fill over cells the character can stand in, stepping up one
- * block, dropping down up to `maxDrop` blocks (any depth into water), and
- * swimming. It is a picture of what walking can reach, not a route plan:
- * Pathfinder can also parkour, dig and place blocks.
+ * What walking can reach around a point, computed from the blocks a program
+ * already has. The reach map moves with Pathfinder's own movement rules
+ * (`Movements.getNeighbors`), so jumps, parkour, ladders and drops match what
+ * `bot.pathfinder` would do with the same settings. The profile and the
+ * "around you" summary use simpler walking rules of their own.
  *
  * Every function takes `blockAt(position)` returning a Prismarine-style block
- * (`name`, `shapes` or `boundingBox`, `known === false` for unreceived) or
- * null for an unknown cell, so it works on a live bot or a stored world.
+ * (`name`, `type`, `shapes`, `boundingBox`; `known === false` for unreceived)
+ * or null for an unknown cell, so it works on a live bot or a stored world.
  */
+import { createRequire } from "node:module";
+
+const require = createRequire(import.meta.url);
+const Movements = require("mineflayer-pathfinder/lib/movements");
+const Move = require("mineflayer-pathfinder/lib/move");
+const { Vec3 } = require("vec3");
 
 const airNames = new Set(["air", "cave_air", "void_air"]);
 const waterNames = new Set([
@@ -91,224 +97,567 @@ function settle(w, p) {
 }
 
 /**
- * Flood fill from `origin` within a square of `radius` around it.
- * Returns the reached cells (nearest layer per column first) with BFS steps.
+ * Pathfinder settings the reach map moves with. Defaults: parkour and
+ * sprint jumps on, no digging, no block placing, drops up to 4 blocks (any
+ * depth into water), fence gates treated as closed. Every one can be
+ * changed per call.
  */
-export function reachCells({
-  blockAt,
-  origin,
-  radius = 10,
-  maxDrop = 4,
-  maxWaterFall = 32,
-  maxCells = 20_000,
-}) {
-  if (!Number.isInteger(radius) || radius < 1 || radius > 48)
-    throw new RangeError("radius must be an integer from 1 to 48");
-  const w = world(blockAt);
-  const start = settle(w, origin);
-  const inside = (x, z) =>
-    Math.abs(x - start.x) <= radius && Math.abs(z - start.z) <= radius;
-  const reached = new Map(); // k3 -> {x,y,z,steps,medium}
-  const queue = [];
-  const startMedium = w.stand(start.x, start.y, start.z);
-  const push = (x, y, z, steps, medium) => {
-    const key = k3(x, y, z);
-    if (reached.has(key)) return;
-    const cell = { x, y, z, steps, medium };
-    reached.set(key, cell);
-    queue.push(cell);
-  };
-  push(start.x, start.y, start.z, 0, startMedium ?? "unsupported");
-  for (let i = 0; i < queue.length && reached.size < maxCells; i++) {
-    const c = queue[i];
-    // Swimming: rise or sink one block inside water.
-    if (c.medium === "water") {
-      for (const dy of [1, -1])
-        if (w.stand(c.x, c.y + dy, c.z))
-          push(c.x, c.y + dy, c.z, c.steps + 1, w.stand(c.x, c.y + dy, c.z));
-    }
-    for (const [, dx, dz] of DIRS) {
-      const x = c.x + dx,
-        z = c.z + dz;
-      if (!inside(x, z)) continue;
-      const same = w.stand(x, c.y, z);
-      if (same) {
-        push(x, c.y, z, c.steps + 1, same);
-        continue;
-      }
-      // Step up one block: needs head room above the current cell and ground that is not a fence top.
-      const up = w.stand(x, c.y + 1, z);
-      if (
-        up &&
-        w.free(c.x, c.y + 2, c.z) &&
-        (up === "water" || w.kind(x, c.y, z) !== "tall")
-      ) {
-        push(x, c.y + 1, z, c.steps + 1, up);
-        continue;
-      }
-      // Drop: the column must be free from head height down to the landing.
-      if (!w.free(x, c.y, z) || !w.free(x, c.y + 1, z)) continue;
-      for (let d = 1; d <= maxWaterFall; d++) {
-        const kind = w.kind(x, c.y - d, z);
-        if (kind === "unknown" || kind === "danger") break;
-        const landing = w.stand(x, c.y - d, z);
-        if (landing === "water" || (landing && d <= maxDrop)) {
-          push(x, c.y - d, z, c.steps + 1, landing);
-          break;
-        }
-        if (landing || !w.free(x, c.y - d, z)) break;
-      }
-    }
-  }
+export const reachDefaults = Object.freeze({
+  radius: 12,
+  steps: 24,
+  canDig: false,
+  allowParkour: true,
+  allowSprinting: true,
+  blocks: 0,
+  allow1by1towers: true,
+  maxDropDown: 4,
+  infiniteLiquidDropdownDistance: true,
+  canOpenDoors: false,
+});
+const movementKeys = [
+  "canDig",
+  "allowParkour",
+  "allowSprinting",
+  "allow1by1towers",
+  "maxDropDown",
+  "infiniteLiquidDropdownDistance",
+  "canOpenDoors",
+];
+
+/**
+ * The bot Pathfinder's Movements needs, over `blockAt`. Each read returns a
+ * fresh wrapper with a position, because Movements writes fields onto the
+ * blocks it is given.
+ */
+function pathfinderBot({ registry, blockAt, minY }) {
+  const cache = new Map();
   return {
-    start,
-    startMedium,
-    radius,
-    maxDrop,
-    reached: [...reached.values()],
-    world: w,
+    registry,
+    game: { minY },
+    entity: { effects: {} },
+    entities: {},
+    inventory: { items: () => [] },
+    pathfinder: { bestHarvestTool: () => null },
+    blockAt(p) {
+      const key = k3(p.x, p.y, p.z);
+      let base = cache.get(key);
+      if (base === undefined) {
+        const b = blockAt({ x: p.x, y: p.y, z: p.z });
+        base =
+          b && b.known !== false
+            ? Object.assign(Object.create(b), {
+                position: new Vec3(p.x, p.y, p.z),
+              })
+            : null;
+        cache.set(key, base);
+      }
+      return base && Object.create(base);
+    },
   };
 }
 
-const heightChars = "0123456789abcdefghijklmnopqrstuvwxyz";
+/** Pathfinder's start cell for a position: floored, one up when standing on a partial block. */
+function startCell(moves, origin) {
+  const p = {
+    x: Math.floor(origin.x),
+    y: Math.floor(origin.y),
+    z: Math.floor(origin.z),
+  };
+  const here = moves.bot.blockAt(p);
+  if (here && origin.y - p.y > 0.001 && !moves.emptyBlocks.has(here.type))
+    p.y++;
+  for (let d = 0; d <= 3; d++) {
+    const q = { ...p, y: p.y - d };
+    if (standing(moves, q)) return q;
+  }
+  return p;
+}
+/** land, water, built (a block would be placed under it) or null for a ladder cell or other mid-air step. */
+function standing(moves, n, move = null) {
+  if (moves.getBlock(n, 0, 0, 0).liquid) return "water";
+  const below = moves.getBlock(n, 0, -1, 0);
+  if (below.physical && !below.climbable) return "land";
+  if (move?.toPlace?.length) return "built";
+  return null;
+}
 
 /**
- * Render the reach as a text grid, north up, one character per column,
- * cells separated by spaces so each cell is one token and the cell above is
- * a fixed distance back. Exact facts (coordinates, steps, exits) are listed
- * below the grid so nothing depends on counting columns.
+ * Every cell Pathfinder can move through inside the square of `radius`
+ * around `origin`, with the walking distance to each (one per block
+ * walked, at least one per move), and which of them have a way back.
+ * Moves come from Pathfinder's own `Movements.getNeighbors`, so jumps,
+ * parkour, ladders, fences and drops follow Pathfinder's rules.
+ */
+export function reachGraph({
+  blockAt,
+  registry,
+  origin,
+  minY = -64,
+  maxNodes = 40_000,
+  ...settings
+}) {
+  if (!registry) throw new TypeError("reachGraph needs a registry");
+  const s = { ...reachDefaults, ...settings };
+  if (!Number.isInteger(s.radius) || s.radius < 2 || s.radius > 20)
+    throw new RangeError("radius must be an integer from 2 to 20");
+  if (!Number.isFinite(s.steps) || s.steps < 1 || s.steps > 80)
+    throw new RangeError("steps must be from 1 to 80");
+  const moves = new Movements(pathfinderBot({ registry, blockAt, minY }));
+  for (const key of movementKeys) moves[key] = s[key];
+  if (!s.blocks) moves.allow1by1towers = false;
+  const start = startCell(moves, origin);
+  const inside = (p) =>
+    Math.abs(p.x - start.x) <= s.radius &&
+    Math.abs(p.z - start.z) <= s.radius &&
+    Math.abs(p.y - start.y) <= 32;
+
+  const nodes = new Map(); // hash -> node
+  const node = (x, y, z, kind) => {
+    const hash = k3(x, y, z);
+    let n = nodes.get(hash);
+    if (!n) {
+      n = { x, y, z, hash, kind, dist: Infinity, out: [], back: false };
+      nodes.set(hash, n);
+    }
+    return n;
+  };
+  const first = node(start.x, start.y, start.z, standing(moves, start));
+  first.dist = 0;
+  first.remaining = s.blocks;
+  const heap = new Heap((a, b) => a[0] - b[0]);
+  heap.push([0, first]);
+  let truncated = false;
+  while (heap.size) {
+    const [d, n] = heap.pop();
+    if (d > n.dist || n.done) continue;
+    n.done = true;
+    if (nodes.size >= maxNodes) {
+      truncated = true;
+      break;
+    }
+    const from = new Move(n.x, n.y, n.z, n.remaining, 0);
+    for (const m of moves.getNeighbors(from)) {
+      if (!inside(m)) {
+        n.leaves = true;
+        continue;
+      }
+      const t = node(m.x, m.y, m.z, standing(moves, m, m));
+      if (t.kind === null && standing(moves, m, m)) t.kind = "built";
+      n.out.push(t);
+      const nd = d + Math.max(1, Math.hypot(m.x - n.x, m.z - n.z));
+      if (nd < t.dist) {
+        t.dist = nd;
+        t.remaining = m.remainingBlocks;
+        heap.push([nd, t]);
+      }
+    }
+  }
+  // Which cells can walk back to the start: search the moves backwards.
+  const into = new Map();
+  for (const n of nodes.values())
+    for (const t of n.out) {
+      const list = into.get(t.hash);
+      if (list) list.push(n);
+      else into.set(t.hash, [n]);
+    }
+  first.back = true;
+  const queue = [first];
+  for (let i = 0; i < queue.length; i++)
+    for (const n of into.get(queue[i].hash) ?? [])
+      if (!n.back) {
+        n.back = true;
+        queue.push(n);
+      }
+  return { start: first, nodes, moves, settings: s, truncated };
+}
+
+/** A small binary heap. */
+class Heap {
+  constructor(less) {
+    this.less = less;
+    this.items = [];
+  }
+  get size() {
+    return this.items.length;
+  }
+  push(item) {
+    const a = this.items;
+    a.push(item);
+    for (let i = a.length - 1; i > 0;) {
+      const p = (i - 1) >> 1;
+      if (this.less(a[i], a[p]) >= 0) break;
+      [a[i], a[p]] = [a[p], a[i]];
+      i = p;
+    }
+  }
+  pop() {
+    const a = this.items;
+    const top = a[0],
+      last = a.pop();
+    if (a.length) {
+      a[0] = last;
+      for (let i = 0; ;) {
+        const l = 2 * i + 1,
+          r = l + 1;
+        let m = i;
+        if (l < a.length && this.less(a[l], a[m]) < 0) m = l;
+        if (r < a.length && this.less(a[r], a[m]) < 0) m = r;
+        if (m === i) break;
+        [a[i], a[m]] = [a[m], a[i]];
+        i = m;
+      }
+    }
+    return top;
+  }
+}
+
+const twoWayDigits = "0123456789";
+const oneWayLetters = "abcdefghij";
+/** Height relative to the start as one character: 4 is the start's height. */
+function heightChar(dy, chars) {
+  if (dy > 5) return "^";
+  if (dy < -4) return "_";
+  return chars[dy + 4];
+}
+const yesNo = (on, yes, no) => (on ? yes : no);
+
+/**
+ * Render the reach as a text grid, north up. Cells are separated by two
+ * spaces and every row ends with two spaces, so with common tokenizers each
+ * cell costs the same and the cell above sits a fixed distance back.
+ *
+ * Shown by default: cells within `steps` blocks of walking that also have a
+ * way back. Cells you can drop to but not walk back from show as `v` (or,
+ * with `oneWayHeights`, as letters a-j on the same scale as the digits).
+ * Each column shows one floor: the floor reached by a single move from a
+ * cell already drawn, preferring the smallest height change, then the
+ * shortest walk. Other floors are marked `<` / `>` where you reach them and
+ * listed below the grid. Rows and columns at the map edge with nothing
+ * reachable are cut off, keeping one line of what stops you.
  */
 export function reachMap({
   blockAt,
+  registry,
   origin,
-  radius = 10,
-  maxDrop = 4,
   target = null,
+  oneWayHeights = false,
+  minY = -64,
+  ...settings
 }) {
-  const r = reachCells({ blockAt, origin, radius, maxDrop });
-  const { start, reached, world: w } = r;
-  const layers = new Map(); // k2 -> reached cells, nearest first
-  for (const c of reached) {
-    const list = layers.get(k2(c.x, c.z));
-    if (list) list.push(c);
-    else layers.set(k2(c.x, c.z), [c]);
+  const g = reachGraph({ blockAt, registry, origin, minY, ...settings });
+  const { start, nodes, moves, settings: s } = g;
+  const near = (n) => n.dist <= s.steps;
+  const drawable = (n) => n.kind !== null && near(n);
+
+  // Claim one floor per column.
+  const shown = new Map(); // k2 -> node
+  const claim = (seeds, allowed) => {
+    const heap = new Heap((a, b) => a[0] - b[0] || a[1] - b[1]);
+    for (const n of seeds) heap.push([0, n.dist, n]);
+    while (heap.size) {
+      const [, , n] = heap.pop();
+      const key = k2(n.x, n.z);
+      if (shown.has(key)) continue;
+      shown.set(key, n);
+      for (const t of n.out)
+        if (allowed(t) && !shown.has(k2(t.x, t.z)))
+          heap.push([Math.abs(t.y - n.y), t.dist, t]);
+    }
+  };
+  const claimAll = (allowed, firstSeeds) => {
+    claim(firstSeeds, allowed);
+    // Floors reached only through cells not drawn (ladders, other floors).
+    for (;;) {
+      let seed = null;
+      for (const n of nodes.values())
+        if (
+          allowed(n) &&
+          !shown.has(k2(n.x, n.z)) &&
+          (!seed || n.dist < seed.dist)
+        )
+          seed = n;
+      if (!seed) break;
+      claim([seed], allowed);
+    }
+  };
+  const twoWay = (n) => drawable(n) && n.back;
+  const oneWay = (n) => drawable(n) && !n.back;
+  shown.set(k2(start.x, start.z), start);
+  claim(
+    start.out.filter((t) => twoWay(t) && !shown.has(k2(t.x, t.z))),
+    twoWay,
+  );
+  claimAll(twoWay, []);
+  claimAll(
+    oneWay,
+    [...shown.values()].flatMap((n) => n.out.filter(oneWay)),
+  );
+  const isShown = (n) => shown.get(k2(n.x, n.z)) === n;
+
+  // Ways to floors that are not this column's drawn cell: directly, or through ladder cells.
+  const exits = new Map(); // shown node -> [{to, up}]
+  for (const n of shown.values()) {
+    const found = [];
+    const seen = new Set([n.hash]);
+    const walk = [...n.out.map((t) => [t, false])];
+    while (walk.length) {
+      const [t, via] = walk.pop();
+      if (seen.has(t.hash)) continue;
+      seen.add(t.hash);
+      if (t.kind === null) {
+        if (near(t)) for (const u of t.out) walk.push([u, true]);
+      } else if (drawable(t) && t.kind !== "water" && (via || !isShown(t)))
+        found.push({
+          to: t,
+          // Level with this cell: up or down from the floor drawn in its column.
+          up:
+            t.y > n.y ||
+            (t.y === n.y && (shown.get(k2(t.x, t.z))?.y ?? t.y) < t.y),
+        });
+    }
+    if (found.length) exits.set(n, found);
   }
-  const shown = new Map([...layers].map(([k, list]) => [k, list[0]]));
-  const ys = [...shown.values()].map((c) => c.y);
-  const landYs = [...shown.values()]
-    .filter((c) => c.medium === "land")
-    .map((c) => c.y);
-  const baseY = Math.min(...(landYs.length ? landYs : ys));
+
   const t = target
     ? Object.fromEntries(["x", "y", "z"].map((a) => [a, Math.floor(target[a])]))
     : null;
 
-  const classifyUnreached = (x, z) => {
-    // Reference height: a reached orthogonal neighbor, else the start.
-    let ref = start.y;
+  // Crop to the cells with a way back (all drawn cells with oneWayHeights),
+  // plus one line around them: one-way cells are only filler otherwise.
+  const kept = [...shown.values()].filter((n) => oneWayHeights || n.back);
+  const xs = kept.map((n) => n.x).concat(t ? [t.x] : []);
+  const zs = kept.map((n) => n.z).concat(t ? [t.z] : []);
+  const clip = (v, c) => Math.max(c - s.radius, Math.min(c + s.radius, v));
+  const x0 = clip(Math.min(...xs) - 1, start.x),
+    x1 = clip(Math.max(...xs) + 1, start.x),
+    z0 = clip(Math.min(...zs) - 1, start.z),
+    z1 = clip(Math.max(...zs) + 1, start.z);
+
+  // Reference height for undrawn cells: the nearest drawn column.
+  const ref = new Map();
+  const front = [...shown.values()].map((n) => [n.x, n.z, n.y]);
+  for (const [x, z, y] of front) ref.set(k2(x, z), y);
+  for (let i = 0; i < front.length; i++) {
+    const [x, z, y] = front[i];
     for (const [, dx, dz] of DIRS) {
-      const n = shown.get(k2(x + dx, z + dz));
-      if (n) {
-        ref = n.y;
-        break;
-      }
+      const key = k2(x + dx, z + dz);
+      if (x + dx < x0 || x + dx > x1 || z + dz < z0 || z + dz > z1) continue;
+      if (ref.has(key)) continue;
+      ref.set(key, y);
+      front.push([x + dx, z + dz, y]);
     }
-    const feet = w.kind(x, ref, z),
-      head = w.kind(x, ref + 1, z);
-    if (feet === "unknown" || head === "unknown") return "?";
-    if (feet === "danger" || w.kind(x, ref - 1, z) === "danger") return "!";
-    if (
-      feet === "tall" ||
-      (feet === "solid" && head !== "open" && head !== "water")
-    )
-      return "x";
-    for (let dy = 1; dy >= -maxDrop; dy--)
-      if (w.stand(x, ref + dy, z)) return "·";
-    if (feet === "solid") return "x"; // a one-block step that cannot be climbed from here (no head room)
-    return "O"; // free at feet and head, no ground within maxDrop: a deep drop or void
+  }
+  const unknown = (b) => !b.position;
+  const hurts = (b) => moves.blocksToAvoid.has(b.type);
+  const undrawn = (x, z) => {
+    const p = { x, y: ref.get(k2(x, z)) ?? start.y, z };
+    const feet = moves.getBlock(p, 0, 0, 0),
+      head = moves.getBlock(p, 0, 1, 0);
+    if (unknown(feet) || unknown(head)) return "?";
+    if (hurts(feet) || hurts(head)) return "!";
+    if (!feet.safe || !head.safe) {
+      let h = 0;
+      while (h < 6 && !moves.getBlock(p, 0, h, 0).safe) h++;
+      return h >= 4 ? "X" : "x";
+    }
+    for (let d = 1; d <= s.maxDropDown + 1; d++) {
+      const b = moves.getBlock(p, 0, -d, 0);
+      if (unknown(b)) return "?";
+      if (hurts(b)) return "!";
+      if (b.liquid) return "~";
+      if (b.physical) return d <= s.maxDropDown + 1 ? "·" : "O";
+      if (!b.safe) break;
+    }
+    return "O";
   };
-
+  const cellChar = (n) => {
+    if (n.kind === "water") return "~";
+    const e = exits.get(n);
+    if (n.back && e) return e.some((x) => x.up) ? "<" : ">";
+    if (!n.back && !oneWayHeights) return "v";
+    return heightChar(n.y - start.y, n.back ? twoWayDigits : oneWayLetters);
+  };
   const rows = [];
-  for (let z = start.z - radius; z <= start.z + radius; z++) {
+  for (let z = z0; z <= z1; z++) {
     const cells = [];
-    for (let x = start.x - radius; x <= start.x + radius; x++) {
-      let ch;
-      const c = shown.get(k2(x, z));
-      if (x === start.x && z === start.z) ch = "@";
-      else if (t && x === t.x && z === t.z) ch = "T";
-      else if (c)
-        ch = c.medium === "water" ? "~" : (heightChars[c.y - baseY] ?? "^");
-      else ch = classifyUnreached(x, z);
-      cells.push(ch);
+    for (let x = x0; x <= x1; x++) {
+      const n = shown.get(k2(x, z));
+      if (x === start.x && z === start.z) cells.push("@");
+      else if (t && x === t.x && z === t.z) cells.push("T");
+      else cells.push(n ? cellChar(n) : undrawn(x, z));
     }
-    rows.push(`${cells.join(" ")}  z=${z}`);
+    rows.push(cells);
   }
 
-  // Exact facts.
-  const edges = {};
-  for (const [name, dx, dz] of DIRS) {
-    const open = [...shown.values()].filter((c) =>
-      dx ? c.x === start.x + dx * radius : c.z === start.z + dz * radius,
-    );
-    if (open.length) {
-      const along = open.map((c) => (dx ? c.z : c.x)).sort((a, b) => a - b);
-      edges[name] =
-        `${dx ? "z" : "x"} ${along[0]}..${along.at(-1)} (${open.length} cells)`;
-    }
-  }
-  const unknownFrontier = [...shown.values()].filter((c) =>
-    DIRS.some(([, dx, dz]) => w.kind(c.x + dx, c.y, c.z + dz) === "unknown"),
-  ).length;
-  // Another floor, not the next cell of the same water column.
-  const multi = [...layers.values()]
-    .map((l) => [l[0], l.find((c) => Math.abs(c.y - l[0].y) > 2)])
-    .filter(([, other]) => other);
-  let targetLine = null;
+  // Exact facts below the grid.
+  const at = (n) => `(${n.x},${n.y},${n.z})`;
+  const rel = (dy) =>
+    dy === 0 ? "your height" : dy > 0 ? `${dy} above you` : `${-dy} below you`;
+  const walked = (n) => `${Math.round(n.dist)} blocks of walking`;
+  const facts = [];
+  const land = [...shown.values()].filter((n) => n.kind !== "water");
+  const drawnTwo = land.filter((n) => n.back).length;
+  const drawnOne = land.length - drawnTwo;
+  facts.push(
+    `Drawn: ${drawnTwo} cells you can walk to and back${drawnOne ? `, ${drawnOne} one-way` : ""}${shown.size > land.length ? `, ${shown.size - land.length} water` : ""}.`,
+  );
   if (t) {
-    const hit = reached.find(
-      (c) => c.x === t.x && c.z === t.z && Math.abs(c.y - t.y) <= 1,
-    );
+    const hit = [...nodes.values()]
+      .filter(
+        (n) =>
+          n.kind !== null &&
+          n.x === t.x &&
+          n.z === t.z &&
+          Math.abs(n.y - t.y) <= 1 &&
+          n.dist < Infinity,
+      )
+      .sort((a, b) => a.dist - b.dist)[0];
+    const outside =
+      Math.abs(t.x - start.x) > s.radius || Math.abs(t.z - start.z) > s.radius;
     if (hit)
-      targetLine = `target (${t.x},${t.y},${t.z}): reachable on foot, ${hit.steps} steps`;
+      facts.push(
+        `Target (${t.x},${t.y},${t.z}): reachable, ${walked(hit)}, ${rel(hit.y - start.y)}, ${hit.back ? "with a way back" : "one-way: no way back found"}${near(hit) ? "" : " (beyond the drawn walking limit)"}.`,
+      );
     else {
       let best = null;
-      for (const c of reached) {
-        const d = Math.hypot(c.x - t.x, c.y - t.y, c.z - t.z);
-        if (!best || d < best.d) best = { c, d };
+      for (const n of shown.values()) {
+        const d = Math.hypot(n.x - t.x, n.y - t.y, n.z - t.z);
+        if (!best || d < best.d) best = { n, d };
       }
-      targetLine = `target (${t.x},${t.y},${t.z}): not reached on foot inside the map; closest reached cell (${best.c.x},${best.c.y},${best.c.z}), ${best.d.toFixed(1)} blocks from it, ${best.c.steps} steps from you`;
+      facts.push(
+        `Target (${t.x},${t.y},${t.z}): ${outside ? "outside the map" : "not reachable inside the map"}; closest drawn cell ${at(best.n)}, ${best.d.toFixed(1)} blocks from it, ${walked(best.n)}.`,
+      );
     }
   }
-  const lines = [
-    `Walkable reach from (${start.x},${start.y},${start.z})${r.startMedium ? "" : " (not standing on ground)"}, ${2 * radius + 1}×${2 * radius + 1} columns.`,
-    `North is up. Columns run x=${start.x - radius}..${start.x + radius} left to right; each row ends with its z.`,
-    `Numbers and letters: feet height above y=${baseY} (0-9, then a-z). @ you, T target, ~ reachable water, x wall or fence (cannot step over), O drop deeper than ${maxDrop} or void, · ground you cannot walk to from here, ! lava/fire/cactus, ? not received.`,
-    "",
-    ...rows,
-    "",
-    `Reached ${shown.size} columns, feet y ${baseY}..${Math.max(...ys)}.`,
-    `Open at map edge: ${
-      Object.entries(edges)
-        .map(([d, s]) => `${d} ${s}`)
-        .join("; ") || "none"
-    }.`,
-    unknownFrontier
-      ? `${unknownFrontier} reached cells border unreceived blocks (?); the area may continue there.`
-      : null,
-    multi.length
-      ? `${multi.length} columns are also reachable at another height (map shows the nearest by walking), e.g. (${multi[0][1].x},${multi[0][1].y},${multi[0][1].z}).`
-      : null,
-    targetLine,
-    "Walking only: Pathfinder can also jump gaps, dig and place blocks, so it may reach places this map does not.",
-  ].filter((line) => line !== null);
+  // Where the reachable area goes on past the map.
+  const sides = { north: [], east: [], south: [], west: [] };
+  let limit = 0;
+  for (const n of shown.values()) {
+    if (!n.back) continue;
+    if (n.leaves) {
+      if (n.z - start.z <= -s.radius) sides.north.push(n.x);
+      if (n.z - start.z >= s.radius) sides.south.push(n.x);
+      if (n.x - start.x >= s.radius) sides.east.push(n.z);
+      if (n.x - start.x <= -s.radius) sides.west.push(n.z);
+    }
+    if (n.out.some((u) => u.kind !== null && !near(u))) limit++;
+  }
+  const edgeText = Object.entries(sides)
+    .filter(([, v]) => v.length)
+    .map(
+      ([side, v]) =>
+        `${side} at ${side === "north" || side === "south" ? "x" : "z"} ${Math.min(...v)}..${Math.max(...v)}`,
+    );
+  if (edgeText.length)
+    facts.push(`Continues past the map edge: ${edgeText.join("; ")}.`);
+  if (limit)
+    facts.push(
+      `${limit} drawn cells lead on past the ${s.steps}-block walking limit (shown as ·).`,
+    );
+  const frontier = [...shown.values()].filter((n) =>
+    DIRS.some(([, dx, dz]) => unknown(moves.getBlock(n, dx, 0, dz))),
+  ).length;
+  if (frontier)
+    facts.push(
+      `${frontier} drawn cells border blocks not received (?); the area may continue there.`,
+    );
+
+  // Floors not drawn, grouped into connected areas.
+  const groups = (members) => {
+    const left = new Set(members);
+    const out = [];
+    const link = new Map();
+    for (const n of members)
+      for (const u of n.out)
+        if (left.has(u)) {
+          (link.get(n) ?? link.set(n, []).get(n)).push(u);
+          (link.get(u) ?? link.set(u, []).get(u)).push(n);
+        }
+    for (const n of members) {
+      if (!left.has(n)) continue;
+      left.delete(n);
+      const area = [n];
+      for (let i = 0; i < area.length; i++)
+        for (const u of link.get(area[i]) ?? [])
+          if (left.has(u)) {
+            left.delete(u);
+            area.push(u);
+          }
+      out.push(area);
+    }
+    return out.sort((a, b) => b.length - a.length);
+  };
+  const entrancesTo = (area) => {
+    const set = new Set(area);
+    return [...exits]
+      .filter(([, list]) => list.some((e) => set.has(e.to)))
+      .map(([n]) => n)
+      .sort((a, b) => climbs(b) - climbs(a) || a.dist - b.dist);
+  };
+  // A ladder foot (a climb straight up its own column) is the clearest entrance.
+  const climbs = (n) =>
+    n.out.some((u) => u.kind === null && u.x === n.x && u.z === n.z) ? 1 : 0;
+  const span = (area) => {
+    const ys = area.map((n) => n.y - start.y);
+    const lo = Math.min(...ys),
+      hi = Math.max(...ys);
+    return lo === hi ? rel(lo) : `${lo}..${hi} relative to you`;
+  };
+  const hidden = [...nodes.values()].filter(
+    (n) =>
+      n.kind !== null && n.kind !== "water" && near(n) && n.back && !isShown(n),
+  );
+  const floors = groups(hidden).filter((a) => a.length >= 2);
+  for (const area of floors.slice(0, 4)) {
+    const doors = entrancesTo(area);
+    const lowest = [...area].sort((a, b) => a.dist - b.dist)[0];
+    facts.push(
+      `Floor not drawn: ${area.length} cells, ${span(area)}, ${doors.length ? `reached from ${doors.slice(0, 3).map(at).join(", ")}` : "reached through other floors"}; see it with --from ${lowest.x} ${lowest.y} ${lowest.z}.`,
+    );
+  }
+  if (floors.length > 4)
+    facts.push(`${floors.length - 4} more floors not drawn.`);
+  const oneWays = groups(
+    [...nodes.values()].filter((n) => oneWay(n) && n.kind !== "water"),
+  );
+  for (const area of oneWays.slice(0, 4)) {
+    const set = new Set(area);
+    const doors = [...nodes.values()].filter(
+      (n) => n.back && near(n) && n.out.some((u) => set.has(u)),
+    );
+    const open = area.some(
+      (n) => n.leaves || n.out.some((u) => !near(u) && u.kind !== null),
+    );
+    facts.push(
+      `One-way area: ${area.length} cells, ${span(area)}${doors.length ? `, entered from ${doors.slice(0, 3).map(at).join(", ")}` : ""}; no way back to you inside the map${open ? ", but it continues past the map" : ""}.`,
+    );
+  }
+  if (oneWays.length > 4)
+    facts.push(`${oneWays.length - 4} more one-way areas.`);
+  if (g.truncated)
+    facts.push(`Stopped after ${nodes.size} cells; the map may be incomplete.`);
+
+  const moveText = [
+    yesNo(s.allowParkour, "parkour on", "no parkour"),
+    yesNo(s.canDig, "digging on", "no digging"),
+    s.blocks ? `placing up to ${s.blocks} blocks` : "no placing",
+    `drops up to ${s.maxDropDown}${s.infiniteLiquidDropdownDistance ? " (any depth into water)" : ""}`,
+    yesNo(s.canOpenDoors, "opens fence gates", "doors and gates closed"),
+  ].join(", ");
+  const header = [
+    `Reach from ${at(start)}${start.kind ? "" : " (not standing on ground)"}, moving like Pathfinder: ${moveText}.`,
+    `Places within ${s.steps} blocks of walking${oneWayHeights ? "" : " that you can walk back from"}. North is up. First row z=${z0}, +1 per row; first column x=${x0}, +1 per column; ${x1 - x0 + 1}×${z1 - z0 + 1}.`,
+    `Digits: feet height, 4 = yours (y=${start.y}), one block per digit, ^ more than 5 above, _ more than 4 below. ${oneWayHeights ? "Letters a-j: the same heights for one-way cells (dropped to, no way back). " : "v: one-way, you can get there but not back. "}@ you, T target, ~ water, < > way up or down to a floor not drawn here, x wall or fence under 4 high, X wall 4+ high, O drop over ${s.maxDropDown} or void, · ground not reached, ! lava or fire, ? not received.`,
+  ];
+  const grid = rows.map((cells) => `${cells.join("  ")}  `);
   return {
-    text: lines.join("\n"),
+    text: [...header, "", ...grid, "", ...facts].join("\n"),
+    rows,
+    x0,
+    z0,
     start,
-    baseY,
-    reachedColumns: shown.size,
-    edges,
-    unknownFrontier,
-    target: targetLine,
+    shown: shown.size,
+    facts,
   };
 }
 

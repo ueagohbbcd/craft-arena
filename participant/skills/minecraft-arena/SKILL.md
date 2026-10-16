@@ -26,14 +26,14 @@ Pick a destination from the briefing and what you have observed. Then call `bash
 - If the character moves less than one block in 30 seconds, or the trip takes longer than 120 seconds, it sends one urgent `route.review` report and keeps walking. The report includes a terrain summary and asks whether to keep waiting or cancel.
 - `arena-task cancel <taskId>` stops it cleanly: it clears the goal, releases the controls and exits.
 
-After `NoPath` or a stall, look before you try again: `node "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" --target X Y Z` shows what walking can reach and the reached cell closest to the target. Walk there first, then look again from there. Goals far away are often outside loaded terrain. A [screenshot](#look-at-the-world) helps when the shape matters.
+After `NoPath` or a stall, look before you try again: `node "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" --target X Y Z` shows where Pathfinder can take you and back, and the drawn cell closest to the target. Walk there first, then look again from there. Goals far away are often outside loaded terrain. A [screenshot](#look-at-the-world) helps when the shape matters.
 
 ## Find the right entry
 
 - Read position, inventory or exact blocks: [Query program](#query-program)
 - Walk to a coordinate: [navigate.mjs](../../../examples/navigate.mjs)
 - See the terrain as a picture: [screenshot.mjs](../../../examples/screenshot.mjs), see [Look at the world](#look-at-the-world)
-- See where you can walk from here or from any point, and whether a target is reachable on foot: [reach-map.mjs](../../../examples/reach-map.mjs) (`X Y Z`, `--radius N`, `--target X Y Z`; north is up)
+- See where you can go from here and walk back, and whether a target is reachable: [reach-map.mjs](../../../examples/reach-map.mjs) (`--from X Y Z`, `--target X Y Z`; north is up). Digits are feet height with `4` = yours; `v` is a place you can drop to but not walk back from; `<` `>` lead to another floor, listed below the map with a `--from` to draw it. It moves like Pathfinder with parkour and without digging or placing; `--dig`, `--blocks N`, `--no-parkour`, `--max-drop N` show what changes with other settings. Keep the default size (`--steps 24`, `--radius 12`): a bigger map is harder to read, not more useful. Draw another one with `--from` instead.
 - See the ground along a line toward a point or a direction (walls, drops, water): [profile.mjs](../../../examples/profile.mjs) (`X Z` or `north 40`)
 - Check local terrain and connectivity as numbers: [summarize-terrain.mjs](../../../examples/summarize-terrain.mjs)
 - See which entities are near you: `examples/observe.mjs --full-entities`, or [entity-radar.mjs](../../../examples/entity-radar.mjs)

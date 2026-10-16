@@ -7,7 +7,8 @@ export { entityRadar, sampleObservation, signSummary } from "./snapshot.mjs";
 export { watchObservation } from "./events.mjs";
 export {
   reachMap,
-  reachCells,
+  reachGraph,
+  reachDefaults,
   terrainProfile,
   aroundSummary,
   cellKind,

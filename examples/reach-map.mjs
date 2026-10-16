@@ -1,40 +1,70 @@
 /**
- * Where can I walk from here? Prints a walkable-reach map, north up:
+ * Where can I walk from here, and back? Prints a reach map, north up:
  *
- *   node "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" [X Y Z] [--radius N] [--target X Y Z]
+ *   node "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" [--from X Y Z] [--target X Y Z]
+ *     [--steps N] [--radius N] [--one-way]
+ *     [--dig] [--no-parkour] [--no-sprint] [--blocks N] [--max-drop N]
+ *     [--no-water-drops] [--gates]
  *
- * Without X Y Z it starts at your feet. Blocks come from your program's live
- * copy of the world; columns that are not loaded are read from block memory
- * (what the character saw earlier), and the output says how many. Read-only:
- * it never moves the character, so it can run beside a controller.
+ * Without --from it starts at your feet (a bare X Y Z works too). Moves are
+ * Pathfinder's own, with its switches: by default parkour on, no digging, no
+ * placing, drops up to 4. Defaults: --steps 24 (blocks of walking),
+ * --radius 12 (at most 25×25, cut down to what is reachable). Larger maps are
+ * hard to read; draw another one with --from instead.
+ *
+ * Blocks come from your program's live copy of the world; columns that are
+ * not loaded are read from block memory (what the character saw earlier),
+ * and the output says how many and how old. Read-only: it never moves the
+ * character, so it can run beside a controller.
  */
 import { pathToFileURL } from "node:url";
 import {
   connectBot,
   createBlockMemoryClient,
 } from "../packages/bot-sdk/index.mjs";
-import { reachMap } from "../packages/observation/reach.mjs";
+import { reachDefaults, reachMap } from "../packages/observation/reach.mjs";
 
 export function parseReachArgs(args) {
-  const options = { radius: 10, origin: null, target: null };
+  const options = {};
   const numbers = (i, name) => {
     const values = args.slice(i, i + 3).map(Number);
     if (values.length < 3 || !values.every(Number.isFinite))
       throw new Error(`${name} needs three numbers X Y Z`);
     return { x: values[0], y: values[1], z: values[2] };
   };
+  const integer = (i, name) => {
+    const v = Number(args[i]);
+    if (!Number.isInteger(v) || v < 0)
+      throw new Error(`${name} needs a whole number`);
+    return v;
+  };
+  const flags = {
+    "--one-way": ["oneWayHeights", true],
+    "--dig": ["canDig", true],
+    "--no-parkour": ["allowParkour", false],
+    "--no-sprint": ["allowSprinting", false],
+    "--no-water-drops": ["infiniteLiquidDropdownDistance", false],
+    "--gates": ["canOpenDoors", true],
+  };
+  const counts = {
+    "--steps": "steps",
+    "--radius": "radius",
+    "--blocks": "blocks",
+    "--max-drop": "maxDropDown",
+  };
   for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--radius") {
-      options.radius = Number(args[++i]);
-      if (!Number.isInteger(options.radius))
-        throw new Error("--radius needs an integer");
-    } else if (args[i] === "--target") {
+    const a = args[i];
+    if (flags[a]) options[flags[a][0]] = flags[a][1];
+    else if (counts[a]) options[counts[a]] = integer(++i, a);
+    else if (a === "--target") {
       options.target = numbers(i + 1, "--target");
       i += 3;
-    } else if (!options.origin) {
+    } else if (a === "--from" || (!a.startsWith("--") && !options.origin)) {
+      if (options.origin) throw new Error("give the start point once");
+      if (a === "--from") i++;
       options.origin = numbers(i, "the start point");
       i += 2;
-    } else throw new Error(`Unknown argument ${args[i]}`);
+    } else throw new Error(`Unknown argument ${a}`);
   }
   return options;
 }
@@ -79,17 +109,24 @@ export async function worldReader(
 }
 
 async function main() {
-  const { radius, origin, target } = parseReachArgs(process.argv.slice(2));
+  const options = parseReachArgs(process.argv.slice(2));
+  const radius = options.radius ?? reachDefaults.radius;
   const bot = await connectBot();
   try {
-    const from = origin ?? bot.entity.position;
+    const from = options.origin ?? bot.entity.position;
     const { blockAt, note } = await worldReader(bot, {
       minX: Math.floor(from.x) - radius,
       maxX: Math.floor(from.x) + radius,
       minZ: Math.floor(from.z) - radius,
       maxZ: Math.floor(from.z) + radius,
     });
-    const map = reachMap({ blockAt, origin: from, radius, target });
+    const map = reachMap({
+      ...options,
+      blockAt,
+      registry: bot.registry,
+      minY: bot.game?.minY ?? -64,
+      origin: from,
+    });
     console.log(`${map.text}\nBlocks: ${note}.`);
   } finally {
     bot.closeBridge();
