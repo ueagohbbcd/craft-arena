@@ -435,6 +435,13 @@ async function live(rcon, dir, map) {
         () => `no respawn receipt; saw ${JSON.stringify(messages)}`,
       );
       await delay(500);
+      // arena-survival promises this as a forwarded system line: the chat
+      // script drops only game_info (the action bar).
+      const receipt = messages.find((m) => /respawn point set/i.test(m.text));
+      if (receipt.position !== "system")
+        throw new Error(
+          `respawn receipt came as ${receipt.position}, not system: ${JSON.stringify(messages)}`,
+        );
       log(`ok bed: messages after right-click ${JSON.stringify(messages)}`);
       await rcon.command(`setblock ${bed.x} ${bed.y} ${bed.z} minecraft:air`);
       await rcon.command(

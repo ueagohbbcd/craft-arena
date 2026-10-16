@@ -51,6 +51,8 @@ export function findRoute({
   timeoutMs = 1000,
   ...settings
 }) {
+  // Pathfinder answers "partial" forever when its per-call limit is 0.
+  if (!(timeoutMs > 0)) throw new RangeError("timeoutMs must be positive");
   const moves = pathfinderMovements({ blockAt, registry, minY, ...settings });
   const s = startCell(moves, from);
   const target = cell(to);
@@ -70,7 +72,7 @@ export function findRoute({
   for (const m of result.path) {
     steps += Math.max(1, Math.hypot(m.x - prev.x, m.z - prev.z));
     dug += m.toBreak?.length ?? 0;
-    placed += m.toPlace?.length ?? 0;
+    placed += m.toPlace?.filter((p) => !p.useOne).length ?? 0;
     prev = m;
   }
   const end = { x: prev.x, y: prev.y, z: prev.z };

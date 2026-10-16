@@ -440,6 +440,9 @@ export async function capturePrismarineViews(
 ) {
   if (!outputPath) throw new TypeError("outputPath is required");
   if (!directions.length) throw new RangeError("give at least one direction");
+  const columns = Math.min(2, directions.length);
+  const rows = Math.ceil(directions.length / columns);
+  validateImageDimensions(width * columns, height * rows);
   const session = {};
   const dir = await mkdtemp(join(tmpdir(), "arena-views-"));
   try {
@@ -463,9 +466,6 @@ export async function capturePrismarineViews(
         metadata,
       });
     }
-    const columns = Math.min(2, views.length);
-    const rows = Math.ceil(views.length / columns);
-    validateImageDimensions(width * columns, height * rows);
     const stitched = await session.page.evaluate(
       async ({ views, width, height, columns, rows }) => {
         const canvas = document.createElement("canvas");

@@ -408,5 +408,66 @@ test("routes arguments", () => {
   );
   assert.deepEqual(configsFor(8)[2].settings, { blocks: 8 });
   assert.throws(() => parseRoutesArgs(["--fly"]), /Unknown argument/);
+  assert.throws(() => parseRoutesArgs(["--timeout", "0"]), /at least 1 ms/);
+  assert.throws(
+    () =>
+      findRoute({
+        blockAt: house(),
+        registry,
+        from: { x: 0, y: 64, z: 0 },
+        to: { x: 1, y: 64, z: 0 },
+        timeoutMs: 0,
+      }),
+    /positive/,
+  );
   assert.throws(() => parseWaypoints([{ name: "a", x: 1 }]), /needs numbers/);
+});
+
+test("opening a gate does not let a route place blocks", () => {
+  // Floor at y=63 for z <= 2, a fence across z=0 with a gate at x=0, and a
+  // two-block gap of void at z 3..4 before the far floor at z >= 5.
+  const { put, blockAt } = sparse();
+  for (let x = -6; x <= 6; x++)
+    for (let z = -6; z <= 10; z++) {
+      for (let y = 40; y <= 70; y++) put("air", x, y, z);
+      if (z <= 2 || z >= 5) put("stone", x, 63, z);
+    }
+  for (let x = -6; x <= 6; x++)
+    if (x !== 0)
+      put("oak_fence", x, 64, 0, {
+        north: "false",
+        east: "true",
+        south: "false",
+        west: "true",
+        waterlogged: "false",
+      });
+  put("oak_fence_gate", 0, 64, 0, {
+    facing: "south",
+    in_wall: "false",
+    open: "false",
+    powered: "false",
+  });
+  const trip = (settings) =>
+    findRoute({
+      blockAt,
+      registry,
+      from: { x: 0, y: 64, z: -3 },
+      to: { x: 0, y: 64, z: 7 },
+      allowParkour: false,
+      ...settings,
+    });
+  assert.equal(trip({ canOpenDoors: true }).status, "none");
+  const built = trip({ canOpenDoors: true, blocks: 4 });
+  assert.equal(built.status, "ok");
+  assert.equal(built.placed, 2);
+  assert.equal(
+    findRoute({
+      blockAt,
+      registry,
+      from: { x: 0, y: 64, z: -3 },
+      to: { x: 0, y: 64, z: 2 },
+      canOpenDoors: true,
+    }).status,
+    "ok",
+  );
 });

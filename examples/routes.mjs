@@ -42,8 +42,10 @@ export function parseRoutesArgs(args) {
     else if (a === "--from") options.from = args[++i];
     else if (a === "--only") options.only = String(args[++i]).split(",");
     else if (a === "--blocks") options.blocks = integer(++i, a);
-    else if (a === "--timeout") options.timeoutMs = integer(++i, a);
-    else if (a === "--budget") options.budgetMs = integer(++i, a) * 1000;
+    else if (a === "--timeout") {
+      options.timeoutMs = integer(++i, a);
+      if (!options.timeoutMs) throw new Error("--timeout needs at least 1 ms");
+    } else if (a === "--budget") options.budgetMs = integer(++i, a) * 1000;
     else if (a === "--no-parkour") options.allowParkour = false;
     else if (a === "--max-drop") options.maxDropDown = integer(++i, a);
     else throw new Error(`Unknown argument ${a}`);

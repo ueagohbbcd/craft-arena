@@ -139,3 +139,15 @@ test("textured capture shares the pixel resource budget before starting Chromium
     /16,777,216 pixels/,
   );
 });
+
+test("stitched views check the whole image size before starting Chromium", async () => {
+  await assert.rejects(
+    capturePrismarineViews(fixtureWorld(), {
+      outputPath: "unused.png",
+      width: 3000,
+      height: 3000,
+      executablePath: "/nonexistent/chromium",
+    }),
+    /16,777,216 pixels/,
+  );
+});

@@ -171,6 +171,16 @@ export function pathfinderMovements({
   const moves = new Movements(pathfinderBot({ registry, blockAt, minY }));
   for (const key of movementKeys) moves[key] = s[key];
   if (!s.blocks) moves.allow1by1towers = false;
+  // Pathfinder counts opening a gate (`useOne`) against the block budget,
+  // which at 0 goes negative and then passes its "=== 0" checks: give the
+  // budget back so gates never enable placing.
+  const neighbors = moves.getNeighbors.bind(moves);
+  moves.getNeighbors = (node) =>
+    neighbors(node).map((m) => {
+      const used = m.toPlace?.filter((p) => p.useOne).length ?? 0;
+      if (used) m.remainingBlocks += used;
+      return m;
+    });
   return moves;
 }
 
