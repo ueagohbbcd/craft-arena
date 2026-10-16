@@ -58,7 +58,14 @@ The observer samples once a second and compares each sample with what you last r
 - Item drops grouped within 3 blocks of a seed drop: `center`, `items` (name → count), `count`, `entities`, `unknownStacks`.
 - `excluded` counts what was left out: `outsideRadius`, `blocked`, `unknownVisibility`.
 
-Players carry `team` and `relation` (`ally`, `opponent` or `unknown`) from the match's public participant list. Entities carry a decoded `state` where the game sends it: TNT fuse, creeper swelling or charge, item use, a guardian's or wither's target.
+Players carry `team` and `relation` (`ally`, `opponent` or `unknown`) from the match's public participant list.
+
+By default, non-player entities are summarized per chunk column (16×16 blocks) instead of listed one by one:
+
+- `entityChunks`: one entry per chunk, nearest first. `chunk` is the chunk coordinate (`x = floor(blockX / 16)`, the same for `z`), `counts` is name → number, `nearest` is the distance in whole blocks to the nearest of them.
+- `alerts`: visible entities within 16 blocks that show a risk sign (lit TNT, a swelling or ignited creeper, a moving projectile, something whose synchronized target is you), each with `id`, `name`, `position`, `distance` and `reasons`.
+
+For exact positions, run `examples/observe.mjs --full-entities`, or set `"entities": "list"` in the `radar` options. The `list` mode gives `entities` instead: one entry per entity with `id`, `name`, `position`, `distance` and a decoded `state` where the game sends it (TNT fuse, creeper swelling or charge, item use, a guardian's or wither's target).
 
 ## Recent blocks: `observation.recent_blocks`
 
@@ -118,7 +125,7 @@ Events only signal; they never stop or change your programs.
 | `--full-entities` (`fullEntities`) | all observed non-player entities and their raw metadata, instead of the 12-entry summary |
 | `--full-local` (`fullLocal`)       | every sampled local block and every loaded sign, instead of the first 16                 |
 
-`radar: {radius, playerRadius, dropGroupRadius}` (defaults 48, 64, 3) is an option of `observe()`; the script takes it from `observer.json`. Task and program state are not part of a sample: they are in the runtime reports and in `runtime.json` in the task directory.
+`radar: {radius, playerRadius, dropGroupRadius, entities}` (defaults 48, 64, 3, `"chunks"`) is an option of `observe()`; the script takes it from `observer.json`. Task and program state are not part of a sample: they are in the runtime reports and in `runtime.json` in the task directory.
 
 `state` has the report sections above plus:
 
@@ -137,7 +144,7 @@ For a picture, run `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX min
 
 ```json
 {
-  "radar": { "radius": 32, "playerRadius": 64, "dropGroupRadius": 3 },
+  "radar": { "radius": 32, "playerRadius": 64, "dropGroupRadius": 3, "entities": "list" },
   "recentBlocks": { "radius": 4, "intervalMs": 2000, "minReportMs": 60000 },
   "events": { "urgentDamageLoss": 2 }
 }
@@ -177,7 +184,7 @@ All are read-only. Import them from `$ARENA_TOOLKIT_ROOT/packages/observation/`.
 | ----------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------- |
 | `sampleObservation(bot, options)`                           | `index.mjs`    | one synchronous sample, the same shape as `observe`'s `state`                 |
 | `observe(bot, options)`                                     | `observe.mjs`  | `{state, metadata}`, what `examples/observe.mjs` prints                       |
-| `entityRadar(bot, {radius, playerRadius, dropGroupRadius})` | `index.mjs`    | the `radar` section alone                                                     |
+| `entityRadar(bot, {radius, playerRadius, dropGroupRadius, entities})` | `index.mjs`    | the `radar` section alone, without `alerts`                                   |
 | `watchObservation(bot, {post, ...thresholds})`              | `index.mjs`    | the event listeners; returns `sample()`, `close()`, `lastError`               |
 | `startObserver({bot, inbox, intervalMs})`                   | `observer.mjs` | the full default observer, reporting through an `InboxClient`                 |
 | `createDefaultObserver({getBot, connectionStatus, post})`   | `observer.mjs` | the observer's sampling and event logic without the inbox wiring              |
