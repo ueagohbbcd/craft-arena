@@ -49,6 +49,8 @@ export function compactObservation(snapshot) {
           ]),
         )
       : point;
+  // A player not using an item says nothing with itemUse; reports drop it.
+  const withoutIdleItemUse = ({ itemUse, ...rest }) => rest;
   const roundList = (list) =>
     Array.isArray(list)
       ? list.map((entry) =>
@@ -57,6 +59,9 @@ export function compactObservation(snapshot) {
                 ...entry,
                 ...(entry.position ? { position: tenth(entry.position) } : {}),
                 ...(entry.relative ? { relative: tenth(entry.relative) } : {}),
+                ...(entry.state?.itemUse && !entry.state.itemUse.usingItem
+                  ? { state: withoutIdleItemUse(entry.state) }
+                  : {}),
               }
             : entry,
         )

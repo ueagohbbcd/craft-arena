@@ -65,7 +65,7 @@ By default, non-player entities are summarized per chunk column (16×16 blocks) 
 - `entityChunks`: one entry per chunk, nearest first. `chunk` is the chunk coordinate (`x = floor(blockX / 16)`, the same for `z`), `counts` is name → number, `nearest` is the distance in whole blocks to the nearest of them.
 - `alerts`: visible entities within 16 blocks that show a risk sign (lit TNT, a swelling or ignited creeper, a moving projectile, something whose synchronized target is you), each with `id`, `name`, `position`, `distance` and `reasons`.
 
-For exact positions, run `examples/observe.mjs --full-entities`, or set `"entities": "list"` in the `radar` options. The `list` mode gives `entities` instead: one entry per entity with `id`, `name`, `position` (1 decimal in reports; queries keep full precision), `distance` and a decoded `state` where the game sends it (TNT fuse, creeper swelling or charge, item use, a guardian's or wither's target).
+For exact positions, run `examples/observe.mjs --full-entities`, or set `"entities": "list"` in the `radar` options. The `list` mode gives `entities` instead: one entry per entity with `id`, `name`, `position` (1 decimal in reports, which also leave out `itemUse` for players not using an item; queries keep full precision and every field), `distance` and a decoded `state` where the game sends it (TNT fuse, creeper swelling or charge, item use, a guardian's or wither's target).
 
 ## Recent blocks: `observation.recent_blocks`
 

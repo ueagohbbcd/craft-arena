@@ -73,6 +73,24 @@ test("listed entity positions are rounded to 0.1 block in reports", () => {
   assert.equal(c.next(s), null);
 });
 
+test("reports leave out itemUse for players not using an item", () => {
+  const c = deliveredChanges(),
+    s = sample();
+  const idle = { usingItem: false, activeHand: null, activeItem: null };
+  s.radar.players = [
+    { id: 3, name: "a", state: { sneaking: true, itemUse: idle } },
+    {
+      id: 4,
+      name: "b",
+      state: { itemUse: { usingItem: true, activeHand: "main" } },
+    },
+  ];
+  const [a, b] = c.next(s).changes.radar.players;
+  assert.deepEqual(a.state, { sneaking: true });
+  assert.equal(b.state.itemUse.activeHand, "main");
+  assert.deepEqual(s.radar.players[0].state.itemUse, idle);
+});
+
 test("interval and sign producers retain their own delivery cadence", () => {
   const c = deliveredChanges(),
     s = sample();
