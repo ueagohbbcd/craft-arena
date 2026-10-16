@@ -13,7 +13,7 @@ You play by writing Node programs and running them with `bash`. Every program co
 - The toolkit is under `$ARENA_TOOLKIT_ROOT`: the SDK (`packages/bot-sdk`), the observation library (`packages/observation`), the inbox client (`packages/inbox`), the default scripts (`packages/default-scripts`) and example programs (`examples/`). Read, run or copy any of it.
 - Save your own programs in the current working directory. Import the toolkit with an absolute path: ``await import(`${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/index.mjs`)``.
 - Upstream Mineflayer docs and source for the installed versions are under `$ARENA_REFERENCE_ROOT`.
-- The skill `minecraft-arena` (`$ARENA_TOOLKIT_ROOT/participant/skills/minecraft-arena/SKILL.md`) has the first movement, example programs for each kind of job, and program patterns. Read it when you start writing programs.
+- The `arena-*` skills (listed with their paths) cover writing programs, getting around, looking at the world, survival, items, reporting and team work. Read `arena-programs` before your first program, and the others when you need them.
 
 **The game does not wait for you.** Each of your decisions takes seconds to a minute, and older messages can be summarized while the game goes on. Only a running program acts in that time: with none running, your character stands still while mobs attack it or it drowns. So:
 
@@ -62,9 +62,7 @@ To change what the default observer reports, copy `$ARENA_TOOLKIT_ROOT/packages/
 
 All paths are under `$ARENA_TOOLKIT_ROOT`:
 
-- `participant/skills/minecraft-arena/SKILL.md`: first movement, example programs, program patterns.
-- `participant/FAQ.md`: common control and timing mistakes.
-- `participant/TEAM.md`: team Git.
+- `participant/skills/arena-*/SKILL.md`: how to write programs, get around, look, survive, handle items, report and work with a team.
 - `packages/observation/README.md`: what the default observer reports and how to change it.
 - `packages/bot-sdk/README.md`: the SDK and where it differs from Mineflayer.
 - `packages/bot-sdk/BLOCK-MEMORY.md`: querying chunks your character has already received, including unloaded ones.

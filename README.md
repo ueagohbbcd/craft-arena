@@ -113,9 +113,7 @@ flowchart LR
 **参赛模型**（容器内路径前缀为 `$ARENA_TOOLKIT_ROOT`）
 
 - [participant/PROMPT.md](participant/PROMPT.md)：追加到系统提示的参赛说明：任务和等待、信息通道、文件位置
-- [participant/skills/minecraft-arena/SKILL.md](participant/skills/minecraft-arena/SKILL.md)：Skill：第一步、各类任务从哪个示例程序开始、程序写法
-- [participant/FAQ.md](participant/FAQ.md)：常见的控制与时机错误
-- [participant/TEAM.md](participant/TEAM.md)：队内 Git
+- [participant/skills/](participant/skills)：7 个 Skill：`arena-programs`（程序写法）、`arena-navigation`（走路、可达地形图、路点）、`arena-surroundings`（观察、截图、区块记忆）、`arena-survival`（吃、战斗、床）、`arena-items`（挖放、合成、箱子）、`arena-reporting`（收件箱和平台消息）、`arena-team`（队内 Git）
 - [packages/observation/README.md](packages/observation/README.md)：默认观察器报告什么、怎样改
 - [packages/bot-sdk/README.md](packages/bot-sdk/README.md)：SDK 及与 Mineflayer 的差异
 - [packages/bot-sdk/BLOCK-MEMORY.md](packages/bot-sdk/BLOCK-MEMORY.md)：查询区块记忆
@@ -159,7 +157,7 @@ flowchart LR
 | 工具包   | `packages/observation`                      | 观察库：单次采样、事件、变化报告、附近扫描         |
 | 工具包   | `packages/default-scripts`                  | `observer.mjs`、`chat.mjs`                         |
 | 工具包   | `packages/world-visual`、`examples/`        | 图像渲染；示例程序与截图脚本                       |
-| 工具包   | `participant/`                              | 系统提示、Skill、FAQ、队内 Git 与调用模型的说明    |
+| 工具包   | `participant/`                              | 系统提示和 7 个 Skill                              |
 | 运营工具 | `infra/`、`scripts/`、`tools/replay-myopia` | 部署模板、运营脚本、回放客户端                     |
 
 ## 本地快速开始

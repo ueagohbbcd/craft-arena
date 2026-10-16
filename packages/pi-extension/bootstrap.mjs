@@ -302,7 +302,7 @@ async function launchPi({
     ...(args.includes("--mode") ? [] : ["--mode", resident ? "rpc" : "json"]),
     ...guidanceArgs,
     "--skill",
-    join(projectRoot, "participant/skills/minecraft-arena/SKILL.md"),
+    join(projectRoot, "participant/skills"),
     ...profile.extensions.flatMap((path) => ["-e", path]),
     ...args,
   ];
