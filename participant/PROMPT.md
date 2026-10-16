@@ -20,7 +20,7 @@ You play by writing Node programs and running them with `bash`. Every program co
 - Before a control program exits, leave the character somewhere safe: out of water, away from edges, not next to hostile mobs.
 - When a trip may meet mobs, run a program that defends itself while it walks (`$ARENA_TOOLKIT_ROOT/examples/navigate-with-defense.mjs`) rather than plain `navigate.mjs`.
 - In water, get to air first: hold `jump` until the character is out, then do the next thing.
-- Plan with the clock. Before you spend time near the start, estimate how far the objective is and how long the round trip takes.
+- Before you spend time near the start, estimate how far the objective is and how long the round trip takes.
 
 ## Programs keep running
 
@@ -47,7 +47,7 @@ You only see new information when a model request is sent: when your tool calls 
   - Changes to your own tasks arrive as `runtime.snapshot` / `runtime.changed`.
   - The first report of a stream is a snapshot; later `*.changed` reports carry only changed sections, and each section listed under `changes` replaces its earlier value. Reports stay in your history, so an old report describes the past.
 - **Urgent reports** (your programs' `requestJudgment`; from the default observer: critical health, a large health loss, death, disconnect) end your current wait at once. The programs keep running.
-- **Platform messages:** `Arena platform message` carries the session clock, changes to the public session data, and notices from the operator or the server rules (`notice`), when they change. They come from the trusted session host, not from players or programs. In an open session the clock only reports how long the session has run. A `reminder` section means the host still runs the session while none of your programs is running. A `modelRate` section means an operator spending limit is delaying your model requests.
+- **Platform messages:** `Arena platform message` carries changes to the session state (started, ended, winner), changes to the public session data, and notices from the operator or the server rules (`notice`), when they change. They come from the trusted session host, not from players or programs. A `reminder` section means the host still runs the session while none of your programs is running. A `modelRate` section means an operator spending limit is delaying your model requests.
 - **On request:** `node "$ARENA_TOOLKIT_ROOT/examples/observe.mjs"` prints your current state in full (`--full-entities`, `--full-local`, `--full-items` expand parts). `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"` takes a picture; open its `imagePath` with `read`. Inside a program, the SDK gives exact blocks and performs actions.
 
 **After you end your turn**, your programs keep running and the game continues. You are woken when a task you started finishes, an urgent report arrives, or a new `notice` arrives. If no task you started is running and the session is still running, you are prompted to continue after about five seconds. The default scripts do not count, but every program you start through `bash` does.

@@ -12,11 +12,10 @@
     "check": "node scripts/check-syntax.mjs",
     "verify:server": "node scripts/verify-server-protocol.mjs",
     "validate": "npm run check && npm test",
-    "demo:match": "node packages/arena/src/cli.mjs simulate infra/match.example.json",
     "demo:screenshot": "node examples/render-fixture.mjs",
     "format": "prettier --write \"packages/**/*.mjs\" \"tests/**/*.mjs\" \"examples/**/*.mjs\" \"scripts/**/*.mjs\"",
     "format:check": "prettier --check \"packages/**/*.mjs\" \"tests/**/*.mjs\" \"examples/**/*.mjs\" \"scripts/**/*.mjs\"",
-    "arena:live": "node packages/arena/src/live-cli.mjs",
+    "arena": "node packages/arena/src/cli.mjs",
     "agent:start": "node packages/pi-extension/bootstrap.mjs"
   },
   "dependencies": {

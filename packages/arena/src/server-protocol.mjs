@@ -3,11 +3,10 @@ import { parseStorageReply, serializeSnbt } from "./snbt.mjs";
 /**
  * Server protocol v1 (docs/GAME-MODES.md): the platform talks to the rules
  * datapack or plugin only through these RCON commands. Shared by the
- * datapack judge, host-less bridges and scripts/verify-server-protocol.mjs.
+ * operator CLI (cli.mjs), bridges in server mode and
+ * scripts/verify-server-protocol.mjs.
  */
 const PROTOCOL_VERSION = 1;
-// Consecutive unreadable polls tolerated before the match ends `map-fault`.
-export const MAX_FAILED_POLLS = 3;
 const REJECTED =
   /Unknown or incomplete command|Incorrect argument|Unknown function|Unknown storage|Expected |Invalid |Can't |Cannot |Could not /i;
 
@@ -46,38 +45,97 @@ export function readServerSession(reply) {
   };
 }
 
-/** The `arena:config` value written before `#arena:prepare`. */
-export function serverConfig(config, runId) {
-  const value = {
-    version: PROTOCOL_VERSION,
-    sessionId: config.id,
-    runId,
-    kind: config.session.kind,
-    teams: config.teams.map((t) => ({
-      id: t.id,
-      players: config.participants
-        .filter((p) => p.team === t.id)
-        .map((p) => p.username),
-    })),
-  };
-  if (config.session.durationMs != null)
-    value.durationMs = config.session.durationMs;
-  return value;
+const id = (x) => typeof x === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(x);
+
+/**
+ * Errors in an `arena:config` value (empty when valid): `sessionId`, optional
+ * `runId`, `kind` (`match` or `open`), `teams` [{id, players}], optional
+ * positive `durationMs`, and an optional `briefing` text the bridges serve.
+ */
+export function validateServerConfig(value) {
+  const errors = [];
+  if (!value || typeof value !== "object" || Array.isArray(value))
+    return ["arena:config must be an object"];
+  if (!id(value.sessionId))
+    errors.push("sessionId must match [A-Za-z0-9_-]{1,64}");
+  if (value.runId !== undefined && !id(value.runId))
+    errors.push("runId must match [A-Za-z0-9_-]{1,64}");
+  if (!["match", "open"].includes(value.kind ?? "match"))
+    errors.push("kind must be match or open");
+  if (
+    value.durationMs !== undefined &&
+    (!Number.isSafeInteger(value.durationMs) || value.durationMs <= 0)
+  )
+    errors.push("durationMs must be a positive integer");
+  if (value.briefing !== undefined && typeof value.briefing !== "string")
+    errors.push("briefing must be a string");
+  const teams = value.teams ?? [];
+  if (!Array.isArray(teams)) errors.push("teams must be a list");
+  else {
+    const seen = new Set();
+    for (const team of teams) {
+      if (!id(team?.id) || team.id === "draw")
+        errors.push(
+          `team id ${JSON.stringify(team?.id)} is invalid or reserved`,
+        );
+      else if (seen.has(team.id))
+        errors.push(`team ${team.id} is listed twice`);
+      seen.add(team?.id);
+      if (
+        !Array.isArray(team?.players) ||
+        team.players.some((p) => typeof p !== "string" || !p)
+      )
+        errors.push(`team ${team?.id} players must be a list of usernames`);
+    }
+  }
+  return errors;
 }
 
-/** Writes `arena:config` (see serverConfig). */
-export async function writeServerConfig(rcon, config, runId) {
+/** Writes `arena:config` (see validateServerConfig), adding the protocol version. */
+export async function writeServerConfig(rcon, config) {
+  const errors = validateServerConfig(config);
+  if (errors.length)
+    throw new Error(`Invalid arena:config: ${errors.join("; ")}`);
+  const value = {
+    version: PROTOCOL_VERSION,
+    kind: "match",
+    teams: [],
+    ...config,
+  };
   // `data modify` needs a path, so the root cannot be replaced in one
-  // command: drop the optional key a previous session may have left, then
+  // command: drop the optional keys a previous session may have left, then
   // merge (lists and scalars in the merge replace the old values).
-  await rcon.command("data remove storage arena:config durationMs");
+  for (const key of ["durationMs", "briefing", "runId"])
+    await rcon.command(`data remove storage arena:config ${key}`);
   const reply = await rcon.command(
-    `data merge storage arena:config ${serializeSnbt(serverConfig(config, runId))}`,
+    `data merge storage arena:config ${serializeSnbt(value)}`,
   );
   if (REJECTED.test(reply))
     throw new Error(
       `Server rejected arena:config: ${String(reply).slice(0, 200)}`,
     );
+}
+
+/**
+ * Runs operator commands in order. Each is a string or `{command, expect}`;
+ * with `expect` (a regular expression) a reply that does not match throws.
+ * Returns the replies.
+ */
+export async function runCommands(rcon, list = []) {
+  const replies = [];
+  for (const item of list) {
+    const { command, expect } =
+      typeof item === "string" ? { command: item } : (item ?? {});
+    if (typeof command !== "string" || !command)
+      throw new Error("Each command must be a non-empty string");
+    const reply = await rcon.command(command);
+    if (expect !== undefined && !new RegExp(expect).test(reply))
+      throw new Error(
+        `Unexpected reply to "${command}": ${String(reply).slice(0, 200)}`,
+      );
+    replies.push(reply);
+  }
+  return replies;
 }
 
 /** Runs `#arena:<phase>`; throws when no datapack provides it. */

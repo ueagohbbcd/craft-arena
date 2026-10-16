@@ -977,39 +977,6 @@ test(
 );
 
 test(
-  "configured match clock is passive, correctly labeled and delivered at a natural boundary",
-  { timeout: 15000 },
-  async (t) => {
-    const previousStart = process.env.ARENA_MATCH_STARTED_AT,
-      previousDuration = process.env.ARENA_DURATION_MS;
-    const started = Date.now() - 5000;
-    process.env.ARENA_MATCH_STARTED_AT = String(started);
-    process.env.ARENA_DURATION_MS = "60000";
-    let h;
-    try {
-      h = await harness(t, () => "Clock fixture complete.");
-    } finally {
-      if (previousStart === undefined)
-        delete process.env.ARENA_MATCH_STARTED_AT;
-      else process.env.ARENA_MATCH_STARTED_AT = previousStart;
-      if (previousDuration === undefined) delete process.env.ARENA_DURATION_MS;
-      else process.env.ARENA_DURATION_MS = previousDuration;
-    }
-    await h.session.prompt("Complete the clock fixture.");
-    assert.equal(h.requests.length, 1);
-    const [update] = platformFromSession(h.session);
-    const clock = { data: update.clock };
-    assert.equal(clock.data.basis, "host-provided match start");
-    assert.equal(clock.data.matchStartedAtMs, started);
-    assert.equal(clock.data.durationMs, 60000);
-    assert.ok(clock.data.elapsedMs >= 5000);
-    assert.equal(clock.data.remainingMs, 60000 - clock.data.elapsedMs);
-    await sleep(50);
-    assert.equal(h.requests.length, 1);
-  },
-);
-
-test(
   "resident bootstrap keeps child alive after final answer, resumes same session on urgent IPC and reaps on host end",
   { timeout: 30000 },
   async (t) => {
@@ -1020,7 +987,6 @@ test(
       stdout = "",
       stderr = "";
     let matchState = "running";
-    const matchStarted = Date.now() - 1000;
     const matchToken = "resident-match-fixture-token";
     const bridge = await startBridge({
       bot: new EventEmitter(),
@@ -1028,10 +994,7 @@ test(
       getMatchState: () => ({
         matchId: "resident-fixture",
         state: matchState,
-        startedAt: matchStarted,
-        durationMs: 60000,
         now: Date.now(),
-        elapsedMs: matchState === "ended" ? 5000 : Date.now() - matchStarted,
         winner: matchState === "ended" ? "blue" : null,
       }),
     });
@@ -1168,7 +1131,8 @@ test(
     const tools = requests[0].tools.map((x) => x.function.name);
     assert.deepEqual(tools.toSorted(), ["bash", "edit", "read", "write"]);
     const second = JSON.stringify(requests[1].messages);
-    assert.match(second, /authenticated host match snapshot/);
+    assert.match(second, /Arena platform message/);
+    assert.doesNotMatch(second, /elapsedMs|remainingMs/);
     assert.match(second, /resident-fixture/);
     await writeFile(join(dir, "send-urgent"), "go");
     await until(
@@ -1278,7 +1242,7 @@ for (const urgent of [false, true])
     },
   );
 
-/** The platform update (clock/budget) as the model received it in a request. */
+/** The platform update as the model received it in a request. */
 function platformFromRequest(request) {
   for (const m of request.messages) {
     const text =
@@ -1290,11 +1254,6 @@ function platformFromRequest(request) {
     const at = text.indexOf("Arena platform message");
     if (at >= 0) return JSON.parse(text.slice(text.indexOf("\n", at) + 1));
   }
-}
-function platformFromSession(session) {
-  return session.messages
-    .filter((m) => m.role === "custom" && m.customType === "arena-platform")
-    .map((m) => m.details);
 }
 test("default real Pi persists runtime task changes and has no temporary tail", async (t) => {
   const h = await harness(t, async (_body, n) =>

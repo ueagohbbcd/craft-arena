@@ -113,7 +113,7 @@ export default function arenaExtension(pi) {
   const rateOptions = modelRateOptions();
   const rate = rateOptions && createModelRate(rateOptions);
   /**
-   * The one path for trusted platform messages: clock, public data
+   * The one path for trusted platform messages: session state, public data
    * and notices, and the idle reminder. Changed sections are collected here;
    * `extra` adds sections and `append()` (called only when a message is sent)
    * adds text after it. Returns whether a message was sent.

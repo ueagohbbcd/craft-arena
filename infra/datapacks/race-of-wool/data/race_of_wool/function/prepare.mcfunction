@@ -1,8 +1,10 @@
-# #arena:prepare. The host has written arena:config and the bots are online.
+# #arena:prepare. The operator has written arena:config and the bots are online.
 function race_of_wool:map
 scoreboard objectives remove rw_have
 scoreboard objectives add rw_have dummy "Monument objectives"
 scoreboard objectives setdisplay sidebar rw_have
+scoreboard objectives remove rw_time
+scoreboard objectives add rw_time dummy "Ticks left"
 execute store result score #need rw_have run data get storage race_of_wool:map objectives
 
 # `data modify` needs a path: drop what a previous session left, then merge.

@@ -98,7 +98,7 @@ services:
     tty: true
   bridge-red1:
     # One participant's game bridge: its own container, reachable only from
-    # its team network; polls the session from the arena host.
+    # its team network; reads the session from the server over RCON.
     <<: *restricted
     build:
       context: ..
@@ -116,17 +116,20 @@ services:
       BRIDGE_HOST: 0.0.0.0
       BRIDGE_PORT: '8080'
       BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN:?Provide scoped operator token}
-      BRIDGE_SESSION: host
-      BRIDGE_HOST_URL: http://arena-host:9000/v1/participants/red1/session
-      BRIDGE_HOST_TOKEN: ${ARENA_HOST_TOKEN:?Provide the host session token}
+      BRIDGE_SESSION: server
+      BRIDGE_RCON_HOST: minecraft
+      BRIDGE_RCON_PASSWORD: ${MC_RCON_PASSWORD:?Provide operator RCON credential}
+      BRIDGE_PROMPT_FILE: /config/PROMPT.md
       BRIDGE_WORLD_ID: ${ARENA_WORLD_ID:-arena-world}
       BRIDGE_PARTICIPANT_ID: red1
     networks:
     - backend
     - red1
+    volumes:
+    - ${ARENA_PROMPT_FILE:-./maps/race-of-wool/PROMPT.md}:/config/PROMPT.md:ro
   bridge-blue1:
     # One participant's game bridge: its own container, reachable only from
-    # its team network; polls the session from the arena host.
+    # its team network; reads the session from the server over RCON.
     <<: *restricted
     build:
       context: ..
@@ -144,40 +147,34 @@ services:
       BRIDGE_HOST: 0.0.0.0
       BRIDGE_PORT: '8080'
       BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN:?Provide scoped operator token}
-      BRIDGE_SESSION: host
-      BRIDGE_HOST_URL: http://arena-host:9000/v1/participants/blue1/session
-      BRIDGE_HOST_TOKEN: ${ARENA_HOST_TOKEN:?Provide the host session token}
+      BRIDGE_SESSION: server
+      BRIDGE_RCON_HOST: minecraft
+      BRIDGE_RCON_PASSWORD: ${MC_RCON_PASSWORD:?Provide operator RCON credential}
+      BRIDGE_PROMPT_FILE: /config/PROMPT.md
       BRIDGE_WORLD_ID: ${ARENA_WORLD_ID:-arena-world}
       BRIDGE_PARTICIPANT_ID: blue1
     networks:
     - backend
     - blue1
-  arena-host:
-    stop_grace_period: ${ARENA_HOST_STOP_GRACE_PERIOD:-180s}
+    volumes:
+    - ${ARENA_PROMPT_FILE:-./maps/race-of-wool/PROMPT.md}:/config/PROMPT.md:ro
+  # Operator commands for the rules datapack (packages/arena/src/cli.mjs),
+  # run on demand: docker compose --profile tools run --rm arena prepare
+  # /config/match.json, then start, stop or status. Backend only.
+  arena:
     <<: *restricted
+    profiles: [tools]
     build:
       context: ..
       dockerfile: infra/Dockerfile.trusted
-    command:
-    - node
-    - packages/arena/src/live-cli.mjs
-    - /config/match.live.json
-    - /results/match-result.json
+    entrypoint: [node, packages/arena/src/cli.mjs]
     environment:
+      MC_RCON_HOST: minecraft
       MC_RCON_PASSWORD: ${MC_RCON_PASSWORD:?Provide operator RCON credential}
-      ARENA_RUNTIME_FAULT_FILE: /control/runtime-fault.json
-      ARENA_HOST_TOKEN: ${ARENA_HOST_TOKEN:?Provide the host session token}
-    depends_on: [bridge-red1, bridge-blue1]
-    # Backend only: participants reach their own bridge, never the host.
     networks:
     - backend
     volumes:
-    - ./match.live.json:/config/match.live.json:ro
-    # Mode prompts: briefing.promptFile resolves relative to the config file.
-    - ./maps:/config/maps:ro
-    - match-results:/results
-    - match-control:/control
-    - replay-config:/replay-config
+    - ${ARENA_MATCH_FILE:-./match.live.json}:/config/match.json:ro
 networks:
   backend:
     internal: true
@@ -193,5 +190,4 @@ volumes:
   red-git: {}
   blue-git: {}
   match-results: {}
-  match-control: {}
   replay-config: {}

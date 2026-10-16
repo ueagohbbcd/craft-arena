@@ -27,7 +27,7 @@
 | 送达回执 `InboxClient.delivery` | 夹具测试 | `tests/inbox.test.mjs`（跨进程 IPC） | 没有真实 Pi 测试直接检查回执 |
 | 程序自报状态 `InboxClient.setStatus` | 夹具测试 | `tests/inbox-current.test.mjs`、`tests/runtime-state.test.mjs`、`tests/pi-extension.test.mjs` | 覆盖跨进程写入、替换、过期、`programStatus` 显示上限和完整的 `runtime.json`；没有真实 Pi 测试 |
 | 运行时报告 `runtime.snapshot`／`runtime.changed` | 真实 Pi 测试 | `tests/integration-pi.test.mjs` 最后一项 | 报告写进对话历史 |
-| 平台消息（时钟） | 真实 Pi 测试 | `tests/integration-pi.test.mjs`（clock 一项）、`tests/pi-extension.test.mjs` | 没有实服或部署运行 |
+| 平台消息（会话状态，无时钟） | 真实 Pi 测试 | `tests/integration-pi.test.mjs`（resident bootstrap 一项）、`tests/pi-extension.test.mjs` | 没有实服或部署运行 |
 | 持续会话、空闲提醒 | 真实 Pi 测试 | 持续会话启动测试、`tests/pi-extension.test.mjs` | |
 | 请求恢复 | 真实 Pi 测试 | `tests/request-recovery.test.mjs`（真实 Pi RPC） | |
 | 默认观察器（默认脚本） | 夹具测试 | `tests/default-observer.test.mjs`、`tests/observation-*.test.mjs`、`tests/nearby-scan.test.mjs`、`tests/recent-blocks.test.mjs` | 改成脚本后**没有在真实服务器上跑过**。2026-10-11 的实服 9 项检查测的是已删除的会话内实现 |
@@ -38,14 +38,13 @@
 | PvP 适配、战斗报告 | 夹具测试 | `tests/sdk-plugins.test.mjs`、`tests/combat-report.test.mjs` | 没有实战 |
 | 游戏桥：动作校验、背压、错误 | 夹具测试 | `tests/bridge*.test.mjs` | 2026-10-11 的实服检查经过游戏桥；之后有改动 |
 | 模型转发、启动器的两种模型接入 | 真实 Pi 测试 | `tests/model-relay.test.mjs`、`tests/integration-pi.test.mjs`、`tests/pi-extension.test.mjs` | 本地假上游；没有连过真实模型，也没有在部署里跑过 |
-| 比赛主控：生命周期、RCON、判定 | 实服验证 | `tests/arena-*.test.mjs`（含本地 TCP RCON）；2026-10-14 实服运行，见下方[服务器协议实服运行](#服务器协议实服运行) | `live-cli.mjs` 带两个真实 Mineflayer bot 跑完准备、开赛、数据包判胜、结束；没有参赛模型 |
-| 服务器协议 v1、`race-of-wool`／`arena-example` 数据包 | 实服验证 | `tests/datapack-*.test.mjs`（静态）；2026-10-14 实服运行 | 胜、平、时限停止、拆除目标回落、区块强制加载与释放；Direct Fire 地图本身没有装进去跑 |
-| 游戏桥独立服务（`BRIDGE_SESSION=host`）与无主控模式（`BRIDGE_SESSION=server`） | 实服验证 | `tests/bridge-session-source.test.mjs`、`tests/arena-live.test.mjs`；`npm run verify:server`（CI 每次推送） | 外部游戏桥跑完一局并在结束时停掉 bot；无主控模式手动开关一轮，动作按状态放行 |
+| 运营命令行与 RCON（2026-10-16 取代比赛主控） | 实服验证（CI） | `tests/arena-cli.test.mjs`（含本地 TCP RCON）；`npm run verify:server` | 命令行读比赛文件，带两个 server 模式游戏桥和真实 Mineflayer bot 跑完准备、开赛、数据包判胜、结束；没有参赛模型 |
+| 服务器协议 v1、`race-of-wool`／`arena-example` 数据包 | 实服验证 | `tests/datapack-*.test.mjs`（静态）；2026-10-14 实服运行 | 胜、平、`#arena:stop`、`durationMs` 倒数判平、拆除目标回落、区块强制加载与释放；Direct Fire 地图本身没有装进去跑 |
+| 游戏桥 server 模式（`BRIDGE_SESSION=server`） | 实服验证 | `tests/bridge-session-source.test.mjs`；`npm run verify:server`（CI 每次推送） | 跑完一局；手动开关一轮，动作按状态放行，结束时松开按键 |
 | 程序断开后自动松开按键 | 实服验证 | `tests/bridge-control-lease.test.mjs`；2026-10-14 实服复现与复验 | 修复前程序退出后 bot 一直走（约 30 格），修复后约 1 秒后停下 |
 | 游戏桥只读状态令牌 | 夹具测试 | `tests/bridge-status-token.test.mjs` | 模板不再使用，留给外部读者 |
 | 参赛镜像只含参赛侧代码 | 夹具测试 | `tests/deployment.test.mjs`；按清单复制的目录能加载全部参赛侧模块 | 没有在这个环境里构建镜像（没有 Docker 守护进程） |
-| 部署配置一致性检查 | 夹具测试 | `tests/check-deployment.test.mjs` | Windows 初始化时自动运行，PowerShell 部分没有在 Windows 上跑过 |
-| 服务端录像 | 夹具测试 | `tests/server-replay.test.mjs` | 真实服务器录像输出与回放播放都没验收 |
+| 服务端录像 | 无 | 平台不再自动录像，运营者通过命令行发 ServerReplay 命令 | 真实服务器录像输出与回放播放都没验收 |
 | 截图脚本 | 夹具测试 | `tests/visual-*.test.mjs` | 真实 Chromium 测试需 `MC_TEST_CHROMIUM=1`；上次跑通是 2026-10-11 的 Windows 部署，在删除 Pi 里的图像工具之前 |
 | Unix socket 收件箱 | 夹具测试 | `tests/inbox.test.mjs` | 运行环境拒绝绑定（`EPERM`）时这项跳过，只剩 loopback HTTP |
 | Windows 本机部署 | 部署验证（旧代码） | `tests/deployment.test.mjs`、`tests/windows-*.test.mjs` | 2026-10-11 跑过。删除 OAuth 适配器（`e6933a4`）后 PowerShell 脚本没有重跑；`windows-initialize` 只在 Windows 上运行 |
@@ -66,7 +65,7 @@
 
 ## 服务器协议实服运行
 
-这些检查已做成 `npm run verify:server`（`scripts/verify-server-protocol.mjs`），CI 每次推送都跑。下面是 2026-10-14 首次手工运行的记录：Linux 上的 Minecraft 1.21.1 原版服务器（平坦世界，离线模式，开启 RCON），Java 21，Node 22。
+这些检查已做成 `npm run verify:server`（`scripts/verify-server-protocol.mjs`），CI 每次推送都跑。2026-10-16 起它用运营命令行和 server 模式游戏桥跑完整一局，并检查 `durationMs` 倒数。下面是 2026-10-14 首次手工运行的记录（当时还有比赛主控）：Linux 上的 Minecraft 1.21.1 原版服务器（平坦世界，离线模式，开启 RCON），Java 21，Node 22。
 
 1. 下载 `infra/minecraft-download.json` 里固定的 `server.jar`（SHA-1 一致），`server.properties` 开 RCON，把数据包复制进 `world/datapacks/`。
 2. 用仓库的 `RconClient`、`serverConfig`、`serializeSnbt`、`readServerSession` 直接走协议：
@@ -91,8 +90,7 @@ npm ci
 npm run check                     # 语法检查
 npm run format:check              # prettier
 npm test                          # 全部测试（npm run validate = check + test）
-node packages/arena/src/cli.mjs validate infra/match.example.json
-npm run demo:match                # 离线模拟一场比赛
+node packages/arena/src/cli.mjs check infra/match.live.template.json
 npm run demo:screenshot           # 需要本地 Chromium 和可选依赖
 ```
 
@@ -104,7 +102,6 @@ npm run demo:screenshot           # 需要本地 Chromium 和可选依赖
 | `ARENA_TEST_REAL_DEFAULT_WAIT=1 node --test --test-name-pattern='omitted bash' tests/integration-pi.test.mjs` | 用真实的 30 秒默认等待时长（CI 用 0.12 秒） |
 | `MC_TEST_CHROMIUM=1 node --test tests/visual-prismarine.test.mjs` | 真实 Chromium 截图 |
 | `node scripts/validate-observation-live.mjs --server-dir <隔离测试服> --confirm-isolated-test-server` | 实服观察检查（`--help` 看全部参数） |
-| `node scripts/verify-server-replay.mjs <file.mcpr>` | 深度检查一份录像文件 |
 
 `validate-observation-live.mjs` 需要一个已有、已停机、已接受 EULA 的隔离测试服。它校验官方 1.21.1 服务器 JAR，为本次检查新建世界，退出后恢复服务器配置。不要指向比赛服务器。
 
@@ -125,8 +122,7 @@ npm run demo:screenshot           # 需要本地 Chromium 和可选依赖
 | `the observe script through bash` | `bash` 运行 `examples/observe.mjs`，经真实游戏桥 HTTP 接口读取夹具 bot，状态 JSON 留在工具结果里，不提交动作 |
 | `bootstrap launches shipped Pi CLI through the model relay` | 启动器生成的配置启动随包 Pi CLI，经模型转发访问上游；参赛者没有 key，上游只看到转发的 key；输出上限取自模型描述；模型收到 4 个默认工具（`read`、`edit`、`write`、`bash`），`bash` 带 `wait_seconds`，没有 codemode |
 | `bootstrap without OPENAI_BASE_URL` | 不设端点时 Pi 按运营者自己的配置目录运行，用其中的提供方、模型和 key；启动器不改写这个目录 |
-| `configured match clock` | 比赛主控的时钟作为平台消息送达，标明来源，不另起模型请求 |
-| `resident bootstrap keeps child alive` | 持续会话：模型给出最终回答后后台任务继续运行，空闲时不调用模型；紧急消息在同一对话里恰好触发一次新回合；比赛结束时启动器退出并回收子进程 |
+| `resident bootstrap keeps child alive` | 持续会话：模型给出最终回答后后台任务继续运行，空闲时不调用模型；会话状态作为平台消息送达，不带时钟；紧急消息在同一对话里恰好触发一次新回合；比赛结束时启动器退出并回收子进程 |
 | `real Pi urgent/passive IPC during final response stream` | 模型正在输出最终回答时：紧急消息恰好续一轮；普通消息只记录一次，不额外调用模型 |
 | `default real Pi persists runtime task changes` | 任务变化以 `runtime.snapshot`／`runtime.changed` 写进对话历史 |
 
