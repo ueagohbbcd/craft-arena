@@ -1,6 +1,6 @@
 # 路线图
 
-更新：2026-10-14。这一页是唯一的待办清单。它合并了 [10‑11 比赛报告](history/REPORT-2026-10-11.txt) 的 8 条问题、原 `PERCEPTION-TODO.md` 中仍未完成的项，以及 10‑13 定下的架构调整。已完成项只保留一行，细节看提交记录。
+更新：2026-10-16。这一页是唯一的待办清单。它合并了 [10‑11 比赛报告](history/REPORT-2026-10-11.txt) 的 8 条问题、原 `PERCEPTION-TODO.md` 中仍未完成的项，以及 10‑13 定下的架构调整。已完成项只保留一行，细节看提交记录。
 
 状态：✅ 已完成　🔧 进行中　⬜ 未开始　⏸ 暂缓
 
@@ -29,6 +29,20 @@
 | ✅   | 删除仓库自带的 OAuth 转 API 适配器；模型统一走 OpenAI 兼容接口                                                                                                                    |
 | ✅   | 文档按读者重写，统一术语                                                                                                                                                          |
 | ✅   | 参赛镜像只装参赛侧代码：`Dockerfile.participant` 逐个列出参赛侧包、`examples/`、`docs/CONTEXT-DELIVERY.md`；`tests/deployment.test.mjs` 检查清单，并检查参赛侧代码不引用可信侧包。仓库目录不必再拆 |
+
+## 仓库分工（10‑16 定下的方向）
+
+本仓库是平台：比赛主控、游戏桥、模型转发、部署，以及容器里的 Pi 扩展、任务管理、收件箱和 `bot-sdk`（游戏桥协议的客户端，跟着桥一起改）。`mineflayer-world-memory` 仓库改成通用的 Minecraft agent 工具包，分三层：给其他代码调用的库（区块记忆、观察函数、默认运行时启动的观察器）、单项能力 skill（`SKILL.md` 带名字和摘要，主要是提示词，脚本几乎没有依赖，例如用 prismarine-viewer 做 3D 渲染）、让任意 agent 操作一个完整 Mineflayer bot 的主 skill。
+
+本仓库对工具包的代码依赖只有库。skill 不直接引用，只复制要用的几个过来按比赛规则改写；参赛容器里只装本仓库挑选的东西，因为模型能读到 `node_modules`。依赖继续用 GitHub 下载链接，不发 npm。
+
+| 状态 | 事项                                                                                                                         |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------- |
+| ✅   | 合并工具包 PR #5，依赖改为指向 `main` 上的合并提交 `ea28b24`（之前固定在未合并分支上的 `fafaaafe`）                           |
+| ⬜   | 工具包仓库改名，名字体现通用 agent 工具包的用途（GitHub 会把旧地址跳转过去，下载链接不用改）                                 |
+| ⬜   | `packages/observation` 里不依赖比赛的观察函数和观察器移到工具包的库里；汇报方式由调用方传入（现在观察器已经接受任何带 `send`／`delivery` 的对象），库不引用收件箱 |
+| ⬜   | 工具包加单项能力 skill 和主 skill；本仓库的 `participant/skills` 只复制要用的部分                                            |
+| ⬜   | 以后工具包拆成多个包时，由工具包的 CI 在打 tag 时给每个包生成 `.tgz` 挂到 GitHub Release，本仓库依赖 Release 文件链接           |
 
 ## 玩法与会话：规则交给服务器
 
@@ -70,7 +84,6 @@
 | ⬜   | 补本地就能算出来的 20 个：`blockAtCursor`、`canSeeBlock`、`recipesFor`、`findPlayer`、`awaitMessage`、`waitForChunksToLoad` 等 |
 | ⬜   | 补桥上已有对应动作、只是名字不同的 11 个：`openChest`、`openFurnace`、`craft`、`toss`、`transfer` 等                           |
 | ⬜   | 桥新增动作后再补的 20 个：实体交互（`activateEntity`、`useOn`、`mount`）、`sleep`、`fish`、`updateSign`、`trade`、写书等       |
-| ⬜   | `mineflayer-world-memory` 改为在 npm 发版或并入本仓库，解决依赖安装问题                                                        |
 
 ## 代码整理（简化审查中暂缓的项）
 
