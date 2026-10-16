@@ -1,6 +1,6 @@
 /** One on-demand state sample (sampleObservation) and its helpers. Read-only: no actions, goals or task policy. */
 import { createHash } from "node:crypto";
-import { entityRadar } from "./entity-radar.mjs";
+import { entityRadar, chunkEntities } from "./entity-radar.mjs";
 export { entityRadar } from "./entity-radar.mjs";
 
 const axes = ["x", "y", "z"];
@@ -760,7 +760,8 @@ export function sampleObservation(bot, options = {}) {
       }
     : null;
   const observedEntities = entitiesSummary(bot, options, position);
-  const radar = entityRadar(bot, options.radar);
+  const entityMode = options.radar?.entities ?? "chunks";
+  const radar = entityRadar(bot, { ...options.radar, entities: "list" });
   const playersById = new Map(
     observedEntities.players.map((player) => [player.id, player]),
   );
@@ -777,6 +778,30 @@ export function sampleObservation(bot, options = {}) {
     const source = bot?.entities?.[entry.id];
     if (source)
       entry.state = entityState(source, bot.registry, options.fullEntities);
+  }
+  if (entityMode === "chunks") {
+    // The chunk summary drops positions and decoded state; risk signs on a
+    // visible entity (lit TNT, a swelling creeper, a moving projectile,
+    // something targeting you) stay listed one by one.
+    const visible = new Set(radar.entities.map((entry) => entry.id));
+    radar.alerts = observedEntities.entities.entries
+      .filter(
+        (entity) => entity.attention?.priority === 2 && visible.has(entity.id),
+      )
+      .map((entity) => ({
+        id: entity.id,
+        name: entity.name,
+        position: Object.fromEntries(
+          axes.map((axis) => [
+            axis,
+            Math.round(entity.position[axis] * 10) / 10,
+          ]),
+        ),
+        distance: Math.round(entity.distance * 10) / 10,
+        reasons: entity.attention.reasons,
+      }));
+    radar.entityChunks = chunkEntities(radar.entities);
+    delete radar.entities;
   }
   return {
     type: "observation",

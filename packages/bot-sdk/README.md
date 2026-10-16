@@ -178,7 +178,7 @@ If no recipe can make that many items with your ingredients and table, the call 
 
 | Call                                                       | Behavior                                                                                                                                              |
 | ---------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `await window.withdraw(itemType, metadata?, count?, nbt?)` | Runs Mineflayer's own transfer on the real bot. `count` defaults to 1 and may span several stacks. The window's slots are updated before it resolves. |
+| `await window.withdraw(itemType, metadata?, count?, nbt?)` | Runs Mineflayer's own transfer on the real bot. `itemType` is the numeric item ID (`item.type`, or `bot.registry.itemsByName.arrow.id`), not a name: a name fails with `Invalid number`. `count` defaults to 1 and may span several stacks. The window's slots are updated before it resolves. |
 | `await window.deposit(...)`                                | Same, in the other direction.                                                                                                                         |
 | `await window.close()` or `await bot.closeWindow(window)`  | Closes that window and refreshes the inventory before it resolves. `bot.closeWindow(bot.inventory)` also works.                                       |
 

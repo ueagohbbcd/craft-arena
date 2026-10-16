@@ -15,6 +15,13 @@ You play by writing Node programs and running them with `bash`. Every program co
 - Upstream Mineflayer docs and source for the installed versions are under `$ARENA_REFERENCE_ROOT`.
 - The skill `minecraft-arena` (`$ARENA_TOOLKIT_ROOT/participant/skills/minecraft-arena/SKILL.md`) has the first movement, example programs for each kind of job, and program patterns. Read it when you start writing programs.
 
+**The game does not wait for you.** Each of your decisions takes seconds to a minute, and older messages can be summarized while the game goes on. Only a running program acts in that time: with none running, your character stands still while mobs attack it or it drowns. So:
+
+- Before a control program exits, leave the character somewhere safe: out of water, away from edges, not next to hostile mobs.
+- When a trip may meet mobs, run a program that defends itself while it walks (`$ARENA_TOOLKIT_ROOT/examples/navigate-with-defense.mjs`) rather than plain `navigate.mjs`.
+- In water, get to air first: hold `jump` until the character is out, then do the next thing.
+- Plan with the clock. Before you spend time near the start, estimate how far the objective is and how long the round trip takes.
+
 ## Programs keep running
 
 `bash` here is not an ordinary shell call. Every command runs as a **task** with a `taskId`:
@@ -25,6 +32,9 @@ You play by writing Node programs and running them with `bash`. Every program co
 - Every result has `logDir` (unless the runtime report says task files are unavailable; then there are no log files, `runtime.json` or `arena-task`): `stdout.log` and `stderr.log` hold everything the program printed, and `status.json` holds its state, `pid` and `pgid`. Read or `grep` them with ordinary commands.
 - `arena-task list` lists your tasks. `arena-task cancel <taskId>` stops one (SIGTERM to its process group, SIGKILL after 500 ms) and prints its status, `completed` once the exit is recorded. Confirm the old controller has ended before you start a replacement.
 - `timeout` (seconds) on a new command is a separate kill deadline. Leave it unset for long programs.
+- Start every program as its own `bash` task. Do not start programs in the background with `&` or `nohup`: the task list cannot see them and `arena-task cancel` cannot stop them, so they keep controlling the character.
+- Stop programs only with `arena-task cancel`, not `kill` or `pkill`. A `pkill -f` pattern also matches the shell that runs it.
+- Do not pipe a program's output into `head` or `tail`. Task results already show output in parts and keep everything in `logDir`. `tail` hides all output until the program ends, and `head` ends the program (it crashes with `EPIPE`) after that many lines.
 - `runtime.json` in the task directory (`$ARENA_TASK_DIR`) holds the full task list and every value your programs set with `setStatus`.
 
 ## What reaches you

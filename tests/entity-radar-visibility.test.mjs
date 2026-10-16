@@ -109,8 +109,16 @@ test("unknown sneak status requires visibility and radius is adjustable", () => 
     3: { id: 3, name: "zombie", position: { x: 40, y: 0, z: 0 }, height: 1.8 },
   };
   assert.equal(entityRadar(bot(entities, () => solid)).players.length, 0);
-  assert.equal(entityRadar(bot(entities), { radius: 30 }).entities.length, 0);
-  assert.equal(entityRadar(bot(entities), { radius: 45 }).entities.length, 1);
+  assert.equal(
+    entityRadar(bot(entities), { radius: 30, entities: "list" }).entities
+      .length,
+    0,
+  );
+  assert.equal(
+    entityRadar(bot(entities), { radius: 45, entities: "list" }).entities
+      .length,
+    1,
+  );
 });
 test("drops group by seed radius with entity centroid, actual stack counts and unknown stacks", () => {
   const drops = [
@@ -176,4 +184,49 @@ test("default observation radar keeps trusted team relation", async () => {
   });
   assert.equal(r.radar.players[0].team, "blue");
   assert.equal(r.radar.players[0].relation, "ally");
+});
+
+test("radar summarizes entities per chunk column by default", () => {
+  const r = entityRadar(
+    bot({
+      2: { id: 2, name: "cod", position: { x: 5.1234, y: 0, z: 3.3 } },
+      3: { id: 3, name: "cod", position: { x: 6.7, y: 0, z: 1 } },
+      4: { id: 4, name: "zombie", position: { x: 20.2, y: 0, z: -3 } },
+      5: { id: 5, name: "squid", position: { x: 9, y: 0, z: 2 } },
+    }),
+  );
+  assert.equal(r.entities, undefined);
+  assert.deepEqual(r.entityChunks, [
+    { chunk: { x: 0, z: 0 }, counts: { cod: 2, squid: 1 }, nearest: 5 },
+    { chunk: { x: 1, z: -1 }, counts: { zombie: 1 }, nearest: 20 },
+  ]);
+  assert.equal(entityRadar(bot({}), { entities: "list" }).entities.length, 0);
+  assert.throws(() => entityRadar(bot({}), { entities: "all" }), RangeError);
+});
+
+test("chunk radar in a sample keeps risk entities listed one by one", async () => {
+  const { sampleObservation } =
+    await import("../packages/observation/index.mjs");
+  const b = bot({
+    2: { id: 2, name: "tnt", position: { x: 3.333, y: 0, z: 0.5 } },
+    3: { id: 3, name: "cod", position: { x: 4, y: 0, z: 0.5 } },
+  });
+  b.username = "self";
+  const r = sampleObservation(b, { localRadius: 0 });
+  assert.deepEqual(r.radar.alerts, [
+    {
+      id: 2,
+      name: "tnt",
+      position: { x: 3.3, y: 0, z: 0.5 },
+      distance: 2.8,
+      reasons: ["primed_tnt"],
+    },
+  ]);
+  assert.deepEqual(r.radar.entityChunks[0].counts, { cod: 1, tnt: 1 });
+  const list = sampleObservation(b, {
+    localRadius: 0,
+    radar: { entities: "list" },
+  });
+  assert.equal(list.radar.entities.length, 2);
+  assert.equal(list.radar.alerts, undefined);
 });

@@ -142,10 +142,49 @@ export function groupDrops(drops, radius = 3) {
   }));
 }
 
+/**
+ * Non-player entities per 16×16 chunk column: chunk coordinates, counts by
+ * name and the nearest distance, nearest chunk first. Chunk coordinates stay
+ * put while mobs wander inside a chunk, so the summary changes far less often
+ * than a per-entity list.
+ */
+export function chunkEntities(entities) {
+  const chunks = new Map();
+  for (const entity of entities) {
+    const x = Math.floor(entity.position.x / 16),
+      z = Math.floor(entity.position.z / 16);
+    const key = `${x},${z}`;
+    let chunk = chunks.get(key);
+    if (!chunk) chunks.set(key, (chunk = { chunk: { x, z }, counts: {} }));
+    const name = String(entity.name ?? "unknown");
+    chunk.counts[name] = (chunk.counts[name] ?? 0) + 1;
+    chunk.nearest = Math.min(chunk.nearest ?? Infinity, entity.distance);
+  }
+  return [...chunks.values()]
+    .map(({ chunk, counts, nearest }) => ({
+      chunk,
+      counts: Object.fromEntries(
+        Object.entries(counts).sort(([a], [b]) => a.localeCompare(b)),
+      ),
+      nearest: Math.round(nearest),
+    }))
+    .sort(
+      (a, b) =>
+        a.nearest - b.nearest || a.chunk.x - b.chunk.x || a.chunk.z - b.chunk.z,
+    );
+}
+
 export function entityRadar(
   bot,
-  { radius = 48, playerRadius = 64, dropGroupRadius = 3 } = {},
+  {
+    radius = 48,
+    playerRadius = 64,
+    dropGroupRadius = 3,
+    entities: entityMode = "chunks",
+  } = {},
 ) {
+  if (!["chunks", "list"].includes(entityMode))
+    throw new RangeError('entities must be "chunks" or "list"');
   for (const [key, value] of Object.entries({
     radius,
     playerRadius,
@@ -155,7 +194,12 @@ export function entityRadar(
       throw new RangeError(`${key} must be finite and nonnegative`);
   const origin = bot?.entity?.position;
   if (!valid(origin))
-    return { known: false, players: [], entities: [], drops: [] };
+    return {
+      known: false,
+      players: [],
+      ...(entityMode === "list" ? { entities: [] } : { entityChunks: [] }),
+      drops: [],
+    };
   const eye = {
     ...point(origin),
     y: origin.y + (bot.entity.eyeHeight ?? bot.entity.height ?? 1.62),
@@ -205,7 +249,9 @@ export function entityRadar(
     radius,
     playerRadius,
     players: players.sort(sort),
-    entities: entities.sort(sort),
+    ...(entityMode === "list"
+      ? { entities: entities.sort(sort) }
+      : { entityChunks: chunkEntities(entities) }),
     drops: groupDrops(drops, dropGroupRadius),
     excluded,
   };
