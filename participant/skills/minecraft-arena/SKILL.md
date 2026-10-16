@@ -40,6 +40,8 @@ After `NoPath` or a stall, compare your position with the terrain. `node "$ARENA
 - Check that no entity blocks a placement: [inspect-placement-entities.mjs](../../../examples/inspect-placement-entities.mjs)
 - Be told when something specific appears: [watch-surroundings.mjs](../../../examples/watch-surroundings.mjs), see [Listener beside a controller](#listener-beside-a-controller)
 - Dig, place, equip, craft or chat: [Control program](#control-program) and the [SDK README](../../../packages/bot-sdk/README.md)
+- Press a button, pull a lever, open a door or gate: `await bot.activateBlock(block)` in a control program
+- Read signs: the default observer already sends the text of signs near you as `observation.nearby_signs` reports
 - Open a chest and decide before taking items: [Container in two steps](#container-in-two-steps)
 - Eat while walking: [navigate-with-autoeat.mjs](../../../examples/navigate-with-autoeat.mjs)
 - Defend yourself while walking: [navigate-with-defense.mjs](../../../examples/navigate-with-defense.mjs)
@@ -135,10 +137,13 @@ Common actions (full list and differences from Mineflayer in the [SDK README](..
 - Chat: `bot.chat(message)`, then `await bot.flush()`
 - Session state: `await bot.getSessionState()`
 
+Directions: north is −Z, south is +Z, east is +X, west is −X. To move or face a way, give a target point to Pathfinder or `bot.lookAt(point)` instead of working out a yaw by hand.
+
 Rules for control programs:
 
 - Methods change the game. Assigning to `bot.entity.position` or a window object changes only your program's copy.
 - After synchronous-style calls (`setControlState`, `chat`, `clearControlStates`), `await bot.flush()` sends them and reports the first failure.
+- Before you dig the block under your feet, check what is below it. Digging straight down can drop the character into water, lava or a long fall.
 - `closeBridge()` closes this program's connection. Movement keys this program pressed are released by the bridge about 1 second after its connection closes, also when the program crashes or is cancelled; item use and digging are not. Release controls before closing to stop at once.
 - Programs receive `death`, `spawn` (first spawn and respawn) and `bridgeReset` events. A `bridgeReset` means the connection was rebuilt. Get entities, windows and goals again after it. The plugins clear their Pathfinder and PvP targets on reset.
 
