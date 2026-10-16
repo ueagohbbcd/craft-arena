@@ -18,6 +18,7 @@ import {
   observeRpcOutput,
 } from "./request-recovery.mjs";
 import { createMatchReader } from "./platform-messages.mjs";
+import { modelRateOptions } from "./model-rate.mjs";
 import {
   briefingFields,
   briefingOf,
@@ -95,6 +96,7 @@ export function openingPromptText(
  * provider logins, API keys and settings are whatever the operator put there.
  */
 async function modelProfile({ env, directory, cwd }) {
+  const limited = modelRateOptions(env);
   if (!env.OPENAI_BASE_URL) {
     if (env.ARENA_MODEL_CONFIG)
       throw new Error(
@@ -135,6 +137,25 @@ async function modelProfile({ env, directory, cwd }) {
     throw new Error(
       "ARENA_MODEL_CONFIG needs id and api strings and positive integer contextWindow and maxOutputTokens",
     );
+  const price = (value) => typeof value === "number" && value >= 0;
+  const cost = model.cost ?? {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+  };
+  if (
+    !["input", "output", "cacheRead", "cacheWrite"].every((key) =>
+      price(cost[key]),
+    )
+  )
+    throw new Error(
+      "ARENA_MODEL_CONFIG cost needs input, output, cacheRead and cacheWrite (USD per million tokens)",
+    );
+  if (limited && !(cost.input > 0 || cost.output > 0))
+    throw new Error(
+      "ARENA_COST_PER_HOUR needs list prices: add cost to ARENA_MODEL_CONFIG",
+    );
   const { contextWindow, maxOutputTokens: maxTokens } = model;
   const compaction = {
     enabled: true,
@@ -162,7 +183,12 @@ async function modelProfile({ env, directory, cwd }) {
             input: model.input ?? ["text", "image"],
             contextWindow,
             maxTokens,
-            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+            cost: {
+              input: cost.input,
+              output: cost.output,
+              cacheRead: cost.cacheRead,
+              cacheWrite: cost.cacheWrite,
+            },
           },
         ],
       },

@@ -121,6 +121,7 @@ services:
       ARENA_BRIDGE_URL: http://bridge-red1:8080
       ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://model-red:8080
+      ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.red.json
       TEAM_GIT_DIR: /team-git
       ARENA_WAIT_FOR_MATCH: '1'
@@ -136,6 +137,7 @@ services:
       ARENA_BRIDGE_URL: http://bridge-blue1:8080
       ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
       OPENAI_BASE_URL: http://model-blue:8080
+      ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.blue.json
       TEAM_GIT_DIR: /team-git
       ARENA_WAIT_FOR_MATCH: '1'

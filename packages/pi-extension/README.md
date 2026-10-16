@@ -47,7 +47,13 @@ The `clock` section comes from the bridge's `GET /v1/session` (2 s cache, 300 ms
 
 In a match, `clock` carries `durationMs` and `remainingMs`. A session without a time limit (every `open` session, `durationMs: null`) gets `kind`, `state`, `startedAtMs` and `elapsedMs` only.
 
-The platform does not meter model use, so there is no budget section. A service in front of the model can report its own limits to programs or the model however it likes; it is not part of this package.
+### Spending limit
+
+Set `ARENA_COST_PER_HOUR` (USD) to limit what this Pi session spends on the model, priced at the model's list price (Pi's own cost figures). It works like a bucket: it holds up to `ARENA_COST_BURST` (default one sixth of the hourly rate, ten minutes' worth) and refills at the hourly rate. Each finished response is charged its cost; while the bucket is below zero, the next model request waits until it is back at zero. The wait happens in this extension before the request is sent, so no request is spent on it.
+
+The model learns about it in the next platform message, which rides a request it makes anyway: a `modelRate` section with the limit, `heldMs` (time the last requests waited, when they did) and `nextWaitMs` (how long the next request will wait). It is sent once after a response overdraws the bucket and once after a request has waited.
+
+The limit lives inside the participant's container and covers only Pi's own requests. Model calls made by the participant's programs are not limited or counted here. A hard cap belongs with the provider, for example a spending limit on the key. Prices come from Pi: the built-in providers carry them, and a descriptor for `OPENAI_BASE_URL` needs a `cost` field (see the launcher); without prices every response costs 0 and nothing is held. The bucket starts full when Pi starts.
 
 ## Launcher
 
@@ -60,7 +66,7 @@ node /opt/arena/packages/pi-extension/bootstrap.mjs
 This is the participant image's `CMD` ([infra/Dockerfile.participant](../../infra/Dockerfile.participant)) and `npm run agent:start`.
 
 1. **Model access.** Two ways, chosen by whether `OPENAI_BASE_URL` is set:
-   - **An endpoint** (`OPENAI_BASE_URL` and `ARENA_MODEL_CONFIG`, usually the [model relay](../model-relay/README.md)). Reads the model descriptor (`id`, `api`, `reasoning`, `input`, `contextWindow`, `maxOutputTokens`, optional `compaction`) and writes `models.json` and `settings.json` into a private temporary Pi directory with one provider, `arena`, pointing at the URL. `OPENAI_API_KEY` is optional: when set it is stored as the reference `${OPENAI_API_KEY}`, never the value; when unset Pi sends `unused` and the relay supplies the real key. Pi's own retry is off; request recovery (below) replaces it. The directory is deleted on exit.
+   - **An endpoint** (`OPENAI_BASE_URL` and `ARENA_MODEL_CONFIG`, usually the [model relay](../model-relay/README.md)). Reads the model descriptor (`id`, `api`, `reasoning`, `input`, `contextWindow`, `maxOutputTokens`, optional `compaction`, optional `cost`: list prices in USD per million tokens as `{input, output, cacheRead, cacheWrite}`, required with `ARENA_COST_PER_HOUR`) and writes `models.json` and `settings.json` into a private temporary Pi directory with one provider, `arena`, pointing at the URL. `OPENAI_API_KEY` is optional: when set it is stored as the reference `${OPENAI_API_KEY}`, never the value; when unset Pi sends `unused` and the relay supplies the real key. Pi's own retry is off; request recovery (below) replaces it. The directory is deleted on exit.
    - **Pi's own profile** (neither set). Pi runs on `PI_CODING_AGENT_DIR` (default `~/.pi/agent`) as the operator prepared it: an official API key, a provider login, any provider Pi supports, and its own retry and compaction settings. The launcher passes no model flags and neither rewrites nor deletes the directory. Setting only one of the two variables is a startup error.
 2. **Prompt and skill.** Appends [participant/PROMPT.md](../../participant/PROMPT.md) with `--append-system-prompt`, unless Pi already loads that same file as a context file. Passes [participant/skills/minecraft-arena/SKILL.md](../../participant/skills/minecraft-arena/SKILL.md) with `--skill`. Pi's own discovery of `AGENTS.md` and other context files stays on.
 3. **Workspace.** If the working directory is not the repository root, links `node_modules`, `examples`, `packages` and `docs` into it (only where absent). Sets `ARENA_TOOLKIT_ROOT` to the repository root. Sessions are saved under `PI_CODING_AGENT_SESSION_DIR` (default `<cwd>/.pi/sessions`).
@@ -136,6 +142,8 @@ Extension (read by [index.mjs](index.mjs) and its modules):
 | `ARENA_NOTICE_POLL_MS`                        | `2000`                                     | How often an idle continuous session reads the session for a changed `public.notice`.                   |
 | `ARENA_DEFAULT_SCRIPTS`                       | `observer,chat`                            | Default scripts to start; empty starts none. Unknown names are an error.                                |
 | `ARENA_OBSERVER_READY_MS`                     | `5000`                                     | How long the first request waits for the observer's first report.                                       |
+| `ARENA_COST_PER_HOUR`                         | unset (no limit)                           | Spending limit in USD per hour at list price; see [Spending limit](#spending-limit).                    |
+| `ARENA_COST_BURST`                            | `ARENA_COST_PER_HOUR / 6`                  | Most that can be spent at once before requests wait (USD).                                              |
 | `ARENA_MATCH_STARTED_AT`, `ARENA_DURATION_MS` | unset                                      | Fallback clock when the arena host is unreachable (start as epoch ms or a date string; duration in ms). |
 | `ARENA_RUNTIME_TASK_LIMIT`                    | `16`                                       | Tasks shown in full in the runtime report; extra running tasks show only ID and status.                 |
 | `ARENA_RUNTIME_STATUS_LIMIT`                  | `8`                                        | Program status entries shown.                                                                           |

@@ -240,6 +240,41 @@ test("idle urgent wakes only when configured; busy urgent releases all bash wait
   assert.equal(h.sent[0][1].triggerTurn, true);
 });
 
+test("over the spending limit the next request waits, and the model hears it at the boundary", async (t) => {
+  // 360 USD per hour is 0.0001 USD per ms; the burst is 1 USD.
+  const h = await harness(t, {
+    env: { ARENA_COST_PER_HOUR: "360", ARENA_COST_BURST: "1" },
+  });
+  const respond = (total) =>
+    h.handlers.get("message_end")(
+      { message: { role: "assistant", usage: { cost: { total } } } },
+      h.ctx,
+    );
+  respond(0.5);
+  let started = Date.now();
+  await h.handlers.get("before_provider_request")({ payload: {} }, h.ctx);
+  assert.ok(Date.now() - started < 100, "within the burst: no wait");
+  respond(0.52);
+  await h.handlers.get("turn_end")({ entries: [] }, h.ctx);
+  const warned = h.platform.at(-1)[0].details.modelRate;
+  assert.ok(warned.nextWaitMs > 100 && warned.nextWaitMs <= 210);
+  assert.match(warned.note, /360 USD per hour/);
+  started = Date.now();
+  await h.handlers.get("before_provider_request")({ payload: {} }, h.ctx);
+  assert.ok(Date.now() - started >= 90, "held until back at zero");
+  await h.handlers.get("turn_end")({ entries: [] }, h.ctx);
+  const held = h.platform.at(-1)[0].details.modelRate;
+  assert.ok(held.heldMs >= 90);
+  assert.equal(held.nextWaitMs, 0);
+  const count = h.platform.length;
+  await h.handlers.get("turn_end")({ entries: [] }, h.ctx);
+  assert.equal(
+    h.platform.slice(count).some(([m]) => m.details.modelRate),
+    false,
+    "nothing new to report",
+  );
+});
+
 test("idle urgent remains queued by default", async (t) => {
   const h = await harness(t);
   h.setIdle(true);
@@ -354,6 +389,48 @@ test("bootstrap model access: a relay needs no participant key; without an endpo
       },
     }),
     /positive integer contextWindow/,
+  );
+  const priced = await preparePiProfile({
+    directory: join(dir, "priced"),
+    cwd: dir,
+    env: {
+      ARENA_MODEL_CONFIG: await modelConfig(dir, {
+        cost: { input: 1, output: 4, cacheRead: 0.1, cacheWrite: 1.25 },
+      }),
+      OPENAI_BASE_URL: "http://relay:8080",
+      ARENA_COST_PER_HOUR: "2",
+    },
+  });
+  assert.deepEqual(priced.models.providers.arena.models[0].cost, {
+    input: 1,
+    output: 4,
+    cacheRead: 0.1,
+    cacheWrite: 1.25,
+  });
+  await assert.rejects(
+    preparePiProfile({
+      cwd: dir,
+      env: {
+        ARENA_MODEL_CONFIG: await modelConfig(dir),
+        OPENAI_BASE_URL: "http://relay:8080",
+        ARENA_COST_PER_HOUR: "2",
+      },
+    }),
+    /needs list prices/,
+  );
+  await assert.rejects(
+    preparePiProfile({
+      cwd: dir,
+      env: {
+        ARENA_MODEL_CONFIG: await modelConfig(dir, { cost: { input: 1 } }),
+        OPENAI_BASE_URL: "http://relay:8080",
+      },
+    }),
+    /cost needs input, output, cacheRead and cacheWrite/,
+  );
+  await assert.rejects(
+    preparePiProfile({ cwd: dir, env: { ARENA_COST_PER_HOUR: "free" } }),
+    /ARENA_COST_PER_HOUR must be a positive number/,
   );
 });
 

@@ -14,6 +14,7 @@ import {
 import { createSectionDiff } from "../observation/section-diff.mjs";
 import { displayLimitOptions, runtimeState } from "./runtime-state.mjs";
 import { defaultScripts } from "./default-scripts.mjs";
+import { createModelRate, modelRateOptions, sleep } from "./model-rate.mjs";
 
 const text = (value) => ({ type: "text", text: JSON.stringify(value) });
 const object = (properties) => ({
@@ -75,6 +76,12 @@ function envMs(name, fallback) {
   return value;
 }
 
+const rateSection = ({ perHour, burst, heldMs, nextWaitMs }) => ({
+  note: `Model spending limit: ${perHour} USD per hour at list price, up to ${burst} USD at once. While over it, each model request waits. Model calls made by your programs count against the same account but are not limited here.`,
+  ...(heldMs ? { heldMs } : {}),
+  nextWaitMs,
+});
+
 export default function arenaExtension(pi) {
   const waitSeconds = defaultToolWaitSeconds();
   let runtime;
@@ -93,6 +100,8 @@ export default function arenaExtension(pi) {
   const observerReadyMs = envMs("ARENA_OBSERVER_READY_MS", 5000);
   const readMatch = createMatchReader({ url: bridgeUrl, token: bridgeToken });
   const platform = createPlatformMessages({ readMatch });
+  const rateOptions = modelRateOptions();
+  const rate = rateOptions && createModelRate(rateOptions);
   /**
    * The one path for trusted platform messages: clock, public data
    * and notices, and the idle reminder. Changed sections are collected here;
@@ -110,10 +119,17 @@ export default function arenaExtension(pi) {
   ) {
     const { matchEnded, update, wake } = await platform.collect();
     if (matchEnded) r.matchEnded = true;
-    if (runtime !== r || r.closed || (!update && !extra)) return false;
+    if (runtime !== r || r.closed) return false;
     if (triggerTurn && r.matchEnded) return false;
+    const modelRate = rate?.report();
+    if (!update && !extra && !modelRate) return false;
     r.platformWake = wake;
-    const message = { type: "arena.platform", ...update, ...extra };
+    const message = {
+      type: "arena.platform",
+      ...update,
+      ...(modelRate ? { modelRate: rateSection(modelRate) } : {}),
+      ...extra,
+    };
     pi.sendMessage(
       {
         customType,
@@ -417,6 +433,21 @@ export default function arenaExtension(pi) {
         250,
       );
       r.inbox.on("message", onMessage);
+    });
+  }
+  // The spending limit: charge each finished response, hold the next request
+  // while over it. The model hears about it in its next platform message.
+  if (rate) {
+    pi.on("message_end", (event) => {
+      if (event.message?.role === "assistant")
+        rate.charge(event.message.usage?.cost?.total);
+    });
+    pi.on("before_provider_request", async (_event, ctx) => {
+      const ms = rate.delayMs();
+      if (!ms) return;
+      const started = Date.now();
+      await sleep(ms, ctx.signal);
+      rate.noteHeld(Date.now() - started);
     });
   }
   pi.on("tool_result", async (event, ctx) => {
