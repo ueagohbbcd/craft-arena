@@ -70,6 +70,24 @@ test("race-of-wool prepare writes protocol v1 session state and public data", as
   assert.match(await fn("stop"), /state set value "ended"/);
 });
 
+test("race-of-wool counts down arena:config.durationMs and draws at zero", async () => {
+  assert.match(
+    await fn("start"),
+    /^execute store result score #left rw_time run data get storage arena:config durationMs 0\.02$/m,
+  );
+  assert.match(
+    await fn("tick"),
+    /if score #left rw_time matches 1\.\. run function race_of_wool:countdown/,
+  );
+  assert.match(
+    await fn("countdown"),
+    /matches \.\.0 run function race_of_wool:timeout/,
+  );
+  const timeout = await fn("timeout");
+  assert.match(timeout, /winner set value "draw"/);
+  assert.match(timeout, /state set value "ended"/);
+});
+
 test("map.mcfunction matches the Direct Fire match config", async () => {
   const text = await fn("map");
   const merge = text.match(/^data merge storage race_of_wool:map (\{.*\})$/m);
@@ -80,7 +98,7 @@ test("map.mcfunction matches the Direct Fire match config", async () => {
       "utf8",
     ),
   );
-  const teams = config.teams.map((t) => t.id);
+  const teams = config.config.teams.map((t) => t.id);
   assert.equal(map.publishGoals, 1);
   assert.equal(new Set(map.objectives).size, map.objectives.length);
   assert.equal(map.goals.length, teams.length * map.objectives.length);

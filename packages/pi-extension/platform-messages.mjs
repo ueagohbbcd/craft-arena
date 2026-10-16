@@ -19,14 +19,13 @@ const noticeOf = (host) => {
   return typeof notice === "string" ? notice : null;
 };
 
-/** A session snapshot is usable when its clock fields are well formed. */
+/** A session snapshot is usable when it names its state. */
 export function validSession(value) {
   return (
     !!value &&
     typeof value === "object" &&
     typeof value.state === "string" &&
-    Number.isFinite(value.now) &&
-    (value.durationMs === null || Number.isFinite(value.durationMs))
+    Number.isFinite(value.now)
   );
 }
 
@@ -74,74 +73,22 @@ export function createMatchReader({
   };
 }
 
-function configuredClock(env) {
-  const duration = Number(env.ARENA_DURATION_MS);
-  const raw = env.ARENA_MATCH_STARTED_AT;
-  const start =
-    raw === undefined
-      ? NaN
-      : Number.isFinite(Number(raw))
-        ? Number(raw)
-        : Date.parse(raw);
+/**
+ * The session's kind, ID, state and (in a match) winner. No clock: the
+ * rules on the server end the session, and the model hears when they do.
+ */
+export function sessionData(host) {
   return {
-    durationMs: Number.isFinite(duration) && duration > 0 ? duration : null,
-    startedAt: Number.isFinite(start) && start > 0 ? start : null,
-  };
-}
-
-/** Clock from the host snapshot, else from host-provided env, else agent uptime. */
-export function clockData(host, { now, bootAt, configured }) {
-  if (host) {
-    const elapsed =
-      host.elapsedMs === null || !Number.isFinite(host.elapsedMs)
-        ? null
-        : Math.max(0, host.elapsedMs);
-    // Open sessions have no time limit, so there is nothing to count down.
-    if (host.kind === "open" || host.durationMs === null)
-      return {
-        basis: "authenticated host session snapshot",
-        kind: host.kind ?? "match",
-        sessionId: host.sessionId ?? host.matchId,
-        state: host.state,
-        startedAtMs: host.startedAt ?? null,
-        asOfMs: host.now,
-        elapsedMs: elapsed,
-        ...(host.kind === "open" ? {} : { winner: host.winner ?? null }),
-      };
-    return {
-      basis: "authenticated host match snapshot",
-      matchId: host.matchId,
-      state: host.state,
-      matchStartedAtMs: host.startedAt,
-      asOfMs: host.now,
-      durationMs: host.durationMs,
-      elapsedMs: elapsed,
-      remainingMs:
-        elapsed === null ? null : Math.max(0, host.durationMs - elapsed),
-      winner: host.winner ?? null,
-    };
-  }
-  const { startedAt, durationMs } = configured;
-  const elapsed = Math.max(0, now - (startedAt ?? bootAt));
-  if (startedAt !== null)
-    return {
-      basis: "host-provided match start",
-      matchStartedAtMs: startedAt,
-      elapsedMs: elapsed,
-      ...(durationMs !== null
-        ? { durationMs, remainingMs: Math.max(0, durationMs - elapsed) }
-        : {}),
-    };
-  return {
-    basis: "participant agent uptime; match start is unknown",
-    agentUptimeMs: elapsed,
-    ...(durationMs !== null ? { configuredMatchDurationMs: durationMs } : {}),
+    kind: host.kind ?? "match",
+    sessionId: host.sessionId ?? host.matchId,
+    state: host.state,
+    ...(host.kind === "open" ? {} : { winner: host.winner ?? null }),
   };
 }
 
 /**
- * Trusted messages for the model: session clock and changes to the session's
- * public data. These come from the platform, not from
+ * Trusted messages for the model: changes to the session's state and public
+ * data. These come from the platform, not from
  * participant programs, so they travel as their own Pi message rather than
  * through the participant inbox. `collect()` returns only the sections that
  * changed since the last delivered update.
@@ -154,14 +101,11 @@ export function clockData(host, { now, bootAt, configured }) {
 export function createPlatformMessages({
   readMatch,
   env = process.env,
-  now = Date.now,
-  bootAt = now(),
   sessionDir = env.ARENA_SESSION_DIR,
 }) {
-  const configured = configuredClock(env);
   let publicBaseline;
   let noticeBaseline = null;
-  let lastClockBucket;
+  let lastSession;
 
   /** Public data the model already has (the opening prompt's); first call wins. */
   function notePublic(host) {
@@ -174,7 +118,7 @@ export function createPlatformMessages({
     reset() {
       publicBaseline = undefined;
       noticeBaseline = null;
-      lastClockBucket = undefined;
+      lastSession = undefined;
     },
     notePublic,
     /** Fresh read: has `public.notice` changed since it was last delivered? */
@@ -188,19 +132,14 @@ export function createPlatformMessages({
     },
     async collect() {
       const host = await readMatch();
-      const clock = clockData(host, { now: now(), bootAt, configured });
       const changes = {};
-      const bucket = JSON.stringify([
-        clock.basis,
-        clock.matchId ?? clock.sessionId,
-        clock.state,
-        clock.winner,
-        clock.matchStartedAtMs ?? clock.startedAtMs,
-        Math.floor((clock.elapsedMs ?? clock.agentUptimeMs ?? 0) / 10000),
-      ]);
-      if (bucket !== lastClockBucket) {
-        lastClockBucket = bucket;
-        changes.clock = clock;
+      if (host) {
+        const session = sessionData(host);
+        const signature = JSON.stringify(session);
+        if (signature !== lastSession) {
+          lastSession = signature;
+          changes.session = session;
+        }
       }
       let wake = false;
       if (host && publicBaseline === undefined) notePublic(host);

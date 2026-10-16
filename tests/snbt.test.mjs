@@ -87,6 +87,14 @@ test("storage replies: contents, empty, missing and unknown", () => {
     parseStorageReply("Found no elements matching arena:session"),
     null,
   );
+  // Another RCON client's output around the reply (shared vanilla buffer).
+  assert.deepEqual(
+    parseStorageReply(
+      'Unknown or incomplete command<--[HERE]Storage arena:session has the following contents: {state:"ended"}Unknown or incomplete command<--[HERE]',
+      "arena:session",
+    ),
+    { state: "ended" },
+  );
   assert.throws(
     () =>
       parseStorageReply(

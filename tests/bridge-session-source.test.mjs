@@ -1,11 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { createServer } from "node:http";
 import { cliOptions } from "../packages/mf-bridge/cli.mjs";
 import { fakeServer } from "./helpers/fake-server.mjs";
 import {
-  hostSession,
-  hostSessionReader,
   polledSession,
   serverSessionReader,
 } from "../packages/mf-bridge/session-source.mjs";
@@ -89,25 +86,24 @@ test("serverSessionReader builds the session from arena:session and arena:config
   assert.equal(s.sessionId, "s9");
   assert.equal(s.runId, "r9");
   assert.equal(s.teamId, "red");
-  assert.equal(s.durationMs, 60000);
+  assert.equal(s.durationMs, undefined, "the model gets no clock");
   assert.deepEqual(s.objectives, ["a"]);
   assert.deepEqual(s.briefing, {
     text: "rules",
     prompt: null,
     public: { objectives: ["a"] },
   });
-  assert.equal(s.startedAt, null);
   state.session = '{version:1,state:"running",winner:""}';
   t = 2000;
   s = await read();
-  assert.equal(s.startedAt, 2000);
+  assert.equal(s.now, 2000);
+  assert.equal(s.elapsedMs, undefined);
   state.session = '{version:1,state:"ended",winner:"red",scores:{red:3}}';
   t = 5000;
   s = await read();
   t = 9000;
   s = await read();
   assert.equal(s.winner, "red");
-  assert.equal(s.elapsedMs, 3000);
   // arena:config is read once per state, not on every poll.
   assert.equal(rcon.configReads, 3);
   // A new round without arena:config: no teams, the fallback id.
@@ -116,30 +112,16 @@ test("serverSessionReader builds the session from arena:session and arena:config
   s = await read();
   assert.equal(s.teamId, null);
   assert.equal(s.sessionId, "fallback");
+  // A briefing written into arena:config replaces BRIDGE_BRIEFING.
+  state.config = '{version:1,sessionId:"s10",briefing:"Lane 1 only."}';
+  state.session = '{version:1,state:"running",winner:""}';
+  assert.equal((await read()).briefing.text, "Lane 1 only.");
 });
 
-test("hostSessionReader reads the host's per-participant session with its token", async (t) => {
-  const server = createServer((req, res) => {
-    if (req.headers.authorization !== "Bearer host-token") {
-      res.writeHead(401);
-      return res.end();
-    }
-    res.writeHead(200, { "content-type": "application/json" });
-    res.end(JSON.stringify({ ok: true, result: { state: "running" } }));
-  });
-  await new Promise((r) => server.listen(0, "127.0.0.1", r));
-  t.after(() => server.close());
-  const url = `http://127.0.0.1:${server.address().port}/v1/participants/red1/session`;
-  assert.deepEqual(await hostSessionReader({ url, token: "host-token" })(), {
-    state: "running",
-  });
-  await assert.rejects(hostSessionReader({ url, token: "wrong" })(), /401/);
-});
-
-test("cliOptions host/server modes require their settings", () => {
+test("cliOptions server mode requires its settings; host mode is gone", () => {
   assert.throws(
     () => cliOptions({ ...baseEnv, BRIDGE_SESSION: "host" }),
-    /BRIDGE_HOST_URL/,
+    /open or server/,
   );
   assert.throws(
     () => cliOptions({ ...baseEnv, BRIDGE_SESSION: "server" }),
@@ -171,161 +153,35 @@ test("cliOptions host/server modes require their settings", () => {
   assert.equal(options.bridge.authorizeAction(), false);
 });
 
-test("server mode keeps the bot across rounds; host mode stops it on an observed end only", async () => {
-  for (const kind of ["server", "host"]) {
-    const state = { session: '{version:1,state:"ended",winner:"red"}' };
-    const options = cliOptions({
-      ...baseEnv,
-      BRIDGE_SESSION: kind,
-      BRIDGE_RCON_HOST: "mc",
-      BRIDGE_RCON_PASSWORD: "x",
-      BRIDGE_HOST_URL: "http://host.invalid/v1/participants/red1/session",
-      BRIDGE_HOST_TOKEN: "host-token",
-      BRIDGE_SESSION_POLL_MS: "60000",
-    });
-    let stops = 0;
-    const service = { stopGame: async () => void stops++ };
-    if (kind === "host") {
-      // Replace the network read with the same fake states.
-      const realFetch = globalThis.fetch;
-      globalThis.fetch = async () =>
-        new Response(
-          JSON.stringify({
-            ok: true,
-            result: { state: /state:"(\w+)"/.exec(state.session)[1] },
-          }),
-        );
-      try {
-        await options.session.start(service);
-        assert.equal(stops, 0, "stale ended at startup is not an end");
-        state.session = '{version:1,state:"running"}';
-        await pollOnce(options);
-        state.session = '{version:1,state:"ended"}';
-        await pollOnce(options);
-        assert.equal(stops, 1);
-        assert.equal(options.session.ended(), true);
-      } finally {
-        globalThis.fetch = realFetch;
-      }
-    } else {
-      const rcon = fakeRcon(state);
-      await options.session.start(service, { createRcon: () => rcon });
-      assert.equal(rcon.connected, true);
-      state.session = '{version:1,state:"running"}';
-      await pollOnce(options);
-      assert.equal(options.bridge.authorizeAction(), true);
-      state.session = '{version:1,state:"ended"}';
-      await pollOnce(options);
-      assert.equal(stops, 0);
-      assert.equal(options.session.ended(), false);
-      options.session.close();
-      assert.equal(rcon.closed, true);
-    }
-    options.session.close();
-  }
+test("server mode keeps the bot across rounds", async () => {
+  const state = { session: '{version:1,state:"ended",winner:"red"}' };
+  const options = cliOptions({
+    ...baseEnv,
+    BRIDGE_SESSION: "server",
+    BRIDGE_RCON_HOST: "mc",
+    BRIDGE_RCON_PASSWORD: "x",
+    BRIDGE_SESSION_POLL_MS: "60000",
+  });
+  let stops = 0;
+  const service = { stopGame: async () => void stops++ };
+  const rcon = fakeRcon(state);
+  await options.session.start(service, { createRcon: () => rcon });
+  assert.equal(rcon.connected, true);
+  state.session = '{version:1,state:"running"}';
+  await pollOnce(options);
+  assert.equal(options.bridge.authorizeAction(), true);
+  state.session = '{version:1,state:"ended"}';
+  await pollOnce(options);
+  assert.equal(stops, 0);
+  assert.equal(options.bridge.authorizeAction(), false);
+  options.session.close();
+  assert.equal(rcon.closed, true);
 });
 
 // The CLI session polls on a timer; tests drive one read through `poll`.
 async function pollOnce(options) {
   await options.session.poll();
 }
-
-test("host sessions stop the bot when ending begins and exit once the host is gone", async () => {
-  const states = ["running", "ending", "ended"];
-  let fail = false,
-    gone = 0,
-    stops = 0;
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
-    if (fail) throw new Error("connection refused");
-    return new Response(
-      JSON.stringify({ ok: true, result: { state: states[0] } }),
-    );
-  };
-  try {
-    const session = hostSession({
-      url: "http://host.invalid/v1/participants/red1/session",
-      token: "host-token",
-      intervalMs: 60000,
-      onGone: () => gone++,
-    });
-    await session.start({ stopGame: async () => void stops++ });
-    assert.equal(session.ended(), false);
-    states.shift();
-    await session.poll();
-    // Controls and the bot stop at `ending`, before the host's final reads.
-    assert.equal(stops, 1);
-    assert.equal(session.ended(), true);
-    assert.equal(session.authorizeAction(), false);
-    states.shift();
-    await session.poll();
-    assert.equal(stops, 1);
-    // The host shuts down after serving the final state.
-    fail = true;
-    for (let i = 0; i < 4; i++) await session.poll();
-    assert.equal(gone, 1);
-    assert.equal(session.getMatchState().state, "ended");
-    session.close();
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-});
-
-test("host sessions never exit on failed reads before their match ends", async () => {
-  let gone = 0;
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async () => {
-    throw new Error("host not up yet");
-  };
-  try {
-    const session = hostSession({
-      url: "http://host.invalid/v1/participants/red1/session",
-      token: "host-token",
-      intervalMs: 60000,
-      onGone: () => gone++,
-    });
-    await session.start({ stopGame: async () => {} });
-    for (let i = 0; i < 5; i++) await session.poll();
-    assert.equal(gone, 0);
-    session.close();
-  } finally {
-    globalThis.fetch = realFetch;
-  }
-});
-
-test("server sessions give every round its own clock", async () => {
-  let t = 0;
-  const state = { session: '{version:1,state:"running",winner:""}' };
-  const read = serverSessionReader({
-    rcon: fakeRcon(state),
-    username: () => "arena_red1",
-    sessionId: "s",
-    now: () => t,
-  });
-  t = 1000;
-  assert.equal((await read()).startedAt, 1000);
-  state.session = '{version:1,state:"ended",winner:"red"}';
-  t = 4000;
-  assert.equal((await read()).elapsedMs, 3000);
-  // Round two: prepared again, then started.
-  state.session = '{version:1,state:"waiting",winner:""}';
-  t = 10000;
-  let s = await read();
-  assert.equal(s.startedAt, null);
-  assert.equal(s.elapsedMs, null);
-  state.session = '{version:1,state:"running",winner:""}';
-  t = 12000;
-  s = await read();
-  assert.equal(s.startedAt, 12000);
-  t = 13000;
-  assert.equal((await read()).elapsedMs, 1000);
-  // Restarted straight from ended, without a prepare.
-  state.session = '{version:1,state:"ended",winner:""}';
-  await read();
-  state.session = '{version:1,state:"running",winner:""}';
-  t = 20000;
-  assert.equal((await read()).startedAt, 20000);
-});
 
 test("a session that cannot be read refuses actions once stale and releases held controls once", async () => {
   let t = 0,

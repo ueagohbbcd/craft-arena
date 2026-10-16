@@ -85,7 +85,7 @@ test("cliOptions without BRIDGE_SESSION has no session route and offline auth", 
 test("cliOptions rejects unknown BRIDGE_SESSION and MF_AUTH values", () => {
   assert.throws(
     () => cliOptions({ ...baseEnv, BRIDGE_SESSION: "match" }),
-    /BRIDGE_SESSION must be open, host or server/,
+    /BRIDGE_SESSION must be open or server/,
   );
   assert.throws(
     () => cliOptions({ ...baseEnv, MF_AUTH: "mojang" }),
@@ -154,9 +154,6 @@ test("BRIDGE_SESSION=open serves a running open session", () => {
     ],
     map: null,
     now: 5_000,
-    startedAt: 5_000,
-    durationMs: null,
-    elapsedMs: 0,
     winner: null,
     scores: null,
     briefing: {
@@ -167,9 +164,7 @@ test("BRIDGE_SESSION=open serves a running open session", () => {
   });
   now.advance(1_500);
   const later = options.bridge.getMatchState();
-  assert.equal(later.startedAt, 5_000);
   assert.equal(later.now, 6_500);
-  assert.equal(later.elapsedMs, 1_500);
   // The prompt file is read once at start.
   assert.equal(reads.length, 1);
 });
@@ -238,15 +233,13 @@ test("prompt file over MAX_SESSION_PROMPT_BYTES is rejected", () => {
   );
 });
 
-test("openSession clamps elapsedMs and accepts a fixed username", () => {
+test("openSession accepts a fixed username", () => {
   const get = openSession({
     sessionId: "s",
     username: "alex",
-    startedAt: 100,
     now: () => 50,
   });
   const state = get();
-  assert.equal(state.elapsedMs, 0);
   assert.equal(state.username, "alex");
   assert.deepEqual(state.briefing, { text: null, prompt: null, public: null });
 });
@@ -262,7 +255,6 @@ test("bridge serves /v1/session and no legacy /v1/match alias", async (t) => {
   const getMatchState = openSession({
     sessionId: "solo",
     username: "test",
-    startedAt: 10,
     now: () => 30,
   });
   const service = await startBridge({

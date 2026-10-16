@@ -5,7 +5,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import {
   validSession,
   createMatchReader,
-  clockData,
+  sessionData,
 } from "../packages/pi-extension/platform-messages.mjs";
 import { openingPromptText } from "../packages/pi-extension/bootstrap.mjs";
 import {
@@ -43,15 +43,8 @@ async function until(fn, timeout = 2000) {
   assert.fail("Timed out");
 }
 
-test("validSession requires a state string and finite now; durationMs finite or null", () => {
-  assert.equal(
-    validSession({ state: "running", now: 1, durationMs: null }),
-    true,
-  );
-  assert.equal(
-    validSession({ state: "running", now: 1, durationMs: 60000 }),
-    true,
-  );
+test("validSession requires a state string and finite now", () => {
+  assert.equal(validSession({ state: "running", now: 1 }), true);
   for (const bad of [
     null,
     undefined,
@@ -60,17 +53,10 @@ test("validSession requires a state string and finite now; durationMs finite or 
     {},
     { state: "running" },
     { now: 1 },
-    { state: "running", now: 1 },
-    // Each of these is valid apart from the one field under test.
-    { state: 1, now: 1, durationMs: null },
-    { now: 1, durationMs: null },
-    { state: "running", durationMs: null },
-    { state: "running", now: "1", durationMs: null },
-    { state: "running", now: NaN, durationMs: null },
-    { state: "running", now: Infinity, durationMs: null },
-    { state: "running", now: 1, durationMs: "60000" },
-    { state: "running", now: 1, durationMs: NaN },
-    { state: "running", now: 1, durationMs: Infinity },
+    { state: 1, now: 1 },
+    { state: "running", now: "1" },
+    { state: "running", now: NaN },
+    { state: "running", now: Infinity },
   ])
     assert.equal(validSession(bad), false, JSON.stringify(bad));
 });
@@ -86,7 +72,6 @@ test("createMatchReader prefers /v1/session and sends the bearer token", async (
           sessionId: "s1",
           state: "running",
           now: 5,
-          durationMs: null,
         },
       });
     json(res, 500, { ok: false });
@@ -94,7 +79,6 @@ test("createMatchReader prefers /v1/session and sends the bearer token", async (
   const read = createMatchReader({ url: `${url}/`, token, timeoutMs: 2000 });
   const snapshot = await read();
   assert.equal(snapshot.kind, "open");
-  assert.equal(snapshot.durationMs, null);
   assert.equal(snapshot.sessionId, "s1");
   assert.deepEqual(requests, ["/v1/session"]);
 });
@@ -112,9 +96,9 @@ test("createMatchReader does not fall back to a legacy route", async (t) => {
 
 test("createMatchReader returns undefined for invalid bodies and errors", async (t) => {
   const bodies = [
-    { ok: false, result: { state: "running", now: 1, durationMs: null } },
-    { ok: true, result: { state: "running", durationMs: null } },
-    { ok: true, result: { state: "running", now: 1, durationMs: "x" } },
+    { ok: false, result: { state: "running", now: 1 } },
+    { ok: true, result: { state: "running" } },
+    { ok: true, result: { state: 1, now: 1 } },
     { ok: true },
   ];
   let index = 0;
@@ -124,7 +108,7 @@ test("createMatchReader returns undefined for invalid bodies and errors", async 
     if (status !== 200)
       return json(res, status, {
         ok: true,
-        result: { state: "running", now: 1, durationMs: null },
+        result: { state: "running", now: 1 },
       });
     if (index >= bodies.length) {
       res.writeHead(200, { "content-type": "application/json" });
@@ -145,70 +129,21 @@ test("createMatchReader returns undefined for invalid bodies and errors", async 
   );
 });
 
-test("clockData reports elapsed only for open sessions", () => {
-  const options = {
-    now: 100,
-    bootAt: 0,
-    configured: { startedAt: null, durationMs: null },
-  };
-  const open = clockData(
-    {
+test("sessionData carries state and winner, never a clock", () => {
+  assert.deepEqual(
+    sessionData({
       kind: "open",
       sessionId: "s1",
       state: "running",
-      startedAt: 10,
       now: 1010,
-      elapsedMs: 1000,
-      durationMs: null,
       winner: "nobody",
-    },
-    options,
+    }),
+    { kind: "open", sessionId: "s1", state: "running" },
   );
-  assert.deepEqual(open, {
-    basis: "authenticated host session snapshot",
-    kind: "open",
-    sessionId: "s1",
-    state: "running",
-    startedAtMs: 10,
-    asOfMs: 1010,
-    elapsedMs: 1000,
-  });
-  assert.equal("durationMs" in open, false);
-  assert.equal("remainingMs" in open, false);
-  assert.equal("winner" in open, false);
-  // An open session never counts down even if a duration is present.
-  const withDuration = clockData(
-    { kind: "open", state: "running", now: 1, elapsedMs: 5, durationMs: 60 },
-    options,
+  assert.deepEqual(
+    sessionData({ matchId: "m1", state: "ended", now: 1, winner: "red" }),
+    { kind: "match", sessionId: "m1", state: "ended", winner: "red" },
   );
-  assert.equal("remainingMs" in withDuration, false);
-  assert.equal("durationMs" in withDuration, false);
-});
-
-test("clockData match output is unchanged", () => {
-  const clock = clockData(
-    {
-      kind: "match",
-      matchId: "m1",
-      state: "running",
-      startedAt: 10,
-      now: 1010,
-      elapsedMs: 1000,
-      durationMs: 60000,
-    },
-    { now: 0, bootAt: 0, configured: { startedAt: null, durationMs: null } },
-  );
-  assert.deepEqual(clock, {
-    basis: "authenticated host match snapshot",
-    matchId: "m1",
-    state: "running",
-    matchStartedAtMs: 10,
-    asOfMs: 1010,
-    durationMs: 60000,
-    elapsedMs: 1000,
-    remainingMs: 59000,
-    winner: null,
-  });
 });
 
 test("openingPromptText includes the briefing object sections", () => {
@@ -512,7 +447,6 @@ test("platform messages report public data against the opening baseline and inli
   let host = {
     state: "running",
     now: 1,
-    durationMs: null,
     kind: "open",
     briefing: { public: { a: 1 } },
   };

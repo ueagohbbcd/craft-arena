@@ -1,5 +1,5 @@
 # Companion template: one model plays on an external Minecraft server in an open
-# session (no arena host, no time limit, no winner). Validate with
+# session (no rules datapack, no time limit, no winner). Validate with
 # docker compose --env-file .env -f infra/companion/compose.yaml config.
 # No host ports are published.
 name: craft-arena-companion

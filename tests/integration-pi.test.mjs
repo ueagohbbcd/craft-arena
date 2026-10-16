@@ -700,6 +700,76 @@ test(
 );
 
 /** Run the shipped launcher once with --print against a fixture upstream. */
+test(
+  "after compaction the next request carries the full character and runtime state",
+  { timeout: 30000 },
+  async (t) => {
+    const saved = {
+      url: process.env.ARENA_BRIDGE_URL,
+      token: process.env.ARENA_BRIDGE_TOKEN,
+    };
+    const backend = new EventEmitter();
+    Object.assign(backend, {
+      version: "1.21.1",
+      username: "default-observer",
+      entity: {
+        id: 1,
+        position: new Vector(0, 1, 0),
+        velocity: new Vector(),
+        yaw: 0,
+        pitch: 0,
+        height: 1.8,
+      },
+      entities: {},
+      inventory: {
+        slots: Array(46).fill(null),
+        inventoryStart: 9,
+        inventoryEnd: 45,
+      },
+      health: 20,
+      food: 20,
+      game: {},
+      controlState: {},
+      blockAt: (position) => ({
+        position: new Vector(position.x, position.y, position.z),
+        name: position.y === 0 ? "stone" : "air",
+        stateId: position.y === 0 ? 1 : 0,
+        type: position.y === 0 ? 1 : 0,
+        shapes: position.y === 0 ? [[0, 0, 0, 1, 1, 1]] : [],
+        boundingBox: position.y === 0 ? "block" : "empty",
+      }),
+    });
+    const bridge = await startBridge({
+      bot: backend,
+      token: "compaction-integration-token",
+      snapshotRadius: 1,
+    });
+    process.env.ARENA_BRIDGE_URL = bridge.url;
+    process.env.ARENA_BRIDGE_TOKEN = "compaction-integration-token";
+    t.after(async () => {
+      await bridge.close();
+      for (const [name, value] of [
+        ["ARENA_BRIDGE_URL", saved.url],
+        ["ARENA_BRIDGE_TOKEN", saved.token],
+      ]) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    });
+    const h = await harness(t, () => "Noted.", {
+      settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
+    });
+    await h.session.prompt("Look around.");
+    await h.session.prompt("Keep looking.");
+    await h.session.compact();
+    await h.session.prompt("Continue.");
+    const last = JSON.stringify(h.requests.at(-1).messages);
+    assert.match(last, /Context was compacted/);
+    assert.match(last, /default-observer/, "the observe sample reached it");
+    assert.match(last, /runtime\.snapshot/);
+  },
+);
+
 async function runBootstrapPrint(t, configure) {
   const dir = await mkdtemp(join(tmpdir(), "mc-bootstrap-integration-"));
   const received = [];
@@ -907,39 +977,6 @@ test(
 );
 
 test(
-  "configured match clock is passive, correctly labeled and delivered at a natural boundary",
-  { timeout: 15000 },
-  async (t) => {
-    const previousStart = process.env.ARENA_MATCH_STARTED_AT,
-      previousDuration = process.env.ARENA_DURATION_MS;
-    const started = Date.now() - 5000;
-    process.env.ARENA_MATCH_STARTED_AT = String(started);
-    process.env.ARENA_DURATION_MS = "60000";
-    let h;
-    try {
-      h = await harness(t, () => "Clock fixture complete.");
-    } finally {
-      if (previousStart === undefined)
-        delete process.env.ARENA_MATCH_STARTED_AT;
-      else process.env.ARENA_MATCH_STARTED_AT = previousStart;
-      if (previousDuration === undefined) delete process.env.ARENA_DURATION_MS;
-      else process.env.ARENA_DURATION_MS = previousDuration;
-    }
-    await h.session.prompt("Complete the clock fixture.");
-    assert.equal(h.requests.length, 1);
-    const [update] = platformFromSession(h.session);
-    const clock = { data: update.clock };
-    assert.equal(clock.data.basis, "host-provided match start");
-    assert.equal(clock.data.matchStartedAtMs, started);
-    assert.equal(clock.data.durationMs, 60000);
-    assert.ok(clock.data.elapsedMs >= 5000);
-    assert.equal(clock.data.remainingMs, 60000 - clock.data.elapsedMs);
-    await sleep(50);
-    assert.equal(h.requests.length, 1);
-  },
-);
-
-test(
   "resident bootstrap keeps child alive after final answer, resumes same session on urgent IPC and reaps on host end",
   { timeout: 30000 },
   async (t) => {
@@ -950,7 +987,6 @@ test(
       stdout = "",
       stderr = "";
     let matchState = "running";
-    const matchStarted = Date.now() - 1000;
     const matchToken = "resident-match-fixture-token";
     const bridge = await startBridge({
       bot: new EventEmitter(),
@@ -958,10 +994,7 @@ test(
       getMatchState: () => ({
         matchId: "resident-fixture",
         state: matchState,
-        startedAt: matchStarted,
-        durationMs: 60000,
         now: Date.now(),
-        elapsedMs: matchState === "ended" ? 5000 : Date.now() - matchStarted,
         winner: matchState === "ended" ? "blue" : null,
       }),
     });
@@ -1098,7 +1131,8 @@ test(
     const tools = requests[0].tools.map((x) => x.function.name);
     assert.deepEqual(tools.toSorted(), ["bash", "edit", "read", "write"]);
     const second = JSON.stringify(requests[1].messages);
-    assert.match(second, /authenticated host match snapshot/);
+    assert.match(second, /Arena platform message/);
+    assert.doesNotMatch(second, /elapsedMs|remainingMs/);
     assert.match(second, /resident-fixture/);
     await writeFile(join(dir, "send-urgent"), "go");
     await until(
@@ -1208,7 +1242,7 @@ for (const urgent of [false, true])
     },
   );
 
-/** The platform update (clock/budget) as the model received it in a request. */
+/** The platform update as the model received it in a request. */
 function platformFromRequest(request) {
   for (const m of request.messages) {
     const text =
@@ -1220,11 +1254,6 @@ function platformFromRequest(request) {
     const at = text.indexOf("Arena platform message");
     if (at >= 0) return JSON.parse(text.slice(text.indexOf("\n", at) + 1));
   }
-}
-function platformFromSession(session) {
-  return session.messages
-    .filter((m) => m.role === "custom" && m.customType === "arena-platform")
-    .map((m) => m.details);
 }
 test("default real Pi persists runtime task changes and has no temporary tail", async (t) => {
   const h = await harness(t, async (_body, n) =>

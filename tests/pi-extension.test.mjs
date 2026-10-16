@@ -195,15 +195,36 @@ test("the full runtime file keeps program state the compact report omits", async
       .findLast((line) => line.trim().startsWith("{")),
   ).changes;
   assert.equal(compact.programStatus[0].data, undefined);
-  assert.equal(compact.displayLimits.programStatus.dataOmitted, 1);
+  assert.deepEqual(compact.omitted, { programStatusData: 1 });
   assert(Buffer.byteLength(JSON.stringify(compact.programStatus)) < 8192);
-  const full = JSON.parse(
-    await readFile(compact.displayLimits.fullFile, "utf8"),
-  );
+  const full = JSON.parse(await readFile(compact.fullFile, "utf8"));
   assert.deepEqual(full.programStatus[0].data, value);
-  assert.equal(full.displayLimits.mode, "full");
   assert.equal(full.tasks.length, 1);
   assert.equal(h.sent.length, 0);
+});
+
+test("after compaction the model gets waiting reports, a full runtime snapshot and the character state before its next request", async (t) => {
+  const h = await harness(t, {
+    env: { ARENA_BRIDGE_URL: "", ARENA_BRIDGE_TOKEN: "" },
+  });
+  // Establish a delivered runtime baseline, as an earlier turn would.
+  await h.handlers.get("before_agent_start")({}, h.ctx);
+  await h.client.post({ type: "build.step", step: 3 });
+  // A completed task makes a runtime change report wait in the inbox too.
+  await h.run("bash", { command: "true", wait_seconds: 5 }, "later");
+  await h.handlers.get("session_compact")({ reason: "threshold" }, h.ctx);
+  const [message, options] = h.sent.at(-1);
+  assert.equal(message.customType, "arena-after-compaction");
+  assert.deepEqual(options, { deliverAs: "steer" });
+  assert.equal(message.details.runtime.type, "runtime.snapshot");
+  assert.equal(message.details.runtime.changes.tasks.length, 2);
+  assert.equal(message.details.character.unavailable, "no bridge configured");
+  const keys = message.details.batch.messages.map((m) => m.key);
+  assert(!keys.includes("runtime.current"), "the snapshot replaces it");
+  assert(
+    message.details.batch.messages.some((m) => m.data?.type === "build.step"),
+  );
+  assert.match(message.content, /^Context was compacted/);
 });
 
 test("Pi passive turn boundary persists inbox without requesting continuation", async (t) => {
@@ -516,36 +537,25 @@ test(
   },
 );
 
-test("the session clock is deduplicated platform feedback, never inbox data", async (t) => {
+test("without a session there is no platform message, and none rides the inbox", async (t) => {
   const h = await harness(t);
-  // Platform feedback does not ride the participant inbox.
   const boundary = await h.handlers.get("tool_result")(
     { content: [{ type: "text", text: "finished" }] },
     h.ctx,
   );
-  assert.doesNotMatch(JSON.stringify(boundary ?? {}), /arena\.(budget|clock)/);
-  assert.equal(h.platform.length, 0);
+  assert.doesNotMatch(
+    JSON.stringify(boundary ?? {}),
+    /arena\.(budget|clock|platform)/,
+  );
   await await h.handlers.get("turn_end")(
     { entries: [], toolResults: [], outcome: "completed" },
     h.ctx,
   );
-  assert.equal(h.platform.length, 1);
-  const [message, options] = h.platform[0];
-  assert.deepEqual(options, { triggerTurn: false });
-  assert.match(message.content, /^Arena platform message/);
-  assert.deepEqual(Object.keys(message.details).sort(), ["clock", "type"]);
-  const { clock } = message.details;
-  assert.equal(clock.remainingMs, undefined);
-  assert.match(clock.basis, /match start is unknown/);
-  await await h.handlers.get("turn_end")(
-    { entries: [], toolResults: [], outcome: "completed" },
-    h.ctx,
-  );
-  assert.equal(h.platform.length, 1, "an unchanged clock is not repeated");
+  assert.equal(h.platform.length, 0, "no clock from agent uptime");
   assert.equal(h.sent.length, 0);
 });
 
-test("authenticated host match clock preserves ended state and cached frozen elapsed time", async (t) => {
+test("session state reaches the model once per change, without a clock", async (t) => {
   const http = await import("node:http");
   const { once } = await import("node:events");
   let reads = 0;
@@ -570,10 +580,7 @@ test("authenticated host match clock preserves ended state and cached frozen ela
         result: {
           matchId: "m",
           state: "ended",
-          startedAt: 10000,
-          durationMs: 60000,
           now: 100000,
-          elapsedMs: 35000,
           winner: "blue",
         },
       }),
@@ -598,12 +605,10 @@ test("authenticated host match clock preserves ended state and cached frozen ela
     h.ctx,
   );
   assert.equal(h.platform.length, 1);
-  const { clock } = h.platform[0][0].details;
-  assert.equal(clock.basis, "authenticated host match snapshot");
-  assert.equal(clock.state, "ended");
-  assert.equal(clock.elapsedMs, 35000);
-  assert.equal(clock.remainingMs, 25000);
-  assert.equal(clock.winner, "blue");
+  assert.deepEqual(h.platform[0][0].details, {
+    type: "arena.platform",
+    session: { kind: "match", sessionId: "m", state: "ended", winner: "blue" },
+  });
   await await h.handlers.get("turn_end")(
     { entries: [], toolResults: [], outcome: "completed" },
     h.ctx,
@@ -643,8 +648,6 @@ test(
             result: {
               state: "running",
               now: Date.now(),
-              durationMs: 60000,
-              elapsedMs: 1000,
             },
           }),
         );
@@ -829,10 +832,7 @@ test(
               },
               privateSecret: "never forward",
               state,
-              startedAt: state === "prepared" ? null : Date.now() - 1000,
               now: Date.now(),
-              durationMs: 60000,
-              elapsedMs: state === "prepared" ? null : 1000,
             },
           }),
         );
@@ -987,8 +987,6 @@ function residentHost(t) {
       result: {
         state,
         now: Date.now(),
-        durationMs: 60000,
-        elapsedMs: 1000,
         ...(published ? { briefing: { public: published } } : {}),
       },
     }),

@@ -15,7 +15,7 @@ At session start the runtime starts two ordinary scripts as background tasks. Bo
 
 They report through the [inbox](../inbox/README.md), the same way your programs do with `InboxClient`. Reports join the next tool result or turn end. An urgent report also ends a running `bash` wait early, and the program keeps running.
 
-The default observer does not report your tasks. The runtime sends those separately as `runtime.snapshot` / `runtime.changed` (sections `tasks`, `programStatus`, `displayLimits`). See [packages/pi-extension/README.md](../pi-extension/README.md).
+The default observer does not report your tasks. The runtime sends those separately as `runtime.snapshot` / `runtime.changed` (sections `tasks`, `programStatus`, and `omitted` when something was left out). See [packages/pi-extension/README.md](../pi-extension/README.md).
 
 If you stop the default observer without replacing it, the automatic state and event reports stop. `examples/observe.mjs`, runtime reports and your own programs keep working.
 
@@ -111,7 +111,7 @@ Events are inbox events with `type` `observation.<name>`. Each carries `observed
 
 `health_loss` becomes urgent when, within 2 seconds, you lose at least 4 health, or at least 3 separate drops add up to at least 3. Its `urgency` field gives the reason and numbers. Continuous damage sends one urgent report. The next one can come only after 5 seconds and after either 2 seconds without damage or 2 health regained. When critical health or death already sent an urgent report, the damage report stays normal.
 
-Item events state what was observed. They do not mean an objective is complete; the arena host judges that.
+Item events state what was observed. They do not mean an objective is complete; the rules on the server judge that.
 
 Events only signal; they never stop or change your programs.
 

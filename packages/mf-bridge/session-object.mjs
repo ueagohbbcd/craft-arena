@@ -1,6 +1,6 @@
 /**
  * The object a bridge serves at GET /v1/session, whatever produced it (an
- * open session, the arena host or the server). One builder keeps the shape
+ * open session or the server). One builder keeps the shape
  * the Pi extension, outside readers and the SDK read identical.
  */
 export function sessionObject({
@@ -15,9 +15,6 @@ export function sessionObject({
   participants = [],
   map = null,
   now,
-  startedAt = null,
-  endedAt = null,
-  durationMs = null,
   winner = null,
   scores = null,
   briefing = {},
@@ -39,10 +36,6 @@ export function sessionObject({
       ? { objectives: published.objectives }
       : {}),
     now,
-    startedAt,
-    durationMs,
-    elapsedMs:
-      startedAt === null ? null : Math.max(0, (endedAt ?? now) - startedAt),
     winner,
     scores,
     briefing: {

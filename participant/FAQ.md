@@ -62,11 +62,11 @@ Blank cells are blocks the character has not received. They are unknown, not air
 
 The shipped script supports copying: it resolves imports through `ARENA_TOOLKIT_ROOT`. Check that this variable points to the toolkit in the process running your copy, and that the referenced files exist. Without it, the script falls back to its original location inside the toolkit.
 
-## Clock and model requests
+## Session and model requests
 
-### How much session time is left?
+### How do I know the session has started or ended?
 
-In a match, the `clock` section of the `Arena platform message` gives `state`, `elapsedMs`, `remainingMs` and `winner`. An open session has no time limit: its `clock` has `kind: "open"`, `state` and `elapsedMs`, and no `remainingMs`. A new `clock` is sent when the session state changes or another 10 seconds have passed, and it arrives with your next request. A program can call `await bot.getSessionState()` for the session state from the session host. If `basis` says agent uptime, the session start is unknown: you get `agentUptimeMs`, which measures your runtime, not the session.
+The `session` section of the `Arena platform message` gives `kind`, `sessionId`, `state` and, in a match, `winner`. It is sent when one of them changes and arrives with your next request. A program can call `await bot.getSessionState()` for the same state. There is no clock: the rules on the server end the match, and a time limit, if any, is in the briefing.
 
 ### Will chat wake me?
 

@@ -13,8 +13,6 @@ const briefingKeys = [
   "teams",
   "map",
   "objectives",
-  "startedAt",
-  "durationMs",
 ];
 
 export function briefingFields(host) {

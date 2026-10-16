@@ -121,10 +121,8 @@ test("Windows deployment uses operator world/config and one server metadata sour
   assert.match(init, /\[Parameter\(Mandatory\)\]\[string\]\$MatchConfig/);
   assert.match(init, /Get-Content -LiteralPath \$ServerDownload/);
   assert.match(init, /prepare-minecraft-server\.mjs/);
-  assert.match(
-    init,
-    /matchDocument\.live\.minecraft\.version -ne \$download\.minecraftVersion/,
-  );
+  assert.match(init, /\$download\.minecraftVersion -ne '1\.21\.1'/);
+  assert.match(init, /packages\/arena\/src\/cli\.mjs'\) check \$match/);
   assert.match(init, /DeploymentDir must not be inside WorldDir/);
   assert.match(init, /\[IO\.Directory\]::Move\(\$stage, \$destination\)/);
   assert.match(init, /Assert-ArenaPath \$stage -Root \$parent -Tree/);
@@ -138,7 +136,7 @@ test("Windows deployment uses operator world/config and one server metadata sour
   assert.match(control, /archive-participant-state\.mjs/);
 });
 
-test("live deployment exposes replay storage only to the two trusted services", async () => {
+test("live deployment: replay storage only on the server, bridges read the session over RCON", async () => {
   for (const path of ["compose.live.yaml", "windows-local/compose.yaml"]) {
     const text = await readFile(
       new URL(`../infra/${path}`, import.meta.url),
@@ -151,11 +149,16 @@ test("live deployment exposes replay storage only to the two trusted services", 
         ),
       ].map((match) => [match[1], match[2]]),
     );
-    for (const service of ["minecraft", "arena-host"]) {
-      assert.match(sections[service], /:\/results/);
-      assert.match(sections[service], /replay-config/);
-      assert.match(sections[service], /stop_grace_period/);
-    }
+    assert.match(sections.minecraft, /:\/results/);
+    assert.match(sections.minecraft, /replay-config/);
+    assert.match(sections.minecraft, /stop_grace_period/);
+    assert.equal(sections["arena-host"], undefined);
+    assert.match(sections.arena, /profiles: \[tools\]/);
+    for (const [name, section] of Object.entries(sections))
+      if (name.startsWith("bridge-")) {
+        assert.match(section, /BRIDGE_SESSION: server/);
+        assert.match(section, /BRIDGE_RCON_HOST: minecraft/);
+      }
     for (const [name, section] of Object.entries(sections))
       if (name.startsWith("participant-"))
         assert.doesNotMatch(
@@ -172,8 +175,8 @@ test("live deployment exposes replay storage only to the two trusted services", 
     "utf8",
   );
   assert.match(init, /\.\.\/infra\/minecraft-download\.json/);
-  assert.doesNotMatch(control, /'stop','-t','30','arena-host'/);
-  assert.match(control, /Replay saving is unconfirmed/);
+  assert.doesNotMatch(control, /arena-host|supervise-participants/);
+  assert.match(control, /Invoke-Arena 'prepare' '\/config\/match\.json'/);
 });
 
 test("participant image carries only participant-side code", async () => {
