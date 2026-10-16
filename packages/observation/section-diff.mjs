@@ -59,7 +59,7 @@ export function compactObservation(snapshot) {
                 ...entry,
                 ...(entry.position ? { position: tenth(entry.position) } : {}),
                 ...(entry.relative ? { relative: tenth(entry.relative) } : {}),
-                ...(entry.state?.itemUse && !entry.state.itemUse.usingItem
+                ...(entry.state?.itemUse?.usingItem === false
                   ? { state: withoutIdleItemUse(entry.state) }
                   : {}),
               }

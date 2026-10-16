@@ -84,8 +84,10 @@ test("reports leave out itemUse for players not using an item", () => {
       name: "b",
       state: { itemUse: { usingItem: true, activeHand: "main" } },
     },
+    { id: 5, name: "c", state: { itemUse: { usingItem: null } } },
   ];
-  const [a, b] = c.next(s).changes.radar.players;
+  const [a, b, unknown] = c.next(s).changes.radar.players;
+  assert.equal(unknown.state.itemUse.usingItem, null);
   assert.deepEqual(a.state, { sneaking: true });
   assert.equal(b.state.itemUse.activeHand, "main");
   assert.deepEqual(s.radar.players[0].state.itemUse, idle);

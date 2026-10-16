@@ -116,15 +116,20 @@ export function routeTable({
 }) {
   if (!Array.isArray(points) || points.length < 2)
     throw new Error("a route table needs at least two places");
+  const names = new Set(points.map((p) => p.name));
+  if (names.size !== points.length)
+    throw new Error("waypoint names must be unique");
   const started = Date.now();
   const pairs = [];
   for (const a of points)
     for (const b of points) {
       if (a === b || (fromName && a.name !== fromName)) continue;
       const results = {};
-      for (const c of configs)
+      for (const c of configs) {
+        // Each search gets at most what is left of the table's budget.
+        const left = budgetMs - (Date.now() - started);
         results[c.name] =
-          Date.now() - started > budgetMs
+          left <= 0
             ? { status: "skipped" }
             : findRoute({
                 blockAt,
@@ -132,10 +137,11 @@ export function routeTable({
                 minY,
                 from: a,
                 to: b,
-                timeoutMs,
+                timeoutMs: Math.max(1, Math.min(timeoutMs, left)),
                 ...base,
                 ...c.settings,
               });
+      }
       pairs.push({ from: a.name, to: b.name, results });
     }
   return { pairs, text: routeText(pairs, configs, base) };
@@ -196,7 +202,7 @@ function routeText(pairs, configs, base) {
   ].join(", ");
   return [
     `Routes moving like Pathfinder (${switches}). Numbers are blocks of walking.`,
-    `walk: no digging, no placing, gates closed. Others are listed only when they do better: gates opens doors and gates${blocks ? `, place may place up to ${blocks} blocks` : ""}, dig may dig.`,
+    `walk: no digging, no placing, gates closed. Others are listed only when they do better: gates opens fence gates (not doors)${blocks ? `, place may place up to ${blocks} blocks` : ""}, dig may dig.`,
     ...lines,
   ].join("\n");
 }

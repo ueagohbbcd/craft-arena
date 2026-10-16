@@ -74,13 +74,11 @@ async function main() {
   const bot = await connectBot();
   try {
     if (options.here) {
-      const p = bot.entity.position;
-      points.unshift({
-        name: "here",
-        x: Math.floor(p.x),
-        y: Math.floor(p.y),
-        z: Math.floor(p.z),
-      });
+      if (points.some((p) => p.name === "here"))
+        throw new Error("--here adds a place named here; rename yours");
+      // Unfloored, so a start on a slab moves up into the air cell like Pathfinder's.
+      const { x, y, z } = bot.entity.position;
+      points.unshift({ name: "here", x, y, z });
     }
     if (options.from && !points.some((p) => p.name === options.from))
       throw new Error(`no waypoint named ${options.from}`);

@@ -421,6 +421,14 @@ test("routes arguments", () => {
     /positive/,
   );
   assert.throws(() => parseWaypoints([{ name: "a", x: 1 }]), /needs numbers/);
+  const twice = parseWaypoints([
+    { name: "door", x: 0, y: 64, z: 0 },
+    { name: "door", x: 5, y: 68, z: 0 },
+  ]);
+  assert.throws(
+    () => routeTable({ blockAt: house(), registry, points: twice }),
+    /unique/,
+  );
 });
 
 test("opening a gate does not let a route place blocks", () => {
@@ -470,4 +478,22 @@ test("opening a gate does not let a route place blocks", () => {
     }).status,
     "ok",
   );
+});
+
+test("a route table never runs past its budget", () => {
+  const started = Date.now();
+  const table = routeTable({
+    blockAt: house(),
+    registry,
+    points: [
+      { name: "pit", x: -7, y: 61, z: 0 },
+      { name: "upstairs", x: 5, y: 68, z: 0 },
+    ],
+    configs: configsFor(16),
+    timeoutMs: 5000,
+    budgetMs: 50,
+  });
+  assert.ok(Date.now() - started < 1000);
+  assert.match(table.text, /not tried \(time budget\)|timed out/);
+  assert.match(table.text, /gates opens fence gates \(not doors\)/);
 });
