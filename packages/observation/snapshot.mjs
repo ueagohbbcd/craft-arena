@@ -875,7 +875,11 @@ export function sampleObservation(bot, options = {}) {
     window: windowSummary(bot, options),
     ...observedEntities,
     radar,
-    local: localSummary(bot, options, position),
+    // The default observer leaves it out: self.support.below and recent
+    // blocks already cover it, and it changed with every step.
+    ...(options.local === false
+      ? {}
+      : { local: localSummary(bot, options, position) }),
   };
 }
 

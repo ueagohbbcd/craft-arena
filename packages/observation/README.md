@@ -35,17 +35,17 @@ The first report is `observation.snapshot` and carries every section. Later repo
 
 The observer samples once a second and compares each sample with what you last received. If a section changes and then changes back before the report is delivered, the pending report is corrected. A failed send or a dropped or expired state report is retried on the next sample, even if the state has not changed.
 
-| Section              | Contents                                                                                                                                                                                                                                                                   |
-| -------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `connection`         | `status` (`fresh`, `stale`, `connecting`, `unavailable`, `disconnected`, `unknown`), `dimension`, `epoch` (generation of the connection to the game bridge)                                                                                                                |
-| `self`               | position and velocity (1 decimal), `yaw`/`pitch` (2 decimals), health, food, oxygen, effects, dimension, `controlFlags`, `media` (water, lava, web), `support` (on ground, block below), `collision`                                                                       |
-| `inventory`          | main inventory and hotbar: items grouped by type and exact component variant, counts, slots, `totalItems`, `emptySlots`                                                                                                                                                    |
-| `equipment`          | armor slots and offhand                                                                                                                                                                                                                                                    |
-| `heldItem`, `cursor` | item in hand, item on the mouse cursor                                                                                                                                                                                                                                     |
-| `window`             | the open window (container, crafting table…): type, title, slot ranges, container items; `null` when none is open                                                                                                                                                          |
-| `radar`              | nearby entities, players and grouped item drops (see [Radar](#radar))                                                                                                                                                                                                      |
-| `local`              | `around`: what walking 3 blocks north, east, south and west meets (`flat 3+`, `up 1`, `wall 3 high`, `down 2`, `drop 9 (fall damage)`, `water`, `unknown`); `above`: head room; up to 16 notable blocks within 2 blocks (chests, buttons, doors, lava…; water is left out) |
-| `playersKnown`       | whether the entity list is available at all                                                                                                                                                                                                                                |
+| Section              | Contents                                                                                                                                                                                                                                                                                                                  |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `connection`         | `status` (`fresh`, `stale`, `connecting`, `unavailable`, `disconnected`, `unknown`), `dimension`, `epoch` (generation of the connection to the game bridge)                                                                                                                                                               |
+| `self`               | position and velocity (1 decimal), `yaw`/`pitch` (2 decimals), health, food, oxygen, effects, dimension, `controlFlags`, `media` (water, lava, web), `support` (on ground, block below), `collision`                                                                                                                      |
+| `inventory`          | main inventory and hotbar: items grouped by type and exact component variant, counts, slots, `totalItems`, `emptySlots`                                                                                                                                                                                                   |
+| `equipment`          | armor slots and offhand                                                                                                                                                                                                                                                                                                   |
+| `heldItem`, `cursor` | item in hand, item on the mouse cursor                                                                                                                                                                                                                                                                                    |
+| `window`             | the open window (container, crafting table…): type, title, slot ranges, container items; `null` when none is open                                                                                                                                                                                                         |
+| `radar`              | nearby entities, players and grouped item drops (see [Radar](#radar))                                                                                                                                                                                                                                                     |
+| `local`              | not in reports: on request with `examples/observe.mjs` (`around`: what walking 3 blocks north, east, south and west meets, such as `flat 3+`, `wall 3 high`, `drop 9 (fall damage)` or `water`; `above`: head room; notable blocks within 2 blocks, water left out). The block under your feet is in `self.support.below` |
+| `playersKnown`       | whether the entity list is available at all                                                                                                                                                                                                                                                                               |
 
 `null` or `known: false` means there is no data. It does not mean empty or absent. `unknown` block cells are not air.
 
@@ -196,7 +196,7 @@ All are read-only. Import them from `$ARENA_TOOLKIT_ROOT/packages/observation/`.
 | `queryTreeCandidate({blockAt, seed})`                                 | `queries.mjs`  | connected logs, leaf evidence and unknown edges of the tree containing `seed` |
 | `queryEntitiesIntersecting({entities, bounds})`                       | `queries.mjs`  | entities whose box overlaps `bounds`, for example before placing a block      |
 
-`sampleObservation` options: `fullItems`, `fullEntities`, `fullLocal`, `loadedSigns` (`false` skips signs from loaded chunks outside the local crop), `radar`, `localRadius` (2), `blockLimit` (16), `signLimit` (16), `entityLimit` (12), `entityRadius`, `entityAttentionRadius` (16), `staleAfterMs` (5000), `teams`.
+`sampleObservation` options: `fullItems`, `fullEntities`, `fullLocal`, `local` (`false` leaves the section out, as the default observer does), `loadedSigns` (`false` skips signs from loaded chunks outside the local crop), `radar`, `localRadius` (2), `blockLimit` (16), `signLimit` (16), `entityLimit` (12), `entityRadius`, `entityAttentionRadius` (16), `staleAfterMs` (5000), `teams`.
 
 ```js
 const state = sampleObservation(bot, { localRadius: 4, fullLocal: true });
@@ -212,7 +212,7 @@ All take `blockAt(position)` (a live bot's, a block-memory view's, or your own) 
 | `reachMap({blockAt, origin, radius = 10, maxDrop = 4, target})` | `text`: a north-up grid of the columns walking can reach from `origin` (flood fill: same level, step up 1, drop up to `maxDrop`, any depth into water, swimming), one character per column separated by spaces, plus exact facts below it (start, height base, open map edges, other floors, whether `target` is reached and in how many steps) |
 | `reachCells({blockAt, origin, radius, maxDrop})`                | the reached cells with BFS `steps` and `medium` (`land` or `water`), for programs                                                                                                                                                                                                                                                               |
 | `terrainProfile({blockAt, origin, target \| direction, steps})` | `text`: the walkable surface along a straight line, as runs such as `flat 12 → up 3 over 3 → water 15 → wall +9 at (x,y,z)`                                                                                                                                                                                                                     |
-| `aroundSummary({blockAt, origin, distance = 3})`                | `around` and `above`, as in the `local` report                                                                                                                                                                                                                                                                                                  |
+| `aroundSummary({blockAt, origin, distance = 3})`                | `around` and `above`, as in `local` (observe.mjs)                                                                                                                                                                                                                                                                                               |
 
 Grid characters: digits then letters are feet height above the lowest reached ground; `@` start, `T` target, `~` reachable water, `x` wall or fence, `O` drop deeper than `maxDrop` or void, `·` ground walking cannot reach from here, `!` lava, fire or cactus, `?` not received. The map is walking only; Pathfinder can also parkour, dig and place blocks. `examples/reach-map.mjs` and `examples/profile.mjs` print them for your character and fill unloaded columns from block memory.
 
@@ -278,16 +278,16 @@ More examples: `examples/watch-surroundings.mjs` (a listener that calls `request
 
 ## Limits
 
-| What               | Limit                                                                                     |
-| ------------------ | ----------------------------------------------------------------------------------------- |
-| state reports      | sampled every 1 s; a change shorter than that can be missed                               |
-| events             | only while the observer runs; events missed while it is stopped are not replayed          |
-| stale data         | marked `stale` after 5 s without new data                                                 |
-| radar              | 48 blocks (entities), 64 blocks (players); center-line visibility only                    |
-| local              | `around` looks 3 blocks each way; notable blocks within 2 blocks, 16 in reports           |
-| recent blocks      | radius 6, at most 4096 cells per scan, 3 positions per type, delivered at most every 30 s |
-| sign text          | 240 characters per side                                                                   |
-| `observe` entities | 12 entries unless `fullEntities`                                                          |
+| What               | Limit                                                                                               |
+| ------------------ | --------------------------------------------------------------------------------------------------- |
+| state reports      | sampled every 1 s; a change shorter than that can be missed                                         |
+| events             | only while the observer runs; events missed while it is stopped are not replayed                    |
+| stale data         | marked `stale` after 5 s without new data                                                           |
+| radar              | 48 blocks (entities), 64 blocks (players); center-line visibility only                              |
+| local              | not reported by the observer; `observe.mjs` looks 3 blocks each way, notable blocks within 2 blocks |
+| recent blocks      | radius 6, at most 4096 cells per scan, 3 positions per type, delivered at most every 30 s           |
+| sign text          | 240 characters per side                                                                             |
+| `observe` entities | 12 entries unless `fullEntities`                                                                    |
 
 All data comes from what the character has received from the server. Areas it has not loaded are `unknown`.
 
