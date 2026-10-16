@@ -62,7 +62,7 @@ test("trusted session projection takes teams, own goal items and watched items f
   assert.deepEqual(observationOptionsFromMatch(), {});
 });
 
-test("default runtime projection bounds program bytes and historical tasks, preserves all running IDs, and offers exact full reads", () => {
+test("default runtime projection shows every running task and the newest finished ones, bounds program bytes, and offers exact full reads", () => {
   let time = 1000;
   const inbox = new Inbox({ sessionId: "large-current", now: () => time });
   const tasks = { tasks: new Map() };
@@ -85,13 +85,14 @@ test("default runtime projection bounds program bytes and historical tasks, pres
   }
   const before = inbox.currentSnapshot();
   const projected = runtimeState(tasks, inbox, { now: time });
-  assert.equal(projected.tasks.length, 24);
-  assert.equal(projected.displayLimits.tasks.detailed, 16);
-  assert.equal(projected.displayLimits.tasks.compactRunning, 8);
-  assert.equal(projected.displayLimits.tasks.omitted, 104);
   assert.deepEqual(
-    projected.tasks.map((task) => task.taskId).sort(),
-    Array.from({ length: 24 }, (_, i) => `task-${i}`).sort(),
+    projected.tasks.map((task) => task.taskId),
+    [
+      ...Array.from({ length: 24 }, (_, i) => `task-${i}`),
+      "task-127",
+      "task-126",
+      "task-125",
+    ],
   );
   assert.equal(projected.programStatus.length, 8);
   assert(
@@ -99,14 +100,21 @@ test("default runtime projection bounds program bytes and historical tasks, pres
       (entry) => entry.data === undefined && entry.dataOmitted.bytes > 20000,
     ),
   );
-  assert.equal(projected.displayLimits.programStatus.omitted, 2);
-  assert.equal(projected.displayLimits.programStatus.dataOmitted, 8);
+  assert.deepEqual(projected.omitted, {
+    programStatus: 2,
+    programStatusData: 8,
+  });
   assert(Buffer.byteLength(JSON.stringify(projected.programStatus)) <= 8192);
-  assert.equal(projected.displayLimits.fullFile, undefined);
+  assert.equal(projected.fullFile, undefined);
   assert.equal(
-    runtimeState(tasks, inbox, { now: time, fullFile: "/r.json" }).displayLimits
-      .fullFile,
+    runtimeState(tasks, inbox, { now: time, fullFile: "/r.json" }).fullFile,
     "/r.json",
+  );
+  const quiet = new Inbox({ sessionId: "quiet", now: () => time });
+  assert.equal(
+    "omitted" in runtimeState(tasks, quiet, { now: time, fullFile: "/r.json" }),
+    false,
+    "nothing is reported as omitted when every program entry fits",
   );
   const full = runtimeState(tasks, inbox, { now: time, fullRuntime: true });
   assert.equal(full.tasks.length, 128);
@@ -130,8 +138,7 @@ test("default runtime projection bounds program bytes and historical tasks, pres
       programStatusEntryBytes: 256,
     },
   });
-  assert.equal(custom.tasks.length, 24);
-  assert.equal(custom.displayLimits.tasks.detailed, 2);
+  assert.equal(custom.tasks.length, 26);
   assert.equal(custom.programStatus.length, 1);
   assert(Buffer.byteLength(JSON.stringify(custom.programStatus)) <= 256);
   assert.equal(

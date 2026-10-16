@@ -195,15 +195,36 @@ test("the full runtime file keeps program state the compact report omits", async
       .findLast((line) => line.trim().startsWith("{")),
   ).changes;
   assert.equal(compact.programStatus[0].data, undefined);
-  assert.equal(compact.displayLimits.programStatus.dataOmitted, 1);
+  assert.deepEqual(compact.omitted, { programStatusData: 1 });
   assert(Buffer.byteLength(JSON.stringify(compact.programStatus)) < 8192);
-  const full = JSON.parse(
-    await readFile(compact.displayLimits.fullFile, "utf8"),
-  );
+  const full = JSON.parse(await readFile(compact.fullFile, "utf8"));
   assert.deepEqual(full.programStatus[0].data, value);
-  assert.equal(full.displayLimits.mode, "full");
   assert.equal(full.tasks.length, 1);
   assert.equal(h.sent.length, 0);
+});
+
+test("after compaction the model gets waiting reports, a full runtime snapshot and the character state before its next request", async (t) => {
+  const h = await harness(t, {
+    env: { ARENA_BRIDGE_URL: "", ARENA_BRIDGE_TOKEN: "" },
+  });
+  // Establish a delivered runtime baseline, as an earlier turn would.
+  await h.handlers.get("before_agent_start")({}, h.ctx);
+  await h.client.post({ type: "build.step", step: 3 });
+  // A completed task makes a runtime change report wait in the inbox too.
+  await h.run("bash", { command: "true", wait_seconds: 5 }, "later");
+  await h.handlers.get("session_compact")({ reason: "threshold" }, h.ctx);
+  const [message, options] = h.sent.at(-1);
+  assert.equal(message.customType, "arena-after-compaction");
+  assert.deepEqual(options, { deliverAs: "steer" });
+  assert.equal(message.details.runtime.type, "runtime.snapshot");
+  assert.equal(message.details.runtime.changes.tasks.length, 2);
+  assert.equal(message.details.character.unavailable, "no bridge configured");
+  const keys = message.details.batch.messages.map((m) => m.key);
+  assert(!keys.includes("runtime.current"), "the snapshot replaces it");
+  assert(
+    message.details.batch.messages.some((m) => m.data?.type === "build.step"),
+  );
+  assert.match(message.content, /^Context was compacted/);
 });
 
 test("Pi passive turn boundary persists inbox without requesting continuation", async (t) => {

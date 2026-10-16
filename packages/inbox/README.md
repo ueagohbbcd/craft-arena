@@ -105,7 +105,7 @@ Choose a `ttlMs` longer than the delay, or the report can expire before it is el
 - A value that changes and changes back between two reads may never be seen. Use `post` if every change matters.
 - A finished program's status stays until it expires or is cleared. The runtime report's `tasks` section gives the real process state.
 - Several copies of one program should use distinct keys, for example `` `${process.env.MC_INBOX_TASK_ID}:route` ``.
-- The runtime report shows at most 8 entries, 8 KiB in total and 2 KiB per entry, newest first. `displayLimits` in the report says what was left out. `runtime.json` in the task directory (`$ARENA_TASK_DIR`) holds every stored value in full. Operators change the limits with `ARENA_RUNTIME_STATUS_LIMIT`, `ARENA_RUNTIME_STATUS_BYTES` and `ARENA_RUNTIME_STATUS_ENTRY_BYTES`.
+- The runtime report shows at most 8 entries, 8 KiB in total and 2 KiB per entry, newest first. When entries or their data are left out, the report has an `omitted` section with the counts and the path of the full file. `runtime.json` in the task directory (`$ARENA_TASK_DIR`) holds every stored value in full. Operators change the limits with `ARENA_RUNTIME_STATUS_LIMIT`, `ARENA_RUNTIME_STATUS_BYTES` and `ARENA_RUNTIME_STATUS_ENTRY_BYTES`.
 
 ## Command line
 

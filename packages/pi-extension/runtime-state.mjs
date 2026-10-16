@@ -1,6 +1,7 @@
 /** Task and program-state facts owned by the runtime, projected for the model. */
 const DEFAULT_DISPLAY_LIMITS = Object.freeze({
-  taskLimit: 16,
+  // Finished tasks shown besides every running task, newest first.
+  taskLimit: 3,
   programStatusLimit: 8,
   programStatusBytes: 8192,
   programStatusEntryBytes: 2048,
@@ -58,37 +59,22 @@ export function runtimeState(
   const allProgram = (inbox.currentSnapshot?.() ?? []).filter(
     (entry) => entry.source === "program",
   );
-  if (fullRuntime)
-    return {
-      tasks: allTasks,
-      programStatus: allProgram,
-      displayLimits: {
-        mode: "full",
-        tasks: { total: allTasks.length, omitted: 0 },
-        programStatus: { total: allProgram.length, omitted: 0 },
-      },
-    };
+  if (fullRuntime) return { tasks: allTasks, programStatus: allProgram };
   const budget = { ...DEFAULT_DISPLAY_LIMITS, ...projection };
   for (const [key, value] of Object.entries(budget))
     if (!Number.isSafeInteger(value) || value < 0)
       throw new RangeError(`${key} must be a nonnegative integer`);
-  const rankedTasks = [...allTasks].sort(
-    (a, b) =>
-      Number(b.status === "running") - Number(a.status === "running") ||
-      (b.completedAt ?? b.startedAt) - (a.completedAt ?? a.startedAt),
-  );
-  const detailed = rankedTasks.slice(0, budget.taskLimit);
-  const remainingRunning = rankedTasks
-    .slice(budget.taskLimit)
-    .filter((task) => task.status === "running");
-  const selectedTasks = [
-    ...detailed,
-    ...remainingRunning.map(({ taskId, status }) => ({
-      taskId,
-      status,
-      detailOmitted: true,
-    })),
-  ];
+  // Every running task, then the most recently finished ones. Older finished
+  // tasks already reached the model through bash or task.completed, and a
+  // fixed short list keeps the section from changing as tasks age.
+  const running = allTasks.filter((task) => task.status === "running");
+  const finished = allTasks
+    .filter((task) => task.status !== "running")
+    .sort(
+      (a, b) => (b.completedAt ?? b.startedAt) - (a.completedAt ?? a.startedAt),
+    )
+    .slice(0, budget.taskLimit);
+  const selectedTasks = [...running, ...finished];
   const programStatus = [];
   let bytes = 2,
     dataOmitted = 0;
@@ -132,27 +118,23 @@ export function runtimeState(
     programStatus.push(record);
     if (record.dataOmitted) dataOmitted++;
   }
+  // Older finished tasks are not counted: arena-task list shows them.
+  const omitted = {
+    programStatus: allProgram.length - programStatus.length,
+    programStatusData: dataOmitted,
+  };
+  const anyOmitted = Object.values(omitted).some(Boolean);
   return {
     tasks: selectedTasks,
     programStatus,
-    displayLimits: {
-      mode: "compact",
-      tasks: {
-        total: allTasks.length,
-        detailed: detailed.length,
-        compactRunning: remainingRunning.length,
-        omitted: allTasks.length - selectedTasks.length,
-      },
-      programStatus: {
-        total: allProgram.length,
-        included: programStatus.length,
-        omitted: allProgram.length - programStatus.length,
-        dataOmitted,
-        bytes,
-      },
-      limits: budget,
-      // The uncut state is rewritten to this file whenever a report is made.
-      ...(fullFile ? { fullFile } : {}),
-    },
+    // Only when something was left out; the uncut state is in fullFile.
+    ...(anyOmitted
+      ? {
+          omitted: Object.fromEntries(
+            Object.entries(omitted).filter(([, count]) => count),
+          ),
+          ...(fullFile ? { fullFile } : {}),
+        }
+      : {}),
   };
 }

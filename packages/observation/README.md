@@ -15,7 +15,7 @@ At session start the runtime starts two ordinary scripts as background tasks. Bo
 
 They report through the [inbox](../inbox/README.md), the same way your programs do with `InboxClient`. Reports join the next tool result or turn end. An urgent report also ends a running `bash` wait early, and the program keeps running.
 
-The default observer does not report your tasks. The runtime sends those separately as `runtime.snapshot` / `runtime.changed` (sections `tasks`, `programStatus`, `displayLimits`). See [packages/pi-extension/README.md](../pi-extension/README.md).
+The default observer does not report your tasks. The runtime sends those separately as `runtime.snapshot` / `runtime.changed` (sections `tasks`, `programStatus`, and `omitted` when something was left out). See [packages/pi-extension/README.md](../pi-extension/README.md).
 
 If you stop the default observer without replacing it, the automatic state and event reports stop. `examples/observe.mjs`, runtime reports and your own programs keep working.
 
