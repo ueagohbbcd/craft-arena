@@ -5,9 +5,7 @@ description: Writing programs for the Minecraft arena. The first movement, which
 
 # Programs for the arena
 
-How tasks, waiting and reports work is in your system prompt. This skill is about the programs themselves: where to start for each kind of job and how to write one that leaves the character in a clean state.
-
-Start with the session briefing and the current observation. If the layout is unclear, [look at the world](#look-at-the-world) before choosing a destination. Run a suitable example (see [First movement](#first-movement)), then check its result and the actual game state.
+How tasks, waiting and reports work is in your system prompt. This skill covers which example to start from for each job, and how to write a program that leaves the character in a clean state.
 
 ## First movement
 
@@ -32,27 +30,25 @@ After `NoPath` or a stall, compare your position with the terrain. `node "$ARENA
 
 ## Find the right entry
 
-| You want to                                       | Start from                                                                                                                            |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Read position, inventory or exact blocks          | [Query program](#query-program)                                                                                                       |
-| Walk to a coordinate                              | [navigate.mjs](../../../examples/navigate.mjs)                                                                                        |
-| See the terrain as a picture                      | [screenshot.mjs](../../../examples/screenshot.mjs), see [Look at the world](#look-at-the-world)                                       |
-| Check local terrain and connectivity as numbers   | [summarize-terrain.mjs](../../../examples/summarize-terrain.mjs)                                                                      |
-| See which entities are near you                   | `examples/observe.mjs --full-entities`, or [entity-radar.mjs](../../../examples/entity-radar.mjs)                                     |
-| Find blocks seen earlier, also in unloaded chunks | [query-block-memory.mjs](../../../examples/query-block-memory.mjs) and [BLOCK-MEMORY.md](../../../packages/bot-sdk/BLOCK-MEMORY.md)   |
-| Find the logs of one tree                         | `queryTreeCandidate` in `packages/observation/queries.mjs`, see the [observation README](../../../packages/observation/README.md)     |
-| Check that no entity blocks a placement           | [inspect-placement-entities.mjs](../../../examples/inspect-placement-entities.mjs)                                                    |
-| Be told when something specific appears           | [watch-surroundings.mjs](../../../examples/watch-surroundings.mjs), see [Listener beside a controller](#listener-beside-a-controller) |
-| Dig, place, equip, craft or chat                  | [Control program](#control-program) and the [SDK README](../../../packages/bot-sdk/README.md)                                         |
-| Open a chest and decide before taking items       | [Container in two steps](#container-in-two-steps)                                                                                     |
-| Eat while walking                                 | [navigate-with-autoeat.mjs](../../../examples/navigate-with-autoeat.mjs)                                                              |
-| Defend yourself while walking                     | [navigate-with-defense.mjs](../../../examples/navigate-with-defense.mjs)                                                              |
-| Fight a chosen entity                             | [fight-target.mjs](../../../examples/fight-target.mjs)                                                                                |
-| Build and eat in one program                      | [build-with-autoeat.mjs](../../../examples/build-with-autoeat.mjs)                                                                    |
-| Report progress or ask yourself for a decision    | [Report from your programs](#report-from-your-programs) and the [inbox README](../../../packages/inbox/README.md)                     |
-| Change what the default observer reports          | [Change the default observer](#change-the-default-observer)                                                                           |
-| Share code with teammates                         | [TEAM.md](../../TEAM.md)                                                                                                              |
-| Avoid common control mistakes                     | [FAQ.md](../../FAQ.md)                                                                                                                |
+- Read position, inventory or exact blocks: [Query program](#query-program)
+- Walk to a coordinate: [navigate.mjs](../../../examples/navigate.mjs)
+- See the terrain as a picture: [screenshot.mjs](../../../examples/screenshot.mjs), see [Look at the world](#look-at-the-world)
+- Check local terrain and connectivity as numbers: [summarize-terrain.mjs](../../../examples/summarize-terrain.mjs)
+- See which entities are near you: `examples/observe.mjs --full-entities`, or [entity-radar.mjs](../../../examples/entity-radar.mjs)
+- Find blocks seen earlier, also in unloaded chunks: [query-block-memory.mjs](../../../examples/query-block-memory.mjs) and [BLOCK-MEMORY.md](../../../packages/bot-sdk/BLOCK-MEMORY.md)
+- Find the logs of one tree: `queryTreeCandidate` in `packages/observation/queries.mjs`, see the [observation README](../../../packages/observation/README.md)
+- Check that no entity blocks a placement: [inspect-placement-entities.mjs](../../../examples/inspect-placement-entities.mjs)
+- Be told when something specific appears: [watch-surroundings.mjs](../../../examples/watch-surroundings.mjs), see [Listener beside a controller](#listener-beside-a-controller)
+- Dig, place, equip, craft or chat: [Control program](#control-program) and the [SDK README](../../../packages/bot-sdk/README.md)
+- Open a chest and decide before taking items: [Container in two steps](#container-in-two-steps)
+- Eat while walking: [navigate-with-autoeat.mjs](../../../examples/navigate-with-autoeat.mjs)
+- Defend yourself while walking: [navigate-with-defense.mjs](../../../examples/navigate-with-defense.mjs)
+- Fight a chosen entity: [fight-target.mjs](../../../examples/fight-target.mjs)
+- Build and eat in one program: [build-with-autoeat.mjs](../../../examples/build-with-autoeat.mjs)
+- Report progress or ask yourself for a decision: [Report from your programs](#report-from-your-programs) and the [inbox README](../../../packages/inbox/README.md)
+- Change what the default observer reports: [Change the default observer](#change-the-default-observer)
+- Share code with teammates: [TEAM.md](../../TEAM.md)
+- Avoid common control mistakes: [FAQ.md](../../FAQ.md)
 
 ## Program patterns
 
@@ -130,16 +126,14 @@ try {
 
 Common actions (full list and differences from Mineflayer in the [SDK README](../../../packages/bot-sdk/README.md)):
 
-| Task              | Call                                                                                                                                                                                |
-| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Walk              | `await bot.pathfinder.goto(new goals.GoalNear(x, y, z, 1))`                                                                                                                         |
-| Fight             | `loadSelectedPlugins(bot)` (PvP is on by default), then `await bot.pvp.attack(entity)` and `await bot.pvp.stop()`                                                                   |
-| Find blocks       | `bot.blockAt(pos)`, `bot.findBlock(...)`, `bot.findBlocks(...)`                                                                                                                     |
-| Dig, place, equip | `await bot.dig(block)`, `await bot.placeBlock(reference, face)`, `await bot.equip(item, "hand")`                                                                                    |
-| Eat               | `await bot.consume()` returns after eating, with the inventory updated                                                                                                              |
-| Craft             | `await bot.craftItem(itemType, count, table)`. `count` is the number of result items, rounded up to whole recipes. Pass `null` as `table` for a recipe that needs no crafting table |
-| Chat              | `bot.chat(message)`, then `await bot.flush()`                                                                                                                                       |
-| Session state     | `await bot.getSessionState()`                                                                                                                                                       |
+- Walk: `await bot.pathfinder.goto(new goals.GoalNear(x, y, z, 1))`
+- Fight: `loadSelectedPlugins(bot)` (PvP is on by default), then `await bot.pvp.attack(entity)` and `await bot.pvp.stop()`
+- Find blocks: `bot.blockAt(pos)`, `bot.findBlock(...)`, `bot.findBlocks(...)`
+- Dig, place, equip: `await bot.dig(block)`, `await bot.placeBlock(reference, face)`, `await bot.equip(item, "hand")`
+- Eat: `await bot.consume()` returns after eating, with the inventory updated
+- Craft: `await bot.craftItem(itemType, count, table)`. `count` is the number of result items, rounded up to whole recipes. Pass `null` as `table` for a recipe that needs no crafting table
+- Chat: `bot.chat(message)`, then `await bot.flush()`
+- Session state: `await bot.getSessionState()`
 
 Rules for control programs:
 
@@ -152,42 +146,7 @@ Rules for control programs:
 
 The default observer already reports ordinary surroundings. Write a listener when one specific discovery should reach you before the current action finishes, for example a chest near the route or a named player arriving. A listener only reads and reports. It never moves the character, so it can run beside a controller.
 
-This listener reports once when a named player comes within 16 blocks, then exits:
-
-```js
-const { connectBot } = await import(
-  `${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/index.mjs`
-);
-const { InboxClient } = await import(
-  `${process.env.ARENA_TOOLKIT_ROOT}/packages/inbox/index.mjs`
-);
-const name = process.argv[2];
-const bot = await connectBot();
-const inbox = new InboxClient();
-try {
-  for (;;) {
-    const player = bot.nearestEntity(
-      (e) => e.type === "player" && e.username === name,
-    );
-    const distance = player?.position.distanceTo(bot.entity.position);
-    if (distance !== undefined && distance <= 16) {
-      await inbox.requestJudgment({
-        type: "lookout.player",
-        player: name,
-        position: player.position,
-        distance,
-        activity: "Lookout finished; other programs are unchanged",
-      });
-      break;
-    }
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-  }
-} finally {
-  bot.closeBridge();
-}
-```
-
-[watch-surroundings.mjs](../../../examples/watch-surroundings.mjs) is a longer version that watches for a block type and reports each new find once.
+[watch-surroundings.mjs](../../../examples/watch-surroundings.mjs) is a complete listener: it watches for a block type and reports each new find once with `requestJudgment`. Copy it when you need a different trigger.
 
 Start the listener and then the controller as two separate `bash` calls, so each gets its own `taskId`:
 
@@ -218,23 +177,13 @@ A common mistake is to treat an ended wait as a failed program and start it agai
 
 ### Report from your programs
 
-Programs send you reports through `InboxClient`:
+Load the client with ``const { InboxClient } = await import(`${process.env.ARENA_TOOLKIT_ROOT}/packages/inbox/index.mjs`)`` and create one with `new InboxClient()`. What each method is for:
 
-```js
-const { InboxClient } = await import(
-  `${process.env.ARENA_TOOLKIT_ROOT}/packages/inbox/index.mjs`
-);
-const inbox = new InboxClient();
-await inbox.post({ type: "build.step", step: 3, activity: "continuing" });
-```
-
-| Method                          | Use it for                                                                                                                                                                                              |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `post(data)`                    | An event you want to see, such as a step finished. Arrives with your next tool result                                                                                                                   |
-| `upsert(key, data)`             | Progress: a newer report with the same key replaces the older one if you have not seen it yet                                                                                                           |
-| `setStatus(key, data, {ttlMs})` | The program's current value, shown as `programStatus` in the runtime report until it is replaced, cleared with `null`, or expires                                                                       |
-| `requestJudgment(data)`         | An urgent report. It ends your current wait or wakes you, and the program keeps running                                                                                                                 |
-| `delivery(id, {timeoutMs})`     | Waits (30 s by default) until a message has left the queue. Resolves with `outcome`: `delivered`, `replaced`, `expired`, `overflow` or `removed`, or `pending` if it is still queued when the wait ends |
+- `post(data)`: an event you want to see, such as a step finished. Arrives with your next tool result
+- `upsert(key, data)`: progress; a newer report with the same key replaces the older one if you have not seen it yet
+- `setStatus(key, data, {ttlMs})`: the program's current value, shown as `programStatus` in the runtime report until it is replaced, cleared with `null`, or expires
+- `requestJudgment(data)`: an urgent report. It ends your current wait or wakes you, and the program keeps running
+- `delivery(id, {timeoutMs})`: waits (30 s by default) until a message has left the queue. Resolves with `outcome`: `delivered`, `replaced`, `expired`, `overflow` or `removed`, or `pending` if it is still queued when the wait ends
 
 A send resolves to `{accepted: true, id}` once the message is queued, and rejects with an error if it is refused (for example, too large). Queued does not mean you have read it. Every report should say whether the program is continuing or has stopped. You do not need to report that a program exited, because the runtime does that.
 
@@ -270,16 +219,7 @@ Without coordinates it frames 25×25 blocks around you, from 8 below to 16 above
     "wait_seconds": 0
   }
   ```
-- **Replace it:**
-  1. Copy `$ARENA_TOOLKIT_ROOT/packages/default-scripts/observer.mjs` into your working directory.
-  2. Edit the copy. It loads the toolkit from `$ARENA_TOOLKIT_ROOT`, so it runs from any directory.
-  3. Then `arena-task cancel` the `default observer` task, and start your copy with `wait_seconds: 0`.
+- **Replace it:** copy `$ARENA_TOOLKIT_ROOT/packages/default-scripts/observer.mjs` into your working directory, edit the copy (it runs from any directory), `arena-task cancel` the `default observer` task and start your copy with `wait_seconds: 0`.
 - **Stop it:** `arena-task cancel` it. Its reports stop, including the urgent health, death and disconnect events.
 
 An observer you start yourself is an ordinary task, not a background one. While it runs you get no five-second continue prompt; only a finished task or an urgent report wakes you.
-
-## Clock and team
-
-- The session clock comes in platform messages. Programs can call `await bot.getSessionState()`. In an open session there is no time limit, so the clock only reports elapsed time.
-- A model request can take a while. Your programs keep running while you wait. See [TEAM.md](../../TEAM.md) for team Git.
-- Common control mistakes are covered in [FAQ.md](../../FAQ.md).
