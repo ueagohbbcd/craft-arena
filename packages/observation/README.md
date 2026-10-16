@@ -111,7 +111,7 @@ Events are inbox events with `type` `observation.<name>`. Each carries `observed
 
 `health_loss` becomes urgent when, within 2 seconds, you lose at least 4 health, or at least 3 separate drops add up to at least 3. Its `urgency` field gives the reason and numbers. Continuous damage sends one urgent report. The next one can come only after 5 seconds and after either 2 seconds without damage or 2 health regained. When critical health or death already sent an urgent report, the damage report stays normal.
 
-Item events state what was observed. They do not mean an objective is complete; the arena host judges that.
+Item events state what was observed. They do not mean an objective is complete; the rules on the server judge that.
 
 Events only signal; they never stop or change your programs.
 
@@ -144,7 +144,12 @@ For a picture, run `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX min
 
 ```json
 {
-  "radar": { "radius": 32, "playerRadius": 64, "dropGroupRadius": 3, "entities": "list" },
+  "radar": {
+    "radius": 32,
+    "playerRadius": 64,
+    "dropGroupRadius": 3,
+    "entities": "list"
+  },
   "recentBlocks": { "radius": 4, "intervalMs": 2000, "minReportMs": 60000 },
   "events": { "urgentDamageLoss": 2 }
 }
@@ -180,16 +185,16 @@ process.once("SIGTERM", () => {
 
 All are read-only. Import them from `$ARENA_TOOLKIT_ROOT/packages/observation/`. Each example assumes `const bot = await connectBot();`.
 
-| Function                                                    | File           | Use                                                                           |
-| ----------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------- |
-| `sampleObservation(bot, options)`                           | `index.mjs`    | one synchronous sample, the same shape as `observe`'s `state`                 |
-| `observe(bot, options)`                                     | `observe.mjs`  | `{state, metadata}`, what `examples/observe.mjs` prints                       |
+| Function                                                              | File           | Use                                                                           |
+| --------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------- |
+| `sampleObservation(bot, options)`                                     | `index.mjs`    | one synchronous sample, the same shape as `observe`'s `state`                 |
+| `observe(bot, options)`                                               | `observe.mjs`  | `{state, metadata}`, what `examples/observe.mjs` prints                       |
 | `entityRadar(bot, {radius, playerRadius, dropGroupRadius, entities})` | `index.mjs`    | the `radar` section alone, without `alerts`                                   |
-| `watchObservation(bot, {post, ...thresholds})`              | `index.mjs`    | the event listeners; returns `sample()`, `close()`, `lastError`               |
-| `startObserver({bot, inbox, intervalMs})`                   | `observer.mjs` | the full default observer, reporting through an `InboxClient`                 |
-| `createDefaultObserver({getBot, connectionStatus, post})`   | `observer.mjs` | the observer's sampling and event logic without the inbox wiring              |
-| `queryTreeCandidate({blockAt, seed})`                       | `queries.mjs`  | connected logs, leaf evidence and unknown edges of the tree containing `seed` |
-| `queryEntitiesIntersecting({entities, bounds})`             | `queries.mjs`  | entities whose box overlaps `bounds`, for example before placing a block      |
+| `watchObservation(bot, {post, ...thresholds})`                        | `index.mjs`    | the event listeners; returns `sample()`, `close()`, `lastError`               |
+| `startObserver({bot, inbox, intervalMs})`                             | `observer.mjs` | the full default observer, reporting through an `InboxClient`                 |
+| `createDefaultObserver({getBot, connectionStatus, post})`             | `observer.mjs` | the observer's sampling and event logic without the inbox wiring              |
+| `queryTreeCandidate({blockAt, seed})`                                 | `queries.mjs`  | connected logs, leaf evidence and unknown edges of the tree containing `seed` |
+| `queryEntitiesIntersecting({entities, bounds})`                       | `queries.mjs`  | entities whose box overlaps `bounds`, for example before placing a block      |
 
 `sampleObservation` options: `fullItems`, `fullEntities`, `fullLocal`, `loadedSigns` (`false` skips signs from loaded chunks outside the local crop), `radar`, `localRadius` (2), `blockLimit` (16), `signLimit` (16), `entityLimit` (12), `entityRadius`, `entityAttentionRadius` (16), `staleAfterMs` (5000), `teams`.
 

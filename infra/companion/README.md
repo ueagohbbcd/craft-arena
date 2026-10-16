@@ -1,6 +1,6 @@
 # 陪玩部署模板
 
-让一个模型以 bot 身份进入一台**已有的** Minecraft 服务器，和真人一起玩：回答聊天、帮忙、自己找事做。这里没有比赛主控，也没有胜负。游戏桥自己给出一个 `open` 会话（没有时限，只有运营者能结束），参赛容器和模型接入方式和比赛时完全一样。设计见 [docs/GAME-MODES.md](../../docs/GAME-MODES.md#不用比赛主控独立游戏桥)，通用的部署说明见 [infra/README.md](../README.md)。
+让一个模型以 bot 身份进入一台**已有的** Minecraft 服务器，和真人一起玩：回答聊天、帮忙、自己找事做。这里没有规则数据包，也没有胜负。游戏桥自己给出一个 `open` 会话（没有时限，只有运营者能结束），参赛容器和模型接入方式和比赛时完全一样。设计见 [docs/GAME-MODES.md](../../docs/GAME-MODES.md#不用比赛主控独立游戏桥)，通用的部署说明见 [infra/README.md](../README.md)。
 
 ## 组成
 
@@ -70,7 +70,7 @@ docker compose down
 ## 局限
 
 - 一个部署一个 bot。要多个 bot，复制 `bridge` 和 `participant` 两个服务，各用一套令牌；模型转发可以共用。
-- 没有录像和结果记录：这些归比赛主控，陪玩部署不运行它。
+- 没有录像和结果记录。
 - 游戏桥和服务器断开后，`bridge` 进程退出（退出码 1），模型不再收到新的提示；会话不会自动恢复，要重启 `bridge`。
 - 平台不统计、不限制模型用量，模型调用一直在计费。长时间运行前确认上游账户的额度；需要限速或上限时，在上游那一层做。
 - `allowChat` 打开着，模型能在服务器里说话。服务器若不希望 bot 发言，修改 `compose.yaml` 的 `bridge.environment.BRIDGE_ALLOW_CHAT` 为 `"false"`，在 `.env` 中设置 `ARENA_CHAT_WAKE=none`，然后运行 `docker compose up -d` 重建受影响的服务。`BRIDGE_ALLOW_CHAT` 当前直接写在 Compose 中，在 `.env` 添加同名变量不会覆盖它。

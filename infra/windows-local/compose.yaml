@@ -30,6 +30,9 @@ services:
   bridge-red1:
     # One participant's game bridge, reachable only from its team network.
     <<: *common
+    build:
+      context: ${ARENA_SOURCE_DIR}
+      dockerfile: infra/Dockerfile.trusted
     image: craft-arena-trusted:local
     command: [node, packages/mf-bridge/cli.mjs]
     depends_on:
@@ -42,12 +45,14 @@ services:
       BRIDGE_HOST: 0.0.0.0
       BRIDGE_PORT: '8080'
       BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
-      BRIDGE_SESSION: host
-      BRIDGE_HOST_URL: http://arena-host:9000/v1/participants/red1/session
-      BRIDGE_HOST_TOKEN: ${ARENA_HOST_TOKEN}
+      BRIDGE_SESSION: server
+      BRIDGE_RCON_HOST: minecraft
+      BRIDGE_RCON_PASSWORD: ${MC_RCON_PASSWORD}
+      BRIDGE_PROMPT_FILE: /config/PROMPT.md
       BRIDGE_WORLD_ID: direct-fire
       BRIDGE_PARTICIPANT_ID: red1
     networks: [backend, red1]
+    volumes: ['./PROMPT.md:/config/PROMPT.md:ro']
   bridge-blue1:
     # One participant's game bridge, reachable only from its team network.
     <<: *common
@@ -63,32 +68,26 @@ services:
       BRIDGE_HOST: 0.0.0.0
       BRIDGE_PORT: '8080'
       BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
-      BRIDGE_SESSION: host
-      BRIDGE_HOST_URL: http://arena-host:9000/v1/participants/blue1/session
-      BRIDGE_HOST_TOKEN: ${ARENA_HOST_TOKEN}
+      BRIDGE_SESSION: server
+      BRIDGE_RCON_HOST: minecraft
+      BRIDGE_RCON_PASSWORD: ${MC_RCON_PASSWORD}
+      BRIDGE_PROMPT_FILE: /config/PROMPT.md
       BRIDGE_WORLD_ID: direct-fire
       BRIDGE_PARTICIPANT_ID: blue1
     networks: [backend, blue1]
-  arena-host:
+    volumes: ['./PROMPT.md:/config/PROMPT.md:ro']
+  # Operator commands for the rules datapack (packages/arena/src/cli.mjs);
+  # scripts/windows-arena.ps1 runs it for up, start and stop.
+  arena:
     <<: *common
-    build:
-      context: ${ARENA_SOURCE_DIR}
-      dockerfile: infra/Dockerfile.trusted
+    profiles: [tools]
     image: craft-arena-trusted:local
-    stop_grace_period: ${ARENA_HOST_STOP_GRACE_PERIOD:-180s}
-    command: [node, packages/arena/src/live-cli.mjs, /config/match.live.json, /results/match-result.json]
+    entrypoint: [node, packages/arena/src/cli.mjs]
     environment:
+      MC_RCON_HOST: minecraft
       MC_RCON_PASSWORD: ${MC_RCON_PASSWORD}
-      ARENA_RUNTIME_FAULT_FILE: /control/runtime-fault.json
-      ARENA_HOST_TOKEN: ${ARENA_HOST_TOKEN}
-    depends_on: [bridge-red1, bridge-blue1]
-    # Backend only: participants reach their own bridge, never the host.
     networks: [backend]
-    volumes:
-      - ./match.live.json:/config/match.live.json:ro
-      - ./results:/results
-      - ./control:/control
-      - ./replay-config:/replay-config
+    volumes: ['./match.json:/config/match.json:ro']
   # Each team's model relay forwards to one base URL and adds that team's key:
   # an official API, or any forwarder on this Windows host at
   # http://host.docker.internal:PORT/v1.

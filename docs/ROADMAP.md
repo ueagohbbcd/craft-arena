@@ -32,7 +32,7 @@
 
 ## 仓库分工（10‑16 定下的方向）
 
-本仓库是平台：比赛主控、游戏桥、模型转发、部署，以及容器里的 Pi 扩展、任务管理、收件箱和 `bot-sdk`（游戏桥协议的客户端，跟着桥一起改）。`mineflayer-world-memory` 仓库改成通用的 Minecraft agent 工具包，分三层：给其他代码调用的库（区块记忆、观察函数、默认运行时启动的观察器）、单项能力 skill（`SKILL.md` 带名字和摘要，主要是提示词，脚本几乎没有依赖，例如用 prismarine-viewer 做 3D 渲染）、让任意 agent 操作一个完整 Mineflayer bot 的主 skill。
+本仓库是平台：游戏桥、运营命令行、模型转发、部署，以及容器里的 Pi 扩展、任务管理、收件箱和 `bot-sdk`（游戏桥协议的客户端，跟着桥一起改）。`mineflayer-world-memory` 仓库改成通用的 Minecraft agent 工具包，分三层：给其他代码调用的库（区块记忆、观察函数、默认运行时启动的观察器）、单项能力 skill（`SKILL.md` 带名字和摘要，主要是提示词，脚本几乎没有依赖，例如用 prismarine-viewer 做 3D 渲染）、让任意 agent 操作一个完整 Mineflayer bot 的主 skill。
 
 本仓库对工具包的代码依赖只有库。skill 不直接引用，只复制要用的几个过来按比赛规则改写；参赛容器里只装本仓库挑选的东西，因为模型能读到 `node_modules`。依赖继续用 GitHub 下载链接，不发 npm。
 
@@ -46,7 +46,7 @@
 
 ## 玩法与会话：规则交给服务器
 
-设计见 [GAME-MODES.md](GAME-MODES.md)。玩法规则、判定和行为限制由服务器上的数据包或插件负责，平台只管会话生命周期，并通过 RCON 协议（`#arena:prepare/start/stop` 和 `arena:session` 存储）与服务器对话。
+设计见 [GAME-MODES.md](GAME-MODES.md)。玩法规则、判定和行为限制由服务器上的数据包或插件负责，时限也在服务器上。平台通过 RCON 协议（`#arena:prepare/start/stop` 和 `arena:session` 存储）与服务器对话；开局、结束和其他编排由运营者的脚本调用命令行完成。
 
 | 状态 | 事项                                                                                                                                  |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -58,11 +58,13 @@
 | ✅   | 聊天转发：提到 bot 名字的消息和私聊可设为紧急，用来唤醒空闲的模型（`ARENA_CHAT_WAKE`）                                                |
 | ✅   | 最小示例数据包（`infra/datapacks/arena-example`）                                                                                     |
 | ✅   | 把羊毛竞速地图移植成数据包（`infra/datapacks/race-of-wool`），删除 `monument-blocks`、旧配置转换和 `/v1/match` 别名；实服验证         |
-| ⬜   | 补测试：游戏桥 CLI（`cliOptions`、提示词大小上限、`MF_AUTH`）、`open` 会话的时钟、开局提示里的简报、启动器的 `open` 会话、`chatWakes` |
+| ⬜   | 补测试：游戏桥 CLI（`cliOptions`、提示词大小上限、`MF_AUTH`）、开局提示里的简报、启动器的 `open` 会话、`chatWakes` |
 | ⬜   | 协议 v1 给没有队伍的 `open` 会话传玩家名单（现在 `arena:config` 的 `teams` 为空，数据包看不到 bot）                                   |
 | ✅   | 会话目录：启动器把简报复制到 `ARENA_SESSION_DIR`（`session.json`、`briefing.md`、`public.json`，`public` 变化时更新），开局提示列出这些文件和 `ARENA_RULES_DIR` 下的规则书 |
 | ✅   | 可信消息统一走平台消息（`deliverPlatform`）：`public` 变化发 `public` 段（超过 4096 字节只报路径），`public.notice` 变化发 `notice` 段并唤醒空闲的模型；空闲提醒也用平台消息格式 |
 | ⬜   | `open` 会话的通知：没有服务器协议时运营者怎样给模型发 `notice`（例如游戏桥提供一个只给运营者的接口）                                    |
+| ✅   | 删除比赛主控（2026-10-16）：游戏桥只留 `open` 和 `server` 模式；时限移进羊毛竞速数据包（`arena:config.durationMs` 倒数，到时判平）；`packages/arena` 只剩 RCON、协议和运营命令行（`prepare`／`start`／`stop`／`status`／`command`），读一份比赛文件；录像、结果文件、参赛容器监督删除，交给运营者自己的脚本 |
+| ✅   | 模型不再看到时钟：平台消息只在会话状态或胜者变化时发 `session` 段，会话对象去掉开始时间、时长和已用时间 |
 | ✅   | 观察器的目标物品和关注物品改读 `briefing.public.goals`／`watchItems`（不再写死羊毛）                                                  |
 
 ## 模型接入
@@ -107,10 +109,10 @@
 - ⬜ 沿途方块摘要：最小方块数、边界面积等报告阈值有没有收益。
 - ⬜ 实体按类别分级摘要（掉落物、动物、敌对生物）。
 - ⬜ 截图脚本标出角色位置、朝向和坐标刻度（原"开局图标注"一项，开局图删除后改为截图脚本的可选改进）。
-- ⬜ 服务端录像 → 保存 → 近视回放客户端的完整流程。
-- ⬜ Windows 部署的 PowerShell 脚本，包括改用模型转发之后的初始化和操作流程（这里没有 Windows，未运行）。
+- ⬜ 服务端录像 → 保存 → 近视回放客户端的完整流程（平台不再自动录像，要通过命令行发 ServerReplay 命令）。
+- ⬜ Windows 部署的 PowerShell 脚本，包括改用模型转发和删除比赛主控之后的初始化和操作流程（这里没有 Windows，未运行）。
 - ⬜ `scripts/validate-observation-live.mjs` 在真实服务器上重跑，覆盖默认脚本和 `onLost` 重发。
-- ⬜ 服务器协议 v1 和示例数据包装进真实的 1.21.1 服务器跑一遍：`arena:config` 写入、`#arena:*` 函数标签、`arena:session` 解析（现在只用假 RCON 测过）。
+- ✅ 服务器协议 v1 和两个数据包在真实的 1.21.1 服务器上跑过（2026-10-14 手工，之后 CI 每次推送跑 `npm run verify:server`）。
 - ⬜ 陪玩模板：`MF_AUTH=microsoft` 设备登录、正版服务器、聊天唤醒（没有实际运行过）。
 
 ## 观察记录，暂不作为平台待办

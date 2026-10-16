@@ -6,12 +6,13 @@
 
 实战模板是 [`compose.live.yaml`](compose.live.yaml)：
 
-| 服务                                     | 作用                                                                                                      | 网络                            |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| `minecraft`                              | Minecraft 1.21.1 Fabric 服务器，带 ServerReplay 录像模组                                                  | `backend`                       |
-| `arena-host`                             | 比赛主控：准备、开赛、判定、结果、录像；每个参赛者的游戏桥也跑在这个进程里（red1 在 8080，blue1 在 8082） | `backend`、`red1`、`blue1`      |
-| `model-relay`                            | 模型转发：把参赛者的模型请求转发到一个配置好的地址，持有上游 key（见[模型接入](#模型接入)）               | `red1`、`blue1`、`model-egress` |
-| `participant-red1` / `participant-blue1` | 参赛容器：Pi、Pi 扩展、默认脚本和参赛者自己的程序                                                         | 各自的 `red1` / `blue1`         |
+| 服务                                     | 作用                                                                                                                                | 网络                            |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| `minecraft`                              | Minecraft 1.21.1 Fabric 服务器，带 ServerReplay 录像模组                                                                            | `backend`                       |
+| `bridge-red1` / `bridge-blue1`           | 每个参赛者的游戏桥：一个真实 bot，通过 RCON 从服务器读会话状态（`BRIDGE_SESSION=server`）                                           | `backend` 和本队网络            |
+| `arena`（`tools` 配置组）                | 运营命令行 [`packages/arena`](../packages/arena/README.md)：写 `arena:config`，调 `#arena:prepare/start/stop`，读会话状态；按需运行 | `backend`                       |
+| `model-relay`                            | 模型转发：把参赛者的模型请求转发到一个配置好的地址，持有上游 key（见[模型接入](#模型接入)）                                         | `red1`、`blue1`、`model-egress` |
+| `participant-red1` / `participant-blue1` | 参赛容器：Pi、Pi 扩展、默认脚本和参赛者自己的程序                                                                                   | 各自的 `red1` / `blue1`         |
 
 - `backend`、`red1`、`blue1` 都是 `internal: true`，没有外网路由。只有 `model-egress` 能出网，只有模型转发接在上面。
 - 不映射任何宿主机端口。Minecraft 只在 `backend` 上，参赛容器到不了。
@@ -21,7 +22,7 @@
 
 [`compose.yaml`](compose.yaml) 只用于单独调试各组件，见[最后一节](#单组件调试composeyaml)。
 
-运营者自己负责：地图和比赛配置、Minecraft EULA、RCON 密码、所有令牌、模型和它的接入方式、花费上限，以及比赛开始和结束。
+运营者自己负责：地图和比赛文件、Minecraft EULA、RCON 密码、所有令牌、模型和它的接入方式、花费上限，以及比赛开始和结束。平台不再有比赛主控：时限和判定在数据包里，开赛、结束、录像、存结果这类编排由运营者自己的脚本调用 `arena` 命令行完成。
 
 ## 准备 Minecraft 服务器镜像与地图
 
@@ -41,7 +42,7 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
    docker compose --env-file .env -f infra/compose.live.yaml build minecraft
    ```
 
-   构建时需要联网；比赛时服务器不下载任何东西。镜像默认叫 `craft-arena-minecraft:local`。`MC_SERVER_BUILD_CONTEXT` 可换构建目录；已有审核过的镜像时设 `MC_SERVER_IMAGE` 并用 `--no-build` 启动，它必须支持下面的录像挂载，否则关掉录像。
+   构建时需要联网；比赛时服务器不下载任何东西。镜像默认叫 `craft-arena-minecraft:local`。`MC_SERVER_BUILD_CONTEXT` 可换构建目录；已有审核过的镜像时设 `MC_SERVER_IMAGE` 并用 `--no-build` 启动，它不带录像模组也能用，只是不能录像。
 
 3. 在 `runtime/server-data/` 准备下面的目录。`server.properties` 设置 `level-name=world`、`enable-rcon=true`、与 `.env` 一致的 `rcon.password`、`enable-command-block=false`。再把规则数据包复制进 `world/datapacks/`，羊毛竞速用 [`datapacks/race-of-wool`](datapacks/race-of-wool/README.md)（先在它的 `map.mcfunction` 里填好这张地图的纪念碑坐标）。参赛 bot 不能是服务器管理员（OP）。
 
@@ -61,25 +62,20 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
    C run --rm --no-deps -v "$(pwd)/runtime/server-data:/seed:ro" --entrypoint sh minecraft -c 'test ! -e /data/world && test ! -e /data/server.properties && cp -R /seed/. /data/'
    ```
 
-4. 复制 [`match.live.template.json`](match.live.template.json) 为 `infra/match.live.json`，填好所有 `OPERATOR_...` 占位值：地图、参赛者、可选的准备／开赛／结束 RCON 命令和期望回应（例如传送、设出生点），以及给参赛者的 `briefing.text`。`session.durationMs` 决定比赛时长。比赛配置的字段说明见 [packages/arena/README.md](../packages/arena/README.md)。
-   - 模板是羊毛竞速，用 `datapack` 判定器：纪念碑由服务器上的数据包判定，见下文[玩法与判定器](#玩法与判定器)。
-   - 玩法提示 `briefing.promptFile` 相对配置文件解析；[`compose.live.yaml`](compose.live.yaml) 把 [`maps/`](maps/) 挂到 `/config/maps`。文件不存在时主控拒绝启动。
-   - `live.minecraft.version` 必须与下载清单的 `minecraftVersion` 一致。
+4. 复制 [`match.live.template.json`](match.live.template.json) 为 `infra/match.live.json`，填好 `OPERATOR_...` 占位值。格式见 [packages/arena/README.md](../packages/arena/README.md#match-file)：
+   - `config` 写进 `arena:config`：会话 ID、队伍和玩家名、`durationMs`（数据包按它结束比赛）、给参赛者的 `briefing`（游戏桥原样交给模型）。
+   - `commands.prepare` / `start` / `stop`：每个阶段额外执行的 RCON 命令和期望回应，例如传送、设出生点、gamerule。
+   - 玩家名必须和 Compose 里游戏桥的 `MF_USERNAME` 一致。
    - 纪念碑坐标是否公开由数据包决定（`map.mcfunction` 里的 `publishGoals`）。不要把秘密写进 `briefing`。
-   - 游戏内聊天默认开启（包括 `/tell`、`/teammsg` 这类普通命令）。要关掉，在参赛者的 `bridge` 里设 `allowChat: false`。
-   - 参赛者 ID、用户名、游戏桥地址和令牌变量必须和 Compose 文件一致。用 `node scripts/check-deployment.mjs --compose infra/compose.live.yaml --match infra/match.live.json` 检查（也检查参赛容器只能访问本队游戏桥、模型转发不在后端网络上）；Windows 初始化脚本会自动运行它。
-   - 旧格式的配置（顶层 `game`、`rules`、`durationMs` 或 `live.goals`）不再支持，主控会拒绝并提示改用数据包。
+   - 玩法提示由游戏桥读 `BRIDGE_PROMPT_FILE`；`compose.live.yaml` 默认挂 [`maps/race-of-wool/PROMPT.md`](maps/race-of-wool/PROMPT.md)，换玩法时在 `.env` 设 `ARENA_PROMPT_FILE`。
+   - 游戏内聊天默认开启（包括 `/tell`、`/teammsg` 这类普通命令）。要关掉，给游戏桥设 `BRIDGE_ALLOW_CHAT=false`。
+   - 用 `node packages/arena/src/cli.mjs check infra/match.live.json` 检查格式。
 
-### 玩法与判定器
+### 玩法与判定
 
-比赛主控只管会话：准备、开赛、时限、掉线、结束。谁赢由判定器决定（`judge.type`），设计见 [docs/GAME-MODES.md](../docs/GAME-MODES.md)：
+规则、计分、胜负和时限都在服务器上的数据包或插件里，平台通过服务器协议 v1 交换 `arena:config` 和 `arena:session`，设计见 [docs/GAME-MODES.md](../docs/GAME-MODES.md)。羊毛竞速见 [datapacks/race-of-wool](datapacks/race-of-wool/README.md)，最小示例见 [datapacks/arena-example](datapacks/arena-example/README.md)。管理员也可以直接在游戏里执行 `function #arena:prepare`／`#arena:start`／`#arena:stop`，效果和命令行一样。
 
-| `judge.type` | 谁判定                                                                                                                                                                                                                                   |
-| ------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `datapack`   | 服务器上的数据包或插件，按服务器协议 v1 通过 RCON 交换 `arena:config` 和 `arena:session`。羊毛竞速见 [datapacks/race-of-wool](datapacks/race-of-wool/README.md)，最小示例见 [datapacks/arena-example](datapacks/arena-example/README.md) |
-| `none`       | 不判定，只用于 `open` 会话                                                                                                                                                                                                               |
-
-不比赛、只想让模型在普通服务器上陪玩时，不需要比赛主控：游戏桥自己提供一个 `open` 会话，部署模板见 [companion/README.md](companion/README.md)。手动开局的小游戏也不需要比赛主控：游戏桥用 `BRIDGE_SESSION=server` 直接从服务器读 `arena:session`，管理员在游戏里执行 `function #arena:prepare`／`#arena:start`／`#arena:stop` 即可，见[游戏桥 README](../packages/mf-bridge/README.md#standalone-cli)。
+不比赛、只想让模型在普通服务器上陪玩时，游戏桥自己提供一个 `open` 会话，部署模板见 [companion/README.md](companion/README.md)。
 
 ### 规则书和会话文件
 
@@ -89,7 +85,7 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
 
 ### 游戏桥是独立服务
 
-两个 Compose 部署里，每个参赛者的游戏桥是单独的服务（`bridge-red1`、`bridge-blue1`），只接在后端网络和本队网络上；参赛容器只能访问本队的游戏桥，访问不到别队的游戏桥和比赛主控。游戏桥从比赛主控的会话服务器（`arena-host:9000`，令牌 `ARENA_HOST_TOKEN`）读取会话状态；比赛主控只在后端网络上，崩溃时 bot 不会跟着掉线。比赛配置里对应 `live.bridges: "external"` 和 `live.sessionServer`，见[比赛主控 README](../packages/arena/README.md#live-runner)。
+两个 Compose 部署里，每个参赛者的游戏桥是单独的服务（`bridge-red1`、`bridge-blue1`），只接在后端网络和本队网络上；参赛容器只能访问本队的游戏桥。游戏桥用 RCON 读 `arena:session` 和 `arena:config`（`BRIDGE_SESSION=server`），只在 `running` 时放行游戏动作；一轮结束后 bot 留在服务器上等下一轮。见[游戏桥 README](../packages/mf-bridge/README.md#standalone-cli)。
 
 ## 模型接入
 
@@ -143,33 +139,26 @@ services:
 
 1. 检查合成后的配置：`C config`。输出里有密钥，只在私下查看。
 2. 构建镜像：`C build`。参赛镜像会克隆离线参考仓库（见下文），构建机需要能访问 GitHub。
-3. 启动服务器和比赛主控：
+3. 启动服务器和游戏桥，等两个 bot 都上线：
 
    ```sh
-   C up -d minecraft
-   C up -d arena-host
-   C logs -f arena-host   # 等到 {"state":"prepared"} 和 waiting-for-operator-start
+   C up -d minecraft bridge-red1 bridge-blue1
+   A() { C --profile tools run --rm arena "$@"; }
+   A command list   # 两个 bot 都在线后再准备
    ```
 
-   主控启动时如果发现上一场留下的开赛标记 `/control/start`，会拒绝准备。主控从启动起就写 `/results/match-result.json`，里面有本次 `runId`，所以旧结果不会被当成当前结果。
-
-4. 初始化每队的 Git 仓库（只需一次）：
+4. 准备：`A prepare /config/match.json`。它写入 `arena:config`，执行准备命令，再调 `#arena:prepare`。`A status` 应显示 `state: "waiting"`。
+5. 初始化每队的 Git 仓库（只需一次）：
 
    ```sh
    C run --rm --no-deps participant-red1 sh -c 'test -d /team-git/project.git || git init --bare /team-git/project.git'
    C run --rm --no-deps participant-blue1 sh -c 'test -d /team-git/project.git || git init --bare /team-git/project.git'
    ```
 
-5. 启动模型转发和参赛者：`C up -d`。参赛容器设了 `ARENA_WAIT_FOR_MATCH=1`：启动器加载好工具后等待，比赛开始前不发开局提示。等待上限是 `ARENA_START_TIMEOUT_MS`（默认 600000，即 10 分钟），超时后参赛容器退出；要等更久，在 Compose 文件里给参赛容器设这个变量（Windows 模板设为 86400000）。
-6. 开赛：创建开赛标记。
+6. 启动模型转发和参赛者：`C up -d`。参赛容器设了 `ARENA_WAIT_FOR_MATCH=1`：启动器加载好工具后等待，会话进入 `running` 前不发开局提示。等待上限是 `ARENA_START_TIMEOUT_MS`（默认 600000，即 10 分钟），超时后参赛容器退出；要等更久，在 Compose 文件里给参赛容器设这个变量（Windows 模板设为 86400000）。
+7. 开赛：`A start /config/match.json`。执行开赛命令后调 `#arena:start`，游戏桥看到 `running` 才放行游戏动作。
 
-   ```sh
-   C exec arena-host touch /control/start
-   ```
-
-   主控收到标记、执行完开赛命令后才放行游戏动作。
-
-参赛容器在比赛中退出不会自动结束比赛；Windows 部署有一个监督脚本做这件事（见 [windows-local/README.md](windows-local/README.md)）。通用部署要用同样的功能，可以在宿主机运行 `node scripts/supervise-participants.mjs DEPLOYMENT_DIR`，但它按 Windows 部署目录的布局（`compose.yaml`、`.env`、`results/`、`control/`）读写文件。
+参赛容器在比赛中退出不会结束比赛，由运营者决定是否 `A stop`。
 
 ### 资源上限
 
@@ -181,52 +170,32 @@ services:
 
 ## 结束比赛
 
-- **自然结束**（目标完成或时间到）：主控写入结果、断开游戏 bot，然后继续运行，只为告诉参赛者"比赛已结束"。拿到结果后再停它。
-- **提前结束**：向主控发 `SIGTERM`。它会关闭游戏动作、执行结束命令、停止并保存录像、断开 bot。
+- **自然结束**：数据包在目标完成或时间到时把 `arena:session` 写成 `ended`。游戏桥随即拒绝游戏动作，参赛容器的启动器看到 `ended` 后关闭 Pi。
+- **提前结束**：`A stop /config/match.json`，数据包记下当前分数并结束，然后执行结束命令。
+- 结果在 `arena:session`：`A status` 打印胜者、分数和说明。需要存档时由自己的脚本保存这份输出。
 
 ```sh
-C stop arena-host                              # 发 SIGTERM，最多等 ARENA_HOST_STOP_GRACE_PERIOD（默认 180s）
-C exec minecraft cat /results/match-result.json  # 查看结果、replay.status 和 stopConfirmed
-C stop participant-red1 participant-blue1 model-relay
-C stop minecraft                               # 最后停，且只在录像已保存之后
+A status
+C stop participant-red1 participant-blue1 model-relay bridge-red1 bridge-blue1
+C stop minecraft
 ```
 
-顺序很重要：先停主控，确认结果里的 `replay.status` 是 `saved`（或录像已关闭）和 `stopConfirmed`，再停 Minecraft。录像还在保存时不要对整个项目 `down`。强行杀掉主控进程时，结束命令和清理不一定执行过。
-
-平台不统计模型用量，也没有金额上限；需要时在上游那一层做。比赛结束时启动器关闭 Pi，不再发出新的模型请求。
-
-结果文件在 `match-results` 卷：
-
-| 路径                                              | 内容                       |
-| ------------------------------------------------- | -------------------------- |
-| `/results/match-result.json`                      | 当前一场的状态和结果       |
-| `/results/runs/<runId>.json`                      | 每场的最终结果，不会被覆盖 |
-| `/results/runs/<runId>/replays/<username>/*.mcpr` | 每个参赛者的录像           |
-
-导出一场：`C cp arena-host:/results/runs/<runId> ./saved-run`，并同样复制 `/results/runs/<runId>.json`。
+平台不统计模型用量，也没有金额上限；需要时在上游那一层做。
 
 ### 下一场之前
 
-- 删掉 `/control/start`，否则主控拒绝准备。
-- 游戏桥不用手动处理：比赛结束时它们停掉 bot，比赛主控停止后它们自己退出，下一次 `docker compose up` 会重新启动并连上新的 bot。如果某个游戏桥没退出（例如手动停过主控又立刻重启），用 `docker compose up -d --force-recreate bridge-red1 bridge-blue1` 重建。
+- 游戏桥可以留着：bot 一直在线，下一次 `A prepare` 开始新的一轮。
 - 冷启动时，游戏桥等 Minecraft 的健康检查通过（端口 25565 能连上）才启动。
 - 按需要恢复地图。通用部署没有重置脚本；Windows 的 `reset` 做了什么见 [windows-local/README.md](windows-local/README.md)。
 - 参赛者工作区里上一场的代码会保留下来。新开局时清空工作区还在[路线图](../docs/ROADMAP.md)上。
 
 ## 比赛录像
 
-实战比赛默认录像（`live.replay.enabled` 默认 `true`）。服务端的 ServerReplay 模组按参赛者分别录下发给这个玩家的数据包和区块，格式是 ReplayMod 的 `.mcpr`。它不录这个玩家没加载过的区域。
+服务器镜像带 ServerReplay 模组，按参赛者分别录下发给这个玩家的数据包和区块，格式是 ReplayMod 的 `.mcpr`。它不录这个玩家没加载过的区域。平台不再自动录像；要录就通过命令行发模组的命令，例如开赛后 `A command replay start players arena_red1`，结束后 `A command replay stop all`。模组配置在 `replay-config` 卷（`/data/config/ServerReplay`），文件写到配置里的目录。
 
-- 关闭：在比赛配置里设 `live.replay.enabled: false`。使用不带该模组的服务器时必须关闭。
-- 主控通过私有挂载控制模组配置：准备时设定本场路径，开赛前逐个启动录像并确认，失败则拒绝开赛。模组自身的自动录像始终关闭，所以热身阶段不会被录下。
-- 结束时主控停止录像、等待写盘、读取文件元数据，写入结果的 `replay` 字段。`replay.status: saved` 表示文件已写完、元数据可读，不代表播放过。等待上限是 `live.replay.saveTimeoutMs`（默认 120000）；调大它时也把 `ARENA_HOST_STOP_GRACE_PERIOD` 调到比它更长。
-- 保存未确认时：保留 Minecraft 运行，查看服务器日志里的 `Successfully closed replay ... and saved to ...`，保留临时文件，确认所有文件后再停服务器。
-- 完整校验（可选，较慢）：`node scripts/verify-server-replay.mjs FILE.mcpr [MINECRAFT_VERSION]`，检查 ZIP CRC、数据包非空并计算 SHA-256。
 - 观看：在 Minecraft 1.21.1 Fabric 客户端安装 [ReplayMod](https://www.replaymod.com/download/)，把文件放进 `replay_recordings` 目录，用 Replay Viewer 打开。
-- 录像会暴露其他玩家、视线外的地形、聊天和背包。比赛期间保密，公开前审查。只有 Minecraft 和主控挂载结果目录，参赛容器看不到。
-- 没有自动清理。注意结果卷的磁盘空间，在服务停止时按自己的策略归档或删除旧录像。
-
-不用 Compose 部署主控时：安装 `unzip`，把结果路径传给 `live-cli.mjs`，设 `live.replay.configPath`（默认 `/replay-config/config.json`）为模组配置文件的实际路径，`live.replay.serverResultsDir`（默认 `/results`）为 Minecraft 看到的同一结果目录。这两个目录都不能在参赛者工作区里。
+- 录像会暴露其他玩家、视线外的地形、聊天和背包。比赛期间保密，公开前审查。只有 Minecraft 挂载结果目录，参赛容器看不到。
+- 没有自动清理。注意磁盘空间，在服务停止时按自己的策略归档或删除旧录像。
 
 ## 开赛前检查
 
@@ -236,9 +205,9 @@ C stop minecraft                               # 最后停，且只在录像已�
 - [ ] 用一个参赛者的令牌访问另一个参赛者的游戏桥，被拒绝。每个参赛者能读到自己的游戏桥令牌，这是预期的；绝不能给它别人的令牌。
 - [ ] 一队的容器挂不到另一队的工作卷和 Git 卷。
 - [ ] 资源上限生效（`docker stats`），且对两队相同。
-- [ ] UID 1000 能写 `/results` 和 `/control`。新建的卷由镜像设好权限；已有的卷保留原来的权限，需要自己检查。
+- [ ] UID 1000 能写 `/results`。新建的卷由镜像设好权限；已有的卷保留原来的权限，需要自己检查。
 - [ ] 参赛 bot 不是 OP；`server.properties` 关闭了命令方块。
-- [ ] 在这张地图上跑一遍准备、开赛、目标判定、结束和重置，确认录像状态为 `saved`。
+- [ ] 在这张地图上跑一遍准备、开赛、目标判定、时间到、结束和重置。
 - [ ] 换上真实模型 key 前，先跑一次冒烟比赛。
 
 Docker 的 `internal: true` 去掉了普通的外网路由，但不能证明完全隔离（宿主机上的服务、IPv6、配置错误、后加的网络）。不要为了让参赛者用 Git 而给参赛容器接一个能出网的网络：队伍 Git 只用卷。确实需要外部访问时，用宿主机控制的白名单代理，并与模型凭据分开。
@@ -247,4 +216,4 @@ Docker 的 `internal: true` 去掉了普通的外网路由，但不能证明完�
 
 ## 单组件调试：compose.yaml
 
-[`compose.yaml`](compose.yaml) 有 Minecraft、两个独立的游戏桥容器、模型转发和两个参赛容器，没有比赛主控。它需要 `MC_SERVER_IMAGE` 和 `MC_VERSION`。先用 `docker compose --env-file .env -f infra/compose.yaml config` 检查。不要用它办正式比赛。
+[`compose.yaml`](compose.yaml) 有 Minecraft、两个独立的游戏桥容器、模型转发和两个参赛容器。它需要 `MC_SERVER_IMAGE` 和 `MC_VERSION`。先用 `docker compose --env-file .env -f infra/compose.yaml config` 检查。不要用它办正式比赛。

@@ -3,19 +3,18 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { startLiveBridge } from "./live.mjs";
 import { sessionObject } from "./session-object.mjs";
-import { hostSession, serverSession } from "./session-source.mjs";
+import { serverSession } from "./session-source.mjs";
 
 export const MAX_SESSION_PROMPT_BYTES = 32 * 1024;
 
 /**
- * Standalone open session: no arena host, no time limit, no winner. The bridge
+ * Standalone open session: no rules datapack, no time limit, no winner. The bridge
  * serves it at /v1/session so the participant runtime sees a running session.
  * `username` may be a function: the in-game name is only known after login.
  */
 export function openSession({
   sessionId,
   username,
-  startedAt,
   briefing = null,
   prompt = null,
   now = Date.now,
@@ -30,7 +29,6 @@ export function openSession({
       username: name,
       participants: [{ id: name, username: name, teamId: null }],
       now: now(),
-      startedAt,
       briefing: { text: briefing, prompt },
     });
   };
@@ -48,12 +46,6 @@ export function cliOptions(
     now = Date.now,
     readPrompt = (path) => readFileSync(path),
     cwd = process.cwd(),
-    // After its match is over and the host has shut down, a host-mode bridge
-    // exits so `docker compose up` starts it fresh for the next match.
-    onHostGone = () => {
-      console.error("Arena host gone after the session ended; exiting");
-      process.exit(0);
-    },
   } = {},
 ) {
   const required = (name) => {
@@ -92,8 +84,8 @@ export function cliOptions(
     blockMemory: env.BRIDGE_BLOCK_MEMORY === "false" ? false : {},
   };
   const kind = env.BRIDGE_SESSION;
-  if (![undefined, "", "open", "host", "server"].includes(kind))
-    throw new Error("BRIDGE_SESSION must be open, host or server when set");
+  if (![undefined, "", "open", "server"].includes(kind))
+    throw new Error("BRIDGE_SESSION must be open or server when set");
   if (env.BRIDGE_WORLD_ID || env.BRIDGE_PARTICIPANT_ID)
     bridge.blockMemory = {
       ...(env.BRIDGE_WORLD_ID ? { worldId: env.BRIDGE_WORLD_ID } : {}),
@@ -117,42 +109,32 @@ export function cliOptions(
     if (typeof name === "string" && name) sessionUsername = name;
   };
   if (kind === "open") {
-    const startedAt = now();
     bridge.getMatchState = openSession({
-      sessionId: env.BRIDGE_SESSION_ID || `open-${startedAt}`,
+      sessionId: env.BRIDGE_SESSION_ID || `open-${now()}`,
       username: () => sessionUsername,
-      startedAt,
       briefing: env.BRIDGE_BRIEFING || null,
       prompt,
       now,
     });
     return { minecraft, bridge, session: { kind, setUsername } };
   }
-  if (kind === "host" || kind === "server") {
+  if (kind === "server") {
     const intervalMs = Number(env.BRIDGE_SESSION_POLL_MS ?? 250);
     if (!Number.isSafeInteger(intervalMs) || intervalMs < 50)
       throw new Error("BRIDGE_SESSION_POLL_MS must be an integer >= 50");
-    const session =
-      kind === "host"
-        ? hostSession({
-            url: required("BRIDGE_HOST_URL"),
-            token: required("BRIDGE_HOST_TOKEN"),
-            intervalMs,
-            onGone: onHostGone,
-          })
-        : serverSession({
-            rcon: {
-              host: required("BRIDGE_RCON_HOST"),
-              port: port("BRIDGE_RCON_PORT", 25575),
-              password: required("BRIDGE_RCON_PASSWORD"),
-            },
-            intervalMs,
-            username: () => sessionUsername,
-            sessionId: env.BRIDGE_SESSION_ID || `server-${now()}`,
-            briefing: env.BRIDGE_BRIEFING || null,
-            prompt,
-            now,
-          });
+    const session = serverSession({
+      rcon: {
+        host: required("BRIDGE_RCON_HOST"),
+        port: port("BRIDGE_RCON_PORT", 25575),
+        password: required("BRIDGE_RCON_PASSWORD"),
+      },
+      intervalMs,
+      username: () => sessionUsername,
+      sessionId: env.BRIDGE_SESSION_ID || `server-${now()}`,
+      briefing: env.BRIDGE_BRIEFING || null,
+      prompt,
+      now,
+    });
     bridge.getMatchState = session.getMatchState;
     bridge.authorizeAction = session.authorizeAction;
     return { minecraft, bridge, session: { ...session, kind, setUsername } };
@@ -180,9 +162,8 @@ if (
   service.bot.on("end", (reason) => {
     console.error("Minecraft bot ended:", reason);
     // A session would otherwise keep reporting `running` with no bot; exit
-    // so the participant stops being prompted until the operator restarts. After
-    // the session ended the bridge stays up to serve the final state.
-    if (options.session && !options.session.ended?.()) process.exit(1);
+    // so the participant stops being prompted until the operator restarts.
+    if (options.session) process.exit(1);
   });
   let closing = false;
   for (const signal of ["SIGINT", "SIGTERM"])

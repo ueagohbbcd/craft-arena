@@ -11,24 +11,24 @@
  *   - arena-example: config write, prepare/start, server-declared winner, and
  *     the reply for a missing function tag;
  *   - race-of-wool: monument reset and force-loading, scores following placed
- *     and removed blocks, a win, a same-tick draw, and #arena:stop;
- *   - live (unless --skip-live): live-cli.mjs with two real Mineflayer bots,
- *     once with in-process bridges and once with external bridge processes;
- *     the red bot places its wool through the SDK and the datapack must
- *     declare red the winner;
- *   - host-less: a bridge in BRIDGE_SESSION=server mode follows a round run
- *     with plain RCON commands and gates actions by its state.
+ *     and removed blocks, a win, a same-tick draw, #arena:stop, the time
+ *     limit from arena:config.durationMs, and no limit without it;
+ *   - live (unless --skip-live): two bridge processes in BRIDGE_SESSION=server
+ *     mode with real Mineflayer bots, a round run by packages/arena/src/cli.mjs
+ *     from a match file; the red bot places its wool through the SDK and the
+ *     datapack must declare red the winner;
+ *   - server-mode bridge: follows a round run with plain RCON commands, gates
+ *     actions by its state and releases held keys when it ends.
  * Needs Java 21 on PATH. Exits non-zero on the first failed check.
  */
 import assert from "node:assert/strict";
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import {
   cp,
   mkdir,
   mkdtemp,
   readFile,
   readdir,
-  rm,
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -82,7 +82,6 @@ const PORTS = {
   rcon: 25575,
   red: 18080,
   blue: 18082,
-  host: 18090,
 };
 
 async function serverJar(dir) {
@@ -147,15 +146,15 @@ function startServer(dir, jar) {
   return { child, ready };
 }
 
-const writeConfig = (rcon, config) => writeServerConfig(rcon, config, "verify");
+const writeConfig = writeServerConfig;
 
 const twoTeams = {
-  id: "verify",
-  session: { kind: "match", durationMs: 60000 },
-  teams: [{ id: "red" }, { id: "blue" }],
-  participants: [
-    { username: "arena_red1", team: "red" },
-    { username: "arena_blue1", team: "blue" },
+  sessionId: "verify",
+  kind: "match",
+  durationMs: 60000,
+  teams: [
+    { id: "red", players: ["arena_red1"] },
+    { id: "blue", players: ["arena_blue1"] },
   ],
 };
 
@@ -205,8 +204,8 @@ async function raceOfWool(rcon) {
   const goals = (team) => map.goals.filter((g) => g.team === team);
   const place = async (goal, block = goal.block) =>
     rcon.command(`setblock ${goal.x} ${goal.y} ${goal.z} ${block}`);
-  const ready = async () => {
-    await writeConfig(rcon, twoTeams);
+  const ready = async (config = twoTeams) => {
+    await writeConfig(rcon, config);
     await rcon.command("function #arena:prepare");
   };
   const scores = async () => (await readSession(rcon)).scores;
@@ -260,10 +259,56 @@ async function raceOfWool(rcon) {
   assert.equal(s.winner, null);
   assert.equal(s.scores.blue, 1);
   log("ok race-of-wool: #arena:stop records held objectives");
+
+  // One second (20 ticks) limit: the datapack ends the match as a draw.
+  await ready({ ...twoTeams, durationMs: 1000 });
+  await rcon.command("function #arena:start");
+  await place(goals("red")[0]);
+  await waitFor(
+    async () => (await readSession(rcon)).state === "ended",
+    5000,
+    () => "time limit did not end the match",
+  );
+  s = await readSession(rcon);
+  assert.equal(s.winner, "draw");
+  assert.equal(s.message, "time limit reached");
+  assert.equal(s.scores.red, 1);
+  // Without durationMs there is no limit.
+  const { durationMs, ...unlimited } = twoTeams;
+  await ready(unlimited);
+  await rcon.command("function #arena:start");
+  await delay(1500);
+  assert.equal((await readSession(rcon)).state, "running");
+  await rcon.command("function #arena:stop");
+  log(
+    "ok race-of-wool: durationMs ends the match as a draw; none means no limit",
+  );
   return map;
 }
 
-async function live(rcon, dir, map, { external = false } = {}) {
+/** Runs packages/arena/src/cli.mjs; resolves its parsed output. */
+function arenaCli(...args) {
+  return new Promise((resolve, reject) =>
+    execFile(
+      process.execPath,
+      [join(root, "packages/arena/src/cli.mjs"), ...args],
+      {
+        env: {
+          ...process.env,
+          MC_RCON_HOST: "127.0.0.1",
+          MC_RCON_PORT: String(PORTS.rcon),
+          MC_RCON_PASSWORD: PASSWORD,
+        },
+      },
+      (error, stdout, stderr) =>
+        error
+          ? reject(new Error(`cli.mjs ${args[0]}: ${stderr || error.message}`))
+          : resolve(JSON.parse(stdout)),
+    ),
+  );
+}
+
+async function live(rcon, dir, map) {
   const red = map.goals.filter((g) => g.team === "red");
   const xs = map.goals.map((g) => g.x),
     zs = map.goals.map((g) => g.z),
@@ -281,103 +326,86 @@ async function live(rcon, dir, map, { external = false } = {}) {
   );
   await rcon.command("forceload remove all");
 
-  const config = JSON.parse(
+  // The shipped Direct Fire match file, with start commands for this world.
+  const match = JSON.parse(
     await readFile(
       join(root, "infra/windows-local/match.direct-fire.json"),
       "utf8",
     ),
   );
-  config.id = external ? "verify-live-external" : "verify-live";
-  config.session.durationMs = 120000;
-  config.live.minecraft.host = "127.0.0.1";
-  config.live.minecraft.port = PORTS.game;
-  config.live.rcon = {
-    host: "127.0.0.1",
-    port: PORTS.rcon,
-    passwordEnv: "MC_RCON_PASSWORD",
-  };
-  config.live.replay = { enabled: false };
-  config.live.startSignalFile = join(dir, "control/start");
+  match.config.sessionId = "verify-live";
+  match.config.durationMs = 120000;
   const stand = (goal) => `${goal.x + 0.5} ${goal.y} ${goal.z + 3.5}`;
-  config.live.commands = {
-    start: [
-      { command: `tp arena_red1 ${stand(red[1])}`, expect: "Teleported" },
-      ...red.map((g) => ({
-        command: `give arena_red1 ${g.block} 1`,
-        expect: "Gave",
-      })),
-    ],
+  match.commands.start = [
+    { command: `tp arena_red1 ${stand(red[1])}`, expect: "Teleported" },
+    ...red.map((g) => ({
+      command: `give arena_red1 ${g.block} 1`,
+      expect: "Gave",
+    })),
+  ];
+  const matchPath = join(dir, "match.json");
+  await writeFile(matchPath, JSON.stringify(match));
+
+  const tokens = {
+    red: "verify-red-bridge-token",
+    blue: "verify-blue-bridge-token",
   };
-  config.participants[0].bridge = {
-    host: "127.0.0.1",
-    port: PORTS.red,
-    tokenEnv: "RED1_BRIDGE_TOKEN",
-  };
-  config.participants[1].bridge = {
-    host: "127.0.0.1",
-    port: PORTS.blue,
-    tokenEnv: "BLUE1_BRIDGE_TOKEN",
-  };
-  config.live.bridges = external ? "external" : "internal";
-  config.live.sessionServer = external
-    ? { host: "127.0.0.1", port: PORTS.host, tokenEnv: "ARENA_HOST_TOKEN" }
-    : undefined;
-  await rm(join(dir, "control"), { recursive: true, force: true });
-  await mkdir(join(dir, "control"), { recursive: true });
-  const configPath = join(dir, "match.json"),
-    resultPath = join(dir, "result.json");
-  await writeFile(configPath, JSON.stringify(config));
-  const env = {
-    ...process.env,
-    MC_RCON_PASSWORD: PASSWORD,
-    RED1_BRIDGE_TOKEN: "verify-red-bridge-token",
-    BLUE1_BRIDGE_TOKEN: "verify-blue-bridge-token",
-    ARENA_HOST_TOKEN: "verify-arena-host-token",
-  };
-  // External mode: each bridge is its own process polling the host.
-  const bridges = external
-    ? config.participants.map((p) =>
-        spawnBridge({
-          MF_USERNAME: p.username,
-          BRIDGE_PORT: String(p.bridge.port),
-          BRIDGE_TOKEN: env[p.bridge.tokenEnv],
-          BRIDGE_SESSION: "host",
-          BRIDGE_HOST_URL: `http://127.0.0.1:${PORTS.host}/v1/participants/${p.id}/session`,
-          BRIDGE_HOST_TOKEN: env.ARENA_HOST_TOKEN,
-        }),
-      )
-    : [];
-  const host = spawn(
-    process.execPath,
-    [join(root, "packages/arena/src/live-cli.mjs"), configPath, resultPath],
-    { env, stdio: ["ignore", "pipe", "inherit"] },
+  const bridges = [
+    ["arena_red1", PORTS.red, tokens.red],
+    ["arena_blue1", PORTS.blue, tokens.blue],
+  ].map(([username, port, token]) =>
+    spawnBridge({
+      MF_USERNAME: username,
+      BRIDGE_PORT: String(port),
+      BRIDGE_TOKEN: token,
+      BRIDGE_SESSION: "server",
+      BRIDGE_RCON_HOST: "127.0.0.1",
+      BRIDGE_RCON_PORT: String(PORTS.rcon),
+      BRIDGE_RCON_PASSWORD: PASSWORD,
+    }),
   );
-  let output = "";
-  host.stdout.on("data", (c) => (output += c));
-  const until = (pattern) =>
-    waitFor(
-      () => {
-        if (host.exitCode !== null)
-          throw new Error(`arena host exited:\n${output}`);
-        return pattern.test(output);
+  const session = async () =>
+    (
+      await (
+        await fetch(`http://127.0.0.1:${PORTS.red}/v1/session`, {
+          headers: { authorization: `Bearer ${tokens.red}` },
+        })
+      ).json()
+    ).result;
+  try {
+    await waitFor(
+      async () => {
+        for (const bridge of bridges)
+          if (bridge.exitCode !== null) throw new Error("bridge exited");
+        const list = await rcon.command("list");
+        return /arena_red1/.test(list) && /arena_blue1/.test(list);
       },
       60000,
-      () => `arena host never reported ${pattern}:\n${output}`,
+      () => "bots did not join",
     );
-  try {
-    await until(/waiting-for-operator-start/);
-    await writeFile(config.live.startSignalFile, "");
-    await until(/"state":"running"/);
+    await arenaCli("prepare", matchPath);
+    await waitFor(
+      async () => (await session().catch(() => null))?.state === "waiting",
+      5000,
+      () => "bridge did not see the prepared round",
+    );
+    assert.equal((await session()).briefing.text, match.config.briefing);
+    await arenaCli("start", matchPath);
     const { connectBot, Vector } =
       await import("../packages/bot-sdk/index.mjs");
     const bot = await connectBot({
       url: `http://127.0.0.1:${PORTS.red}`,
-      token: env.RED1_BRIDGE_TOKEN,
+      token: tokens.red,
     });
     try {
-      const session = await bot.getSessionState();
-      const mine = session.briefing.public.goals.filter(
-        (g) => g.team === session.teamId,
+      await waitFor(
+        async () => (await bot.getSessionState()).state === "running",
+        5000,
+        () => "bridge did not see the start",
+      );
+      const state = await bot.getSessionState();
+      const mine = state.briefing.public.goals.filter(
+        (g) => g.team === state.teamId,
       );
       await delay(1000);
       for (const goal of mine) {
@@ -393,36 +421,30 @@ async function live(rcon, dir, map, { external = false } = {}) {
     } finally {
       bot.closeBridge();
     }
-    await until(/"state":"ended"/);
-    const result = JSON.parse(await readFile(resultPath, "utf8"));
-    assert.equal(result.reason, "judge-decision");
-    assert.equal(result.winner, "red");
-    assert.equal(result.stopConfirmed, true);
-    if (external) {
-      // Bridges see the end, stop their bots and keep serving the result.
-      await waitFor(
-        async () => !/players online: \S/.test(await rcon.command("list")),
-        10000,
-        () => "bridges did not stop their bots",
-      );
-      const final = await fetch(`http://127.0.0.1:${PORTS.red}/v1/session`, {
-        headers: { authorization: `Bearer ${env.RED1_BRIDGE_TOKEN}` },
-      });
-      assert.equal((await final.json()).result.winner, "red");
-    }
+    await waitFor(
+      async () => (await arenaCli("status")).state === "ended",
+      10000,
+      () => "datapack did not end the match",
+    );
+    assert.equal((await arenaCli("status")).winner, "red");
+    await waitFor(
+      async () => (await session()).winner === "red",
+      5000,
+      () => "bridge did not serve the verdict",
+    );
+    await arenaCli("stop", matchPath);
     log(
-      `ok live${external ? " (external bridges)" : ""}: arena host + two real bots, SDK placement, datapack verdict`,
+      "ok live: cli.mjs + two server-mode bridges with real bots, SDK placement, datapack verdict",
     );
   } finally {
-    host.kill("SIGTERM");
     for (const bridge of bridges) bridge.kill("SIGTERM");
     await delay(1000);
   }
 }
 
 async function hostless(rcon) {
-  // A bridge reading the session straight from the server, no arena host:
-  // the operator (here RCON, in-game the same commands) runs the rounds.
+  // A bridge reading the session straight from the server: the operator
+  // (here RCON, in-game the same commands) runs the rounds.
   const token = "verify-hostless-bridge-token";
   const bridge = spawnBridge(
     {
@@ -495,7 +517,7 @@ async function hostless(rcon) {
     // The bot stays for the next round.
     assert.match(await rcon.command("list"), /arena_red1/);
     log(
-      "ok host-less bridge: server session gates actions and releases held keys across a round",
+      "ok server-mode bridge: gates actions and releases held keys across a round",
     );
   } finally {
     bridge.kill("SIGTERM");
@@ -521,10 +543,7 @@ try {
   await rcon.connect();
   await arenaExample(rcon);
   const map = await raceOfWool(rcon);
-  if (!args.includes("--skip-live")) {
-    await live(rcon, dir, map);
-    await live(rcon, dir, map, { external: true });
-  }
+  if (!args.includes("--skip-live")) await live(rcon, dir, map);
   await hostless(rcon);
   log("All server protocol checks passed.");
 } catch (e) {
