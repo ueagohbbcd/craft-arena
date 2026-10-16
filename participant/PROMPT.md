@@ -54,7 +54,7 @@ All paths are under `$ARENA_TOOLKIT_ROOT`:
 
 - `participant/skills/minecraft-arena/SKILL.md`: first movement, example programs, program patterns.
 - `participant/FAQ.md`: common control and timing mistakes.
-- `participant/TEAM.md`: team Git, and calling a model from your programs.
+- `participant/TEAM.md`: team Git.
 - `packages/observation/README.md`: what the default observer reports and how to change it.
 - `packages/bot-sdk/README.md`: the SDK and where it differs from Mineflayer.
 - `packages/bot-sdk/BLOCK-MEMORY.md`: querying chunks your character has already received, including unloaded ones.

@@ -1,10 +1,6 @@
-# Team and model reference
+# Team reference
 
-Read this when you need it. It covers how to share code with teammates and how your own programs can call a model. The manual is [SKILL.md](skills/minecraft-arena/SKILL.md).
-
-## Model calls from your programs
-
-The operator decides how this container reaches a model. When `OPENAI_BASE_URL` is set, it is an OpenAI-compatible endpoint (`POST ${OPENAI_BASE_URL}/chat/completions`) serving the model you run on; a program or helper agent you start can call it too, with `OPENAI_API_KEY` as the bearer token when that is set. Calls from your programs count against the same model access as your own requests. The platform does not meter or queue them; if a call is refused, the error says why. Act on it rather than retrying blindly.
+Read this when you need it. It covers how to share code with teammates. The manual is [SKILL.md](skills/minecraft-arena/SKILL.md).
 
 ## Team Git
 

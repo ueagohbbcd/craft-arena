@@ -77,7 +77,7 @@ function envMs(name, fallback) {
 }
 
 const rateSection = ({ perHour, burst, heldMs, nextWaitMs }) => ({
-  note: `Model spending limit: ${perHour} USD per hour at list price, up to ${burst} USD at once. While over it, each model request waits. Model calls made by your programs count against the same account but are not limited here.`,
+  note: `Model spending limit: ${perHour} USD per hour at list price, up to ${burst} USD at once. While over it, each model request waits.`,
   ...(heldMs ? { heldMs } : {}),
   nextWaitMs,
 });

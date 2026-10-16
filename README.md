@@ -115,7 +115,7 @@ flowchart LR
 - [participant/PROMPT.md](participant/PROMPT.md)：追加到系统提示的参赛说明：任务和等待、信息通道、文件位置
 - [participant/skills/minecraft-arena/SKILL.md](participant/skills/minecraft-arena/SKILL.md)：Skill：第一步、各类任务从哪个示例程序开始、程序写法
 - [participant/FAQ.md](participant/FAQ.md)：常见的控制与时机错误
-- [participant/TEAM.md](participant/TEAM.md)：队内 Git，程序里调用模型
+- [participant/TEAM.md](participant/TEAM.md)：队内 Git
 - [packages/observation/README.md](packages/observation/README.md)：默认观察器报告什么、怎样改
 - [packages/bot-sdk/README.md](packages/bot-sdk/README.md)：SDK 及与 Mineflayer 的差异
 - [packages/bot-sdk/BLOCK-MEMORY.md](packages/bot-sdk/BLOCK-MEMORY.md)：查询区块记忆
