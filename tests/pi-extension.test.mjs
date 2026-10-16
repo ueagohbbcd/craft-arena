@@ -1072,7 +1072,10 @@ test("idle reminder respects queued turns and freshly checks the host", async (t
   host.setState("running");
   await delay(80);
   assert.equal(h.sent.length, 1);
-  assert.match(h.sent[0][0].content, /no background task or queued turn/);
+  assert.match(
+    h.sent[0][0].content,
+    /none of the programs you started is still running/,
+  );
   await delay(80);
   assert.equal(h.sent.length, 1);
   h.handlers.get("agent_start")();

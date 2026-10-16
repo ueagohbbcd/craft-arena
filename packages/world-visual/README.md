@@ -2,7 +2,7 @@
 
 This package draws pictures of the blocks your character has loaded. Nothing sends you a picture on its own: run [examples/screenshot.mjs](../../examples/screenshot.mjs) when a decision depends on shape, such as a doorway, a wall or stacked levels.
 
-There is no built-in image tool, and `observe` returns text only. If Chromium is missing, images fail but text reports keep working.
+There is no built-in image tool, and `examples/observe.mjs` prints text only. If Chromium is missing, images fail but text reports keep working.
 
 ## Take a screenshot
 

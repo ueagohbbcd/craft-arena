@@ -504,7 +504,7 @@ test(
     for (const message of messages.slice(toolAt + 1)) {
       const text = JSON.stringify(message.content);
       assert(
-        /Arena platform message|Participant inbox/.test(text),
+        /Arena platform message|Inbox reports/.test(text),
         `unexpected request tail: ${text.slice(0, 300)}`,
       );
       const body = (

@@ -53,7 +53,7 @@ Set `ARENA_COST_PER_HOUR` (USD) to limit what this Pi session spends on the mode
 
 The model learns about it in the next platform message, which rides a request it makes anyway: a `modelRate` section with the limit, `heldMs` (time the last requests waited, when they did) and `nextWaitMs` (how long the next request will wait). It is sent once after a response overdraws the bucket and once after a request has waited.
 
-The limit lives inside the participant's container and covers only Pi's own requests. Model calls made by the participant's programs are not limited or counted here. A hard cap belongs with the provider, for example a spending limit on the key. Prices come from Pi: the built-in providers carry them, and a descriptor for `OPENAI_BASE_URL` needs a `cost` field (see the launcher); without prices every response costs 0 and nothing is held. The bucket starts full when Pi starts.
+The limit lives inside the participant's container and covers only Pi's own conversation requests; Pi's compaction summaries are neither held nor charged. Model calls made by the participant's programs are not limited or counted here. A hard cap belongs with the provider, for example a spending limit on the key. Prices come from Pi: the built-in providers carry them, and a descriptor for `OPENAI_BASE_URL` needs a `cost` field (see the launcher); without prices every response costs 0 and nothing is held. With Pi's own profile the launcher cannot check prices, so a model priced at zero is never held. The bucket starts full when Pi starts, including after a restart.
 
 ## Launcher
 

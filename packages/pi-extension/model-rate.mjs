@@ -71,7 +71,8 @@ export function modelRateOptions(env = process.env) {
 export function sleep(ms, signal) {
   return new Promise((resolve) => {
     if (signal?.aborted) return resolve();
-    const timer = setTimeout(done, ms);
+    // Node timers overflow above 2^31-1 ms and would fire at once.
+    const timer = setTimeout(done, Math.min(ms, 2 ** 31 - 1));
     signal?.addEventListener("abort", done, { once: true });
     function done() {
       clearTimeout(timer);

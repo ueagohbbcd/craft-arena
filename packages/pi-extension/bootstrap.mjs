@@ -294,7 +294,7 @@ async function launchPi({
   }
   const initialPrompt =
     env.ARENA_PROMPT ||
-    "Participate in the Minecraft session using the local bridge and your available tools. Write and run your own programs as useful. Use the participant inbox for observations and urgent judgment. Follow the session briefing and keep going until its goal is complete or the host ends the session.";
+    "Play the Minecraft session by writing Node programs and running them with bash, as your system prompt describes. Reports from your programs and the default scripts reach you as inbox reports. Follow the session briefing if there is one, and keep going until its goal is complete or the host ends the session.";
   const cliArgs = [
     ...(profile.generated
       ? ["--provider", "arena", "--model", profile.modelId]

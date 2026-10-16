@@ -165,7 +165,7 @@ test("Pi starts the default chat script per session and replaces it on session s
   const toolBoundary = async () => {
     const result = await handlers.get("tool_result")({ content: [] }, ctx);
     const text = result?.content.at(-1).text ?? "";
-    return text.startsWith("Participant inbox")
+    return text.startsWith("Inbox reports")
       ? JSON.parse(text.slice(text.indexOf("\n") + 1))
       : undefined;
   };

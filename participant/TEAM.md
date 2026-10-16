@@ -30,7 +30,7 @@ git pull --ff-only   # later, to get their new commits
 - Push with a normal `git push` to your own branch. Do not force-push over a teammate's history.
 - When branches diverge, read both histories before you merge or cherry-pick.
 - Never commit credentials or environment files.
-- If `$TEAM_GIT_DIR` is missing or not writable, the operator has to fix the setup.
+- If `$TEAM_GIT_DIR` is missing or not writable, team Git is not available in this session; keep your code in your working directory.
 
 ## Coordinating with teammates
 

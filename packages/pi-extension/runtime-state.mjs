@@ -6,7 +6,7 @@ const DEFAULT_DISPLAY_LIMITS = Object.freeze({
   programStatusEntryBytes: 2048,
 });
 
-/** Presentation budgets only; retained TaskManager and Inbox data stay unchanged. */
+/** Presentation limits only; retained TaskManager and Inbox data stay unchanged. */
 export function displayLimitOptions(env = process.env) {
   return Object.fromEntries(
     Object.entries({
@@ -118,7 +118,7 @@ export function runtimeState(
     if (size > budget.programStatusEntryBytes) {
       delete record.data;
       record.dataOmitted = {
-        reason: "entry display budget",
+        reason: "entry size limit",
         bytes: Buffer.byteLength(JSON.stringify(entry.data)),
       };
       size = Buffer.byteLength(JSON.stringify(record));
@@ -150,7 +150,7 @@ export function runtimeState(
         dataOmitted,
         bytes,
       },
-      budgets: budget,
+      limits: budget,
       // The uncut state is rewritten to this file whenever a report is made.
       ...(fullFile ? { fullFile } : {}),
     },
