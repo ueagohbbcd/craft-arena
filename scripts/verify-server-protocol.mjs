@@ -408,6 +408,38 @@ async function live(rcon, dir, map) {
         (g) => g.team === state.teamId,
       );
       await delay(1000);
+      // Right-clicking a bed by day sets the respawn point. Record where the
+      // receipt arrives: a chat line reaches the chat inbox, an action-bar
+      // line (game_info) does not.
+      const messages = [];
+      bot.on("messagestr", (text, position) =>
+        messages.push({ text, position }),
+      );
+      const bed = { x: red[1].x + 2, y, z: red[1].z + 3 };
+      await rcon.command("time set day");
+      await rcon.command(
+        `setblock ${bed.x} ${bed.y} ${bed.z - 1} minecraft:red_bed[facing=north,part=head]`,
+      );
+      await rcon.command(
+        `setblock ${bed.x} ${bed.y} ${bed.z} minecraft:red_bed[facing=north,part=foot]`,
+      );
+      await waitFor(
+        () => bot.blockAt(new Vector(bed.x, bed.y, bed.z))?.name === "red_bed",
+        5000,
+        () => "bot did not see the bed",
+      );
+      await bot.activateBlock(bot.blockAt(new Vector(bed.x, bed.y, bed.z)));
+      await waitFor(
+        () => messages.some((m) => /respawn point set/i.test(m.text)),
+        5000,
+        () => `no respawn receipt; saw ${JSON.stringify(messages)}`,
+      );
+      await delay(500);
+      log(`ok bed: messages after right-click ${JSON.stringify(messages)}`);
+      await rcon.command(`setblock ${bed.x} ${bed.y} ${bed.z} minecraft:air`);
+      await rcon.command(
+        `setblock ${bed.x} ${bed.y} ${bed.z - 1} minecraft:air`,
+      );
       for (const goal of mine) {
         const name = goal.block.replace("minecraft:", "");
         const item = bot.inventory.items().find((i) => i.name === name);
