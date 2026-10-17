@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
-  recentBlockOptions,
+  RECENT_BLOCK_DEFAULTS,
   projectRecentBlocks,
   startNearbyScan,
 } from "../packages/observation/nearby-scan.mjs";
@@ -186,29 +186,14 @@ test("disabling prevents polling and exposes no request section; numeric setting
   off.sampleNow();
   assert.equal(off.snapshot(), undefined);
   off.close();
-  assert.deepEqual(
-    recentBlockOptions({
-      ARENA_OBSERVER_RECENT_BLOCKS: "0",
-      ARENA_OBSERVER_RECENT_BLOCK_RADIUS: "8",
-      ARENA_OBSERVER_RECENT_BLOCK_INTERVAL_MS: "1500",
-      ARENA_OBSERVER_RECENT_BLOCK_MAX_READS: "8000",
-      ARENA_OBSERVER_RECENT_BLOCK_POSITIONS: "2",
-    }),
-    {
-      enabled: false,
-      radius: 8,
-      intervalMs: 1500,
-      maxReads: 8000,
-      positionLimit: 2,
-      minReportMs: 30000,
-    },
-  );
-  assert.equal(
-    recentBlockOptions({ ARENA_OBSERVER_RECENT_BLOCK_INTERVAL_MS: "bad" })
-      .intervalMs,
-    1000,
-  );
-  assert.equal(recentBlockOptions({}).minReportMs, 30000);
+  assert.deepEqual(RECENT_BLOCK_DEFAULTS, {
+    enabled: true,
+    radius: 6,
+    intervalMs: 1000,
+    maxReads: 4096,
+    positionLimit: 3,
+    minReportMs: 30000,
+  });
 });
 
 test("compact reports retain type counts and representative coordinates", () => {

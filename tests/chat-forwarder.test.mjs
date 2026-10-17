@@ -122,8 +122,6 @@ test("Pi starts the default chat script per session and replaces it on session s
     ARENA_BRIDGE_URL: b.url,
     ARENA_BRIDGE_TOKEN: token,
     ARENA_DEFAULT_SCRIPTS: "chat",
-    MC_INBOX_TRANSPORT: "http",
-    MC_INBOX_TOKEN: token,
   });
   delete process.env.MC_INBOX_SOCKET;
   const handlers = new Map();

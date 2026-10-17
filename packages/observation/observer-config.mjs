@@ -2,7 +2,7 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 /**
- * Optional workspace observer.json: { radar?, recentBlocks?, events? } for the default
+ * Optional workspace observer.json: { intervalMs?, radar?, recentBlocks?, events? } for the default
  * observer. ARENA_OBSERVER_CONFIG names another file.
  */
 export async function readObserverConfig(cwd, env = process.env) {

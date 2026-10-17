@@ -46,7 +46,7 @@ async function setup(t) {
     bot,
     token,
     snapshotRadius: 24,
-    getMatchState: () => ({ state: "running" }),
+    getSessionState: () => ({ state: "running" }),
   });
   t.after(() => bridge.close());
   const responses = [];

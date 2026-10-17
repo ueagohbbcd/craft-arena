@@ -11,6 +11,7 @@ import {
   createInboxServer,
 } from "../packages/inbox/index.mjs";
 import { TaskManager } from "../packages/tasks/index.mjs";
+import { socketInbox } from "./helpers/inbox-socket.mjs";
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const post = (inbox, data, extra = {}) =>
   inbox.post({ sessionId: inbox.sessionId, data, ...extra });
@@ -47,23 +48,12 @@ test("Unix IPC supports SDK semantics, session isolation, permissions and malfor
   const dir = await mkdtemp(join(tmpdir(), "inbox-test-"));
   const socketPath = join(dir, "inbox.sock");
   const inbox = new Inbox({ sessionId: "session" });
-  let server;
-  try {
-    server = await createInboxServer({
-      inbox,
-      socketPath,
-      maxRequestBytes: 1024,
-    });
-  } catch (error) {
-    if (error.code === "EPERM") {
-      await rm(dir, { recursive: true, force: true });
-      t.skip(
-        "Host policy prohibits Unix socket binding; loopback IPC tested separately",
-      );
-      return;
-    }
-    throw error;
-  }
+  await assert.rejects(createInboxServer({ inbox }), /socketPath/);
+  const server = await createInboxServer({
+    inbox,
+    socketPath,
+    maxRequestBytes: 1024,
+  });
   t.after(async () => {
     await server.close();
     await rm(dir, { recursive: true, force: true });
@@ -97,27 +87,6 @@ test("Unix IPC supports SDK semantics, session isolation, permissions and malfor
   assert.equal(await raw("{"), 400);
   assert.equal(await raw("x".repeat(2048)), 413);
   assert.equal((await client.post("still healthy")).accepted, true);
-});
-
-test("loopback transport requires authorization and refuses external binding", async (t) => {
-  const inbox = new Inbox();
-  await assert.rejects(
-    createInboxServer({ inbox, host: "0.0.0.0", token: "a".repeat(32) }),
-    /Loopback/,
-  );
-  const server = await createInboxServer({ inbox, token: "a".repeat(32) });
-  t.after(() => server.close());
-  const url = `http://127.0.0.1:${server.address.port}`;
-  await assert.rejects(
-    new InboxClient({ url, sessionId: inbox.sessionId }).post("bad"),
-    /Unauthorized/,
-  );
-  await new InboxClient({
-    url,
-    sessionId: inbox.sessionId,
-    token: "a".repeat(32),
-  }).post("good");
-  assert.equal(inbox.drain().messages[0].data, "good");
 });
 
 test("normal completion captures stdout/stderr and claims result once", async (t) => {
@@ -244,47 +213,6 @@ test("unwaited completion stays queued until a boundary and shutdown reaps child
   assert.equal(tasks.get(running).status, "completed");
 });
 
-test("loopback IPC handles state, urgent, malformed input and oversized body without damaging service", async (t) => {
-  const inbox = new Inbox({ sessionId: "loop" });
-  const token = "test-loopback-token";
-  const server = await createInboxServer({
-    inbox,
-    token,
-    maxRequestBytes: 1024,
-  });
-  t.after(() => server.close());
-  const url = `http://127.0.0.1:${server.address.port}`;
-  const client = new InboxClient({ url, sessionId: "loop", token });
-  await client.upsert("health", 1);
-  await client.upsert("health", 2);
-  await client.post({ message: "observation" });
-  await client.requestJudgment("urgent");
-  const batch = inbox.drain();
-  assert.equal(batch.messages.length, 3);
-  assert.equal(batch.messages[0].data, 2);
-  assert.equal(batch.messages[2].priority, "urgent");
-  await assert.rejects(
-    new InboxClient({ url, sessionId: "wrong", token }).post("no"),
-    /Session/,
-  );
-  const raw = (body) =>
-    new Promise((resolve, reject) => {
-      const req = http.request(
-        `${url}/messages`,
-        { method: "POST", headers: { authorization: `Bearer ${token}` } },
-        (res) => {
-          res.resume();
-          res.on("end", () => resolve(res.statusCode));
-        },
-      );
-      req.on("error", reject);
-      req.end(body);
-    });
-  assert.equal(await raw("{"), 400);
-  assert.equal(await raw("x".repeat(2048)), 413);
-  assert.equal((await client.post("healthy")).accepted, true);
-});
-
 test("delivered records recycle; bounded idempotency tombstone prevents duplicate execution", async (t) => {
   const inbox = new Inbox();
   let now = 0;
@@ -406,14 +334,8 @@ test("programs choose state keys and lifetimes within the queue byte budget", ()
 
 test("out-of-process producers receive delivery receipts for queued messages", async (t) => {
   const inbox = new Inbox({ sessionId: "receipts" });
-  const token = "receipt-loopback-token-0123";
-  const server = await createInboxServer({ inbox, port: 0, token });
-  t.after(() => server.close());
-  const client = new InboxClient({
-    url: `http://127.0.0.1:${server.address.port}`,
-    sessionId: "receipts",
-    token,
-  });
+  const { socketPath } = await socketInbox(t, inbox);
+  const client = new InboxClient({ socketPath, sessionId: "receipts" });
 
   // A pending message reports "pending" when the wait budget runs out.
   const first = await client.upsert("report", { n: 1 });

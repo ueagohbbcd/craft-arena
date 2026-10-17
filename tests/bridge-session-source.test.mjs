@@ -43,16 +43,16 @@ test("polledSession serves the last good reading and gates actions on running", 
     intervalMs: 10_000,
     onChange: (next, previous) => changes.push([previous?.state, next.state]),
   });
-  assert.throws(() => session.getMatchState(), /not read yet/);
+  assert.throws(() => session.getSessionState(), /not read yet/);
   assert.equal(session.authorizeAction(), false);
   await session.start();
-  assert.equal(session.getMatchState().state, "waiting");
+  assert.equal(session.getSessionState().state, "waiting");
   assert.equal(session.authorizeAction(), false);
   await session.poll();
   assert.equal(session.authorizeAction(), true);
   fail = true;
   await session.poll();
-  assert.equal(session.getMatchState().state, "running");
+  assert.equal(session.getSessionState().state, "running");
   assert.equal(session.failures, 1);
   fail = false;
   await session.poll();
@@ -87,7 +87,7 @@ test("serverSessionReader builds the session from arena:session and arena:config
   assert.equal(s.runId, "r9");
   assert.equal(s.teamId, "red");
   assert.equal(s.durationMs, undefined, "the model gets no clock");
-  assert.deepEqual(s.objectives, ["a"]);
+  assert.equal(s.objectives, undefined, "objectives stay in briefing.public");
   assert.deepEqual(s.briefing, {
     text: "rules",
     prompt: null,
@@ -213,7 +213,7 @@ test("a session that cannot be read refuses actions once stale and releases held
   await session.poll();
   assert.equal(stale, 1, "reported once per outage");
   // The last state is still served; actions resume with a fresh reading.
-  assert.equal(session.getMatchState().state, "running");
+  assert.equal(session.getSessionState().state, "running");
   fail = false;
   await session.poll();
   assert.equal(session.authorizeAction(), true);

@@ -1,11 +1,11 @@
 import { sampleObservation, watchObservation } from "./index.mjs";
 import {
-  recentBlockOptions,
+  RECENT_BLOCK_DEFAULTS,
   projectRecentBlocks,
   startNearbyScan,
 } from "./nearby-scan.mjs";
 import { createSectionDiff } from "./section-diff.mjs";
-import { observationOptionsFromMatch } from "./match-options.mjs";
+import { observationOptionsFromSession } from "./session-options.mjs";
 import { observerOptions, readObserverConfig } from "./observer-config.mjs";
 
 // The default observer: createDefaultObserver is the sampling and event
@@ -20,7 +20,7 @@ export function createDefaultObserver({
   post = () => ({ accepted: true }),
   onError = () => {},
   options = {},
-  recentBlocks = recentBlockOptions(),
+  recentBlocks = RECENT_BLOCK_DEFAULTS,
   watch = watchObservation,
   sample = sampleObservation,
 }) {
@@ -97,7 +97,8 @@ export async function startObserver({
   inbox,
   cwd = process.cwd(),
   env = process.env,
-  intervalMs = Number(env.ARENA_OBSERVER_INTERVAL_MS) || 1000,
+  // Defaults to observer.json's intervalMs, else 1000.
+  intervalMs,
   now = Date.now,
   // Event thresholds for watchObservation, e.g. { urgentDamageLoss: 2 };
   // they override the "events" object of observer.json.
@@ -109,14 +110,18 @@ export async function startObserver({
     console.error(`observer: ${error?.message ?? String(error)}`),
 }) {
   const config = await readObserverConfig(cwd, env);
+  intervalMs ??=
+    Number.isSafeInteger(config.intervalMs) && config.intervalMs > 0
+      ? config.intervalMs
+      : 1000;
   let match;
   try {
-    match = await bot.getMatchState?.();
+    match = await bot.getSessionState?.();
   } catch (error) {
     onError(error);
   }
   const options = {
-    ...observationOptionsFromMatch(match),
+    ...observationOptionsFromSession(match),
     ...observerOptions(config),
     ...events,
   };
@@ -167,7 +172,7 @@ export async function startObserver({
     post,
     onError,
     options,
-    recentBlocks: { ...recentBlockOptions(env), ...config.recentBlocks },
+    recentBlocks: { ...RECENT_BLOCK_DEFAULTS, ...config.recentBlocks },
     ...(watch ? { watch } : {}),
     ...(sample ? { sample } : {}),
   });

@@ -27,14 +27,14 @@ Every request needs `Authorization: Bearer <token>`. A wrong or missing token ge
 | `GET /v1/events`                            | SSE stream of snapshots and bot events               | starts with a `reset` frame holding a full snapshot                                                           |
 | `GET /v1/chat`                              | SSE stream of chat-box text only                     | no snapshots, no action-bar text                                                                              |
 | `GET /v1/chunk?x=&z=`                       | one currently loaded chunk column as Prismarine JSON | `result:null` if not loaded; never asks the server to load it; ≤ 8 MiB; uses the same rate limiter as actions |
-| `GET /v1/session`                           | read-only session state from the session host        | `404` if no `getMatchState` was given, `503` if it throws                                                     |
+| `GET /v1/session`                           | read-only session state (open session or the server) | `404` if no `getSessionState` was given, `503` if it throws                                                   |
 | `GET /v1/memory/block`, `/chunk`, `/chunks` | block memory queries                                 | not rate-limited; `503` when memory is disabled                                                               |
 
 Any other route returns `404`. Large integers travel as `{"$arenaBigInt":"<digits>"}` in both directions.
 
 ## Policy and limits
 
-`createBridgeServer` / `startBridge` options set by the trusted host:
+`createBridgeServer` / `startBridge` options set by the operator:
 
 | Option                              | Default         | Effect                                                                                                                                                   |
 | ----------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -44,7 +44,7 @@ Any other route returns `404`. Large integers travel as `{"$arenaBigInt":"<digit
 | `maxActionsPerSecond`               | `Infinity`      | token bucket shared by `/v1/action` and `/v1/chunk`; excess gets `429`                                                                                   |
 | `maxConcurrentActions`              | `Infinity`      | actions in flight at once; excess actions, and chunk requests while it is full, get `429`                                                                |
 | `authorizeAction(request)`          | none            | awaited before each action; anything but `true` gives `403` and nothing runs                                                                             |
-| `getMatchState()`                   | none            | backs `GET /v1/session`                                                                                                                                  |
+| `getSessionState()`                 | none            | backs `GET /v1/session`                                                                                                                                  |
 | `snapshotRadius`                    | `8`             | horizontal radius of the `blocks` sample                                                                                                                 |
 | `statusToken`                       | none            | a second, distinct token (16+ characters) accepted only for `GET /v1/session`; give it to an outside reader (say, your own metering) instead of `token`  |
 | `controlReleaseMs`                  | `1000`          | a client (SDK `x-arena-client` header) whose event streams all closed has the movement controls it pressed released after this long; `Infinity` disables |
@@ -166,7 +166,7 @@ Lifecycle and configuration:
 | `createBlockMemory(bot, options, serializeBlock)`         | replacement adapter returning `{query(url), close(), ready?}`                                                                                                                  |
 | `BRIDGE_BLOCK_MEMORY=false`                               | the standalone CLI's way to disable it                                                                                                                                         |
 
-With persistence, use a new `runId` after every map reset, keep the directory on the trusted host out of participant containers, and let only one bridge write a scope. The server waits for `ready` before listening; if initialization fails, startup fails and cleans up. Individually corrupt columns are reported in `error` while the rest load. The adapter uses `mineflayer-world-memory` with `analysis: "lazy"` and fails at startup if the installed version does not support it. Memory grows with explored terrain; there is no block-count cap.
+With persistence, use a new `runId` after every map reset, keep the directory out of participant containers, and let only one bridge write a scope. The server waits for `ready` before listening; if initialization fails, startup fails and cleans up. Individually corrupt columns are reported in `error` while the rest load. The adapter uses `mineflayer-world-memory` with `analysis: "lazy"` and fails at startup if the installed version does not support it. Memory grows with explored terrain; there is no block-count cap.
 
 ## Standalone CLI
 

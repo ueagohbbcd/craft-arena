@@ -11,6 +11,20 @@ import { startObserver } from "../packages/observation/observer.mjs";
 import { runObserver } from "../packages/default-scripts/observer.mjs";
 import { defaultScripts } from "../packages/pi-extension/default-scripts.mjs";
 
+let noScan;
+/** An observer.json that turns off the block scan, which the fakes do not serve. */
+async function noScanConfig() {
+  if (!noScan) {
+    const dir = await mkdtemp(join(tmpdir(), "observer-config-"));
+    noScan = join(dir, "observer.json");
+    await writeFile(
+      noScan,
+      JSON.stringify({ recentBlocks: { enabled: false } }),
+    );
+  }
+  return noScan;
+}
+
 async function until(check, timeout = 3000) {
   const deadline = Date.now() + timeout;
   while (!check()) {
@@ -22,7 +36,7 @@ function fakeBot() {
   const bot = new EventEmitter();
   bot.health = 20;
   bot.closed = false;
-  bot.getMatchState = async () => ({ state: "running" });
+  bot.getSessionState = async () => ({ state: "running" });
   bot.closeBridge = () => {
     bot.closed = true;
   };
@@ -60,7 +74,7 @@ async function observe(t, bot, inbox, overrides = {}) {
     bot,
     inbox: localInboxClient(inbox),
     cwd,
-    env: { ARENA_OBSERVER_RECENT_BLOCKS: "0" },
+    env: { ARENA_OBSERVER_CONFIG: await noScanConfig() },
     intervalMs: 5,
     watch: fakeWatch,
     sample: fakeSample,
@@ -306,7 +320,7 @@ test("observer script retries an unavailable bridge and closes its connection", 
     },
     inbox: localInboxClient(inbox),
     retryMs: 5,
-    env: { ARENA_OBSERVER_RECENT_BLOCKS: "0" },
+    env: { ARENA_OBSERVER_CONFIG: await noScanConfig() },
     watch: fakeWatch,
     sample: fakeSample,
   });
@@ -338,14 +352,17 @@ test("observer.json events and the events option reach the event watcher", async
   t.after(() => rm(cwd, { recursive: true, force: true }));
   await writeFile(
     join(cwd, "observer.json"),
-    JSON.stringify({ events: { urgentDamageLoss: 3, criticalHealth: 8 } }),
+    JSON.stringify({
+      recentBlocks: { enabled: false },
+      events: { urgentDamageLoss: 3, criticalHealth: 8 },
+    }),
   );
   let seen;
   const observer = await startObserver({
     bot: fakeBot(),
     inbox: localInboxClient(new Inbox({ sessionId: "observer-events" })),
     cwd,
-    env: { ARENA_OBSERVER_RECENT_BLOCKS: "0" },
+    env: {},
     events: { urgentDamageLoss: 2 },
     watch: (bot, options) => {
       seen = options;

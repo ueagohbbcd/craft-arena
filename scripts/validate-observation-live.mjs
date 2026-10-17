@@ -613,16 +613,17 @@ async function main() {
   });
   await test("task_manager_cancel_stops_real_plugin_goal", async () => {
     const start = bridge.bot.entity.position.clone();
-    const ipc = await createInboxServer({ inbox, token });
+    const ipc = await createInboxServer({
+      inbox,
+      socketPath: join(tmpdir(), `mc-inbox-${process.pid}`, "validate.sock"),
+    });
     const tasks = new TaskManager({
       inbox,
       cwd: root,
       env: {
         ARENA_BRIDGE_URL: bridge.url,
         ARENA_BRIDGE_TOKEN: token,
-        MC_INBOX_URL: `http://127.0.0.1:${ipc.address.port}`,
-        MC_INBOX_SOCKET: "",
-        MC_INBOX_TOKEN: token,
+        MC_INBOX_SOCKET: ipc.socketPath,
         MC_INBOX_SESSION: inbox.sessionId,
       },
     });

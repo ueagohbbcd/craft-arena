@@ -8,7 +8,7 @@
 | ------------- | ----------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `bridge`      | [`Dockerfile.trusted`](../Dockerfile.trusted)         | `companion`、`minecraft-egress` | 独立游戏桥 `packages/mf-bridge/cli.mjs`，`BRIDGE_SESSION=open`。唯一连接 Minecraft 服务器的服务。启动时读取陪玩提示词 `BRIDGE_PROMPT_FILE`              |
 | `model-relay` | 同上                                                  | `companion`、`model-egress`     | [模型转发](../../packages/model-relay/README.md)：把模型请求转发到 `MODEL_UPSTREAM_URL`，只有它拿到上游 key                                             |
-| `participant` | [`Dockerfile.participant`](../Dockerfile.participant) | `companion`（内部网络）         | Pi 和参赛者程序。`ARENA_WAIT_FOR_MATCH=1` 让开局提示带上会话简报，其中有陪玩提示词；`ARENA_CHAT_WAKE=mention` 让提到 bot 名字的聊天和私聊唤醒空闲的模型 |
+| `participant` | [`Dockerfile.participant`](../Dockerfile.participant) | `companion`（内部网络）         | Pi 和参赛者程序。开局提示带上会话简报，其中有陪玩提示词；`ARENA_CHAT_WAKE=mention` 让提到 bot 名字的聊天和私聊唤醒空闲的模型 |
 
 参赛容器只在内部网络上，访问不到 Minecraft 服务器和外网，只能经游戏桥控制角色、经模型转发调用模型。也可以让参赛容器自己访问模型，见 [infra/README.md](../README.md#参赛容器自己访问模型)。
 

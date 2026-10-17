@@ -9,7 +9,7 @@
 import { pathToFileURL } from "node:url";
 import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { observe } from "../packages/observation/observe.mjs";
-import { observationOptionsFromMatch } from "../packages/observation/match-options.mjs";
+import { observationOptionsFromSession } from "../packages/observation/session-options.mjs";
 import { readObserverOptions } from "../packages/observation/observer-config.mjs";
 export { observe };
 
@@ -37,7 +37,7 @@ async function main() {
   try {
     const session = await bot.getSessionState().catch(() => undefined);
     const result = await observe(bot, {
-      ...observationOptionsFromMatch(session),
+      ...observationOptionsFromSession(session),
       ...(await readObserverOptions(process.cwd())),
       ...options,
     });

@@ -241,19 +241,12 @@ test("failed inbox delivery is retained locally without changing PvP or retrying
 });
 
 test("default adapter delivers task-associated normal summaries through managed Inbox environment", async (t) => {
-  const { createInboxServer } = await import("../packages/inbox/index.mjs");
+  const { socketInbox } = await import("./helpers/inbox-socket.mjs");
   const queue = new Inbox({ sessionId: "default-combat" });
-  const service = await createInboxServer({
-    inbox: queue,
-    port: 0,
-    token: "test-default-inbox-token",
-  });
-  t.after(() => service.close());
+  const { socketPath } = await socketInbox(t, queue);
   const env = {
-    MC_INBOX_SOCKET: undefined,
-    MC_INBOX_URL: `http://127.0.0.1:${service.address.port}`,
+    MC_INBOX_SOCKET: socketPath,
     MC_INBOX_SESSION: queue.sessionId,
-    MC_INBOX_TOKEN: "test-default-inbox-token",
     MC_INBOX_TASK_ID: "owned-task",
   };
   const before = Object.fromEntries(

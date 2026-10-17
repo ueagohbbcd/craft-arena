@@ -31,11 +31,8 @@ async function modelConfig(dir, overrides = {}) {
   return path;
 }
 
-async function harness(t, { idleWake = false, env = {} } = {}) {
+async function harness(t, { env = {} } = {}) {
   const saved = { ...process.env };
-  process.env.MC_INBOX_TRANSPORT = "http";
-  process.env.MC_INBOX_TOKEN = "unit-test-scoped-token";
-  process.env.ARENA_WAKE_ON_URGENT = idleWake ? "1" : "0";
   delete process.env.MC_INBOX_SOCKET;
   const taskDir = await mkdtemp(join(tmpdir(), "pi-extension-tasks-"));
   t.after(() => rm(taskDir, { recursive: true, force: true }));
@@ -72,7 +69,7 @@ async function harness(t, { idleWake = false, env = {} } = {}) {
   const result = await run(
     "bash",
     {
-      command: `${process.execPath} -e 'console.log(JSON.stringify({url:process.env.MC_INBOX_URL,sessionId:process.env.MC_INBOX_SESSION,token:process.env.MC_INBOX_TOKEN}))'`,
+      command: `${process.execPath} -e 'console.log(JSON.stringify({socketPath:process.env.MC_INBOX_SOCKET,sessionId:process.env.MC_INBOX_SESSION}))'`,
       wait_seconds: 5,
     },
     "environment",
@@ -113,8 +110,6 @@ test("Pi per-call wait overrides preserve longer waits and explicit kill deadlin
   const h = await harness(t, { env: { ARENA_TOOL_WAIT_SECONDS: "0.02" } });
   assert.deepEqual([...h.tools.keys()], ["bash"]);
   assert.match(h.tools.get("bash").description, /default 0\.02;/);
-  const connection = await h.handlers.get("before_agent_start")({}, h.ctx);
-  assert.match(connection.message.content, /waits 0\.02 seconds by default/);
   const longer = await h.run(
     "bash",
     { command: "sleep 0.1; printf longer-bash", wait_seconds: 2 },
@@ -241,7 +236,7 @@ test("Pi passive turn boundary persists inbox without requesting continuation", 
 });
 
 test("idle urgent wakes only when configured; busy urgent releases all bash waits", async (t) => {
-  const h = await harness(t, { idleWake: true });
+  const h = await harness(t);
   const pending = [
     h.run("bash", { command: "sleep 0.2; printf later", timeout: 20 }, "a"),
     h.run("bash", { command: "sleep 0.2", timeout: 20 }, "b"),
@@ -294,15 +289,6 @@ test("over the spending limit the next request waits, and the model hears it at 
     false,
     "nothing new to report",
   );
-});
-
-test("idle urgent remains queued by default", async (t) => {
-  const h = await harness(t);
-  h.setIdle(true);
-  await h.client.requestJudgment("deferred until next model boundary");
-  assert.equal(h.sent.length, 0);
-  const boundary = await h.handlers.get("turn_end")({ entries: [] }, h.ctx);
-  assert.match(boundary.entries[0].content, /deferred until/);
 });
 
 test("bootstrap prepares an exact endpoint provider without saving its bearer token", async (t) => {
@@ -507,8 +493,6 @@ test(
           ARENA_MODEL_CONFIG: await modelConfig(dir),
           OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
           OPENAI_API_KEY: "scoped-fixture-token",
-          MC_INBOX_TRANSPORT: "http",
-          MC_INBOX_TOKEN: "bootstrap-loopback-fixture-token",
         },
       },
     );
@@ -578,7 +562,7 @@ test("session state reaches the model once per change, without a clock", async (
       JSON.stringify({
         ok: true,
         result: {
-          matchId: "m",
+          sessionId: "m",
           state: "ended",
           now: 100000,
           winner: "blue",
@@ -631,7 +615,7 @@ test(
     let stdout = "";
     let stderr = "";
     let child;
-    const script = `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(connectionPath)},JSON.stringify({pid:process.pid,url:process.env.MC_INBOX_URL,sessionId:process.env.MC_INBOX_SESSION,token:process.env.MC_INBOX_TOKEN}));setInterval(()=>{},1000);`;
+    const script = `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(connectionPath)},JSON.stringify({pid:process.pid,socketPath:process.env.MC_INBOX_SOCKET,sessionId:process.env.MC_INBOX_SESSION}));setInterval(()=>{},1000);`;
     const command = `${process.execPath} -e '${script.replaceAll("'", "'\\''")}'`;
     const server = http.createServer(async (req, res) => {
       if (req.url === "/v1/chat") {
@@ -712,11 +696,8 @@ test(
       ARENA_DEFAULT_SCRIPTS: "",
       ARENA_IDLE_REMINDER_MS: "30",
       ARENA_TOOL_WAIT_SECONDS: "0.05",
-      MC_INBOX_TRANSPORT: "http",
-      MC_INBOX_TOKEN: "resident-loopback-fixture-token",
     };
-    for (const name of ["ARENA_WAKE_ON_URGENT", "ARENA_EXTRA_EXTENSIONS"])
-      delete env[name];
+    delete env.ARENA_EXTRA_EXTENSIONS;
     child = spawn(
       process.execPath,
       [
@@ -767,7 +748,7 @@ test(
 );
 
 test("urgent at a final boundary continues exactly once; late settled urgent is claimed once", async (t) => {
-  const h = await harness(t, { idleWake: true });
+  const h = await harness(t);
   await h.client.requestJudgment("during final assistant response");
   const result = await h.handlers.get("turn_end")(
     { entries: [], toolResults: [], outcome: "completed" },
@@ -819,12 +800,11 @@ test(
           JSON.stringify({
             ok: true,
             result: {
-              matchId: "fixture-match",
+              sessionId: "fixture-match",
               participantId: "blue-one",
               teamId: "blue",
               teams: [{ id: "blue" }, { id: "red" }],
               map: { id: "public-map", version: "v1" },
-              objectives: ["wool"],
               briefing: {
                 text: "public fixture briefing",
                 prompt: "fixture mode rules",
@@ -876,12 +856,9 @@ test(
           ARENA_BRIDGE_TOKEN: "bridge-fixture-token",
           // A host stub, not a game: no default observer/chat scripts.
           ARENA_DEFAULT_SCRIPTS: "",
-          ARENA_WAIT_FOR_MATCH: "1",
           ARENA_START_TIMEOUT_MS: "10000",
           ARENA_SESSION_DIR: sessionDir,
           ARENA_RULES_DIR: rulesDir,
-          MC_INBOX_TRANSPORT: "http",
-          MC_INBOX_TOKEN: "guard-loopback-fixture-token",
         },
         stdio: ["ignore", "pipe", "pipe"],
       },
@@ -993,7 +970,6 @@ function residentHost(t) {
   );
   return {
     env: {
-      ARENA_CONTINUOUS_SESSION: "1",
       ARENA_BRIDGE_URL: "http://host.invalid",
       ARENA_BRIDGE_TOKEN: "host-fixture-token",
       // A host stub, not a game: no default observer/chat scripts.
@@ -1012,7 +988,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 test("resident waits for a live program then delivers its actual completion exactly once", async (t) => {
   const host = residentHost(t);
-  const h = await harness(t, { idleWake: true, env: host.env });
+  const h = await harness(t, { env: host.env });
   const started = await h.run(
     "bash",
     { command: "sleep 0.25; printf done", wait_seconds: 0 },
@@ -1099,7 +1075,7 @@ test("idle reminder respects queued turns and freshly checks the host", async (t
 });
 
 test("idle inbox events join an already queued turn without scheduling a second request", async (t) => {
-  const h = await harness(t, { idleWake: true });
+  const h = await harness(t);
   h.setIdle(true);
   h.setPending(true);
   await h.client.requestJudgment({ question: "deliver with the queued turn" });

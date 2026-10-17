@@ -20,8 +20,6 @@ import { Vector } from "../packages/bot-sdk/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
 import inboxExtension from "../packages/pi-extension/index.mjs";
 process.env.PI_OFFLINE = "1";
-process.env.MC_INBOX_TRANSPORT = "http";
-process.env.MC_INBOX_TOKEN = "integration-loopback-token-only";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function withTimeout(promise, ms) {
   let timer;
@@ -415,19 +413,14 @@ test(
         break;
       await sleep(20);
     }
-    await sleep(100);
     assert.equal(await readFile(join(h.dir, "child-finished"), "utf8"), "yes");
-    assert.equal(
-      h.requests.length,
-      2,
-      "late completion does not make an unsolicited model call",
-    );
-    await h.session.prompt("Collect results at the next natural boundary.");
-    assert.equal(h.requests.length, 4);
-    // The new prompt is itself a boundary: pending completions are delivered
-    // with it, exactly once.
+    // A finished task needs a decision, so it wakes the idle model.
+    for (let n = 0; n < 100 && h.requests.length < 3; n++) await sleep(20);
+    await sleep(200);
+    assert.ok(h.requests.length >= 3, "a late completion wakes the model");
+    // The newest request carries the whole history: each completion once.
     const late = JSON.stringify(
-      h.requests[3].messages.filter((m) => m.role !== "assistant"),
+      h.requests.at(-1).messages.filter((m) => m.role !== "assistant"),
     );
     assert.equal((late.match(/unique-completion-a/g) || []).length, 1);
     assert.equal((late.match(/unique-completion-b/g) || []).length, 1);
@@ -807,8 +800,6 @@ async function runBootstrapPrint(t, configure) {
     ...process.env,
     HOME: dir,
     ARENA_PROMPT: "Return a short completion for this local fixture.",
-    MC_INBOX_TRANSPORT: "http",
-    MC_INBOX_TOKEN: "fixture-cli-loopback-token",
   };
   // Verify shipped defaults, not inherited local model overrides.
   for (const name of [
@@ -868,7 +859,7 @@ async function runBootstrapPrint(t, configure) {
   );
   assert.match(
     JSON.stringify(received[0].body.messages),
-    /Inbox: programs started through bash/,
+    /Inbox open for session/,
   );
   return { dir, received, stdout };
 }
@@ -991,8 +982,8 @@ test(
     const bridge = await startBridge({
       bot: new EventEmitter(),
       token: matchToken,
-      getMatchState: () => ({
-        matchId: "resident-fixture",
+      getSessionState: () => ({
+        sessionId: "resident-fixture",
         state: matchState,
         now: Date.now(),
         winner: matchState === "ended" ? "blue" : null,
@@ -1071,8 +1062,6 @@ test(
       ARENA_PROMPT: "Start the resident fixture and keep its program alive.",
       ARENA_BRIDGE_URL: bridge.url,
       ARENA_BRIDGE_TOKEN: matchToken,
-      MC_INBOX_TRANSPORT: "http",
-      MC_INBOX_TOKEN: "resident-loopback-fixture-token",
     };
     for (const name of [
       "PI_MAX_TOKENS",
@@ -1080,7 +1069,6 @@ test(
       "ARENA_EXTRA_EXTENSIONS",
       "PI_CODING_AGENT_DIR",
       "PI_CODING_AGENT_SESSION_DIR",
-      "ARENA_WAKE_ON_URGENT",
     ])
       delete env[name];
     child = spawn(
@@ -1180,52 +1168,44 @@ for (const urgent of [false, true])
     `real Pi ${urgent ? "urgent" : "passive"} IPC during final response stream ${urgent ? "continues exactly once" : "does not force continuation"}`,
     { timeout: 15000 },
     async (t) => {
-      const previous = process.env.ARENA_WAKE_ON_URGENT;
-      process.env.ARENA_WAKE_ON_URGENT = "1";
-      let h;
-      try {
-        h = await harness(t, async (_body, n, dir) => {
-          if (n === 1)
-            return [
-              {
-                id: "stream-connection",
-                name: "bash",
-                args: {
-                  command: nodeCommand(
-                    `import{writeFile}from'node:fs/promises';await writeFile(${JSON.stringify(join(dir, "connection.json"))},JSON.stringify({url:process.env.MC_INBOX_URL,sessionId:process.env.MC_INBOX_SESSION,token:process.env.MC_INBOX_TOKEN}));`,
-                  ),
-                },
+      const h = await harness(t, async (_body, n, dir) => {
+        if (n === 1)
+          return [
+            {
+              id: "stream-connection",
+              name: "bash",
+              args: {
+                command: nodeCommand(
+                  `import{writeFile}from'node:fs/promises';await writeFile(${JSON.stringify(join(dir, "connection.json"))},JSON.stringify({socketPath:process.env.MC_INBOX_SOCKET,sessionId:process.env.MC_INBOX_SESSION}));`,
+                ),
               },
-            ];
-          if (n === 2)
-            return {
-              streamText: "final answer is streaming",
-              afterStart: async () => {
-                await sleep(40);
-                assert.equal(
-                  h.session.isStreaming,
-                  true,
-                  "IPC arrives during real streamed final response",
-                );
-                const client = new InboxClient(
-                  JSON.parse(
-                    await readFile(join(dir, "connection.json"), "utf8"),
-                  ),
-                );
-                if (urgent)
-                  await client.requestJudgment({
-                    marker: "during-final-stream-event",
-                  });
-                else await client.post({ marker: "during-final-stream-event" });
-                await sleep(40);
-              },
-            };
-          return "continuation after streamed urgent event";
-        });
-      } finally {
-        if (previous === undefined) delete process.env.ARENA_WAKE_ON_URGENT;
-        else process.env.ARENA_WAKE_ON_URGENT = previous;
-      }
+            },
+          ];
+        if (n === 2)
+          return {
+            streamText: "final answer is streaming",
+            afterStart: async () => {
+              await sleep(40);
+              assert.equal(
+                h.session.isStreaming,
+                true,
+                "IPC arrives during real streamed final response",
+              );
+              const client = new InboxClient(
+                JSON.parse(
+                  await readFile(join(dir, "connection.json"), "utf8"),
+                ),
+              );
+              if (urgent)
+                await client.requestJudgment({
+                  marker: "during-final-stream-event",
+                });
+              else await client.post({ marker: "during-final-stream-event" });
+              await sleep(40);
+            },
+          };
+        return "continuation after streamed urgent event";
+      });
       await h.session.prompt("Exercise the final streaming boundary.");
       await sleep(100);
       assert.equal(h.requests.length, urgent ? 3 : 2);

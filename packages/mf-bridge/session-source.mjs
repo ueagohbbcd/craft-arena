@@ -67,7 +67,7 @@ export function polledSession({
       timer.unref?.();
     },
     poll,
-    getMatchState() {
+    getSessionState() {
       if (!current) throw new Error("Session state not read yet");
       return current;
     },
@@ -158,7 +158,7 @@ export function serverSession({ rcon, intervalMs, staleAfterMs, ...reader }) {
     onStale: () => releaseHeld(service?.bot),
   });
   return {
-    getMatchState: () => polled.getMatchState(),
+    getSessionState: () => polled.getSessionState(),
     authorizeAction: () => polled.authorizeAction(),
     poll: () => polled.poll(),
     async start(started, { createRcon = (o) => new RconClient(o) } = {}) {

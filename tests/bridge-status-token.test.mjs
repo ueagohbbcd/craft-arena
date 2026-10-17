@@ -14,7 +14,7 @@ test("the status token reads the session and nothing else", async (t) => {
     token,
     statusToken,
     snapshotRadius: 1,
-    getMatchState: () => ({ state: "running" }),
+    getSessionState: () => ({ state: "running" }),
   });
   t.after(() => service.close());
   const as = (value, path, init = {}) =>

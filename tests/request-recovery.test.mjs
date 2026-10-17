@@ -33,7 +33,7 @@ function harness() {
     retryDelayMs: 200,
     maxRetryDelayMs: 1600,
     onFatal: (failure) => reports.push(failure),
-    getMatchState: () => (matchRead ? matchRead() : Promise.resolve(match)),
+    getSessionState: () => (matchRead ? matchRead() : Promise.resolve(match)),
     send(command) {
       sent.push(command);
       if (command.type === "get_state")
@@ -476,7 +476,6 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
             OPENAI_API_KEY: "model-fixture",
             ARENA_BRIDGE_URL: base,
             ARENA_BRIDGE_TOKEN: "trusted-host-fixture",
-            ARENA_WAIT_FOR_MATCH: "1",
             ARENA_PROMPT: "Complete the local fixture objective.",
             ARENA_IDLE_REMINDER_MS: "120",
             ARENA_RETRY_DELAY_MS: "200",
@@ -485,8 +484,6 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
               scenario === "queued" ? queuedExtension : "",
             PI_CODING_AGENT_SESSION_DIR: join(dir, "sessions"),
             ARENA_TASK_DIR: join(dir, "tasks"),
-            MC_INBOX_TRANSPORT: "http",
-            MC_INBOX_TOKEN: "resident-inbox-fixture-token",
             MC_INBOX_SOCKET: "",
           },
           stdio: ["ignore", "pipe", "pipe"],
@@ -559,7 +556,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
         requests[index].body.messages.findLast(
           (message) =>
             message.role === "user" &&
-            /The previous response|The previous model request|The trusted host still/.test(
+            /The previous response|The previous model request|The session is still running/.test(
               JSON.stringify(message.content),
             ),
         );
@@ -570,7 +567,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
       assert.match(JSON.stringify(prompt(2)), /previous model request failed/);
       assert.match(
         JSON.stringify(prompt(7)),
-        /trusted host still reports a running session/,
+        /The session is still running, and none of the programs/,
       );
       assert.ok(
         requests[2].at - requests[1].at >= 180,

@@ -1,10 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  Inbox,
-  InboxClient,
-  createInboxServer,
-} from "../packages/inbox/index.mjs";
+import { Inbox, InboxClient } from "../packages/inbox/index.mjs";
+import { socketInbox } from "./helpers/inbox-socket.mjs";
 import { TaskManager } from "../packages/tasks/index.mjs";
 
 test("current facts survive drains, replace by source/key, expire, and never wake or become history", () => {
@@ -68,17 +65,12 @@ test("current storage capacity is independent of queued event/history and legacy
   );
 });
 
-test("program current facts use existing authenticated IPC and carry actual managed task id", async (t) => {
+test("program current facts use the inbox socket and carry actual managed task id", async (t) => {
   const inbox = new Inbox({ sessionId: "s" });
-  const token = "test-current-state-token";
-  const server = await createInboxServer({ inbox, port: 0, token });
-  const url = `http://127.0.0.1:${server.address.port}`;
-  const client = new InboxClient({ url, sessionId: "s", token, taskId: "a" });
+  const { socketPath } = await socketInbox(t, inbox);
+  const client = new InboxClient({ socketPath, sessionId: "s", taskId: "a" });
   const manager = new TaskManager({ inbox });
-  t.after(async () => {
-    await manager.close();
-    await server.close();
-  });
+  t.after(() => manager.close());
   await client.setStatus("progress", { stage: "bridge" });
   assert.equal(inbox.currentSnapshot()[0].taskId, "a");
   assert.equal(inbox.drain().messages.length, 0);
@@ -92,7 +84,7 @@ test("program current facts use existing authenticated IPC and carry actual mana
   const result = await manager.wait(id);
   assert.equal(result.stdout, id);
   await assert.rejects(
-    new InboxClient({ url, sessionId: "bad", token }).setStatus("p", {}),
+    new InboxClient({ socketPath, sessionId: "bad" }).setStatus("p", {}),
     /Session/,
   );
 });

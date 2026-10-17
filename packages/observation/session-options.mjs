@@ -13,7 +13,7 @@ const names = (values) => [
  * objectives. Goal items and watched items come from the server's public
  * session data (`briefing.public.goals` and `briefing.public.watchItems`).
  */
-export function observationOptionsFromMatch(match) {
+export function observationOptionsFromSession(match) {
   if (!match) return {};
   const byUsername = Object.fromEntries(
     (Array.isArray(match.participants) ? match.participants : [])

@@ -218,25 +218,22 @@ test("chunk reads are authenticated observations and never load unknown server c
 test("goal example reports nonzero failure for native empty noPath and only reports actual arrival", async (t) => {
   const { execFile } = await import("node:child_process");
   const { promisify } = await import("node:util");
-  const { Inbox, createInboxServer } =
-    await import("../packages/inbox/index.mjs");
+  const { Inbox } = await import("../packages/inbox/index.mjs");
+  const { socketInbox } = await import("./helpers/inbox-socket.mjs");
   const { b, columns } = fixture();
   columns.clear();
   columns.set("0,0", new Chunk({ minY: -64, worldHeight: 384 }));
   const server = await startBridge({ bot: b, token, snapshotRadius: 0 });
   t.after(() => server.close());
   const inbox = new Inbox({ sessionId: "goal-example-test" });
-  const ipc = await createInboxServer({ inbox, token });
-  t.after(() => ipc.close());
+  const { socketPath } = await socketInbox(t, inbox);
   const env = {
     ...process.env,
     ARENA_BRIDGE_URL: server.url,
     ARENA_BRIDGE_TOKEN: token,
-    MC_INBOX_URL: `http://127.0.0.1:${ipc.address.port}`,
-    MC_INBOX_TOKEN: token,
+    MC_INBOX_SOCKET: socketPath,
     MC_INBOX_SESSION: inbox.sessionId,
   };
-  delete env.MC_INBOX_SOCKET;
   const run = (args) =>
     promisify(execFile)(process.execPath, ["examples/navigate.mjs", ...args], {
       env,

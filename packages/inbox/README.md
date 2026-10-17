@@ -50,17 +50,17 @@ Options for the send calls:
 
 A send resolves to `{accepted: true, id}` once the message is queued. That is not delivery. A call rejects on failure. A timeout does not prove the message was lost, so decide yourself whether to retry.
 
-The constructor reads `MC_INBOX_SOCKET` or `MC_INBOX_URL`, `MC_INBOX_SESSION`, `MC_INBOX_TOKEN` (optional) and `MC_INBOX_TASK_ID` (optional). Every task started through `bash` gets them. You can pass them instead as `{socketPath, url, sessionId, token, taskId}`; `timeoutMs` (default 5000) bounds each HTTP request.
+The constructor reads `MC_INBOX_SOCKET`, `MC_INBOX_SESSION` and `MC_INBOX_TASK_ID` (optional). Every task started through `bash` gets them. You can pass them instead as `{socketPath, sessionId, taskId}`; `timeoutMs` (default 5000) bounds each HTTP request.
 
 ## When messages reach the model
 
 New information reaches the model only at a request boundary: when a tool call returns, when a turn ends, or when a message starts a new turn. [docs/CONTEXT-DELIVERY.md](../../docs/CONTEXT-DELIVERY.md) describes all sources and timings.
 
-| Message                   | When the model sees it                                                                                                                                                                                                             |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Event, replaceable report | Appended to the next top-level tool result, or added at turn end or at the start of the next model run. It does not wake the model                                                                                                 |
-| Urgent message            | Ends every active `bash` wait at once (the result says `urgent inbox message ...`). If the session is idle, it wakes the model. The launcher sets `ARENA_WAKE_ON_URGENT=1`; with any other value, an idle session leaves it queued |
-| Program status            | Read at each top-level tool result and at the start of each model run; a change appears in the runtime report delivered at that moment                                                                                             |
+| Message                   | When the model sees it                                                                                                                 |
+| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
+| Event, replaceable report | Appended to the next top-level tool result, or added at turn end or at the start of the next model run. It does not wake the model     |
+| Urgent message            | Ends every active `bash` wait at once (the result says `urgent inbox message ...`). If the session is idle, it wakes the model.        |
+| Program status            | Read at each top-level tool result and at the start of each model run; a change appears in the runtime report delivered at that moment |
 
 Delivered messages stay in the model's history, so an old report describes the past. Each delivered batch is one JSON object: `{sessionId, messages, dropped, totalDropped}`. Each message carries `source`, `kind`, `key` (if any), `data`, `priority`, `createdAt`, `expiresAt` and `taskId` (if any).
 
@@ -105,7 +105,7 @@ Choose a `ttlMs` longer than the delay, or the report can expire before it is el
 - A value that changes and changes back between two reads may never be seen. Use `post` if every change matters.
 - A finished program's status stays until it expires or is cleared. The runtime report's `tasks` section gives the real process state.
 - Several copies of one program should use distinct keys, for example `` `${process.env.MC_INBOX_TASK_ID}:route` ``.
-- The runtime report shows at most 8 entries, 8 KiB in total and 2 KiB per entry, newest first. When entries or their data are left out, the report has an `omitted` section with the counts and the path of the full file. `runtime.json` in the task directory (`$ARENA_TASK_DIR`) holds every stored value in full. Operators change the limits with `ARENA_RUNTIME_STATUS_LIMIT`, `ARENA_RUNTIME_STATUS_BYTES` and `ARENA_RUNTIME_STATUS_ENTRY_BYTES`.
+- The runtime report shows at most 8 entries, 8 KiB in total and 2 KiB per entry, newest first. When entries or their data are left out, the report has an `omitted` section with the counts and the path of the full file. `runtime.json` in the task directory (`$ARENA_TASK_DIR`) holds every stored value in full.
 
 ## Command line
 
@@ -137,8 +137,6 @@ curl --unix-socket "$MC_INBOX_SOCKET" -H 'Content-Type: application/json' \
 
 `kind` is `event`, `state`, `judgment` or `current`; `state` and `current` need a non-empty string `key`. `priority` is `normal` (default) or `urgent`; `current` must be `normal`. Raw callers choose priority themselves: a `judgment` sent without `priority: "urgent"` is not urgent.
 
-When the operator sets `MC_INBOX_TRANSPORT=http`, the inbox listens on loopback TCP instead (`MC_INBOX_URL`, port from `MC_INBOX_PORT`). Every request then needs `Authorization: Bearer $MC_INBOX_TOKEN`, and the token must be at least 16 characters.
-
 ## Limits
 
 | Limit                      | Value                                                                                                  |
@@ -162,7 +160,7 @@ For developers working on the runtime.
 | File                   | Contents                                                                                                                                                                                                    |
 | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [queue.mjs](queue.mjs) | `Inbox`: the queue, the status store, receipts (`outcome`, `waitForOutcome`, `settled` event) and `drain()`. Also `localInboxClient(inbox)`, the `InboxClient` interface over an in-process queue for tests |
-| [ipc.mjs](ipc.mjs)     | `createInboxServer` (HTTP over a Unix socket, mode 0600 in a private directory, or authenticated loopback TCP) and `InboxClient`                                                                            |
+| [ipc.mjs](ipc.mjs)     | `createInboxServer` (HTTP over a Unix socket, mode 0600 in a private directory) and `InboxClient`                                                                                                           |
 | [cli.mjs](cli.mjs)     | The command line above                                                                                                                                                                                      |
 | [index.mjs](index.mjs) | Re-exports the above                                                                                                                                                                                        |
 
@@ -172,4 +170,4 @@ For developers working on the runtime.
 - The Pi extension ([packages/pi-extension/index.mjs](../pi-extension/index.mjs)) creates one `Inbox` and server per Pi session, passes the `MC_INBOX_*` variables to tasks, posts the runtime report, and drains the queue at top-level tool results, at turn end, before each model run starts, and when it wakes an idle session. Nested tool results (codemode) are skipped so the outer boundary owns delivery.
 - Startup never deletes an existing socket file, because it may belong to a running session. Use a unique path or remove a confirmed stale socket by hand.
 
-Tests: `node --test tests/inbox.test.mjs tests/inbox-current.test.mjs tests/inbox-delay.test.mjs tests/pi-extension.test.mjs`. They use real subprocesses and local HTTP, with no game or model calls. Unix socket tests are skipped where the host refuses socket binding (`EPERM`); loopback HTTP covers the same behaviour.
+Tests: `node --test tests/inbox.test.mjs tests/inbox-current.test.mjs tests/inbox-delay.test.mjs tests/pi-extension.test.mjs`. They use real subprocesses and HTTP over Unix sockets, with no game or model calls.

@@ -65,8 +65,6 @@ services:
       ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.json
       TEAM_GIT_DIR: /team-git
-      ARENA_CONTINUOUS_SESSION: "1"
-      ARENA_WAIT_FOR_MATCH: "1"
       # The bridge listens only after the bot spawns; a Microsoft device login
       # can take longer than the default 10-minute start wait.
       ARENA_START_TIMEOUT_MS: "86400000"

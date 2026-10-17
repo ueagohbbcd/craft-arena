@@ -1,34 +1,11 @@
 /** Task and program-state facts owned by the runtime, projected for the model. */
-const DEFAULT_DISPLAY_LIMITS = Object.freeze({
+const DISPLAY_LIMITS = Object.freeze({
   // Finished tasks shown besides every running task, newest first.
   taskLimit: 3,
   programStatusLimit: 8,
   programStatusBytes: 8192,
   programStatusEntryBytes: 2048,
 });
-
-/** Presentation limits only; retained TaskManager and Inbox data stay unchanged. */
-export function displayLimitOptions(env = process.env) {
-  return Object.fromEntries(
-    Object.entries({
-      taskLimit: "ARENA_RUNTIME_TASK_LIMIT",
-      programStatusLimit: "ARENA_RUNTIME_STATUS_LIMIT",
-      programStatusBytes: "ARENA_RUNTIME_STATUS_BYTES",
-      programStatusEntryBytes: "ARENA_RUNTIME_STATUS_ENTRY_BYTES",
-    }).map(([key, name]) => {
-      const value = Number(env[name]);
-      return [
-        key,
-        env[name] !== undefined &&
-        env[name] !== "" &&
-        Number.isSafeInteger(value) &&
-        value >= 0
-          ? value
-          : DEFAULT_DISPLAY_LIMITS[key],
-      ];
-    }),
-  );
-}
 
 /** Factual process status only. A command is not evidence of its current intent. */
 export function currentTasks(manager, now = Date.now()) {
@@ -60,7 +37,7 @@ export function runtimeState(
     (entry) => entry.source === "program",
   );
   if (fullRuntime) return { tasks: allTasks, programStatus: allProgram };
-  const budget = { ...DEFAULT_DISPLAY_LIMITS, ...projection };
+  const budget = { ...DISPLAY_LIMITS, ...projection };
   for (const [key, value] of Object.entries(budget))
     if (!Number.isSafeInteger(value) || value < 0)
       throw new RangeError(`${key} must be a nonnegative integer`);

@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -15,18 +15,17 @@ import {
 import { AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { Inbox } from "../packages/inbox/index.mjs";
 import { TaskManager } from "../packages/tasks/index.mjs";
-import { observationOptionsFromMatch } from "../packages/observation/match-options.mjs";
+import { observationOptionsFromSession } from "../packages/observation/session-options.mjs";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
 import { encodePNG } from "mineflayer-world-memory/live.mjs";
 import inboxExtension from "../packages/pi-extension/index.mjs";
 import {
   currentTasks,
-  displayLimitOptions,
   runtimeState,
 } from "../packages/pi-extension/runtime-state.mjs";
 
 test("trusted session projection takes teams, own goal items and watched items from public data only", () => {
-  const options = observationOptionsFromMatch({
+  const options = observationOptionsFromSession({
     teamId: "red",
     participants: [
       { username: "red-player", teamId: "red", token: "private-not-copied" },
@@ -59,7 +58,7 @@ test("trusted session projection takes teams, own goal items and watched items f
     JSON.stringify(options),
     /private-not-copied|wool-a|secret-goal/,
   );
-  assert.deepEqual(observationOptionsFromMatch(), {});
+  assert.deepEqual(observationOptionsFromSession(), {});
 });
 
 test("default runtime projection shows every running task and the newest finished ones, bounds program bytes, and offers exact full reads", () => {
@@ -141,15 +140,6 @@ test("default runtime projection shows every running task and the newest finishe
   assert.equal(custom.tasks.length, 26);
   assert.equal(custom.programStatus.length, 1);
   assert(Buffer.byteLength(JSON.stringify(custom.programStatus)) <= 256);
-  assert.equal(
-    displayLimitOptions({ ARENA_RUNTIME_TASK_LIMIT: "3" }).taskLimit,
-    3,
-  );
-  assert.equal(
-    displayLimitOptions({ ARENA_RUNTIME_STATUS_BYTES: "bad" })
-      .programStatusBytes,
-    8192,
-  );
 });
 
 test(
@@ -199,26 +189,28 @@ test(
     bridge.server.on("request", (req) => {
       if (req.url === "/v1/action") actionCalls++;
     });
+    // The default observer and chat listener run as child processes and
+    // read this file. Interval reports join the next natural boundary; a zero
+    // minimum delay makes that delivery observable inside a short test.
+    const observerConfig = join(dir, "observer-test.json");
+    await writeFile(
+      observerConfig,
+      JSON.stringify({
+        intervalMs: 20,
+        recentBlocks: { intervalMs: 20, minReportMs: 0 },
+      }),
+    );
     Object.assign(process.env, {
       PI_OFFLINE: "1",
       ARENA_BRIDGE_URL: bridge.url,
       ARENA_BRIDGE_TOKEN: "perception-integration-token",
-      MC_INBOX_TRANSPORT: "http",
-      MC_INBOX_TOKEN: "perception-integration-token",
-      ARENA_OBSERVER_RECENT_BLOCK_INTERVAL_MS: "20",
-      // Interval reports join the next natural boundary; a zero minimum delay
-      // makes that delivery observable inside a short test.
-      ARENA_OBSERVER_RECENT_BLOCK_MIN_REPORT_MS: "0",
-      // The default observer and chat listener run as child processes.
-      ARENA_OBSERVER_INTERVAL_MS: "20",
+      ARENA_OBSERVER_CONFIG: observerConfig,
     });
     for (const key of [
       "ARENA_DEFAULT_SCRIPTS",
       "MC_INBOX_SOCKET",
       "OPENAI_BASE_URL",
       "OPENAI_API_KEY",
-      "ARENA_CONTINUOUS_SESSION",
-      "ARENA_WAKE_ON_URGENT",
     ])
       delete process.env[key];
     let session;
