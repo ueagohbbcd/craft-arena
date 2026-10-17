@@ -68,7 +68,7 @@ export function compactObservation(snapshot) {
       : list;
   if (state.radar) {
     state.radar = { ...state.radar };
-    for (const name of ["players", "entities", "drops", "alerts"])
+    for (const name of ["players", "named", "entities", "drops", "alerts"])
       if (state.radar[name]) state.radar[name] = roundList(state.radar[name]);
   }
   for (const name of ["players", "entities"]) {
