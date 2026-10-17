@@ -137,6 +137,7 @@ flowchart LR
 - [docs/ROADMAP.md](docs/ROADMAP.md)：待办
 - [docs/CONTEXT-DELIVERY.md](docs/CONTEXT-DELIVERY.md)：信息何时、从哪里送到模型
 - [docs/GAME-MODES.md](docs/GAME-MODES.md)：玩法、会话类型与服务器协议
+- [docs/TARGET-ARCHITECTURE.md](docs/TARGET-ARCHITECTURE.md)：目标架构：通用参赛镜像、地图包与角色位、容器内约定配置路径（尚未实现）
 - [docs/VALIDATION.md](docs/VALIDATION.md)：验证状态与复现
 - [packages/pi-extension/README.md](packages/pi-extension/README.md)：启动器、工具、持续会话
 - [packages/tasks/README.md](packages/tasks/README.md)：任务管理
