@@ -3,6 +3,7 @@ import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
 import { findBlocksInColumns } from "./find-blocks.mjs";
+import { installLocalReads } from "./local-reads.mjs";
 const require = createRequire(import.meta.url);
 const controls = [
   "forward",
@@ -68,6 +69,17 @@ export class Vector {
 }
 const coords = (v) => ({ x: v.x, y: v.y, z: v.z });
 const key = (v) => `${Math.floor(v.x)},${Math.floor(v.y)},${Math.floor(v.z)}`;
+// Native methods of special windows, run on the bridge by windowCall.
+const windowCalls = {
+  furnace: ["takeInput", "takeFuel", "takeOutput", "putInput", "putFuel"],
+  anvil: ["combine", "rename"],
+  enchantmentTable: ["enchant", "takeTargetItem", "putTargetItem", "putLapis"],
+  villager: ["trade"],
+};
+const localWindowItems = {
+  furnace: { inputItem: 0, fuelItem: 1, outputItem: 2 },
+  enchantmentTable: { targetItem: 0 },
+};
 export class BotFacade extends EventEmitter {
   /** url/token default to the container's ARENA_BRIDGE_URL/ARENA_BRIDGE_TOKEN. */
   constructor({
@@ -123,6 +135,7 @@ export class BotFacade extends EventEmitter {
         .slice(this.inventory.inventoryStart, this.inventory.inventoryEnd)
         .filter((x) => !x).length;
     this.world = { getBlock: (p) => this.blockAt(p) };
+    installLocalReads(this);
   }
   async action(action, args = {}) {
     if (this.closed) throw new Error("Bridge closed");
@@ -453,6 +466,12 @@ export class BotFacade extends EventEmitter {
       );
       this._windows.set(key, window);
       window.close = () => this.closeWindow(window);
+      // Special windows: their native methods run on the bridge's window.
+      for (const method of windowCalls[data.kind] ?? [])
+        window[method] = (...args) => this._windowCall(window, method, args);
+      const local = localWindowItems[data.kind] ?? {};
+      for (const [name, slot] of Object.entries(local))
+        window[name] = () => window.slots[slot];
       for (const method of ["withdraw", "deposit"])
         window[method] = async (itemType, metadata, count, nbt) => {
           const result = await this.action(
@@ -483,6 +502,20 @@ export class BotFacade extends EventEmitter {
       return value;
     });
     window.selectedItem = this._item(selectedItem);
+    if (fields.trades)
+      window.trades = fields.trades.map((t) => {
+        const inputItem1 = this._item(t.inputItem1),
+          inputItem2 = this._item(t.inputItem2),
+          outputItem = this._item(t.outputItem);
+        return {
+          ...t,
+          inputItem1,
+          inputItem2,
+          outputItem,
+          inputs: inputItem2 ? [inputItem1, inputItem2] : [inputItem1],
+          outputs: [outputItem],
+        };
+      });
     for (let slot = 0; slot < window.slots.length; slot++) {
       const before = oldSlots[slot] ?? null,
         after = window.slots[slot];
@@ -769,9 +802,14 @@ export class BotFacade extends EventEmitter {
   }
   /** Native completion/error semantics, with authoritative carried slots. */
   async consume() {
+    await this._inventoryAction("consume");
+  }
+  /** Run an action whose result is the inventory state, and apply it. */
+  async _inventoryAction(action, args) {
     const epoch = this.epoch,
       inventoryRef = this.inventory.windowRef;
-    const result = await this.action("consume");
+    const result = await this.action(action, args);
+    // Reconnect/reset can replace the authority while the request is in flight.
     if (
       result?.inventory &&
       this.epoch === epoch &&
@@ -780,6 +818,7 @@ export class BotFacade extends EventEmitter {
       result.inventory.windowRef === inventoryRef
     )
       this._applyInventoryState(result);
+    return result;
   }
   activateItem(offHand = false) {
     this._fire("activateItem", { offHand });
@@ -798,21 +837,73 @@ export class BotFacade extends EventEmitter {
   }
   /** Craft at least count new items, rounded up to complete recipe batches. */
   async craftItem(itemType, count = 1, table = null) {
-    const epoch = this.epoch,
-      inventoryRef = this.inventory.windowRef;
-    const result = await this.action("craft", {
+    await this._inventoryAction("craft", {
       itemType,
       count,
       table: table ? coords(table.position) : null,
     });
-    if (
-      result?.inventory &&
-      this.epoch === epoch &&
-      this.inventory.windowRef === inventoryRef &&
-      result.version === this.version &&
-      result.inventory.windowRef === inventoryRef
-    )
-      this._applyInventoryState(result);
+  }
+  /** Mineflayer's craft: count runs of a recipe from recipesFor/recipesAll. */
+  async craft(recipe, count = 1, table = null) {
+    await this._inventoryAction("craft", {
+      itemType: recipe.result.id,
+      delta: recipe.delta.map(({ id, metadata, count }) => ({
+        id,
+        metadata,
+        count,
+      })),
+      runs: count ?? 1,
+      table: table ? coords(table.position) : null,
+    });
+  }
+  toss(itemType, metadata = null, count = null) {
+    return this.action("toss", { itemType, metadata, count });
+  }
+  updateHeldItem() {
+    this.heldItem = this.inventory.slots[36 + this.quickBarSlot] ?? null;
+    this.entity.heldItem = this.heldItem;
+    this.emit("heldItemChanged", this.heldItem);
+  }
+  _activeRef() {
+    return (this.currentWindow ?? this.inventory).windowRef;
+  }
+  async moveSlotItem(sourceSlot, destSlot) {
+    await this._inventoryAction("moveSlotItem", {
+      windowRef: this._activeRef(),
+      sourceSlot,
+      destSlot,
+    });
+  }
+  async putAway(slot) {
+    await this._inventoryAction("putAway", {
+      windowRef: this._activeRef(),
+      slot,
+    });
+  }
+  async putSelectedItemRange(start, end, window, slot) {
+    await this._inventoryAction("putSelectedItemRange", {
+      windowRef: (window ?? this.currentWindow ?? this.inventory).windowRef,
+      start,
+      end,
+      slot,
+    });
+  }
+  async transfer({ window, ...options }) {
+    await this._inventoryAction("transfer", {
+      ...options,
+      windowRef: (window ?? this.currentWindow ?? this.inventory).windowRef,
+    });
+  }
+  async _windowCall(window, method, args) {
+    const result = await this._inventoryAction("windowCall", {
+      windowRef: window.windowRef,
+      method,
+      // Items travel as their slot in this window.
+      args: args.map((a) =>
+        a && typeof a === "object" && a.slot !== undefined ? a.slot : a,
+      ),
+    });
+    return this._item(result?.value);
   }
   tossStack(item) {
     return this.action("tossStack", {
@@ -820,16 +911,48 @@ export class BotFacade extends EventEmitter {
       windowRef: (this.currentWindow ?? this.inventory).windowRef,
     });
   }
-  async openContainer(target, direction, cursorPos) {
+  openContainer(target, direction, cursorPos) {
+    return this._open("openContainer", {
+      ...(target.id !== undefined
+        ? { entityId: target.id }
+        : { position: coords(target.position) }),
+      direction: direction && coords(direction),
+      cursorPos: cursorPos && coords(cursorPos),
+    });
+  }
+  openBlock(block, direction, cursorPos) {
+    return this.openContainer(block, direction, cursorPos);
+  }
+  openChest(chest, direction, cursorPos) {
+    return this.openContainer(chest, direction, cursorPos);
+  }
+  openDispenser(dispenser) {
+    return this.openContainer(dispenser);
+  }
+  openEntity(entity) {
+    return this.openContainer(entity);
+  }
+  openFurnace(block) {
+    return this._open("openFurnace", { position: coords(block.position) });
+  }
+  openAnvil(block) {
+    return this._open("openAnvil", { position: coords(block.position) });
+  }
+  openEnchantmentTable(block) {
+    return this._open("openEnchantmentTable", {
+      position: coords(block.position),
+    });
+  }
+  openVillager(entity) {
+    return this._open("openVillager", { entityId: entity.id });
+  }
+  trade(villager, index, count) {
+    return villager.trade(index, count);
+  }
+  async _open(action, args) {
     this._pendingOpens++;
     try {
-      const result = await this.action("openContainer", {
-        ...(target.id !== undefined
-          ? { entityId: target.id }
-          : { position: coords(target.position) }),
-        direction: direction && coords(direction),
-        cursorPos: cursorPos && coords(cursorPos),
-      });
+      const result = await this.action(action, args);
       const window = this._window(result);
       if (window) this._setCurrentWindow(window, result.windowRevision);
       return window;
@@ -870,6 +993,65 @@ export class BotFacade extends EventEmitter {
   }
   clickWindow(slot, mouseButton, mode) {
     return this.action("clickWindow", { slot, mouseButton, mode });
+  }
+  activateEntity(entity) {
+    return this.action("activateEntity", { entityId: entity.id });
+  }
+  activateEntityAt(entity, position) {
+    return this.action("activateEntityAt", {
+      entityId: entity.id,
+      position: coords(position),
+    });
+  }
+  useOn(entity) {
+    this._fire("useOn", { entityId: entity.id });
+  }
+  mount(entity) {
+    this._fire("mount", { entityId: entity.id });
+  }
+  dismount() {
+    this._fire("dismount", {});
+  }
+  moveVehicle(left, forward) {
+    this._fire("moveVehicle", { left, forward });
+  }
+  elytraFly() {
+    return this.action("elytraFly");
+  }
+  async fish() {
+    await this._inventoryAction("fish");
+  }
+  async placeEntity(block, face) {
+    return this._entity(
+      await this.action("placeEntity", {
+        position: coords(block.position),
+        face: coords(face),
+      }),
+    );
+  }
+  sleep(bed) {
+    return this.action("sleep", { position: coords(bed.position) });
+  }
+  updateSign(block, text, back = false) {
+    this._fire("updateSign", { position: coords(block.position), text, back });
+  }
+  async writeBook(slot, pages) {
+    await this._inventoryAction("writeBook", { slot, pages });
+  }
+  async signBook(slot, pages, author, title) {
+    await this._inventoryAction("signBook", { slot, pages, author, title });
+  }
+  whisper(username, message) {
+    this._fire("whisper", { username, message });
+  }
+  /** View distance is the host's; other client settings are yours. */
+  setSettings(settings) {
+    this._fire("setSettings", { settings }).then(
+      (result) => {
+        if (result) this.settings = result;
+      },
+      () => {},
+    );
   }
   canDigBlock(block) {
     return (

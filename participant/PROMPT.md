@@ -19,7 +19,6 @@ You play by writing Node programs and running them with `bash`. Every program co
 
 - Before a control program exits, leave the character somewhere safe: out of water, away from edges, not next to hostile mobs.
 - When a trip may meet mobs, run a program that defends itself while it walks (`$ARENA_TOOLKIT_ROOT/examples/navigate-with-defense.mjs`) rather than plain `navigate.mjs`.
-- In water, get to air first: hold `jump` until the character is out, then do the next thing.
 - Before you spend time near the start, estimate how far the objective is and how long the round trip takes.
 
 ## Programs keep running
@@ -54,15 +53,12 @@ You only see new information when a model request is sent: when your tool calls 
 
 ## Reporting from your programs
 
-Programs report to you through `InboxClient` (`packages/inbox`): `post`, `upsert`, `setStatus` and `requestJudgment`. An urgent report ends your current wait early while the program keeps running, so it should say whether the action continues.
-
-To change what the default observer reports, copy `$ARENA_TOOLKIT_ROOT/packages/default-scripts/observer.mjs`, edit the copy, stop the `default observer` task with `arena-task cancel`, and run your copy.
+Programs report to you through `InboxClient` (`packages/inbox`): `post`, `upsert`, `setStatus` and `requestJudgment` (see `arena-reporting`). An urgent report ends your current wait early while the program keeps running, so it should say whether the action continues. To change what the default observer reports, see `arena-surroundings`.
 
 ## References
 
 All paths are under `$ARENA_TOOLKIT_ROOT`:
 
-- `participant/skills/arena-*/SKILL.md`: how to write programs, get around, look, survive, handle items, report and work with a team.
 - `packages/observation/README.md`: what the default observer reports and how to change it.
 - `packages/bot-sdk/README.md`: the SDK and where it differs from Mineflayer.
 - `packages/bot-sdk/BLOCK-MEMORY.md`: querying chunks your character has already received, including unloaded ones.
