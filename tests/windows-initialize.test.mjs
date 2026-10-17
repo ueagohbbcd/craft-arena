@@ -101,7 +101,7 @@ test(
   },
 );
 
-test("Windows Compose applies resource defaults and operator overrides", (t) => {
+test("Windows Compose with provisioned agents applies resource defaults and operator overrides", async (t) => {
   const docker =
     process.env.ARENA_TEST_DOCKER ??
     (process.platform === "win32"
@@ -117,14 +117,38 @@ test("Windows Compose applies resource defaults and operator overrides", (t) => 
   const template = fileURLToPath(
     new URL("../infra/windows-local/compose.yaml", import.meta.url),
   );
+  const { provision } = await import("../packages/arena/src/provision.mjs");
+  const root = await mkdtemp(join(tmpdir(), "arena-provision-compose-"));
+  t.after(() => rm(root, { recursive: true, force: true }));
+  for (const team of ["red", "blue"])
+    await writeFile(
+      join(root, `model.${team}.json`),
+      await readFile(
+        new URL(`../infra/windows-local/model.${team}.json`, import.meta.url),
+      ),
+    );
+  await writeFile(
+    join(root, "match.json"),
+    JSON.stringify({ config: { sessionId: "compose-test" } }),
+  );
+  const out = join(root, "deploy");
+  await provision({
+    mapDir: fileURLToPath(
+      new URL("../infra/maps/race-of-wool", import.meta.url),
+    ),
+    matchPath: join(root, "match.json"),
+    outDir: out,
+  });
   const env = {
     ...process.env,
     ARENA_SOURCE_DIR: fileURLToPath(new URL("..", import.meta.url)),
   };
   for (const key of [
     "MC_RCON_PASSWORD",
-    "RED1_BRIDGE_TOKEN",
-    "BLUE1_BRIDGE_TOKEN",
+    "BRIDGE_TOKEN_ARENA_RED1",
+    "BRIDGE_TOKEN_ARENA_BLUE1",
+    "RED_MODEL_URL",
+    "BLUE_MODEL_URL",
     "RED_MODEL_KEY",
     "BLUE_MODEL_KEY",
   ])
@@ -160,6 +184,8 @@ test("Windows Compose applies resource defaults and operator overrides", (t) => 
         "compose",
         "-f",
         template,
+        "-f",
+        join(out, "compose.agents.yaml"),
         "--profile",
         "agents",
         "config",
@@ -182,8 +208,8 @@ test("Windows Compose applies resource defaults and operator overrides", (t) => 
     ]) {
       const player = services[participant];
       const descriptor = player.environment.ARENA_MODEL_CONFIG;
-      const playerMount = player.volumes.find(
-        (volume) => volume.target === descriptor,
+      const playerMount = player.volumes.find((volume) =>
+        descriptor.startsWith(`${volume.target}/`),
       );
       assert.ok(playerMount?.read_only, participant);
       assert.equal(player.environment.OPENAI_BASE_URL, `http://${relay}:8080`);

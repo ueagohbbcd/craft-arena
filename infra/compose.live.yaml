@@ -124,7 +124,7 @@ services:
     - backend
     - red1
     volumes:
-    - ${ARENA_PROMPT_FILE:-./maps/race-of-wool/PROMPT.md}:/config/PROMPT.md:ro
+    - ${ARENA_PROMPT_FILE:-./maps/race-of-wool/agents.d/20-race-of-wool.md}:/config/PROMPT.md:ro
   bridge-blue1:
     # One participant's game bridge: its own container, reachable only from
     # its team network; reads the session from the server over RCON.
@@ -155,7 +155,7 @@ services:
     - backend
     - blue1
     volumes:
-    - ${ARENA_PROMPT_FILE:-./maps/race-of-wool/PROMPT.md}:/config/PROMPT.md:ro
+    - ${ARENA_PROMPT_FILE:-./maps/race-of-wool/agents.d/20-race-of-wool.md}:/config/PROMPT.md:ro
   # Operator commands for the rules datapack (packages/arena/src/cli.mjs),
   # run on demand: docker compose --profile tools run --rm arena prepare
   # /config/match.json, then start, stop or status. Backend only.

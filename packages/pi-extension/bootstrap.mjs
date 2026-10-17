@@ -26,6 +26,7 @@ import {
   listRuleFiles,
 } from "./session-files.mjs";
 import {
+  applyProvisionFiles,
   profileAcceptsImages,
   readParticipantConfig,
 } from "./participant-config.mjs";
@@ -278,6 +279,7 @@ async function launchPi({
   const ownSessionFilesDir = resident && !env.ARENA_SESSION_DIR;
   let guidanceArgs, sessionFiles, config;
   try {
+    await applyProvisionFiles(env.ARENA_PROVISION_DIR, { workspace: cwd });
     config = await readParticipantConfig(env.ARENA_CONFIG_DIR, {
       env,
       builtinAgentsDir: join(projectRoot, "participant", "agents.d"),

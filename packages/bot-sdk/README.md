@@ -13,7 +13,7 @@ const { connectBot } = await import(
 const bot = await connectBot();
 ```
 
-`connectBot()` reads `ARENA_BRIDGE_URL` and `ARENA_BRIDGE_TOKEN` from the environment. Pass `{ url, token }` to override them. It resolves after the first state has arrived, including every loaded chunk column at full height. If that first connection fails, it rejects.
+`connectBot()` connects to your main bot, from `ARENA_BRIDGE_URL` and `ARENA_BRIDGE_TOKEN`. When you control more than one bot, `connectBot({ username: "arena_red2" })` connects to another one; the list is in `$ARENA_PROVISION_DIR/manifest.json` (`bots`), and `ARENA_BOT` names the main bot. Pass `{ url, token }` to name a bridge directly. It resolves after the first state has arrived, including every loaded chunk column at full height. If that first connection fails, it rejects.
 
 Several programs can connect at the same time. They all control the same character, and nothing gives one program ownership of the controls.
 

@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
 import { findBlocksInColumns } from "./find-blocks.mjs";
@@ -1079,8 +1081,44 @@ export class BotFacade extends EventEmitter {
     this.emit("end", "bridge closed");
   }
 }
+/**
+ * The bridge of one of this participant's bots: the main bot (ARENA_BOT) from
+ * ARENA_BRIDGE_URL/ARENA_BRIDGE_TOKEN, another one from the provisioned
+ * manifest (ARENA_PROVISION_DIR/manifest.json).
+ */
+export function bridgeFor(username, env = process.env) {
+  if (!username || username === env.ARENA_BOT)
+    return { url: env.ARENA_BRIDGE_URL, token: env.ARENA_BRIDGE_TOKEN };
+  let manifest;
+  try {
+    manifest = JSON.parse(
+      readFileSync(
+        join(env.ARENA_PROVISION_DIR ?? "", "manifest.json"),
+        "utf8",
+      ),
+    );
+  } catch (error) {
+    throw new Error(
+      `No bridge for ${username}: this participant has no bot list (${error.message})`,
+    );
+  }
+  const bot = manifest.bots?.find((entry) => entry.name === username);
+  if (!bot)
+    throw new Error(
+      `No bridge for ${username}; this participant's bots: ${(manifest.bots ?? []).map((entry) => entry.name).join(", ")}`,
+    );
+  return { url: bot.url, token: bot.token };
+}
+
+/**
+ * Connect to a bridge. `{ username }` picks one of this participant's bots
+ * (default: the main bot); `{ url, token }` names a bridge directly.
+ */
 export async function connectBot(options = {}) {
-  const bot = new BotFacade(options);
+  const { username, ...rest } = options;
+  const bot = new BotFacade(
+    rest.url ? rest : { ...rest, ...bridgeFor(username) },
+  );
   let resolve, reject;
   const ready = new Promise((r, j) => {
     resolve = r;

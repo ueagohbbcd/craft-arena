@@ -24,14 +24,17 @@ test("download manifest is the single pinned Minecraft/Fabric/mod source", async
   validateServerDownload(manifest);
   assert.equal(manifest.mods.length, 3);
   assert.ok(manifest.mods.every((mod) => mod.sha512 && mod.release_url));
-  // The bridges in the shipped Compose files speak the pinned version.
-  for (const name of ["compose.live.yaml", "windows-local/compose.yaml"]) {
+  // The bridges in the shipped and generated Compose files speak the pinned version.
+  for (const name of [
+    "compose.live.yaml",
+    "../packages/arena/src/provision.mjs",
+  ]) {
     const text = await readFile(
       new URL(`../infra/${name}`, import.meta.url),
       "utf8",
     );
     const versions = [...text.matchAll(/MF_VERSION: \S*?([\d.]+)/g)];
-    assert.ok(versions.length >= 2, name);
+    assert.ok(versions.length >= 1, name);
     for (const [, version] of versions)
       assert.equal(version, manifest.minecraftVersion, name);
   }

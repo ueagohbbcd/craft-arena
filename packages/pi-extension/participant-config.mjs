@@ -1,5 +1,5 @@
-import { readdir, readFile, stat } from "node:fs/promises";
-import { extname, join } from "node:path";
+import { cp, mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { dirname, extname, join } from "node:path";
 import { defaultScripts } from "./default-scripts.mjs";
 
 const imageTypes = {
@@ -128,4 +128,36 @@ export function profileAcceptsImages(profile) {
   const models = profile.models?.providers?.arena?.models ?? [];
   const model = models.find((m) => m.id === profile.modelId);
   return Boolean(model?.input?.includes("image"));
+}
+
+/**
+ * Copy the workspace files the trusted side provisioned (manifest.json in
+ * ARENA_PROVISION_DIR) into the workspace: a target /workspace/<path> lands at
+ * <workspace>/<path>. Mode "once" keeps a file that already exists there.
+ * Returns the targets written.
+ */
+export async function applyProvisionFiles(directory, { workspace }) {
+  if (!directory) return [];
+  const text = await readOptional(join(directory, "manifest.json"));
+  if (text === undefined) return [];
+  const manifest = JSON.parse(text);
+  const written = [];
+  for (const file of manifest.files ?? []) {
+    const path = String(file.target);
+    if (!path.startsWith("/workspace/") || path.split("/").includes(".."))
+      throw new Error(`manifest.json: target ${path} is outside /workspace`);
+    const target = join(workspace, path.slice("/workspace/".length));
+    if (file.mode === "once") {
+      try {
+        await stat(target);
+        continue;
+      } catch (error) {
+        if (!missing(error)) throw error;
+      }
+    }
+    await mkdir(dirname(target), { recursive: true });
+    await cp(join(directory, file.source), target, { recursive: true });
+    written.push(target);
+  }
+  return written;
 }

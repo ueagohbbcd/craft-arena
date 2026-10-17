@@ -1,6 +1,6 @@
 # 目标架构
 
-2026-10-17 定下的方向，尚未实现，实施步骤和进度见 [ROADMAP.md](ROADMAP.md#目标架构10-17-定下的方向)。现状的设计见 [GAME-MODES.md](GAME-MODES.md) 和 [CONTEXT-DELIVERY.md](CONTEXT-DELIVERY.md)。
+2026-10-17 定下的方向，大部分已实现，各项进度见 [ROADMAP.md](ROADMAP.md#目标架构10-17-定下的方向)。现状的设计见 [GAME-MODES.md](GAME-MODES.md) 和 [CONTEXT-DELIVERY.md](CONTEXT-DELIVERY.md)。
 
 多 bot 已定的方向如下。一个参赛者可以控制几个 bot：主 bot 默认开观察；副 bot 默认不开，由模型自己接上；副 bot 在第一次被连接时才登录。
 

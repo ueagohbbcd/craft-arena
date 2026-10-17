@@ -9,6 +9,7 @@ Readers: developers and operators.
 | `src/cli.mjs`             | the operator command line, below                                                                                                                            |
 | `src/server-protocol.mjs` | `validateServerConfig`, `writeServerConfig` (`arena:config`), `runPhase` (`#arena:*`), `readSession` / `readConfig`, `runCommands`; shared with the bridges |
 | `src/rcon.mjs`            | `RconClient`: TCP RCON client                                                                                                                               |
+| `src/provision.mjs`       | `provision`: map package + match file → Compose services, per-agent config and teams, see [Provision](#provision)                                           |
 | `src/snbt.mjs`            | SNBT reader/writer and `data get storage` reply parser                                                                                                      |
 
 ## Command line
@@ -20,6 +21,7 @@ node packages/arena/src/cli.mjs stop [MATCH.json]    # #arena:stop, run stop com
 node packages/arena/src/cli.mjs status               # arena:session as JSON
 node packages/arena/src/cli.mjs command say Five minutes left
 node packages/arena/src/cli.mjs check MATCH.json     # validate only; no server needed
+node packages/arena/src/cli.mjs provision MAP_DIR MATCH.json OUT_DIR  # see Provision; no server needed
 ```
 
 It connects to `MC_RCON_HOST` (default `127.0.0.1`) and `MC_RCON_PORT` (default `25575`) with `MC_RCON_PASSWORD`, prints one line of JSON and exits 1 on any failure. Both Compose deployments have an `arena` service under the `tools` profile that runs it on the backend network: `docker compose --profile tools run --rm arena status`.
@@ -61,6 +63,50 @@ It connects to `MC_RCON_HOST` (default `127.0.0.1`) and `MC_RCON_PORT` (default 
 Each command is a string or `{command, expect}`; with `expect` (a regular expression) a reply that does not match fails the command and stops the run. `prepare` and `start` commands run before their function tag, `stop` commands after it. Opening teleports belong to the rules datapack, not to these commands (race-of-wool: `starts` in its `map.mcfunction`); the Direct Fire match file sets no spawnpoint, so deaths follow the map's own respawn.
 
 Starting points: [infra/match.live.template.json](../../infra/match.live.template.json) and [infra/windows-local/match.direct-fire.json](../../infra/windows-local/match.direct-fire.json).
+
+## Provision
+
+`provision MAP_DIR MATCH.json OUT_DIR` ([src/provision.mjs](src/provision.mjs)) compiles a map package and a match file into what one deployment runs. It needs no server. The Windows initializer runs it; see [docs/TARGET-ARCHITECTURE.md](../../docs/TARGET-ARCHITECTURE.md) for the design.
+
+A map package is a directory with `map.json`:
+
+```json
+{
+  "defaults": {
+    "files": [
+      {
+        "source": "agents.d/20-race-of-wool.md",
+        "target": "/arena/config/agents.d/20-race-of-wool.md"
+      }
+    ]
+  },
+  "agents": {
+    "red1": { "team": "red", "bots": ["arena_red1"] },
+    "blue1": { "team": "blue", "bots": ["arena_blue1"] }
+  }
+}
+```
+
+| Key           | Meaning                                                                                                                                                                                                                                                                                                                                                                   |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agents.<id>` | One participant container. The id is `[a-z0-9][a-z0-9_-]{0,31}`.                                                                                                                                                                                                                                                                                                          |
+| `team`        | Optional. Agents with a team make up `config.teams`; without teams the session has none (open mode).                                                                                                                                                                                                                                                                      |
+| `bots`        | Player names this agent controls, the main bot first. Each gets its own game bridge. A bot belongs to one agent.                                                                                                                                                                                                                                                          |
+| `files`       | `{source, target, mode}`. `source` is relative to the map directory. `target` is under `/arena/config/` (read-only in the container; the files the launcher and extension read, see the [Pi extension README](../pi-extension/README.md#config-directory)) or `/workspace/` (copied by the launcher before Pi starts; `mode: "once"` keeps a file that is already there). |
+| `defaults`    | `team`, `bots` and `files` for every agent. An agent's own value replaces the default; lists are not merged.                                                                                                                                                                                                                                                              |
+
+The match file is the usual one. `config.teams` can be left out (provision fills it in) or must equal what the map implies. An optional `agents` object binds agents to model relays: `{"red1": {"relay": "red", "model": "model.red.json"}}`. The relay defaults to the agent's team, else its id; the model descriptor defaults to `model.<relay>.json` next to the match file.
+
+`OUT_DIR` may exist, but none of the outputs may:
+
+| Output                | Contents                                                                                                                                                                                     |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `match.json`          | the match file with `config.teams`, without `agents`                                                                                                                                         |
+| `compose.agents.yaml` | `bridge-<bot>` (underscores become dashes) per bot, `model-<relay>` per relay (`<RELAY>_MODEL_URL`, `<RELAY>_MODEL_KEY`), `participant-<id>` per agent, one internal network per agent       |
+| `agents.env`          | `BRIDGE_TOKEN_<BOT>=<random>` per bot, for the deployment's `.env`                                                                                                                           |
+| `agents/<id>/`        | mounted read-only at `/arena/provision`: `manifest.json` (agent, team, bots with bridge URL and token, workspace files), `model.json`, `files/`; its `config/` is mounted at `/arena/config` |
+
+The participant gets `ARENA_BOT` (its main bot) and `ARENA_PROVISION_DIR`. `connectBot({ username })` finds another bot's bridge in the manifest.
 
 ## RCON
 

@@ -13,7 +13,8 @@ $docker = (Get-Command docker -ErrorAction SilentlyContinue).Source
 if (-not $docker) { $docker = "$env:ProgramFiles/Docker/Docker/resources/bin/docker.exe" }
 if (-not (Test-Path -LiteralPath $docker)) { throw 'Install and start Docker Desktop first.' }
 $env:PATH = (Split-Path $docker -Parent) + ';' + $env:PATH
-$compose = @('compose','--env-file',"$deployment/.env",'-f',"$deployment/compose.yaml",'--profile','agents')
+if (-not (Test-Path -LiteralPath "$deployment/compose.agents.yaml")) { throw 'compose.agents.yaml is missing: initialize the deployment again (cli.mjs provision generates it).' }
+$compose = @('compose','--env-file',"$deployment/.env",'-f',"$deployment/compose.yaml",'-f',"$deployment/compose.agents.yaml",'--profile','agents')
 function Invoke-Compose {
   param([Parameter(ValueFromRemainingArguments)][string[]]$CommandArgs)
   & $docker @compose @CommandArgs
@@ -50,7 +51,11 @@ switch ($Action) {
     $session = try { Invoke-Arena 'status' } catch { $null }
     if ($session) { $session | ConvertTo-Json -Depth 10 }
   }
-  'build' { Invoke-Compose @('build','minecraft','bridge-red1','participant-red1') }
+  'build' {
+    # The first bridge and participant carry the image builds.
+    $services = @(& $docker @compose config --services)
+    Invoke-Compose @('build','minecraft',@($services | Where-Object { $_ -like 'bridge-*' })[0],(Get-ParticipantServices)[0])
+  }
   'logs' { Invoke-Compose @('logs','--tail','80') }
   'up' {
     Invoke-Compose @('up','-d','minecraft')
