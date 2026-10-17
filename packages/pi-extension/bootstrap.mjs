@@ -25,6 +25,10 @@ import {
   createSessionFiles,
   listRuleFiles,
 } from "./session-files.mjs";
+import {
+  profileAcceptsImages,
+  readParticipantConfig,
+} from "./participant-config.mjs";
 
 const extensionPath = fileURLToPath(new URL("./index.mjs", import.meta.url));
 const projectRoot = resolve(dirname(extensionPath), "../..");
@@ -268,8 +272,12 @@ async function launchPi({
     env.PI_CODING_AGENT_SESSION_DIR || join(cwd, ".pi", "sessions");
   // Copies of the trusted briefing for the model to re-read after compaction.
   const ownSessionFilesDir = resident && !env.ARENA_SESSION_DIR;
-  let guidanceArgs, sessionFiles;
+  let guidanceArgs, sessionFiles, config;
   try {
+    config = await readParticipantConfig(env.ARENA_CONFIG_DIR, {
+      env,
+      builtinAgentsDir: join(projectRoot, "participant", "agents.d"),
+    });
     guidanceArgs = await arenaGuidanceArgs({
       cwd,
       agentDir: profile.agentDir,
@@ -290,6 +298,7 @@ async function launchPi({
     throw error;
   }
   const initialPrompt =
+    config.firstMessage ||
     env.ARENA_PROMPT ||
     "Play the Minecraft session by writing Node programs and running them with bash, as your system prompt describes. Reports from your programs and the default scripts reach you as inbox reports. Follow the session briefing if there is one, and keep going until its goal is complete or the session ends.";
   const cliArgs = [
@@ -298,8 +307,13 @@ async function launchPi({
       : []),
     ...(args.includes("--mode") ? [] : ["--mode", resident ? "rpc" : "json"]),
     ...guidanceArgs,
+    ...config.systemPromptFiles.flatMap((path) => [
+      "--append-system-prompt",
+      path,
+    ]),
     "--skill",
     join(projectRoot, "participant/skills"),
+    ...(config.skillsDir ? ["--skill", config.skillsDir] : []),
     ...profile.extensions.flatMap((path) => ["-e", path]),
     ...args,
   ];
@@ -310,7 +324,17 @@ async function launchPi({
     ...(profile.generated ? { PI_CODING_AGENT_DIR: profile.agentDir } : {}),
     PI_CODING_AGENT_SESSION_DIR: sessionDir,
     ...(sessionFiles ? { ARENA_SESSION_DIR: sessionFiles.directory } : {}),
+    ...(config.defaultScripts !== undefined
+      ? { ARENA_DEFAULT_SCRIPTS: config.defaultScripts }
+      : {}),
   };
+  let images = config.images;
+  if (images.length && !profileAcceptsImages(profile)) {
+    process.stderr.write(
+      `Config images: the model does not declare image input; ${images.length} image(s) not sent\n`,
+    );
+    images = [];
+  }
   const child = spawn(
     process.execPath,
     [join(packageRoot, "dist/bundle/cli.js"), ...cliArgs],
@@ -418,7 +442,12 @@ async function launchPi({
         ruleFiles,
       });
       child.stdin.write(
-        `${JSON.stringify({ id: "arena-initial-prompt", type: "prompt", message })}\n`,
+        `${JSON.stringify({
+          id: "arena-initial-prompt",
+          type: "prompt",
+          message,
+          ...(images.length ? { images } : {}),
+        })}\n`,
       );
     };
     if (!waitForMatch) {

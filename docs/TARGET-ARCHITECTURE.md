@@ -55,14 +55,14 @@ Minecraft 服务端 + 数据包 ──RCON 读 arena:session──→ 桥（每 
   - `files: [{ source, target, mode }]`：通用的"往容器写文件"。`target` 限定在允许的根目录下（`/workspace`、`/arena/session`、`/arena/config`）；`mode` 为 `once` 或 `replace`。
 - 其余的行为，都是往容器组件约定的配置路径写文件。组件自己读，文件不存在就用组件的默认值：
 
-  | 路径                                   | 谁读                                       | 内容                                                                                |
-  | -------------------------------------- | ------------------------------------------ | ----------------------------------------------------------------------------------- |
-  | `/arena/config/default-scripts.json`   | 扩展                                       | 按 bot 名列出默认脚本，例如 `{"arena_red1": ["observer","chat"], "arena_red2": []}` |
-  | `/arena/config/first-message.md`       | 启动器                                     | 第一条消息，原样发出，不用模板                                                      |
-  | `/arena/config/images/`                | 启动器                                     | 随第一条消息发出的图片                                                              |
-  | `/arena/config/agents.d/*.md`          | 启动器                                     | 按文件名排序拼进 `AGENTS.md`；竞技场自己的那一节也是其中一个文件                    |
-  | `observer.json`（工作目录）            | observer                                   | 已有的观察设置                                                                      |
-  | `/arena/config/skills/<名字>/SKILL.md` | 启动器（作为额外的 `--skill` 目录交给 Pi） | 地图或角色专属的 skill，和镜像里自带的 `participant/skills` 并列                    |
+  | 路径                                   | 谁读                                       | 内容                                                                                                             |
+  | -------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+  | `/arena/config/default-scripts.json`   | 扩展                                       | 按 bot 名列出默认脚本，例如 `{"arena_red1": ["observer","chat"], "arena_red2": []}`                              |
+  | `/arena/config/first-message.md`       | 启动器                                     | 第一条消息，原样发出，不用模板                                                                                   |
+  | `/arena/config/images/`                | 启动器                                     | 随第一条消息发出的图片                                                                                           |
+  | `/arena/config/agents.d/*.md`          | 启动器                                     | 按文件名排序，逐个用 `--append-system-prompt` 加进系统提示；镜像自带 `participant/agents.d/`，同名文件以配置为准 |
+  | `observer.json`（工作目录）            | observer                                   | 已有的观察设置                                                                                                   |
+  | `/arena/config/skills/<名字>/SKILL.md` | 启动器（作为额外的 `--skill` 目录交给 Pi） | 地图或角色专属的 skill，和镜像里自带的 `participant/skills` 并列                                                 |
 
   启动器和扩展不认识地图的任何字段。这张表就是地图作者要对齐的接口，命令行按表检查格式。
 
@@ -98,7 +98,7 @@ Minecraft 服务端 + 数据包 ──RCON 读 arena:session──→ 桥（每 
 - 只读挂载 `/arena/provision`（本角色位的清单），以及现有的 `/arena/rules`。
 - **启动器**，在拉起 Pi 之前：
   1. 按清单的 `files` 投放文件；
-  2. 把 `/arena/config/agents.d/*.md` 按文件名拼成临时 Pi 配置目录里的 `AGENTS.md`。这一节进系统提示，压缩后仍在；内容只放事实和索引，不放会变的状态。
+  2. 把镜像自带的 `participant/agents.d/*.md` 和 `/arena/config/agents.d/*.md` 按文件名合并（同名以配置为准），逐个用 `--append-system-prompt` 交给 Pi。不写 `AGENTS.md`，运营者自己 Pi 配置里的 `AGENTS.md` 不受影响。这些内容在系统提示里，压缩后仍在；只放事实和索引，不放会变的状态。
 
   然后拉起 Pi，等开赛，发第一条消息：`first-message.md` 原文，加上竞技场附的会话事实（有什么列什么），再加 `images/`。模型配置不含 `image` 时跳过图片，并写警告。
 
@@ -123,7 +123,7 @@ Minecraft 服务端 + 数据包 ──RCON 读 arena:session──→ 桥（每 
 | 地图提示             | 桥挂载单个 `PROMPT.md`，作为开局消息里的 "Mode instructions" | `first-message.md` 和 `agents.d/` 里的文件        |
 | 默认脚本             | 环境变量 `ARENA_DEFAULT_SCRIPTS`，只对一个 bot               | `/arena/config/default-scripts.json`，按 bot 配置 |
 | 往容器写东西         | 没有通用办法                                                 | 清单的 `files`                                    |
-| 常驻信息             | `--append-system-prompt PROMPT.md`                           | `agents.d/*.md` 拼成的 `AGENTS.md`                |
+| 常驻信息             | `--append-system-prompt PROMPT.md`                           | `agents.d/*.md`，逐个追加进系统提示               |
 | SDK 覆盖面           | 手写的允许名单，缺不少事件和字段                             | 通用转发 + 禁止名单                               |
 | 卡住检测             | 只有 `navigate.mjs` 自带                                     | 库函数 + 等待提前返回 + 全局宽松检测              |
 

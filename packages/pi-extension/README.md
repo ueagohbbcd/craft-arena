@@ -121,10 +121,23 @@ Launcher (read by [bootstrap.mjs](bootstrap.mjs)):
 | `ARENA_PROMPT`                           | built-in text         | Opening prompt text.                                                                                                                                          |
 | `ARENA_SESSION_DIR`                      | a temporary directory | Where the launcher writes the session files (continuous session only). The participant image sets `/arena/session`. A temporary directory is removed on exit. |
 | `ARENA_RULES_DIR`                        | unset                 | Read-only directory of rule files listed in the opening prompt. The participant image sets `/arena/rules`; a missing directory lists nothing.                 |
+| `ARENA_CONFIG_DIR`                       | unset                 | Participant config directory, see [Config directory](#config-directory). The participant image sets `/arena/config`; a missing directory means the defaults.  |
 | `ARENA_EXTRA_EXTENSIONS`                 | empty                 | Comma-separated extra Pi extension paths.                                                                                                                     |
 | `ARENA_RETRY_DELAY_MS`                   | `2000`                | First request-recovery delay.                                                                                                                                 |
 | `ARENA_RETRY_MAX_DELAY_MS`               | `60000`               | Request-recovery delay ceiling.                                                                                                                               |
 | `PI_CODING_AGENT_SESSION_DIR`            | `<cwd>/.pi/sessions`  | Where Pi keeps session records.                                                                                                                               |
+
+### Config directory
+
+The map or the operator writes these files into `ARENA_CONFIG_DIR`. Every file is optional, and the launcher checks them before Pi starts.
+
+| File                   | Effect                                                                                                                                                                                                                                                                                      |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `first-message.md`     | The opening prompt text, used as is instead of `ARENA_PROMPT`. The session briefing, session files and rule files are still added after it.                                                                                                                                                 |
+| `images/*`             | PNG, JPEG, GIF or WebP files sent with the opening prompt, in file-name order. When the generated model descriptor has no `"image"` in `input`, they are not sent and the launcher writes a warning. Other file types are an error.                                                         |
+| `agents.d/*.md`        | Appended to the system prompt with `--append-system-prompt`, in file-name order, together with the image's own fragments in [participant/agents.d](../../participant/agents.d/). A file with the same name as a built-in one replaces it. These stay in the system prompt after compaction. |
+| `skills/`              | An extra Pi skills directory, next to `participant/skills`.                                                                                                                                                                                                                                 |
+| `default-scripts.json` | Replaces `ARENA_DEFAULT_SCRIPTS`. A list of script names (`["observer","chat"]`), or an object of lists keyed by bot name; the object form reads the entry for `ARENA_BOT` (a bot with no entry gets none). Unknown names are an error.                                                     |
 
 Set by the launcher for Pi: `ARENA_TOOLKIT_ROOT`, `ARENA_SESSION_DIR` (continuous session), `PI_OFFLINE=1`, `PI_CODING_AGENT_DIR`, `PI_CODING_AGENT_SESSION_DIR`.
 
