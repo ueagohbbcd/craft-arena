@@ -181,6 +181,20 @@ test("shipped match files parse", async () => {
     );
 });
 
+test("an expect does not fail on a reply lost to another RCON client", async () => {
+  const s = fakeServer();
+  const list = [{ command: "tp arena_red1 0 64 0", expect: "Teleported" }];
+  for (const lost of [
+    "",
+    "Storage arena:session has the following contents: {}",
+  ]) {
+    s.replies["tp arena_red1 0 64 0"] = lost;
+    await runCommands(s.rcon(), list);
+  }
+  s.replies["tp arena_red1 0 64 0"] = "Unknown or incomplete command";
+  await assert.rejects(runCommands(s.rcon(), list), /Unexpected reply/);
+});
+
 test("runCommands refuses empty commands", async () => {
   await assert.rejects(runCommands(fakeServer().rcon(), [""]), /non-empty/);
 });

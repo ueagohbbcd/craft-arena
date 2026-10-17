@@ -132,8 +132,19 @@ function same(a, b) {
 }
 
 /**
+ * Vanilla RCON shares one output buffer between clients: while bridges read
+ * the session storage, a command's own reply can come back empty or as their
+ * storage text. Such a reply says nothing about the command, so `expect`
+ * does not fail on it.
+ */
+const lostReply = (reply) =>
+  !String(reply ?? "").trim() ||
+  /^Storage [\w.:/-]+ has the following contents:/.test(String(reply));
+
+/**
  * Runs operator commands in order. Each is a string or `{command, expect}`;
- * with `expect` (a regular expression) a reply that does not match throws.
+ * with `expect` (a regular expression) a reply that does not match throws,
+ * unless the reply was lost to another RCON client (see `lostReply`).
  * Returns the replies.
  */
 export async function runCommands(rcon, list = []) {
@@ -144,7 +155,11 @@ export async function runCommands(rcon, list = []) {
     if (typeof command !== "string" || !command)
       throw new Error("Each command must be a non-empty string");
     const reply = await rcon.command(command);
-    if (expect !== undefined && !new RegExp(expect).test(reply))
+    if (
+      expect !== undefined &&
+      !new RegExp(expect).test(reply) &&
+      !lostReply(reply)
+    )
       throw new Error(
         `Unexpected reply to "${command}": ${String(reply).slice(0, 200)}`,
       );

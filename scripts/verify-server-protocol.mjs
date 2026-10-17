@@ -336,11 +336,12 @@ async function live(rcon, dir, map) {
   match.config.sessionId = "verify-live";
   match.config.durationMs = 120000;
   const stand = (goal) => `${goal.x + 0.5} ${goal.y} ${goal.z + 3.5}`;
-  // No `expect`: the bridges poll RCON meanwhile, and vanilla RCON's shared
-  // output buffer can lose a reply. Placing the blocks below checks both.
   match.commands.start = [
-    `tp arena_red1 ${stand(red[1])}`,
-    ...red.map((g) => `give arena_red1 ${g.block} 1`),
+    { command: `tp arena_red1 ${stand(red[1])}`, expect: "Teleported" },
+    ...red.map((g) => ({
+      command: `give arena_red1 ${g.block} 1`,
+      expect: "Gave",
+    })),
   ];
   const matchPath = join(dir, "match.json");
   await writeFile(matchPath, JSON.stringify(match));
