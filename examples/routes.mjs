@@ -12,7 +12,8 @@
  * that place. Each pair is searched walking, opening gates, placing up to
  * `--blocks` (16) blocks and digging; the table lists the others only where
  * they do better than walking. Each search stops after `--timeout` (1000 ms)
- * and the whole table after `--budget` (20 s).
+ * and the whole table after `--budget` (20 s). Routes are searched only
+ * within 16 blocks of the places' bounding box (at most 512 blocks a side).
  *
  * Blocks come from your program's live copy of the world and, for columns
  * not loaded, from block memory, like reach-map.mjs.
@@ -54,6 +55,29 @@ export function parseRoutesArgs(args) {
   return options;
 }
 
+/**
+ * The box the routes are searched in: the places plus 16 blocks each way,
+ * at most 512 blocks on a side so the world read stays bounded.
+ */
+export function searchArea(points, margin = 16, maxSide = 512) {
+  const xs = points.map((p) => Math.floor(p.x)),
+    zs = points.map((p) => Math.floor(p.z));
+  const area = {
+    minX: Math.min(...xs) - margin,
+    maxX: Math.max(...xs) + margin,
+    minZ: Math.min(...zs) - margin,
+    maxZ: Math.max(...zs) + margin,
+  };
+  if (
+    area.maxX - area.minX + 1 > maxSide ||
+    area.maxZ - area.minZ + 1 > maxSide
+  )
+    throw new Error(
+      `the places span more than ${maxSide - 2 * margin} blocks; pick nearer ones with --only`,
+    );
+  return area;
+}
+
 /** The configs to try, with `blocks` for the place config (0 drops it). */
 export function configsFor(blocks) {
   return routeConfigs
@@ -82,14 +106,13 @@ async function main() {
     }
     if (options.from && !points.some((p) => p.name === options.from))
       throw new Error(`no waypoint named ${options.from}`);
-    const xs = points.map((p) => p.x),
-      zs = points.map((p) => p.z);
-    const { blockAt, note } = await worldReader(bot, {
-      minX: Math.min(...xs) - 16,
-      maxX: Math.max(...xs) + 16,
-      minZ: Math.min(...zs) - 16,
-      maxZ: Math.max(...zs) + 16,
-    });
+    const area = searchArea(points);
+    const reader = await worldReader(bot, area);
+    // Searches stay inside the area that was read, live or remembered.
+    const blockAt = (p) =>
+      p.x < area.minX || p.x > area.maxX || p.z < area.minZ || p.z > area.maxZ
+        ? null
+        : reader.blockAt(p);
     const base = {};
     if (options.allowParkour === false) base.allowParkour = false;
     if (options.maxDropDown !== undefined)
@@ -105,7 +128,9 @@ async function main() {
       budgetMs: options.budgetMs,
       base,
     });
-    console.log(`${table.text}\nBlocks: ${note}.`);
+    console.log(
+      `${table.text}\nSearched x ${area.minX}..${area.maxX}, z ${area.minZ}..${area.maxZ} (16 blocks around the places); a route that leaves this area shows as none.\nBlocks: ${reader.note}.`,
+    );
   } finally {
     bot.closeBridge();
   }

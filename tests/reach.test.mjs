@@ -15,7 +15,11 @@ import {
   routeConfigs,
   parseWaypoints,
 } from "../packages/observation/routes.mjs";
-import { parseRoutesArgs, configsFor } from "../examples/routes.mjs";
+import {
+  parseRoutesArgs,
+  configsFor,
+  searchArea,
+} from "../examples/routes.mjs";
 import { parseProfileArgs } from "../examples/profile.mjs";
 
 const require = createRequire(import.meta.url);
@@ -409,6 +413,21 @@ test("routes arguments", () => {
   assert.deepEqual(configsFor(8)[2].settings, { blocks: 8 });
   assert.throws(() => parseRoutesArgs(["--fly"]), /Unknown argument/);
   assert.throws(() => parseRoutesArgs(["--timeout", "0"]), /at least 1 ms/);
+  assert.deepEqual(
+    searchArea([
+      { x: 0.5, z: -3 },
+      { x: 10, z: 4.9 },
+    ]),
+    { minX: -16, maxX: 26, minZ: -19, maxZ: 20 },
+  );
+  assert.throws(
+    () =>
+      searchArea([
+        { x: 0, z: 0 },
+        { x: 600, z: 0 },
+      ]),
+    /--only/,
+  );
   assert.throws(
     () =>
       findRoute({

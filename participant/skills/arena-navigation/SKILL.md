@@ -84,7 +84,7 @@ castle 1F → castle 2F: walk none, closest 13 64 -29 (5 short) | place 9 (4 pla
 ```
 
 - Numbers are blocks of walking. `walk` moves like the reach map (parkour, no digging, no placing, gates closed).
-- `gates`, `place` (up to `--blocks`, 16 by default) and `dig` are listed only when they do better than walking. `none` means no route with those settings in the blocks your character has; `closest` is where the search got nearest.
+- `gates`, `place` (up to `--blocks`, 16 by default) and `dig` are listed only when they do better than walking. `none` means no route with those settings in the blocks your character has, within 16 blocks around the places (the output names the area; places more than 480 blocks apart are refused); `closest` is where the search got nearest.
 - A pair whose two directions differ is printed both ways: a one-way drop or a place you can enter but not leave.
 - Each search stops after `--timeout` ms (1000) and the table after `--budget` seconds (20); `--only a,b,c` limits it to some places.
 
