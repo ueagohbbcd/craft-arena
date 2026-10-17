@@ -154,8 +154,6 @@ test(
               PI_CODING_AGENT_SESSION_DIR: join(dir, "sessions"),
               // Task files would otherwise go under <cwd>/.arena.
               ARENA_TASK_DIR: join(dir, "tasks"),
-              MC_INBOX_TRANSPORT: "http",
-              MC_INBOX_TOKEN: "entry-inbox-fixture-only",
             },
           },
         );
@@ -303,8 +301,6 @@ test(
           OPENAI_API_KEY: "entry-fixture-only",
           ARENA_BRIDGE_URL: bridge.url,
           ARENA_BRIDGE_TOKEN: "entry-observe-fixture-token",
-          MC_INBOX_TRANSPORT: "http",
-          MC_INBOX_TOKEN: "entry-inbox-fixture-only",
           PI_CODING_AGENT_SESSION_DIR: join(dir, "sessions"),
         },
       },

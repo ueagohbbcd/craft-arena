@@ -73,7 +73,7 @@ test("cliOptions without BRIDGE_SESSION has no session route and offline auth", 
   assert.equal(options.minecraft.port, 25565);
   assert.equal(options.minecraft.username, "account@example.com");
   assert.equal("profilesFolder" in options.minecraft, false);
-  assert.equal(options.bridge.getMatchState, undefined);
+  assert.equal(options.bridge.getSessionState, undefined);
   assert.equal(options.session, undefined);
   assert.equal(options.bridge.token, token);
   assert.equal(
@@ -133,13 +133,12 @@ test("BRIDGE_SESSION=open serves a running open session", () => {
     },
   );
   assert.deepEqual(reads, [resolve("/work/prompt.md")]);
-  assert.equal(typeof options.bridge.getMatchState, "function");
-  const first = options.bridge.getMatchState();
+  assert.equal(typeof options.bridge.getSessionState, "function");
+  const first = options.bridge.getSessionState();
   assert.deepEqual(first, {
     kind: "open",
     state: "running",
     sessionId: "solo-1",
-    matchId: "solo-1",
     runId: "solo-1",
     participantId: "account@example.com",
     teamId: null,
@@ -163,7 +162,7 @@ test("BRIDGE_SESSION=open serves a running open session", () => {
     },
   });
   now.advance(1_500);
-  const later = options.bridge.getMatchState();
+  const later = options.bridge.getSessionState();
   assert.equal(later.now, 6_500);
   // The prompt file is read once at start.
   assert.equal(reads.length, 1);
@@ -182,7 +181,7 @@ test("open session defaults: generated id, null briefing and prompt", () => {
       },
     },
   );
-  const state = options.bridge.getMatchState();
+  const state = options.bridge.getSessionState();
   assert.equal(state.sessionId, "open-42");
   assert.deepEqual(state.briefing, { text: null, prompt: null, public: null });
   assert.equal(reads, 0);
@@ -195,7 +194,7 @@ test("session.setUsername updates the reported in-game name", () => {
   );
   assert.equal(typeof options.session.setUsername, "function");
   options.session.setUsername("Steve");
-  const state = options.bridge.getMatchState();
+  const state = options.bridge.getSessionState();
   assert.equal(state.username, "Steve");
   assert.equal(state.participantId, "Steve");
   assert.deepEqual(state.participants, [
@@ -204,7 +203,7 @@ test("session.setUsername updates the reported in-game name", () => {
   // Empty or non-string names are ignored.
   options.session.setUsername("");
   options.session.setUsername(undefined);
-  assert.equal(options.bridge.getMatchState().username, "Steve");
+  assert.equal(options.bridge.getSessionState().username, "Steve");
 });
 
 test("prompt file over MAX_SESSION_PROMPT_BYTES is rejected", () => {
@@ -228,7 +227,7 @@ test("prompt file over MAX_SESSION_PROMPT_BYTES is rejected", () => {
     readPrompt: () => Buffer.alloc(MAX_SESSION_PROMPT_BYTES, 0x61),
   });
   assert.equal(
-    ok.bridge.getMatchState().briefing.prompt.length,
+    ok.bridge.getSessionState().briefing.prompt.length,
     MAX_SESSION_PROMPT_BYTES,
   );
 });
@@ -252,7 +251,7 @@ async function getJson(url) {
 }
 
 test("bridge serves /v1/session and no legacy /v1/match alias", async (t) => {
-  const getMatchState = openSession({
+  const getSessionState = openSession({
     sessionId: "solo",
     username: "test",
     now: () => 30,
@@ -261,7 +260,7 @@ test("bridge serves /v1/session and no legacy /v1/match alias", async (t) => {
     bot: fakeBot(),
     token,
     snapshotRadius: 1,
-    getMatchState,
+    getSessionState,
   });
   t.after(() => service.close());
   const session = await getJson(service.url + "/v1/session");
@@ -270,7 +269,7 @@ test("bridge serves /v1/session and no legacy /v1/match alias", async (t) => {
   assert.equal(match.status, 404);
   assert.deepEqual(JSON.parse(session.text), {
     ok: true,
-    result: getMatchState(),
+    result: getSessionState(),
   });
   const unauth = await fetch(service.url + "/v1/session");
   assert.equal(unauth.status, 401);
@@ -281,7 +280,7 @@ test("bridge session route is GET-only and 503s when state fails", async (t) => 
     bot: fakeBot(),
     token,
     snapshotRadius: 1,
-    getMatchState: () => {
+    getSessionState: () => {
       throw new Error("host down");
     },
   });
@@ -301,7 +300,7 @@ test("bridge session route is GET-only and 503s when state fails", async (t) => 
   assert.notEqual(post.status, 503);
 });
 
-test("bridge 404s the session routes without getMatchState", async (t) => {
+test("bridge 404s the session routes without getSessionState", async (t) => {
   const service = await startBridge({
     bot: fakeBot(),
     token,
@@ -331,7 +330,7 @@ test("getSessionState reads /v1/session", async () => {
   const { impl, calls } = fakeFetch({ "/v1/session": { kind: "open" } });
   const bot = new BotFacade({ url: "http://bridge/", token, fetchImpl: impl });
   assert.deepEqual(await bot.getSessionState(), { kind: "open" });
-  assert.deepEqual(await bot.getMatchState(), { kind: "open" });
+  assert.deepEqual(await bot.getSessionState(), { kind: "open" });
   assert.deepEqual(
     calls.map((c) => c.path),
     ["/v1/session", "/v1/session"],
@@ -361,7 +360,7 @@ test("getSessionState works against a real bridge", async (t) => {
     bot: fakeBot(),
     token,
     snapshotRadius: 1,
-    getMatchState: () => ({ kind: "open", state: "running" }),
+    getSessionState: () => ({ kind: "open", state: "running" }),
   });
   t.after(() => service.close());
   const bot = new BotFacade({ url: service.url, token, loadRegistry: false });

@@ -30,10 +30,10 @@ export function validSession(value) {
 }
 
 /**
- * Authenticated host session snapshot, cached briefly; undefined when
+ * Authenticated bridge session snapshot, cached briefly; undefined when
  * unavailable. Reads the bridge's /v1/session.
  */
-export function createMatchReader({
+export function createSessionReader({
   url,
   token,
   cacheMs = 2000,
@@ -48,7 +48,7 @@ export function createMatchReader({
       headers: { authorization: `Bearer ${token}` },
       signal: AbortSignal.timeout(timeoutMs),
     });
-  return async function readMatch(fresh = false) {
+  return async function readSession(fresh = false) {
     if (!url || !token) return undefined;
     if (reading) return reading;
     if (!fresh && now() - readAt < cacheMs) return snapshot;
@@ -80,7 +80,7 @@ export function createMatchReader({
 export function sessionData(host) {
   return {
     kind: host.kind ?? "match",
-    sessionId: host.sessionId ?? host.matchId,
+    sessionId: host.sessionId,
     state: host.state,
     ...(host.kind === "open" ? {} : { winner: host.winner ?? null }),
   };
@@ -99,7 +99,7 @@ export function sessionData(host) {
  * an idle model.
  */
 export function createPlatformMessages({
-  readMatch,
+  readSession,
   env = process.env,
   sessionDir = env.ARENA_SESSION_DIR,
 }) {
@@ -123,7 +123,7 @@ export function createPlatformMessages({
     notePublic,
     /** Fresh read: has `public.notice` changed since it was last delivered? */
     async noticeChanged() {
-      const host = await readMatch(true);
+      const host = await readSession(true);
       return (
         !!host &&
         publicBaseline !== undefined &&
@@ -131,7 +131,7 @@ export function createPlatformMessages({
       );
     },
     async collect() {
-      const host = await readMatch();
+      const host = await readSession();
       const changes = {};
       if (host) {
         const session = sessionData(host);
@@ -172,8 +172,7 @@ export function createPlatformMessages({
       }
       return {
         wake,
-        // Kept as matchEnded for callers; true when any session has ended.
-        matchEnded: host?.state === "ended",
+        sessionEnded: host?.state === "ended",
         update: Object.keys(changes).length
           ? { type: "arena.platform", ...changes }
           : undefined,
@@ -183,4 +182,4 @@ export function createPlatformMessages({
 }
 
 export const platformMessageText = (update) =>
-  `Arena platform message (trusted session host; not from players or programs):\n${JSON.stringify(update)}`;
+  `Arena platform message (trusted game server; not from players or programs):\n${JSON.stringify(update)}`;

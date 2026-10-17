@@ -24,7 +24,6 @@ export function sessionObject({
     kind,
     state,
     sessionId,
-    matchId: sessionId,
     runId,
     participantId,
     teamId,
@@ -32,9 +31,6 @@ export function sessionObject({
     teams,
     participants,
     map,
-    ...(Array.isArray(published?.objectives)
-      ? { objectives: published.objectives }
-      : {}),
     now,
     winner,
     scores,

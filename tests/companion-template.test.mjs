@@ -79,7 +79,6 @@ test("companion compose runs an open bridge, a model relay and an isolated parti
   const participant = environment(services.participant);
   assert.match(services.participant, /Dockerfile\.participant/);
   assert.equal(participant.ARENA_BRIDGE_URL, "http://bridge:8080");
-  assert.equal(participant.ARENA_CONTINUOUS_SESSION, "1");
   assert.match(participant.ARENA_CHAT_WAKE, /mention/);
   assert.equal(participant.OPENAI_BASE_URL, "http://model-relay:8080");
   assert.equal(

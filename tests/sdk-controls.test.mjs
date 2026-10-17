@@ -7,7 +7,8 @@ import { setTimeout as sleep } from "node:timers/promises";
 import { createAuthority, startBridge } from "../packages/mf-bridge/index.mjs";
 import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
-import { Inbox, createInboxServer } from "../packages/inbox/index.mjs";
+import { Inbox } from "../packages/inbox/index.mjs";
+import { socketInbox } from "./helpers/inbox-socket.mjs";
 import { TaskManager } from "../packages/tasks/index.mjs";
 
 const require = createRequire(import.meta.url);
@@ -308,21 +309,17 @@ for (const [example, eating] of [
         );
       }
       const inbox = new Inbox();
-      const ipc = await createInboxServer({ inbox, token });
+      const { socketPath } = await socketInbox(t, inbox);
       const tasks = new TaskManager({
         inbox,
         env: {
           ARENA_BRIDGE_URL: service.url,
           ARENA_BRIDGE_TOKEN: token,
-          MC_INBOX_URL: `http://127.0.0.1:${ipc.address.port}`,
-          MC_INBOX_TOKEN: token,
+          MC_INBOX_SOCKET: socketPath,
           MC_INBOX_SESSION: inbox.sessionId,
         },
       });
-      t.after(async () => {
-        await tasks.close();
-        await ipc.close();
-      });
+      t.after(() => tasks.close());
       native.emit("login");
       native._client.emit("position", {
         x: 0.5,

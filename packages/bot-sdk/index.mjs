@@ -179,10 +179,6 @@ export class BotFacade extends EventEmitter {
     const body = await res.json();
     return body.result;
   }
-  /** Legacy name of getSessionState. */
-  getMatchState() {
-    return this.getSessionState();
-  }
   _fire(action, args) {
     // Native movement controls apply in call order. Concurrent HTTP requests
     // can arrive out of order, so queue just these short writes per facade.

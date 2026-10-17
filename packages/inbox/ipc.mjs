@@ -1,24 +1,16 @@
 import http from "node:http";
 import { chmod, mkdir, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
-import { timingSafeEqual } from "node:crypto";
 
-/** HTTP over a private Unix socket by default; TCP binds only loopback and needs a token. */
+/** HTTP over a private Unix socket (mode 0600 in a 0700 directory). */
 export async function createInboxServer({
   inbox,
   socketPath,
-  port,
-  host = "127.0.0.1",
-  token,
   maxRequestBytes = 65536,
   maxReceiptWaitMs = 4000,
 }) {
   if (!inbox) throw new Error("inbox required");
-  if (
-    !socketPath &&
-    (!["127.0.0.1", "::1"].includes(host) || !token || token.length < 16)
-  )
-    throw new Error("Loopback HTTP needs a token of at least 16 characters");
+  if (!socketPath) throw new Error("socketPath required");
   const server = http.createServer((req, res) => {
     const reply = (status, body) => {
       if (!res.headersSent) {
@@ -36,14 +28,6 @@ export async function createInboxServer({
       return reply(404, {
         error: "Use POST /messages or GET /messages/{id}/delivery",
       });
-    }
-    if (token) {
-      const got = Buffer.from(req.headers.authorization || "");
-      const want = Buffer.from(`Bearer ${token}`);
-      if (got.length !== want.length || !timingSafeEqual(got, want)) {
-        req.resume();
-        return reply(401, { error: "Unauthorized" });
-      }
     }
     if (receipt) {
       req.resume();
@@ -92,37 +76,32 @@ export async function createInboxServer({
   server.headersTimeout = 5000;
   server.timeout = 5000;
   server.maxConnections = 64;
-  if (socketPath)
-    await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 });
+  await mkdir(dirname(socketPath), { recursive: true, mode: 0o700 });
   // An existing socket is never unlinked: it may belong to a running session.
   await new Promise((resolve, reject) => {
     server.once("error", reject);
-    server.listen(socketPath ?? { port: port ?? 0, host }, () => {
+    server.listen(socketPath, () => {
       server.off("error", reject);
       resolve();
     });
   });
-  if (socketPath) {
-    try {
-      await chmod(socketPath, 0o600);
-    } catch (error) {
-      server.close();
-      throw error;
-    }
+  try {
+    await chmod(socketPath, 0o600);
+  } catch (error) {
+    server.close();
+    throw error;
   }
   return {
     server,
     socketPath,
-    address: server.address(),
     close: async () => {
       server.closeAllConnections();
       await new Promise((resolve, reject) =>
         server.close((e) => (e ? reject(e) : resolve())),
       );
-      if (socketPath)
-        await unlink(socketPath).catch((e) => {
-          if (e.code !== "ENOENT") throw e;
-        });
+      await unlink(socketPath).catch((e) => {
+        if (e.code !== "ENOENT") throw e;
+      });
     },
   };
 }
@@ -130,31 +109,13 @@ export async function createInboxServer({
 export class InboxClient {
   constructor({
     socketPath = process.env.MC_INBOX_SOCKET,
-    url = process.env.MC_INBOX_URL,
     sessionId = process.env.MC_INBOX_SESSION,
-    token = process.env.MC_INBOX_TOKEN,
     taskId = process.env.MC_INBOX_TASK_ID,
     timeoutMs = 5000,
   } = {}) {
-    if (!socketPath && !url)
-      throw new Error("MC_INBOX_SOCKET or MC_INBOX_URL is required");
+    if (!socketPath) throw new Error("MC_INBOX_SOCKET is required");
     if (!sessionId) throw new Error("MC_INBOX_SESSION is required");
-    if (url) {
-      const parsed = new URL(url);
-      if (
-        parsed.protocol !== "http:" ||
-        !["127.0.0.1", "[::1]", "localhost"].includes(parsed.hostname)
-      )
-        throw new Error("Inbox URL must use loopback HTTP");
-    }
-    Object.assign(this, {
-      socketPath,
-      url,
-      sessionId,
-      token,
-      taskId,
-      timeoutMs,
-    });
+    Object.assign(this, { socketPath, sessionId, taskId, timeoutMs });
   }
   post(data, options = {}) {
     return this.send({ ...options, kind: "event", data });
@@ -220,12 +181,10 @@ export class InboxClient {
   }
   request(method, path, body, timeoutMs = this.timeoutMs) {
     return new Promise((resolve, reject) => {
-      const opts = this.socketPath
-        ? { socketPath: this.socketPath, path }
-        : { ...urlOptions(this.url), path };
       const req = http.request(
         {
-          ...opts,
+          socketPath: this.socketPath,
+          path,
           method,
           headers: {
             ...(body === undefined
@@ -234,7 +193,6 @@ export class InboxClient {
                   "content-type": "application/json",
                   "content-length": Buffer.byteLength(body),
                 }),
-            ...(this.token ? { authorization: `Bearer ${this.token}` } : {}),
           },
         },
         (res) => {
@@ -260,8 +218,4 @@ export class InboxClient {
       req.end(body);
     });
   }
-}
-function urlOptions(value) {
-  const u = new URL(value);
-  return { hostname: u.hostname.replace(/^\[|\]$/g, ""), port: u.port || 80 };
 }

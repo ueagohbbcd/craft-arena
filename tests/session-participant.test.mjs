@@ -4,7 +4,7 @@ import http from "node:http";
 import { setTimeout as delay } from "node:timers/promises";
 import {
   validSession,
-  createMatchReader,
+  createSessionReader,
   sessionData,
 } from "../packages/pi-extension/platform-messages.mjs";
 import { openingPromptText } from "../packages/pi-extension/bootstrap.mjs";
@@ -61,7 +61,7 @@ test("validSession requires a state string and finite now", () => {
     assert.equal(validSession(bad), false, JSON.stringify(bad));
 });
 
-test("createMatchReader prefers /v1/session and sends the bearer token", async (t) => {
+test("createSessionReader prefers /v1/session and sends the bearer token", async (t) => {
   const { url, requests } = await serve(t, (req, res) => {
     assert.equal(req.headers.authorization, `Bearer ${token}`);
     if (req.url === "/v1/session")
@@ -76,25 +76,25 @@ test("createMatchReader prefers /v1/session and sends the bearer token", async (
       });
     json(res, 500, { ok: false });
   });
-  const read = createMatchReader({ url: `${url}/`, token, timeoutMs: 2000 });
+  const read = createSessionReader({ url: `${url}/`, token, timeoutMs: 2000 });
   const snapshot = await read();
   assert.equal(snapshot.kind, "open");
   assert.equal(snapshot.sessionId, "s1");
   assert.deepEqual(requests, ["/v1/session"]);
 });
 
-test("createMatchReader does not fall back to a legacy route", async (t) => {
+test("createSessionReader does not fall back to a legacy route", async (t) => {
   const { url, requests } = await serve(t, (req, res) =>
     json(res, 404, { ok: false }),
   );
   assert.equal(
-    await createMatchReader({ url, token, timeoutMs: 2000 })(),
+    await createSessionReader({ url, token, timeoutMs: 2000 })(),
     undefined,
   );
   assert.deepEqual(requests, ["/v1/session"]);
 });
 
-test("createMatchReader returns undefined for invalid bodies and errors", async (t) => {
+test("createSessionReader returns undefined for invalid bodies and errors", async (t) => {
   const bodies = [
     { ok: false, result: { state: "running", now: 1 } },
     { ok: true, result: { state: "running" } },
@@ -116,14 +116,14 @@ test("createMatchReader returns undefined for invalid bodies and errors", async 
     }
     json(res, 200, bodies[index++]);
   });
-  const read = createMatchReader({ url, token, timeoutMs: 2000 });
+  const read = createSessionReader({ url, token, timeoutMs: 2000 });
   for (let i = 0; i < bodies.length; i++)
     assert.equal(await read(true), undefined, `body ${i}`);
   assert.equal(await read(true), undefined, "malformed JSON");
   status = 500;
   assert.equal(await read(true), undefined, "server error");
   assert.equal(
-    await createMatchReader({ url: "", token })(),
+    await createSessionReader({ url: "", token })(),
     undefined,
     "no url",
   );
@@ -141,7 +141,7 @@ test("sessionData carries state and winner, never a clock", () => {
     { kind: "open", sessionId: "s1", state: "running" },
   );
   assert.deepEqual(
-    sessionData({ matchId: "m1", state: "ended", now: 1, winner: "red" }),
+    sessionData({ sessionId: "m1", state: "ended", now: 1, winner: "red" }),
     { kind: "match", sessionId: "m1", state: "ended", winner: "red" },
   );
 });
@@ -162,36 +162,39 @@ test("openingPromptText includes the briefing object sections", () => {
   assert.ok(text.startsWith("Base prompt\n\n"));
   assert.ok(
     text.includes(
-      `Trusted host session briefing (configuration data):\n${JSON.stringify({ kind: "open", sessionId: "s1", username: "Alex" })}`,
+      `Session briefing (configuration data):\n${JSON.stringify({ kind: "open", sessionId: "s1", username: "Alex" })}`,
     ),
   );
   assert.equal(text.includes("not a briefing key"), false);
   assert.ok(
     text.includes(
-      "Session briefing text (from the trusted session host):\nBuild a house.",
+      "Session briefing text (from the trusted game server):\nBuild a house.",
     ),
   );
   assert.ok(
     text.includes(
-      'Public session data (from the trusted session host):\n{"spawn":[0,64,0]}',
+      'Public session data (from the trusted game server):\n{"spawn":[0,64,0]}',
     ),
   );
   assert.ok(
     text.endsWith(
-      "Mode instructions (from the trusted session host; they describe this session's mode and rules):\nCooperate with others.",
+      "Mode instructions (from the trusted game server; they describe this session's mode and rules):\nCooperate with others.",
     ),
   );
 });
 
 test("openingPromptText ignores a non-object briefing and a missing one", () => {
   assert.equal(
-    openingPromptText("Base", { matchId: "m1", briefing: "Capture the flag." }),
-    `Base\n\nTrusted host session briefing (configuration data):\n{"matchId":"m1"}`,
+    openingPromptText("Base", {
+      sessionId: "m1",
+      briefing: "Capture the flag.",
+    }),
+    `Base\n\nSession briefing (configuration data):\n{"sessionId":"m1"}`,
   );
-  const none = openingPromptText("Base", { matchId: "m1" });
+  const none = openingPromptText("Base", { sessionId: "m1" });
   assert.equal(
     none,
-    `Base\n\nTrusted host session briefing (configuration data):\n{"matchId":"m1"}`,
+    `Base\n\nSession briefing (configuration data):\n{"sessionId":"m1"}`,
   );
   assert.equal(openingPromptText("Base", undefined), "Base");
   // A blank prompt adds no mode instructions.
@@ -451,7 +454,7 @@ test("platform messages report public data against the opening baseline and inli
     briefing: { public: { a: 1 } },
   };
   const platform = createPlatformMessages({
-    readMatch: async () => host,
+    readSession: async () => host,
     env: {},
     sessionDir: "/arena/session",
   });

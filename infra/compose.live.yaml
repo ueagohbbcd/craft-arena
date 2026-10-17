@@ -60,7 +60,6 @@ services:
       ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.example.json
       TEAM_GIT_DIR: /team-git
-      ARENA_WAIT_FOR_MATCH: '1'
     networks:
     - red1
     volumes:
@@ -84,7 +83,6 @@ services:
       ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.example.json
       TEAM_GIT_DIR: /team-git
-      ARENA_WAIT_FOR_MATCH: '1'
     networks:
     - blue1
     volumes:

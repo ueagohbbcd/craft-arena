@@ -27,7 +27,7 @@ Load Pathfinder and PvP with `loadSelectedPlugins(bot)` from `plugins.mjs` (see 
 | Read blocks   | `blockAt`, `findBlock`, `findBlocks`, `canDigBlock`, `knownBlockAt`, `knownBlocksIn`, `blockAtCursor`, `canSeeBlock`, `digTime`                                                                   |
 | Local reads   | `findPlayer`, `recipesFor`, `recipesAll`, `isABed`, `getExplosionDamages`, `addChatPattern`, `awaitMessage`, `waitForChunksToLoad`                                                                |
 | Find entities | `nearestEntity(predicate)`                                                                                                                                                                        |
-| Session state | `await getSessionState()`: the public session state, briefing, timing and result (`getMatchState()` is the older name)                                                                            |
+| Session state | `await getSessionState()`: the public session state, briefing and result                                                                            |
 | Navigate      | `bot.pathfinder` with native `Movements` and `goals` (after `loadSelectedPlugins`)                                                                                                                |
 | Fight         | `bot.pvp` (after `loadSelectedPlugins`), `attack(entity, swing?)`, `swingArm`                                                                                                                     |
 | Move and look | `setControlState`, `getControlState`, `clearControlStates`, `stop`, `look`, `lookAt`                                                                                                              |

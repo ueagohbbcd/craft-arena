@@ -17,7 +17,7 @@ import {
   createRequestRecovery,
   observeRpcOutput,
 } from "./request-recovery.mjs";
-import { createMatchReader } from "./platform-messages.mjs";
+import { createSessionReader } from "./platform-messages.mjs";
 import { modelRateOptions } from "./model-rate.mjs";
 import {
   briefingFields,
@@ -60,7 +60,7 @@ export async function arenaGuidanceArgs({ cwd, agentDir, args = [] }) {
 
 /**
  * Opening prompt with the session briefing: public session fields, briefing
- * text, public data and the mode instructions, all from the trusted host.
+ * text, public data and the mode instructions, all from the bridge's session (the game server).
  * `sessionFiles` are the copies in the session directory and `ruleFiles` the
  * operator's rule files; both are listed so the model can re-read them.
  */
@@ -72,13 +72,13 @@ export function openingPromptText(
   let message = initialPrompt;
   if (host) {
     const briefing = briefingOf(host);
-    message += `\n\nTrusted host session briefing (configuration data):\n${JSON.stringify(briefingFields(host))}`;
+    message += `\n\nSession briefing (configuration data):\n${JSON.stringify(briefingFields(host))}`;
     if (typeof briefing.text === "string" && briefing.text)
-      message += `\n\nSession briefing text (from the trusted session host):\n${briefing.text}`;
+      message += `\n\nSession briefing text (from the trusted game server):\n${briefing.text}`;
     if (briefing.public && typeof briefing.public === "object")
-      message += `\n\nPublic session data (from the trusted session host):\n${JSON.stringify(briefing.public)}`;
+      message += `\n\nPublic session data (from the trusted game server):\n${JSON.stringify(briefing.public)}`;
     if (typeof briefing.prompt === "string" && briefing.prompt.trim())
-      message += `\n\nMode instructions (from the trusted session host; they describe this session's mode and rules):\n${briefing.prompt.trim()}`;
+      message += `\n\nMode instructions (from the trusted game server; they describe this session's mode and rules):\n${briefing.prompt.trim()}`;
   }
   if (sessionFiles.length)
     message += `\n\nSession files (copies of this briefing written by the launcher; public.json is rewritten when the host changes public data; read them again when you need the exact text):\n${sessionFiles.join("\n")}`;
@@ -258,14 +258,11 @@ async function launchPi({
   );
   const packageRoot = resolve(dirname(entry), "..");
   const resident = args.length === 0;
-  const waitForMatch = resident && env.ARENA_WAIT_FOR_MATCH === "1";
   const bridgeUrl = env.ARENA_BRIDGE_URL;
   const token = env.ARENA_BRIDGE_TOKEN;
+  // With a bridge, the opening prompt waits until the session is running.
+  const waitForMatch = resident && Boolean(bridgeUrl && token);
   const startTimeoutMs = positiveInteger(env.ARENA_START_TIMEOUT_MS, 600000);
-  if (waitForMatch && (!bridgeUrl || !token))
-    throw new Error(
-      "ARENA_WAIT_FOR_MATCH requires authenticated ARENA_BRIDGE_URL and ARENA_BRIDGE_TOKEN",
-    );
   const profile = await preparePiProfile({ env, cwd });
   const sessionDir =
     env.PI_CODING_AGENT_SESSION_DIR || join(cwd, ".pi", "sessions");
@@ -294,7 +291,7 @@ async function launchPi({
   }
   const initialPrompt =
     env.ARENA_PROMPT ||
-    "Play the Minecraft session by writing Node programs and running them with bash, as your system prompt describes. Reports from your programs and the default scripts reach you as inbox reports. Follow the session briefing if there is one, and keep going until its goal is complete or the host ends the session.";
+    "Play the Minecraft session by writing Node programs and running them with bash, as your system prompt describes. Reports from your programs and the default scripts reach you as inbox reports. Follow the session briefing if there is one, and keep going until its goal is complete or the session ends.";
   const cliArgs = [
     ...(profile.generated
       ? ["--provider", "arena", "--model", profile.modelId]
@@ -313,12 +310,6 @@ async function launchPi({
     ...(profile.generated ? { PI_CODING_AGENT_DIR: profile.agentDir } : {}),
     PI_CODING_AGENT_SESSION_DIR: sessionDir,
     ...(sessionFiles ? { ARENA_SESSION_DIR: sessionFiles.directory } : {}),
-    ...(resident
-      ? {
-          ARENA_WAKE_ON_URGENT: env.ARENA_WAKE_ON_URGENT ?? "1",
-          ARENA_CONTINUOUS_SESSION: "1",
-        }
-      : {}),
   };
   const child = spawn(
     process.execPath,
@@ -361,7 +352,7 @@ async function launchPi({
   if (resident) {
     child.stdin.on("error", () => {}); // Startup failure is reported by the child error/exit event.
     // Shared validated reader of the bridge's /v1/session.
-    const readMatch = createMatchReader({
+    const readSession = createSessionReader({
       url: bridgeUrl,
       token,
       cacheMs: 0,
@@ -374,8 +365,8 @@ async function launchPi({
             throw new Error("Resident RPC input unavailable");
           child.stdin.write(`${JSON.stringify(command)}\n`);
         },
-        async getMatchState() {
-          const host = await readMatch();
+        async getSessionState() {
+          const host = await readSession();
           if (host?.state === "ended") shutdown();
           return host?.state;
         },
@@ -398,7 +389,7 @@ async function launchPi({
       if (initialSent || stopping) return;
       initialSent = true;
       if (host) {
-        const fresh = await readMatch();
+        const fresh = await readSession();
         if (fresh?.state === "ended") {
           shutdown();
           return;
@@ -435,7 +426,7 @@ async function launchPi({
       // open session is already running, so include its briefing when the
       // bridge answers promptly.
       if (bridgeUrl && token)
-        readMatch()
+        readSession()
           .then((host) =>
             sendInitial(
               host?.kind === "open" && host.state === "running"
@@ -461,7 +452,7 @@ async function launchPi({
         }
         checkingMatch = true;
         try {
-          const host = await readMatch();
+          const host = await readSession();
           if (host) {
             if (host.state === "ended") {
               if (!initialSent)

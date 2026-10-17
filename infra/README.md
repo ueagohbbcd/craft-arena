@@ -155,7 +155,7 @@ services:
    C run --rm --no-deps participant-blue1 sh -c 'test -d /team-git/project.git || git init --bare /team-git/project.git'
    ```
 
-6. 启动模型转发和参赛者：`C up -d`。参赛容器设了 `ARENA_WAIT_FOR_MATCH=1`：启动器加载好工具后等待，会话进入 `running` 前不发开局提示。等待上限是 `ARENA_START_TIMEOUT_MS`（默认 600000，即 10 分钟），超时后参赛容器退出；要等更久，在 Compose 文件里给参赛容器设这个变量（Windows 模板设为 86400000）。
+6. 启动模型转发和参赛者：`C up -d`。参赛容器配了游戏桥，启动器加载好工具后就等待，会话进入 `running` 前不发开局提示。等待上限是 `ARENA_START_TIMEOUT_MS`（默认 600000，即 10 分钟），超时后参赛容器退出；要等更久，在 Compose 文件里给参赛容器设这个变量（Windows 模板设为 86400000）。
 7. 开赛：`A start /config/match.json`。执行开赛命令后调 `#arena:start`，游戏桥看到 `running` 才放行游戏动作。
 
 参赛容器在比赛中退出不会结束比赛，由运营者决定是否 `A stop`。

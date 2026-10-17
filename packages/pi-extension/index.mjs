@@ -8,12 +8,12 @@ import { renameSync, writeFileSync } from "node:fs";
 import { Inbox, createInboxServer } from "../inbox/index.mjs";
 import { TaskManager } from "../tasks/index.mjs";
 import {
-  createMatchReader,
+  createSessionReader,
   createPlatformMessages,
   platformMessageText,
 } from "./platform-messages.mjs";
 import { createSectionDiff } from "../observation/section-diff.mjs";
-import { displayLimitOptions, runtimeState } from "./runtime-state.mjs";
+import { runtimeState } from "./runtime-state.mjs";
 import { defaultScripts } from "./default-scripts.mjs";
 import { createModelRate, modelRateOptions, sleep } from "./model-rate.mjs";
 
@@ -101,15 +101,16 @@ export default function arenaExtension(pi) {
   let noticeTimer;
   const noticePollMs = envMs("ARENA_NOTICE_POLL_MS", 2000);
   let lastStopReason;
-  const resident = process.env.ARENA_CONTINUOUS_SESSION === "1";
   const idleDelayMs = envMs("ARENA_IDLE_REMINDER_MS", 5000);
   const bridgeUrl = process.env.ARENA_BRIDGE_URL;
   const bridgeToken = process.env.ARENA_BRIDGE_TOKEN;
-  const displayLimits = displayLimitOptions();
   const observerReadyMs = envMs("ARENA_OBSERVER_READY_MS", 5000);
   const observeAfterCompactionMs = 5000;
-  const readMatch = createMatchReader({ url: bridgeUrl, token: bridgeToken });
-  const platform = createPlatformMessages({ readMatch });
+  const readSession = createSessionReader({
+    url: bridgeUrl,
+    token: bridgeToken,
+  });
+  const platform = createPlatformMessages({ readSession });
   const rateOptions = modelRateOptions();
   const rate = rateOptions && createModelRate(rateOptions);
   /**
@@ -127,10 +128,10 @@ export default function arenaExtension(pi) {
       append = () => "",
     } = {},
   ) {
-    const { matchEnded, update, wake } = await platform.collect();
-    if (matchEnded) r.matchEnded = true;
+    const { sessionEnded, update, wake } = await platform.collect();
+    if (sessionEnded) r.sessionEnded = true;
     if (runtime !== r || r.closed) return false;
-    if (triggerTurn && r.matchEnded) return false;
+    if (triggerTurn && r.sessionEnded) return false;
     const modelRate = rate?.report();
     if (!update && !extra && !modelRate) return false;
     r.platformWake = wake;
@@ -153,7 +154,6 @@ export default function arenaExtension(pi) {
   }
   /** Trusted changes ride the next model request as one Pi message. */
   const sendPlatformUpdate = (r) => deliverPlatform(r);
-  const idleWake = process.env.ARENA_WAKE_ON_URGENT === "1";
   async function close(old) {
     old.closed = true;
     // Closing the task manager also stops the default scripts.
@@ -193,24 +193,8 @@ export default function arenaExtension(pi) {
           `${process.pid}-${digest}.sock`,
         );
       const inbox = new Inbox({ sessionId });
-      const useHttp = process.env.MC_INBOX_TRANSPORT === "http";
-      const server = await createInboxServer({
-        inbox,
-        ...(useHttp
-          ? {
-              port: Number(process.env.MC_INBOX_PORT || 0),
-              token: process.env.MC_INBOX_TOKEN,
-            }
-          : { socketPath }),
-      });
-      const env = {
-        MC_INBOX_SESSION: sessionId,
-        MC_INBOX_SOCKET: useHttp ? "" : socketPath,
-        MC_INBOX_URL: useHttp ? `http://127.0.0.1:${server.address.port}` : "",
-        ...(process.env.MC_INBOX_TOKEN
-          ? { MC_INBOX_TOKEN: process.env.MC_INBOX_TOKEN }
-          : {}),
-      };
+      const server = await createInboxServer({ inbox, socketPath });
+      const env = { MC_INBOX_SESSION: sessionId, MC_INBOX_SOCKET: socketPath };
       // Task output and status live on disk too, for read/tail/grep and
       // arena-task; delivery to the model does not depend on these files, so
       // an unwritable directory only turns them off.
@@ -253,7 +237,7 @@ export default function arenaExtension(pi) {
           ]),
         );
       platform.reset();
-      if (resident && bridgeUrl && bridgeToken && !noticeTimer) {
+      if (bridgeUrl && bridgeToken && !noticeTimer) {
         noticeTimer = setInterval(() => void checkNotice(), noticePollMs);
         noticeTimer.unref?.();
       }
@@ -270,15 +254,13 @@ export default function arenaExtension(pi) {
     }
   }
   const requestsDecision = (message) =>
-    (idleWake && message.priority === "urgent") ||
-    (resident &&
-      message.source === "runtime" &&
-      message.data?.type === "task.completed");
+    message.priority === "urgent" ||
+    (message.source === "runtime" && message.data?.type === "task.completed");
   function wakeIdle(r) {
     if (
       !r ||
       r.closed ||
-      r.matchEnded ||
+      r.sessionEnded ||
       idleWakeScheduled ||
       context?.hasPendingMessages?.() ||
       !r.inbox.items.some((item) => requestsDecision(item.message))
@@ -301,7 +283,7 @@ export default function arenaExtension(pi) {
   const genuinelyIdle = (r) =>
     runtime === r &&
     !r.closed &&
-    !r.matchEnded &&
+    !r.sessionEnded &&
     !idleWakeScheduled &&
     context?.isIdle() &&
     !context.hasPendingMessages?.() &&
@@ -311,10 +293,10 @@ export default function arenaExtension(pi) {
     );
   function checkIdle(r) {
     clearTimeout(idleTimer);
-    if (!resident || !bridgeUrl || !bridgeToken || !genuinelyIdle(r)) return;
+    if (!bridgeUrl || !bridgeToken || !genuinelyIdle(r)) return;
     idleTimer = setTimeout(async () => {
       if (!genuinelyIdle(r)) return;
-      const host = await readMatch(true);
+      const host = await readSession(true);
       if (!genuinelyIdle(r) || host?.state === "ended") return;
       if (host?.state !== "running") return checkIdle(r);
       // A normal stop with no process or queued turn left to wait for is a
@@ -325,7 +307,7 @@ export default function arenaExtension(pi) {
         customType: "arena-continue",
         extra: {
           reminder:
-            "The trusted host still reports a running session, and none of the programs you started is still running. Check progress and continue with what the session briefing asks of you.",
+            "The session is still running, and none of the programs you started is still running. Check progress and continue with what the session briefing asks of you.",
         },
         append: () => {
           const batch = r.inbox.drain();
@@ -342,7 +324,7 @@ export default function arenaExtension(pi) {
   const awaitingInput = (r) =>
     runtime === r &&
     !r.closed &&
-    !r.matchEnded &&
+    !r.sessionEnded &&
     !idleWakeScheduled &&
     context?.isIdle() &&
     !context.hasPendingMessages?.();
@@ -442,10 +424,7 @@ export default function arenaExtension(pi) {
     writeRuntimeFile(r);
     return {
       observedAt: Date.now(),
-      ...runtimeState(r.tasks, r.inbox, {
-        projection: displayLimits,
-        fullFile: r.runtimeFile,
-      }),
+      ...runtimeState(r.tasks, r.inbox, { fullFile: r.runtimeFile }),
       ...(r.taskDirError ? { taskFiles: r.taskDirError } : {}),
     };
   };
@@ -535,7 +514,7 @@ export default function arenaExtension(pi) {
     // A final answer (no tool calls, not aborted) gets one more turn when
     // this boundary carries something that needs a decision.
     const finalTurn =
-      !r.matchEnded &&
+      !r.sessionEnded &&
       event.outcome !== "aborted" &&
       event.outcome !== "error" &&
       !event.toolResults?.length;
@@ -567,7 +546,7 @@ export default function arenaExtension(pi) {
     // The opening prompt carried the public data read just before it.
     if (!r.publicNoted) {
       r.publicNoted = true;
-      platform.notePublic(await readMatch(true));
+      platform.notePublic(await readSession(true));
     }
     await observerReady(r);
     const initial = r.runtimeChanges.prepare(runtimeSnapshot(r));
@@ -579,7 +558,9 @@ export default function arenaExtension(pi) {
       message: {
         customType: "arena-inbox-setup",
         display: false,
-        content: `Inbox: programs started through bash can report to you with InboxClient (packages/inbox), which reads MC_INBOX_SOCKET (or MC_INBOX_URL), MC_INBOX_SESSION and optional MC_INBOX_TOKEN from the environment. Normal messages arrive with your next tool result. An urgent message ends the current bash wait early; the program keeps running. bash waits ${waitSeconds} seconds by default (wait_seconds changes it for one call), then returns "running" with a taskId while the program continues: call bash with that taskId instead of starting it again, and run arena-task cancel <taskId> to stop it. The bash timeout parameter is a separate kill deadline. ${process.env.ARENA_CONTINUOUS_SESSION === "1" ? "This session stays alive after you finish a response. While a program you started is still running you get no idle reminder; its completion or an urgent message starts your next turn. A program that later needs your decision can wake you with requestJudgment. It closes when the trusted host ends the session." : ""} Session: ${r.sessionId}.${initial ? "\n" + JSON.stringify(initial.message) : ""}${batch ? "\n" + batchText(batch) : ""}`,
+        // How bash waits and what wakes the model are in participant/PROMPT.md
+        // and the bash tool description; this only opens the inbox.
+        content: `Inbox open for session ${r.sessionId}; your programs report here through InboxClient (packages/inbox).${initial ? "\n" + JSON.stringify(initial.message) : ""}${batch ? "\n" + batchText(batch) : ""}`,
       },
     };
   });

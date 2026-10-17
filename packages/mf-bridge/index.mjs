@@ -801,7 +801,7 @@ export function createBridgeServer({
   maxActionsPerSecond = Infinity,
   maxConcurrentActions = Infinity,
   authorizeAction,
-  getMatchState,
+  getSessionState,
   controlReleaseMs = 1000,
   blockMemory = {},
   createBlockMemory: memoryFactory = createBlockMemory,
@@ -845,7 +845,7 @@ export function createBridgeServer({
         : {}),
     ...(action ? { action } : {}),
   });
-  // Trusted host wiring only. Participant requests cannot select an implementation
+  // Operator wiring only. Participant requests cannot select an implementation
   // or change this bot's memory scope.
   const terrainMemory =
     blockMemory === false
@@ -1168,12 +1168,12 @@ export function createBridgeServer({
       return;
     }
     if (req.method === "GET" && req.url === "/v1/session") {
-      if (typeof getMatchState !== "function") {
+      if (typeof getSessionState !== "function") {
         res.writeHead(404);
         return res.end();
       }
       try {
-        const result = await getMatchState();
+        const result = await getSessionState();
         res.writeHead(200, {
           "content-type": "application/json",
           "cache-control": "no-store",

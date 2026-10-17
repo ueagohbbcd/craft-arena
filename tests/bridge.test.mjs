@@ -233,7 +233,7 @@ test("trusted match gate blocks before start and after end; permits running acti
       seen.push(request.action);
       return state === "running";
     },
-    getMatchState: () => ({ state, matchId: "fixture" }),
+    getSessionState: () => ({ state, sessionId: "fixture" }),
   });
   t.after(() => s.close());
   const call = () =>
@@ -260,7 +260,7 @@ test("trusted match gate blocks before start and after end; permits running acti
   });
   assert.deepEqual(await response.json(), {
     ok: true,
-    result: { state: "ended", matchId: "fixture" },
+    result: { state: "ended", sessionId: "fixture" },
   });
 });
 test("health and inventory callbacks observe updated mirrored state without replacing entities", async (t) => {

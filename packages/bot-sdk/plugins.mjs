@@ -101,8 +101,7 @@ export function loadSelectedPlugins(
     bot.loadPlugin(require("mineflayer-pvp").plugin);
     if (combatReport) {
       inbox ??=
-        (process.env.MC_INBOX_SOCKET || process.env.MC_INBOX_URL) &&
-        process.env.MC_INBOX_SESSION
+        process.env.MC_INBOX_SOCKET && process.env.MC_INBOX_SESSION
           ? new InboxClient()
           : null;
       bot.combatReport = reportCombat(bot, {

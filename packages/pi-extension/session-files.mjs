@@ -6,13 +6,11 @@ import { join } from "node:path";
 const briefingKeys = [
   "kind",
   "sessionId",
-  "matchId",
   "participantId",
   "teamId",
   "username",
   "teams",
   "map",
-  "objectives",
 ];
 
 export function briefingFields(host) {
@@ -49,7 +47,7 @@ async function replaceFile(path, text) {
 /**
  * Session directory: copies of the trusted briefing the model can re-read
  * after context compaction. session.json and briefing.md are written once a
- * session is known; public.json is rewritten whenever the host's public data
+ * session is known; public.json is rewritten whenever the session's public data
  * changes. Files written here are a convenience copy, never read back as
  * trusted input.
  */

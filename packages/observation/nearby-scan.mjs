@@ -4,25 +4,15 @@ import {
   sampleNearbyConnectedBlocks,
 } from "./nearby-connected-blocks.mjs";
 
-export function recentBlockOptions(env = process.env) {
-  const integer = (name, fallback, minimum = 0) => {
-    const value = Number(env[name]);
-    return env[name] !== undefined &&
-      env[name] !== "" &&
-      Number.isSafeInteger(value) &&
-      value >= minimum
-      ? value
-      : fallback;
-  };
-  return {
-    enabled: env.ARENA_OBSERVER_RECENT_BLOCKS !== "0",
-    radius: integer("ARENA_OBSERVER_RECENT_BLOCK_RADIUS", 6),
-    intervalMs: integer("ARENA_OBSERVER_RECENT_BLOCK_INTERVAL_MS", 1000, 1),
-    maxReads: integer("ARENA_OBSERVER_RECENT_BLOCK_MAX_READS", 4096, 1),
-    positionLimit: integer("ARENA_OBSERVER_RECENT_BLOCK_POSITIONS", 3),
-    minReportMs: integer("ARENA_OBSERVER_RECENT_BLOCK_MIN_REPORT_MS", 30000),
-  };
-}
+/** Scan settings; observer.json's `recentBlocks` overrides any of them. */
+export const RECENT_BLOCK_DEFAULTS = Object.freeze({
+  enabled: true,
+  radius: 6,
+  intervalMs: 1000,
+  maxReads: 4096,
+  positionLimit: 3,
+  minReportMs: 30000,
+});
 
 /** Compact interval report with coordinates for inspecting encountered types. */
 export function projectRecentBlocks(snapshot, asOf = Date.now()) {
@@ -91,14 +81,14 @@ export function startNearbyScan({
   getBot,
   connectionStatus,
   now = Date.now,
-  options = recentBlockOptions(),
+  options = RECENT_BLOCK_DEFAULTS,
   scan = sampleNearbyConnectedBlocks,
   schedule = setTimeout,
   cancel = clearTimeout,
   postReport,
   postSigns,
 }) {
-  const settings = { ...recentBlockOptions({}), ...options };
+  const settings = { ...RECENT_BLOCK_DEFAULTS, ...options };
   if (settings.enabled && typeof postReport !== "function")
     throw new TypeError(
       "Inbox delivery requires a synchronous postReport callback",

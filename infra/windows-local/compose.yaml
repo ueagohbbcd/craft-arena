@@ -123,7 +123,6 @@ services:
       ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.red.json
       TEAM_GIT_DIR: /team-git
-      ARENA_WAIT_FOR_MATCH: '1'
       ARENA_START_TIMEOUT_MS: '86400000'
     networks: [red1]
     volumes: [red-work:/workspace, red-git:/team-git, ./model.red.json:/config/model.red.json:ro]
@@ -139,7 +138,6 @@ services:
       ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.blue.json
       TEAM_GIT_DIR: /team-git
-      ARENA_WAIT_FOR_MATCH: '1'
       ARENA_START_TIMEOUT_MS: '86400000'
     networks: [blue1]
     volumes: [blue-work:/workspace, blue-git:/team-git, ./model.blue.json:/config/model.blue.json:ro]

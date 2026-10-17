@@ -1,10 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import {
-  Inbox,
-  InboxClient,
-  createInboxServer,
-} from "../packages/inbox/index.mjs";
+import { Inbox, InboxClient } from "../packages/inbox/index.mjs";
+import { socketInbox } from "./helpers/inbox-socket.mjs";
 
 test("state delay is measured from first pending creation; full updates do not debounce eligibility", () => {
   let time = 1000;
@@ -198,17 +195,11 @@ test("one delivery callback failure cannot discard a batch or prevent other ackn
   assert.equal(followup.deliveryErrors.length, 2);
 });
 
-test("HTTP InboxClient upsert forwards pending-creation delay unchanged", async (t) => {
+test("InboxClient upsert forwards pending-creation delay unchanged", async (t) => {
   let time = 1000;
   const inbox = new Inbox({ sessionId: "http-delay", now: () => time });
-  const token = "fixture-delay-token";
-  const server = await createInboxServer({ inbox, token });
-  t.after(() => server.close());
-  const client = new InboxClient({
-    url: `http://127.0.0.1:${server.address.port}`,
-    sessionId: inbox.sessionId,
-    token,
-  });
+  const { socketPath } = await socketInbox(t, inbox);
+  const client = new InboxClient({ socketPath, sessionId: inbox.sessionId });
   await client.upsert("summary", { stone: 2 }, { minDeliveryDelayMs: 30000 });
   assert.equal(inbox.pending, false);
   time = 20000;

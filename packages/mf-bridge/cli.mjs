@@ -109,7 +109,7 @@ export function cliOptions(
     if (typeof name === "string" && name) sessionUsername = name;
   };
   if (kind === "open") {
-    bridge.getMatchState = openSession({
+    bridge.getSessionState = openSession({
       sessionId: env.BRIDGE_SESSION_ID || `open-${now()}`,
       username: () => sessionUsername,
       briefing: env.BRIDGE_BRIEFING || null,
@@ -135,7 +135,7 @@ export function cliOptions(
       prompt,
       now,
     });
-    bridge.getMatchState = session.getMatchState;
+    bridge.getSessionState = session.getSessionState;
     bridge.authorizeAction = session.authorizeAction;
     return { minecraft, bridge, session: { ...session, kind, setUsername } };
   }

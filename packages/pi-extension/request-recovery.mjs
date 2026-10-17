@@ -59,7 +59,7 @@ const continueMessage = (reason) =>
 /** Recover failed/truncated requests only. Ordinary decision scheduling belongs to the extension. */
 export function createRequestRecovery({
   send,
-  getMatchState,
+  getSessionState,
   report = () => {},
   onFatal = () => {},
   now = Date.now,
@@ -107,7 +107,7 @@ export function createRequestRecovery({
     }
     if (reason === "error") {
       if (isPermanentRequestError(message.errorMessage)) {
-        // Verify the trusted host is still running before failing the runtime.
+        // Verify the session is still running before failing the runtime.
         plan = { reason: "fatal", delay: checkDelayMs };
         arm(plan.delay);
         return;
@@ -157,7 +157,7 @@ export function createRequestRecovery({
       pending = plan;
     recovering = true;
     try {
-      const match = await getMatchState();
+      const match = await getSessionState();
       if (closed || version !== generation || active || plan !== pending)
         return;
       if (match !== "running") {
