@@ -5,12 +5,12 @@ description: Digging, placing, equipping, crafting and containers in the arena. 
 
 # Items, blocks and containers
 
-These calls go in a control program (see the `arena-programs` skill). Full signatures and differences from Mineflayer are in the [SDK README](../../../packages/bot-sdk/README.md).
+These calls go in a control program (see the `arena-programs` skill). `bot.dig`, `bot.placeBlock`, `bot.equip` and `bot.openContainer` work as in Mineflayer; differences are in the [SDK README](../../../packages/bot-sdk/README.md).
 
-- Dig: `await bot.dig(block)`. Before you dig the block under your feet, check what is below it. Digging straight down can drop the character into water, lava or a long fall.
-- Place: `await bot.placeBlock(reference, face)`. [inspect-placement-entities.mjs](../../../examples/inspect-placement-entities.mjs) checks that no entity blocks the placement.
-- Equip: `await bot.equip(item, "hand")`. The main hand is shared by every control program: equip the right item again each time work resumes, because an eating or fighting program may have changed it. [build-with-autoeat.mjs](../../../examples/build-with-autoeat.mjs) builds and eats in one program and takes turns with the hand.
-- Craft: `await bot.craftItem(itemType, count, table)`. `count` is the number of result items, rounded up to whole recipes. Pass `null` as `table` for a recipe that needs no crafting table.
+- Place: [inspect-placement-entities.mjs](../../../examples/inspect-placement-entities.mjs) checks that no entity blocks the placement.
+- Equip: the main hand is shared by every control program. Equip the right item again each time work resumes, because an eating or fighting program may have changed it. [build-with-autoeat.mjs](../../../examples/build-with-autoeat.mjs) builds and eats in one program and takes turns with the hand.
+- Craft: `await bot.craftItem(itemType, count, table)` counts result items, rounded up to whole recipes; Mineflayer's `craft(recipe, count, table)` also works and counts recipe runs. Pass `null` as `table` for a recipe that needs no crafting table.
+- Furnaces, anvils, enchanting tables and villagers: `openFurnace`, `openAnvil`, `openEnchantmentTable` and `openVillager` work as in Mineflayer. A furnace's `fuel` and `progress` are copied with each state update, so read them again after waiting.
 - Find the logs of one tree: `queryTreeCandidate` in `packages/observation/queries.mjs`, see the [observation README](../../../packages/observation/README.md).
 
 ## Container in two steps

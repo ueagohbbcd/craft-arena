@@ -21,26 +21,30 @@ Load Pathfinder and PvP with `loadSelectedPlugins(bot)` from `plugins.mjs` (see 
 
 ## Common APIs
 
-| Task          | Methods and state                                                                                                                  |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| Read state    | `entity`, `entities`, `health`, `food`, `game`, `inventory.items()`, `heldItem`, `quickBarSlot`, `isSleeping`, `controlState`      |
-| Read blocks   | `blockAt`, `findBlock`, `findBlocks`, `canDigBlock`, `knownBlockAt`, `knownBlocksIn`                                               |
-| Find entities | `nearestEntity(predicate)`                                                                                                         |
-| Session state | `await getSessionState()`: the public session state, briefing, timing and result (`getMatchState()` is the older name)             |
-| Navigate      | `bot.pathfinder` with native `Movements` and `goals` (after `loadSelectedPlugins`)                                                 |
-| Fight         | `bot.pvp` (after `loadSelectedPlugins`), `attack(entity, swing?)`, `swingArm`                                                      |
-| Move and look | `setControlState`, `getControlState`, `clearControlStates`, `stop`, `look`, `lookAt`                                               |
-| Blocks        | `dig(block, forceLook?, digFace?)`, `stopDigging`, `placeBlock(reference, face)`, `activateBlock(block, direction?, cursorPos?)`   |
-| Items         | `equip`, `unequip`, `consume`, `activateItem`, `deactivateItem`, `setQuickBarSlot`, `tossStack`                                    |
-| Containers    | `openContainer`, `closeWindow`, `clickWindow`, `window.withdraw`, `window.deposit`, `window.close` ([details](#container-windows)) |
-| Craft         | `craftItem(itemType, count = 1, table = null)` ([quantities](#crafting-quantities))                                                |
-| Chat          | `chat(message)`                                                                                                                    |
-| Sleep         | `isSleeping`, `await wake()`                                                                                                       |
-| Timing        | `waitForTicks(n)`, `physicsTick` event                                                                                             |
-| Connection    | `await flush()`, `closeBridge()`                                                                                                   |
-| Block memory  | `createBlockMemoryClient()` ([BLOCK-MEMORY.md](BLOCK-MEMORY.md))                                                                   |
+| Task          | Methods and state                                                                                                                                                                                 |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Read state    | `entity`, `entities`, `health`, `food`, `game`, `inventory.items()`, `heldItem`, `quickBarSlot`, `isSleeping`, `controlState`                                                                     |
+| Read blocks   | `blockAt`, `findBlock`, `findBlocks`, `canDigBlock`, `knownBlockAt`, `knownBlocksIn`, `blockAtCursor`, `canSeeBlock`, `digTime`                                                                   |
+| Local reads   | `findPlayer`, `recipesFor`, `recipesAll`, `isABed`, `getExplosionDamages`, `addChatPattern`, `awaitMessage`, `waitForChunksToLoad`                                                                |
+| Find entities | `nearestEntity(predicate)`                                                                                                                                                                        |
+| Session state | `await getSessionState()`: the public session state, briefing, timing and result (`getMatchState()` is the older name)                                                                            |
+| Navigate      | `bot.pathfinder` with native `Movements` and `goals` (after `loadSelectedPlugins`)                                                                                                                |
+| Fight         | `bot.pvp` (after `loadSelectedPlugins`), `attack(entity, swing?)`, `swingArm`                                                                                                                     |
+| Move and look | `setControlState`, `getControlState`, `clearControlStates`, `stop`, `look`, `lookAt`                                                                                                              |
+| Blocks        | `dig(block, forceLook?, digFace?)`, `stopDigging`, `placeBlock(reference, face)`, `activateBlock(block, direction?, cursorPos?)`                                                                  |
+| Items         | `equip`, `unequip`, `consume`, `activateItem`, `deactivateItem`, `setQuickBarSlot`, `toss`, `tossStack`, `moveSlotItem`, `putAway`, `transfer`                                                    |
+| Entities      | `activateEntity`, `activateEntityAt`, `useOn`, `mount`, `dismount`, `moveVehicle`, `placeEntity`                                                                                                  |
+| Containers    | `openContainer` (also `openBlock`, `openChest`, `openDispenser`, `openEntity`), `closeWindow`, `clickWindow`, `window.withdraw`, `window.deposit`, `window.close` ([details](#container-windows)) |
+| Workstations  | `openFurnace`, `openAnvil`, `openEnchantmentTable`, `openVillager`, `trade` ([details](#furnace-anvil-enchanting-and-villager))                                                                   |
+| Craft         | `craftItem(itemType, count = 1, table = null)` ([quantities](#crafting-quantities)), or Mineflayer's `craft(recipe, count, table)`                                                                |
+| Chat          | `chat(message)`, `whisper(username, message)`                                                                                                                                                     |
+| Other         | `fish`, `elytraFly`, `updateSign`, `writeBook`, `signBook`, `setSettings`                                                                                                                         |
+| Sleep         | `await sleep(bed)`, `isSleeping`, `await wake()`                                                                                                                                                  |
+| Timing        | `waitForTicks(n)`, `physicsTick` event                                                                                                                                                            |
+| Connection    | `await flush()`, `closeBridge()`                                                                                                                                                                  |
+| Block memory  | `createBlockMemoryClient()` ([BLOCK-MEMORY.md](BLOCK-MEMORY.md))                                                                                                                                  |
 
-If a method is not in this table, check [index.mjs](index.mjs) before you use it. The methods Mineflayer has and this bot does not are listed under [Missing methods](#missing-methods).
+If a method is not in this table, check [index.mjs](index.mjs) before you use it. Every Mineflayer bot method exists except the few listed under [Missing methods](#missing-methods).
 
 ## Local mirror and actions
 
@@ -61,7 +65,7 @@ A `matching` callback lets you check position, light or other per-block data, bu
 
 **Await actions and catch errors.** Most actions return a Promise. A rejected action keeps the native error name and message and adds `action` and `status` (the HTTP status).
 
-**Synchronous-style calls are queued.** `setControlState`, `clearControlStates`, `stop`, `attack`, `stopDigging`, `activateItem`, `deactivateItem`, `swingArm`, `chat` and `setQuickBarSlot` return at once and are sent in the background. `await bot.flush()` waits until all of them have been sent and throws the first failure not yet reported. Each such failure also emits `error`.
+**Synchronous-style calls are queued.** `setControlState`, `clearControlStates`, `stop`, `attack`, `stopDigging`, `activateItem`, `deactivateItem`, `swingArm`, `chat`, `whisper`, `setQuickBarSlot`, `useOn`, `mount`, `dismount`, `moveVehicle`, `updateSign` and `setSettings` return at once and are sent in the background. `await bot.flush()` waits until all of them have been sent and throws the first failure not yet reported. Each such failure also emits `error`.
 
 **Movement calls stay in order.** `setControlState`, `clearControlStates` and `stop` reach the game in the order you make them, even if an earlier one failed. Repeating the same state is cheap. With high latency a release can arrive late, so stop your controls before you cancel a task, not after. `controlState` is what your program asked for; check the actual position to judge movement.
 
@@ -141,25 +145,19 @@ Pathfinder and PvP have not been tested on live, changing terrain. Check your po
 - `inventory.items()` follows native window slot ranges, so it excludes armor and crafting slots.
 - `dig` accepts `forceLook` of `true`, `false` or `"ignore"`, as in Mineflayer. Optional arguments of `attack`, `dig` and `activateBlock` are passed through.
 - `clickWindow` supports modes 0 to 6 and slot `-999` (outside the window) on the active window.
-- Crafting uses `craftItem`, not `recipesFor` plus `craft(recipe)`. See [Crafting quantities](#crafting-quantities).
+- `craft(recipe, count, table)` runs `count` recipe runs, as in Mineflayer; the bridge uses its own recipe with the same ingredients as yours. `craftItem` counts result items instead. See [Crafting quantities](#crafting-quantities).
 - `await bot.consume()` uses native completion and errors, then refreshes the carried inventory before it resolves. Equip the food first. `deactivateItem()` stops eating, but the `consume()` Promise may settle later; when it does, check whether your program was cancelled before you move again.
 - `bot.isSleeping` is the observed sleep state (`null` when unknown). `await bot.wake()` sends the native wake request and keeps its `already awake` error. It resolves when the request was sent; wait for the `wake` event or `isSleeping === false` to confirm.
 - `equip(itemOrType, destination = "hand")` accepts a numeric item type as in Mineflayer.
 - `tossStack(item)` throws away the exact slot in the active window (or the inventory), not another stack of the same type. Refresh item references when slots change.
+- `setSettings` cannot change `viewDistance`; the operator sets it.
+- `whisper`, like `chat`, fails when the operator turned chat off.
+- `recipesFor`, `canSeeBlock`, `blockAtCursor` and the other local reads use the mirror, so they see only loaded columns. `awaitMessage` and chat patterns match `messagestr` text; Mineflayer's built-in `chat`/`whisper` patterns are not added, since `chat` events already arrive.
 - Raw packet access (`_client`) is not available.
 
 ### Missing methods
 
-These Mineflayer bot methods do not exist on the bot object. The list is checked by a test against a real Mineflayer bot, and [docs/ROADMAP.md](../../docs/ROADMAP.md) tracks filling it.
-
-| Group                                | Methods                                                                                                                                                                                                                                                                                                                                            | Use instead                                                                           |
-| ------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Reads that could be computed locally | `addChatPattern`, `addChatPatternSet`, `awaitMessage`, `blockAtCursor`, `blockAtEntityCursor`, `blockInSight`, `canSeeBlock`, `chatAddPattern`, `digTime`, `entityAtCursor`, `findPlayer`, `findPlayers`, `getExplosionDamages`, `hasPlugin`, `isABed`, `parseBedMetadata`, `recipesAll`, `recipesFor`, `removeChatPattern`, `waitForChunksToLoad` | Compute from `entities`, `blockAt` and `bot.registry`; listen to `chat` events        |
-| Other names for existing actions     | `craft`, `moveSlotItem`, `openBlock`, `openChest`, `openDispenser`, `openFurnace`, `putAway`, `putSelectedItemRange`, `toss`, `transfer`, `updateHeldItem`                                                                                                                                                                                         | `craftItem`, `openContainer`, `window.withdraw`/`deposit`, `clickWindow`, `tossStack` |
-| Actions the bridge does not offer    | `activateEntity`, `activateEntityAt`, `dismount`, `elytraFly`, `fish`, `mount`, `moveVehicle`, `openAnvil`, `openEnchantmentTable`, `openEntity`, `openVillager`, `placeEntity`, `setSettings`, `signBook`, `sleep`, `trade`, `updateSign`, `useOn`, `whisper`, `writeBook`                                                                        | Not available. `openContainer(entity)` opens entity containers.                       |
-| Done by the arena, not by programs   | `acceptResourcePack`, `denyResourcePack`, `end`, `quit`, `respawn`, `setCommandBlock`, `tabComplete`                                                                                                                                                                                                                                               | Not available                                                                         |
-
-Furnace, villager and enchanting helpers are not implemented.
+The arena owns these, so programs cannot call them: `acceptResourcePack`, `denyResourcePack`, `end`, `quit`, `respawn`, `setCommandBlock`, `tabComplete`. A test checks the bot object against a real Mineflayer bot, so any other missing method is a bug.
 
 ## Crafting quantities
 
@@ -185,6 +183,10 @@ If no recipe can make that many items with your ingredients and table, the call 
 Each window carries a `windowRef`. An old window object can never transfer into or close a window opened later, even if Minecraft reuses the numeric ID. A `bridgeReset` invalidates open window objects.
 
 `windowOpen`, `windowClose`, the window's `close`, `updateSlot(slot, before, after)` and `updateSlot:N` events carry the same local objects. An action's result and its events arrive separately: register listeners before acting, and await the event if its timing matters.
+
+### Furnace, anvil, enchanting and villager
+
+`openFurnace(block)`, `openAnvil(block)`, `openEnchantmentTable(block)` and `openVillager(entity)` return windows with Mineflayer's own methods, run on the real bot: furnace `takeInput`, `takeFuel`, `takeOutput`, `putInput`, `putFuel` (and `inputItem()`, `fuelItem()`, `outputItem()`); anvil `combine`, `rename`; enchanting `enchant`, `takeTargetItem`, `putTargetItem`, `putLapis`, `targetItem()`; villager `trade(index, count)` (also `bot.trade(villager, index, count)`). Items you pass must be in that window's slots. Furnace `fuel` and `progress`, enchanting `enchantments` and `xpseed`, and villager `trades` are copied from the bridge with each state update, so they can lag by one update.
 
 Window objects belong to the program that read them. To look first and transfer later from another program, see [Container in two steps](../../participant/skills/arena-items/SKILL.md#container-in-two-steps).
 

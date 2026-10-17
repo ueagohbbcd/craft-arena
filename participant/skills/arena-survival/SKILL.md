@@ -11,8 +11,7 @@ The game does not wait for you: with no program running, the character stands st
 - **Defend yourself while walking:** [navigate-with-defense.mjs](../../../examples/navigate-with-defense.mjs). Use it rather than plain `navigate.mjs` when a trip may meet mobs.
 - **Fight a chosen entity:** [fight-target.mjs](../../../examples/fight-target.mjs). In your own program, `loadSelectedPlugins(bot)` (PvP is on by default), then `await bot.pvp.attack(entity)` and `await bot.pvp.stop()`. Fights send combat reports, see the `arena-reporting` skill.
 - **PvP digs even with Pathfinder digging off:** PvP has its own movement settings, `bot.pvp.movements`, and gives them to Pathfinder when it attacks. Set `bot.pvp.movements.canDig = false` to keep terrain intact during a fight, as fight-target.mjs does.
-- **Water:** get to air first. Hold `jump` until the character is out, then do the next thing.
-- **Edges and holes:** before you dig the block under your feet, check what is below it.
+- Reminder: in water get to air first (hold `jump`); check below before digging down.
 
 ## Respawn point
 
