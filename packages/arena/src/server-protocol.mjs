@@ -73,6 +73,7 @@ export function validateServerConfig(value) {
   if (!Array.isArray(teams)) errors.push("teams must be a list");
   else {
     const seen = new Set();
+    const players = new Set();
     for (const team of teams) {
       if (!id(team?.id) || team.id === "draw")
         errors.push(
@@ -86,6 +87,12 @@ export function validateServerConfig(value) {
         team.players.some((p) => typeof p !== "string" || !p)
       )
         errors.push(`team ${team?.id} players must be a list of usernames`);
+      else
+        for (const player of team.players) {
+          if (players.has(player))
+            errors.push(`player ${player} is in more than one team`);
+          players.add(player);
+        }
     }
   }
   return errors;

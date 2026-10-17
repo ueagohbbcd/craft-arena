@@ -116,6 +116,7 @@ Compose 项目名固定为 `craft-arena-local`，一台机器同一时间只运�
 - **2026-10-13 之前创建的部署**：先删除旧文件 `budget.json`、`budget.deepseek.json`、`codex.json`、`deepseek.json`、`model.codex.json`、`model.deepseek.json` 和 `auth/` 目录，以及 `.env` 里的 `CODEX_ADAPTER_TOKEN`、`DEEPSEEK_ADAPTER_TOKEN`，旧的适配器容器用 `docker rm -f craft-arena-local-codex-adapter-1` 删除；再按上一条升级。
 - **更早的部署**：把保存的原始世界目录改名为 `map-original/world`，`reset` 才能用。
 - **有比赛主控的部署**（2026-10-16 之前创建）：先用旧脚本 `stop`。从本目录复制 `compose.yaml`；把旧的 `match.live.json` 改写成新的比赛文件 `match.json`（参照 [`match.direct-fire.json`](match.direct-fire.json)：`briefing.text` 改成 `config.briefing`，`live.commands` 改成 `commands`，其中 `end` 改名为 `stop`）；把玩法提示复制成 `PROMPT.md`；删除 `.env` 里的 `ARENA_HOST_TOKEN` 和 `control/` 目录；旧主控容器用 `docker rm -f craft-arena-local-arena-host-1` 删除。
+- **开赛传送还写在比赛文件里的部署**（2026-10-17 之前创建）：数据包在 `map-original/world` 里是旧副本，`build` 不会更新它。先 `stop`，用本仓库的 `infra/datapacks/race-of-wool` 整个替换 `map-original/world/datapacks/race-of-wool`，按 [`match.direct-fire.json`](match.direct-fire.json) 去掉 `match.json` 里的 `tp` 和 `spawnpoint`，再 `reset`。只换比赛文件不换数据包，开赛时没人会被传送。
 - 然后运行 `build` 重建镜像。
 
 ## 已做过的验收
