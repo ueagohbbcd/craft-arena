@@ -8,7 +8,7 @@
 
 - PowerShell 7、Node.js 24 或更高、Docker Desktop（Linux 容器）。
 - 在仓库根目录执行过 `npm ci`。
-- 一个解压好的 Minecraft 世界目录（含 `level.dat`），以及这张地图的比赛文件（格式见 [packages/arena/README.md](../../packages/arena/README.md#match-file)）。Direct Fire 地图的示例是 [`match.direct-fire.json`](match.direct-fire.json)，纪念碑和 30 分钟时限由 [`race-of-wool` 数据包](../datapacks/race-of-wool/README.md)执行；初始化脚本把它复制进世界（`-Datapacks` 可换成别的数据包目录）。别的地图要改数据包的 `map.mcfunction`，并自己写出生点、准备／开赛／结束命令和比赛简报。服务器版本固定为 1.21.1（与 [`minecraft-download.json`](../minecraft-download.json) 一致）。
+- 一个解压好的 Minecraft 世界目录（含 `level.dat`），以及这张地图的比赛文件（格式见 [packages/arena/README.md](../../packages/arena/README.md#match-file)）。Direct Fire 地图的示例是 [`match.direct-fire.json`](match.direct-fire.json)，纪念碑和 30 分钟时限由 [`race-of-wool` 数据包](../datapacks/race-of-wool/README.md)执行；初始化脚本把它复制进世界（`-Datapacks` 可换成别的数据包目录）。别的地图要改数据包的 `map.mcfunction`（纪念碑和各队开赛起点，开赛传送由数据包做），并自己写准备／开赛／结束命令和比赛简报；比赛文件里不写 `tp` 和 `spawnpoint`，死亡后按地图自己的重生规则。服务器版本固定为 1.21.1（与 [`minecraft-download.json`](../minecraft-download.json) 一致）。
 - 比赛文件里的玩家名保留 `arena_red1` / `arena_blue1`，否则要同时改 Compose 文件。
 - 已阅读并接受 [Minecraft EULA](https://www.minecraft.net/eula)。
 
