@@ -3,10 +3,7 @@
   "method": "Real installed Pi 1.1.0 bootstrap with controlled local model/SSE and bridge fixtures; no paid model or live game actions.",
   "initialCapture": {
     "requestCountPerLayout": 2,
-    "layouts": [
-      "independent participant workspace",
-      "repository cwd"
-    ],
+    "layouts": ["independent participant workspace", "repository cwd"],
     "firstRequestCharacters": 22239,
     "secondRequestCharacters": 44784,
     "tools": 11,

@@ -102,7 +102,7 @@ Minecraft 服务端 + 数据包 ──RCON 读 arena:session──→ 桥（每 
 
   然后拉起 Pi，等开赛，发第一条消息：`first-message.md` 原文，加上竞技场附的会话事实（有什么列什么），再加 `images/`。模型配置不含 `image` 时跳过图片，并写警告。
 
-- **扩展**：读 `default-scripts.json`，给每个 bot 启动默认脚本。文件不存在时，主 bot 开 `observer,chat`，副 bot 不开。默认脚本都是普通任务，可以停、可以替换。收件箱、任务管理不变。
+- **扩展**：读 `default-scripts.json`，给每个 bot 启动默认脚本。文件不存在时，主 bot 开 `observer,chat,watchdog`，副 bot 不开。默认脚本都是普通任务，可以停、可以替换。收件箱、任务管理不变。
 - **`bash` 等待**：所等的任务在等待期间既无输出、角色也没动，超过约 60 秒就提前返回"无进展"。只在这次等待里生效，参数设 0 可关闭。
 
 ### 7. SDK 与库

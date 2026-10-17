@@ -6,14 +6,14 @@
 
 ## 索引
 
-| 文件 | 内容 |
-| --- | --- |
-| [VALIDATION-LOG.md](VALIDATION-LOG.md) | 所有按日期的验证批次和实服运行记录，新的在前 |
-| [REPORT-2026-10-11.txt](REPORT-2026-10-11.txt) | 2026-10-11 中止的一场比赛的问题报告；仍未解决的问题已并入路线图 |
-| [EXPERIMENTS.md](EXPERIMENTS.md) | 已退役的设计（请求尾部观察）：动机、机制、放弃理由、如何恢复 |
-| [SPEC-2026-10-10.txt](SPEC-2026-10-10.txt)、[SPEC-2026-10-10.docx](SPEC-2026-10-10.docx) | 2026-10-10 的需求与架构基线 0.1 |
-| [SPEC-earlier-draft.docx](SPEC-earlier-draft.docx) | 更早的规格草稿 |
-| [evidence/](evidence/) | 2026-10-11 各次运行的原始数据（JSON），索引见 [VALIDATION.md](../VALIDATION.md#证据索引) |
+| 文件                                                                                     | 内容                                                                                     |
+| ---------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| [VALIDATION-LOG.md](VALIDATION-LOG.md)                                                   | 所有按日期的验证批次和实服运行记录，新的在前                                             |
+| [REPORT-2026-10-11.txt](REPORT-2026-10-11.txt)                                           | 2026-10-11 中止的一场比赛的问题报告；仍未解决的问题已并入路线图                          |
+| [EXPERIMENTS.md](EXPERIMENTS.md)                                                         | 已退役的设计（请求尾部观察）：动机、机制、放弃理由、如何恢复                             |
+| [SPEC-2026-10-10.txt](SPEC-2026-10-10.txt)、[SPEC-2026-10-10.docx](SPEC-2026-10-10.docx) | 2026-10-10 的需求与架构基线 0.1                                                          |
+| [SPEC-earlier-draft.docx](SPEC-earlier-draft.docx)                                       | 更早的规格草稿                                                                           |
+| [evidence/](evidence/)                                                                   | 2026-10-11 各次运行的原始数据（JSON），索引见 [VALIDATION.md](../VALIDATION.md#证据索引) |
 
 ## 记录规则
 

@@ -3,11 +3,7 @@
     "columns": 324,
     "minY": -64,
     "height": 384,
-    "origin": [
-      0.5,
-      64,
-      0.5
-    ],
+    "origin": [0.5, 64, 0.5],
     "source": "synthetic loaded chunks, not match/world data",
     "node": "v24.19.0"
   },
@@ -361,10 +357,7 @@
       "round": 0,
       "engine": "baseline",
       "case": "medium-two-scans-sequential",
-      "hits": [
-        40,
-        11
-      ],
+      "hits": [40, 11],
       "elapsedMs": 7419.855468,
       "timerLagMs": 7420.018434,
       "blockMaterializations": 14229504
@@ -373,10 +366,7 @@
       "round": 0,
       "engine": "candidate",
       "case": "medium-two-scans-sequential",
-      "hits": [
-        40,
-        11
-      ],
+      "hits": [40, 11],
       "elapsedMs": 2891.0106100000003,
       "timerLagMs": 2891.8706869999996,
       "blockMaterializations": 7412656
@@ -385,10 +375,7 @@
       "round": 1,
       "engine": "candidate",
       "case": "medium-two-scans-sequential",
-      "hits": [
-        40,
-        11
-      ],
+      "hits": [40, 11],
       "elapsedMs": 2897.8376289999997,
       "timerLagMs": 2898.0162330000003,
       "blockMaterializations": 7412656
@@ -397,10 +384,7 @@
       "round": 1,
       "engine": "baseline",
       "case": "medium-two-scans-sequential",
-      "hits": [
-        40,
-        11
-      ],
+      "hits": [40, 11],
       "elapsedMs": 8049.291332000001,
       "timerLagMs": 8049.830944999998,
       "blockMaterializations": 14229504

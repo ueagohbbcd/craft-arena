@@ -37,11 +37,11 @@ content: "Current observation for this model request only. Latest state plus rec
 
 `ARENA_PERCEPTION_RECENT_BLOCK_DELIVERY` 取 `inbox` / `tail` / `both`（默认 `inbox`，其余值回落）：
 
-| 通道 | 区间报告去向 | 最小可交付间隔 |
-| --- | --- | --- |
-| `inbox` | 普通 Inbox，同 key 单条待交付，到期后等自然边界 | 30000 ms |
-| `tail` | 只进请求尾部；不产生 Inbox 条目 | 0 |
-| `both` | Inbox 照常；尾部再附最近一次**实际交付过**的报告 | 30000 ms |
+| 通道    | 区间报告去向                                     | 最小可交付间隔 |
+| ------- | ------------------------------------------------ | -------------- |
+| `inbox` | 普通 Inbox，同 key 单条待交付，到期后等自然边界  | 30000 ms       |
+| `tail`  | 只进请求尾部；不产生 Inbox 条目                  | 0              |
+| `both`  | Inbox 照常；尾部再附最近一次**实际交付过**的报告 | 30000 ms       |
 
 `tail` 模式下 `currentSigns({forRequest:true})` 也把附近牌并入尾部；`inbox` 模式下这些内容仍由各自的 Inbox 条目负责，避免同一份变化出现两次。
 

@@ -14,10 +14,7 @@
       "types": 10,
       "characters": 351,
       "bytes": 351,
-      "tokenEstimate": [
-        88,
-        117
-      ],
+      "tokenEstimate": [88, 117],
       "projection": {
         "coverage": "Nearby coarse transparent connectivity; may go around corners.",
         "radius": 6,
@@ -50,10 +47,7 @@
       "types": 20,
       "characters": 485,
       "bytes": 485,
-      "tokenEstimate": [
-        122,
-        162
-      ],
+      "tokenEstimate": [122, 162],
       "projection": {
         "coverage": "Nearby coarse transparent connectivity; may go around corners.",
         "radius": 6,
@@ -96,10 +90,7 @@
       "types": 30,
       "characters": 616,
       "bytes": 616,
-      "tokenEstimate": [
-        154,
-        206
-      ],
+      "tokenEstimate": [154, 206],
       "projection": {
         "coverage": "Nearby coarse transparent connectivity; may go around corners.",
         "radius": 6,
