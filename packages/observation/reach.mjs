@@ -156,8 +156,36 @@ function pathfinderBot({ registry, blockAt, minY }) {
   };
 }
 
+/**
+ * Pathfinder's `Movements` over `blockAt` with the given switches (any of
+ * `reachDefaults` except radius and steps). Tower-building is off when
+ * `blocks` is 0.
+ */
+export function pathfinderMovements({
+  blockAt,
+  registry,
+  minY = -64,
+  ...settings
+}) {
+  const s = { ...reachDefaults, ...settings };
+  const moves = new Movements(pathfinderBot({ registry, blockAt, minY }));
+  for (const key of movementKeys) moves[key] = s[key];
+  if (!s.blocks) moves.allow1by1towers = false;
+  // Pathfinder counts opening a gate (`useOne`) against the block budget,
+  // which at 0 goes negative and then passes its "=== 0" checks: give the
+  // budget back so gates never enable placing.
+  const neighbors = moves.getNeighbors.bind(moves);
+  moves.getNeighbors = (node) =>
+    neighbors(node).map((m) => {
+      const used = m.toPlace?.filter((p) => p.useOne).length ?? 0;
+      if (used) m.remainingBlocks += used;
+      return m;
+    });
+  return moves;
+}
+
 /** Pathfinder's start cell for a position: floored, one up when standing on a partial block. */
-function startCell(moves, origin) {
+export function startCell(moves, origin) {
   const p = {
     x: Math.floor(origin.x),
     y: Math.floor(origin.y),
@@ -202,9 +230,7 @@ export function reachGraph({
     throw new RangeError("radius must be an integer from 2 to 20");
   if (!Number.isFinite(s.steps) || s.steps < 1 || s.steps > 80)
     throw new RangeError("steps must be from 1 to 80");
-  const moves = new Movements(pathfinderBot({ registry, blockAt, minY }));
-  for (const key of movementKeys) moves[key] = s[key];
-  if (!s.blocks) moves.allow1by1towers = false;
+  const moves = pathfinderMovements({ blockAt, registry, minY, ...s });
   const start = startCell(moves, origin);
   const inside = (p) =>
     Math.abs(p.x - start.x) <= s.radius &&

@@ -7,6 +7,7 @@ import { join } from "node:path";
 import {
   servePrismarineSnapshot,
   capturePrismarineSnapshot,
+  capturePrismarineViews,
 } from "../packages/world-visual/prismarine.mjs";
 import { fixtureWorld } from "../examples/fixture-world.mjs";
 const require = createRequire(import.meta.url);
@@ -99,12 +100,53 @@ test(
   },
 );
 
+test(
+  "several angles are captured with one browser and stitched into one labelled image",
+  { skip: !deps || process.env.MC_TEST_CHROMIUM !== "1" },
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "visual-views-"));
+    try {
+      const result = await capturePrismarineViews(fixtureWorld(), {
+        outputPath: join(dir, "views.png"),
+        directions: ["+x+z", "-x+z", "-x-z"],
+        width: 200,
+        height: 150,
+      });
+      const png = await readFile(result.imagePath);
+      assert.equal(png.readUInt32BE(16), 400);
+      assert.equal(png.readUInt32BE(20), 300);
+      assert.deepEqual(
+        result.metadata.views.map((v) => [v.label, v.column, v.row]),
+        [
+          ["from south-east", 0, 0],
+          ["from south-west", 1, 0],
+          ["from north-west", 0, 1],
+        ],
+      );
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);
+
 test("textured capture shares the pixel resource budget before starting Chromium", async () => {
   await assert.rejects(
     capturePrismarineSnapshot(fixtureWorld(), {
       outputPath: "unused.png",
       width: 8192,
       height: 8192,
+    }),
+    /16,777,216 pixels/,
+  );
+});
+
+test("stitched views check the whole image size before starting Chromium", async () => {
+  await assert.rejects(
+    capturePrismarineViews(fixtureWorld(), {
+      outputPath: "unused.png",
+      width: 3000,
+      height: 3000,
+      executablePath: "/nonexistent/chromium",
     }),
     /16,777,216 pixels/,
   );

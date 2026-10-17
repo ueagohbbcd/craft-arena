@@ -1124,9 +1124,17 @@ test(
     assert.equal(child.exitCode, null);
     const first = JSON.stringify(requests[0].messages);
     assert.match(first, /# Minecraft AI Arena/);
-    // Pi lists the skill by name and path; the basics are in the system prompt.
-    assert.match(first, /minecraft-arena/);
-    assert.match(first, /skills\/minecraft-arena\/SKILL\.md/);
+    // Pi lists every skill by name and path; the basics are in the system prompt.
+    for (const name of [
+      "arena-programs",
+      "arena-navigation",
+      "arena-surroundings",
+      "arena-survival",
+      "arena-items",
+      "arena-reporting",
+      "arena-team",
+    ])
+      assert.match(first, new RegExp(`skills/${name}/SKILL\\.md`));
     assert.match(first, /arena-task cancel/);
     const tools = requests[0].tools.map((x) => x.function.name);
     assert.deepEqual(tools.toSorted(), ["bash", "edit", "read", "write"]);

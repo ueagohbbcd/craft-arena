@@ -530,7 +530,7 @@ test(
     );
     assert.match(
       JSON.stringify(requests[0].body.messages),
-      /participant\/skills\/minecraft-arena\/SKILL\.md/,
+      /participant\/skills\/arena-programs\/SKILL\.md/,
     );
     const names = requests[0].body.tools.map((tool) => tool.function.name);
     assert.deepEqual(names.toSorted(), ["bash", "edit", "read", "write"]);

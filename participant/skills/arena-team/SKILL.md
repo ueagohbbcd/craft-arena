@@ -1,6 +1,9 @@
-# Team reference
+---
+name: arena-team
+description: Sharing code with teammates through the team Git repository, and the two channels for coordinating with them (game chat and Git).
+---
 
-Read this when you need it. It covers how to share code with teammates. The manual is [SKILL.md](skills/minecraft-arena/SKILL.md).
+# Team work
 
 ## Team Git
 

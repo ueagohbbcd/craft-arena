@@ -2,7 +2,7 @@
 
 This SDK lets your programs control your character with Mineflayer code. Your character is a real Mineflayer bot that runs in the bridge (the trusted service that holds your character in the game). `connectBot()` gives your program a **bot object** that looks like a Mineflayer `bot`: it keeps a **local mirror** (a copy of the bot's state and loaded chunks inside your program) and sends each action to the bridge, which checks it and performs it.
 
-This page lists the API and where it differs from real Mineflayer. For upstream behavior, read the docs for the installed versions under `$ARENA_REFERENCE_ROOT`. For the action loop and runnable examples, see the [programming skill](../../participant/skills/minecraft-arena/SKILL.md).
+This page lists the API and where it differs from real Mineflayer. For upstream behavior, read the docs for the installed versions under `$ARENA_REFERENCE_ROOT`. For the action loop and runnable examples, see the [programming skill](../../participant/skills/arena-programs/SKILL.md).
 
 ## Connect
 
@@ -186,7 +186,7 @@ Each window carries a `windowRef`. An old window object can never transfer into 
 
 `windowOpen`, `windowClose`, the window's `close`, `updateSlot(slot, before, after)` and `updateSlot:N` events carry the same local objects. An action's result and its events arrive separately: register listeners before acting, and await the event if its timing matters.
 
-Window objects belong to the program that read them. To look first and transfer later from another program, see [Container in two steps](../../participant/skills/minecraft-arena/SKILL.md#container-in-two-steps).
+Window objects belong to the program that read them. To look first and transfer later from another program, see [Container in two steps](../../participant/skills/arena-items/SKILL.md#container-in-two-steps).
 
 ## Combat report
 

@@ -57,6 +57,42 @@ test("sub-decimeter idle jitter does not create repeated reports", () => {
   assert.equal(c.next(s), null);
 });
 
+test("listed entity positions are rounded to 0.1 block in reports", () => {
+  const c = deliveredChanges(),
+    s = sample();
+  s.radar.entities = [
+    { id: 2, name: "zombie", position: { x: 1.23456, y: 64.0001, z: -3.98 } },
+  ];
+  const first = c.next(s);
+  assert.deepEqual(first.changes.radar.entities[0].position, {
+    x: 1.2,
+    y: 64,
+    z: -4,
+  });
+  s.radar.entities[0].position.x += 0.001;
+  assert.equal(c.next(s), null);
+});
+
+test("reports leave out itemUse for players not using an item", () => {
+  const c = deliveredChanges(),
+    s = sample();
+  const idle = { usingItem: false, activeHand: null, activeItem: null };
+  s.radar.players = [
+    { id: 3, name: "a", state: { sneaking: true, itemUse: idle } },
+    {
+      id: 4,
+      name: "b",
+      state: { itemUse: { usingItem: true, activeHand: "main" } },
+    },
+    { id: 5, name: "c", state: { itemUse: { usingItem: null } } },
+  ];
+  const [a, b, unknown] = c.next(s).changes.radar.players;
+  assert.equal(unknown.state.itemUse.usingItem, null);
+  assert.deepEqual(a.state, { sneaking: true });
+  assert.equal(b.state.itemUse.activeHand, "main");
+  assert.deepEqual(s.radar.players[0].state.itemUse, idle);
+});
+
 test("interval and sign producers retain their own delivery cadence", () => {
   const c = deliveredChanges(),
     s = sample();

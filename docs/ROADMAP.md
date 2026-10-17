@@ -96,6 +96,8 @@
 | ⬜   | `bash` 增加 `background` 参数：模型自己运行的观察器副本也能标成后台任务，不挡空闲提醒                           |
 | ✅   | 工具收缩到 Pi 的 `read`／`edit`／`write` 加本项目的 `bash`：`bash` 带 `taskId` 续等，取代 `task_wait`；任务输出和状态写到任务目录，`arena-task` 命令取代 `task_cancel`；`examples/observe.mjs` 和 `runtime.json` 取代 `observe` 工具 |
 | ✅   | 参赛说明搬到 `participant/`：每局必用的知识进追加的系统提示 `PROMPT.md`；Skill 改名 `minecraft-arena`，只留程序写法和示例入口 |
+| ✅   | Skill 拆成 7 个（`participant/skills/arena-*`：程序、导航、观察、生存、物品、报告、组队），FAQ 和 TEAM.md 并进对应 skill；启动器传整个目录 |
+| ✅   | 观察报告里列出的实体位置取一位小数（查询保持原精度）                                                            |
 | ⬜   | 送达回执改为整个会话一条流，替代每条消息各自长轮询                                                              |
 | ✅   | 启动器改用 `createMatchReader`；放宽了它对 `durationMs` 的校验                                                  |
 | ✅   | 删除旧别名：`publishCurrent`、CLI 的 `current`、`perception.json`                                               |
@@ -112,6 +114,8 @@
 - ⬜ 服务端录像 → 保存 → 近视回放客户端的完整流程（平台不再自动录像，要通过命令行发 ServerReplay 命令）。
 - ⬜ Windows 部署的 PowerShell 脚本，包括改用模型转发和删除比赛主控之后的初始化和操作流程（这里没有 Windows，未运行）。
 - ⬜ `scripts/validate-observation-live.mjs` 在真实服务器上重跑，覆盖默认脚本和 `onLost` 重发。
+- ✅ 右键床设重生点：白天也能设；回执 `Respawn point set` 的位置是 `system`，按普通 `game.chat` 进收件箱（不紧急）；同时动作栏的“只能在夜间睡觉”不转发（CI `verify:server` 实测）。
+- ⬜ 路点和路程网表（`examples/routes.mjs`）、多角度拼图截图（`screenshot.mjs --views`）在真实比赛里模型会不会用、用了有没有帮助。
 - ✅ 服务器协议 v1 和两个数据包在真实的 1.21.1 服务器上跑过（2026-10-14 手工，之后 CI 每次推送跑 `npm run verify:server`）。
 - ⬜ 陪玩模板：`MF_AUTH=microsoft` 设备登录、正版服务器、聊天唤醒（没有实际运行过）。
 

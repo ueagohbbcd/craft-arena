@@ -39,6 +39,44 @@ export function compactObservation(snapshot) {
       if (Number.isFinite(state.self[name]))
         state.self[name] = Math.round(state.self[name] * 100) / 100;
   }
+  // Listed entities (radar "list" mode, or no radar) move every tick too.
+  const tenth = (point) =>
+    point && typeof point === "object"
+      ? Object.fromEntries(
+          Object.entries(point).map(([key, value]) => [
+            key,
+            Number.isFinite(value) ? Math.round(value * 10) / 10 : value,
+          ]),
+        )
+      : point;
+  // A player not using an item says nothing with itemUse; reports drop it.
+  const withoutIdleItemUse = ({ itemUse, ...rest }) => rest;
+  const roundList = (list) =>
+    Array.isArray(list)
+      ? list.map((entry) =>
+          entry && typeof entry === "object"
+            ? {
+                ...entry,
+                ...(entry.position ? { position: tenth(entry.position) } : {}),
+                ...(entry.relative ? { relative: tenth(entry.relative) } : {}),
+                ...(entry.state?.itemUse?.usingItem === false
+                  ? { state: withoutIdleItemUse(entry.state) }
+                  : {}),
+              }
+            : entry,
+        )
+      : list;
+  if (state.radar) {
+    state.radar = { ...state.radar };
+    for (const name of ["players", "entities", "drops", "alerts"])
+      if (state.radar[name]) state.radar[name] = roundList(state.radar[name]);
+  }
+  for (const name of ["players", "entities"]) {
+    const value = state[name];
+    if (Array.isArray(value)) state[name] = roundList(value);
+    else if (Array.isArray(value?.entries))
+      state[name] = { ...value, entries: roundList(value.entries) };
+  }
   return state;
 }
 

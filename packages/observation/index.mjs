@@ -13,3 +13,9 @@ export {
   aroundSummary,
   cellKind,
 } from "./reach.mjs";
+export {
+  findRoute,
+  routeTable,
+  routeConfigs,
+  parseWaypoints,
+} from "./routes.mjs";

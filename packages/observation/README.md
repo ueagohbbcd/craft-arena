@@ -65,7 +65,7 @@ By default, non-player entities are summarized per chunk column (16×16 blocks) 
 - `entityChunks`: one entry per chunk, nearest first. `chunk` is the chunk coordinate (`x = floor(blockX / 16)`, the same for `z`), `counts` is name → number, `nearest` is the distance in whole blocks to the nearest of them.
 - `alerts`: visible entities within 16 blocks that show a risk sign (lit TNT, a swelling or ignited creeper, a moving projectile, something whose synchronized target is you), each with `id`, `name`, `position`, `distance` and `reasons`.
 
-For exact positions, run `examples/observe.mjs --full-entities`, or set `"entities": "list"` in the `radar` options. The `list` mode gives `entities` instead: one entry per entity with `id`, `name`, `position`, `distance` and a decoded `state` where the game sends it (TNT fuse, creeper swelling or charge, item use, a guardian's or wither's target).
+For exact positions, run `examples/observe.mjs --full-entities`, or set `"entities": "list"` in the `radar` options. The `list` mode gives `entities` instead: one entry per entity with `id`, `name`, `position` (1 decimal in reports, which also leave out `itemUse` for players not using an item; queries keep full precision and every field), `distance` and a decoded `state` where the game sends it (TNT fuse, creeper swelling or charge, item use, a guardian's or wither's target).
 
 ## Recent blocks: `observation.recent_blocks`
 
@@ -222,6 +222,16 @@ What is drawn: cells within `steps` that also have a way back. Cells you can dro
 Grid characters: digits are feet height, `4` = the start's, one block per digit, `^` more than 5 above, `_` more than 4 below; `@` start, `T` target, `~` water, `<` `>` way to a floor not drawn, `v` one-way, `x` wall or fence under 4 high, `X` wall 4+ high, `O` drop deeper than `maxDropDown` or void, `·` ground not reached (or beyond `steps`), `!` lava or fire, `?` not received. Cells are separated by two spaces and every row ends with two spaces, so each cell costs the same number of tokens and the cell above is a fixed distance back. Below the grid: counts, the target (walking distance, height, way back), where the area continues past the map edge or the walking limit, cells next to unreceived blocks, floors not drawn and one-way areas.
 
 `examples/reach-map.mjs` and `examples/profile.mjs` print them for your character and fill unloaded columns from block memory.
+
+Routes between named places come from [routes.mjs](routes.mjs), with Pathfinder's own search (`AStar` over the same `Movements`), so nothing moves:
+
+| Function                                                                                                       | Returns                                                                                                                                                               |
+| -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `findRoute({blockAt, registry, from, to, timeoutMs = 1000, ...switches})`                                      | `{status, steps, dug, placed, end, short}`: `ok`, `none` or `timeout`; arrival is the target's X and Z with feet within one block of its Y, as navigate.mjs counts it |
+| `routeTable({blockAt, registry, points, configs = routeConfigs, fromName, timeoutMs, budgetMs = 20000, base})` | `{pairs, text}`: every ordered pair under each config (`walk`, `gates`, `place` 16 blocks, `dig`), one line per pair, the other configs only where they beat walking  |
+| `parseWaypoints(json)`                                                                                         | `[{name, x, y, z, note?}]` from an array or a `{name: [x, y, z]}` object                                                                                              |
+
+`examples/routes.mjs` reads `waypoints.json` and prints the table for your character.
 
 ```js
 const { players, drops } = entityRadar(bot, { radius: 24 });

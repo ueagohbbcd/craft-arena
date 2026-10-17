@@ -1,14 +1,19 @@
 // Take one picture of the loaded world and print where it was saved.
 // Run when a decision depends on shape: a doorway, a wall, stacked levels.
-// Usage: node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ]
-// Without coordinates it frames the area around your feet. Read the printed JSON,
-// then read imagePath with the read tool.
+// Usage: node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views [2|4]] [minX minY minZ maxX maxY maxZ]
+// Without coordinates it frames the area around your feet. --views stitches
+// several angles into one image (4 corners, or 2 opposite ones) so what one
+// view hides another shows. Read the printed JSON, then read imagePath with
+// the read tool.
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
-import { capturePrismarineSnapshot } from "../packages/world-visual/prismarine.mjs";
+import {
+  capturePrismarineSnapshot,
+  capturePrismarineViews,
+} from "../packages/world-visual/prismarine.mjs";
 
 /** A nearby box: mostly above and around the player, clipped to the dimension. */
 export function observationBounds(bot) {
@@ -23,20 +28,31 @@ export function observationBounds(bot) {
   };
 }
 
-async function main() {
-  const args = process.argv.slice(2);
+/** `{views, box}`: views is 1 (one picture), 2 or 4; box is six integers or empty. */
+export function parseScreenshotArgs(args) {
+  let views = 1;
+  if (args[0] === "--views") {
+    const count = ["2", "4"].includes(args[1]);
+    views = count ? Number(args[1]) : 4;
+    args = args.slice(count ? 2 : 1);
+  }
   if (
     args.length &&
     (args.length !== 6 || args.some((v) => !Number.isInteger(Number(v))))
   )
     throw new Error(
-      "Usage: node examples/screenshot.mjs [minX minY minZ maxX maxY maxZ]",
+      "Usage: node examples/screenshot.mjs [--views [2|4]] [minX minY minZ maxX maxY maxZ]",
     );
+  return { views, box: args.map(Number) };
+}
+
+async function main() {
+  const { views, box } = parseScreenshotArgs(process.argv.slice(2));
   const bot = await connectBot();
   let snapshot;
   try {
-    const [x, y, z, maxX, maxY, maxZ] = args.map(Number);
-    const bounds = args.length
+    const [x, y, z, maxX, maxY, maxZ] = box;
+    const bounds = box.length
       ? { min: { x, y, z }, max: { x: maxX, y: maxY, z: maxZ } }
       : observationBounds(bot);
     snapshot = snapshotFromBot(bot, { bounds });
@@ -46,16 +62,22 @@ async function main() {
   }
   await mkdir("out", { recursive: true });
   await writeFile("out/world.snapshot.json", JSON.stringify(snapshot));
-  const { imagePath, metadata } = await capturePrismarineSnapshot(snapshot, {
-    outputPath: resolve("out/world.png"),
-  });
+  const { imagePath, metadata } =
+    views > 1
+      ? await capturePrismarineViews(snapshot, {
+          outputPath: resolve("out/views.png"),
+          directions: views === 2 ? ["+x+z", "-x-z"] : undefined,
+        })
+      : await capturePrismarineSnapshot(snapshot, {
+          outputPath: resolve("out/world.png"),
+        });
   console.log(
     JSON.stringify({
       imagePath,
       bounds: metadata.bounds,
       knownFraction: metadata.knownFraction,
-      notes:
-        "Missing cells are unobserved, not air. Metadata is in out/world.json.",
+      views: metadata.views?.map((v) => v.label),
+      notes: `Missing cells are unobserved, not air. Metadata is in ${imagePath.replace(/\.png$/, ".json")}.`,
     }),
   );
 }

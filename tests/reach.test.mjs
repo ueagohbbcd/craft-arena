@@ -9,6 +9,17 @@ import {
   cellKind,
 } from "../packages/observation/reach.mjs";
 import { parseReachArgs } from "../examples/reach-map.mjs";
+import {
+  findRoute,
+  routeTable,
+  routeConfigs,
+  parseWaypoints,
+} from "../packages/observation/routes.mjs";
+import {
+  parseRoutesArgs,
+  configsFor,
+  searchArea,
+} from "../examples/routes.mjs";
 import { parseProfileArgs } from "../examples/profile.mjs";
 
 const require = createRequire(import.meta.url);
@@ -326,4 +337,182 @@ test("reach-map and profile arguments", () => {
     target: { x: 10, z: -4 },
   });
   assert.throws(() => parseProfileArgs(["up"]), /Give X Z/);
+});
+
+test("route table connects places by walking and says what else a one-way pit needs", () => {
+  const blockAt = house();
+  const points = parseWaypoints({
+    yard: [0, 64, 0],
+    upstairs: { x: 5.5, y: 68, z: 0.5, note: "upper floor" },
+  });
+  assert.deepEqual(points[1], {
+    name: "upstairs",
+    x: 5,
+    y: 68,
+    z: 0,
+    note: "upper floor",
+  });
+  const walk = routeTable({
+    blockAt,
+    registry,
+    points,
+    configs: routeConfigs.slice(0, 1),
+  });
+  assert.match(walk.text, /^yard → upstairs: walk \d+$/m);
+  assert.match(walk.text, /^upstairs → yard: walk \d+$/m);
+  assert.equal(walk.pairs[0].results.walk.status, "ok");
+
+  const out = findRoute({
+    blockAt,
+    registry,
+    from: { x: -7, y: 61, z: 0 },
+    to: { x: 0, y: 64, z: 0 },
+  });
+  assert.equal(out.status, "none");
+  assert.ok(out.short > 0);
+  const placed = findRoute({
+    blockAt,
+    registry,
+    from: { x: -7, y: 61, z: 0 },
+    to: { x: 0, y: 64, z: 0 },
+    blocks: 16,
+  });
+  assert.equal(placed.status, "ok");
+  assert.ok(placed.placed > 0);
+
+  const pit = routeTable({
+    blockAt,
+    registry,
+    points: [
+      { name: "pit", x: -7, y: 61, z: 0 },
+      { name: "yard", x: 0, y: 64, z: 0 },
+    ],
+    configs: configsFor(16).filter((c) => c.name !== "dig"),
+    fromName: "pit",
+  });
+  assert.match(
+    pit.text,
+    /^pit → yard: walk none, closest .+ \| place \d+ \(\d+ placed\) \| gates none either$/m,
+  );
+});
+
+test("routes arguments", () => {
+  assert.deepEqual(
+    parseRoutesArgs(["--here", "--from", "here", "--blocks", "0"]),
+    {
+      file: "waypoints.json",
+      blocks: 0,
+      here: true,
+      from: "here",
+    },
+  );
+  assert.deepEqual(
+    configsFor(0).map((c) => c.name),
+    ["walk", "gates", "dig"],
+  );
+  assert.deepEqual(configsFor(8)[2].settings, { blocks: 8 });
+  assert.throws(() => parseRoutesArgs(["--fly"]), /Unknown argument/);
+  assert.throws(() => parseRoutesArgs(["--timeout", "0"]), /at least 1 ms/);
+  assert.deepEqual(
+    searchArea([
+      { x: 0.5, z: -3 },
+      { x: 10, z: 4.9 },
+    ]),
+    { minX: -16, maxX: 26, minZ: -19, maxZ: 20 },
+  );
+  assert.throws(
+    () =>
+      searchArea([
+        { x: 0, z: 0 },
+        { x: 600, z: 0 },
+      ]),
+    /--only/,
+  );
+  assert.throws(
+    () =>
+      findRoute({
+        blockAt: house(),
+        registry,
+        from: { x: 0, y: 64, z: 0 },
+        to: { x: 1, y: 64, z: 0 },
+        timeoutMs: 0,
+      }),
+    /positive/,
+  );
+  assert.throws(() => parseWaypoints([{ name: "a", x: 1 }]), /needs numbers/);
+  const twice = parseWaypoints([
+    { name: "door", x: 0, y: 64, z: 0 },
+    { name: "door", x: 5, y: 68, z: 0 },
+  ]);
+  assert.throws(
+    () => routeTable({ blockAt: house(), registry, points: twice }),
+    /unique/,
+  );
+});
+
+test("opening a gate does not let a route place blocks", () => {
+  // Floor at y=63 for z <= 2, a fence across z=0 with a gate at x=0, and a
+  // two-block gap of void at z 3..4 before the far floor at z >= 5.
+  const { put, blockAt } = sparse();
+  for (let x = -6; x <= 6; x++)
+    for (let z = -6; z <= 10; z++) {
+      for (let y = 40; y <= 70; y++) put("air", x, y, z);
+      if (z <= 2 || z >= 5) put("stone", x, 63, z);
+    }
+  for (let x = -6; x <= 6; x++)
+    if (x !== 0)
+      put("oak_fence", x, 64, 0, {
+        north: "false",
+        east: "true",
+        south: "false",
+        west: "true",
+        waterlogged: "false",
+      });
+  put("oak_fence_gate", 0, 64, 0, {
+    facing: "south",
+    in_wall: "false",
+    open: "false",
+    powered: "false",
+  });
+  const trip = (settings) =>
+    findRoute({
+      blockAt,
+      registry,
+      from: { x: 0, y: 64, z: -3 },
+      to: { x: 0, y: 64, z: 7 },
+      allowParkour: false,
+      ...settings,
+    });
+  assert.equal(trip({ canOpenDoors: true }).status, "none");
+  const built = trip({ canOpenDoors: true, blocks: 4 });
+  assert.equal(built.status, "ok");
+  assert.equal(built.placed, 2);
+  assert.equal(
+    findRoute({
+      blockAt,
+      registry,
+      from: { x: 0, y: 64, z: -3 },
+      to: { x: 0, y: 64, z: 2 },
+      canOpenDoors: true,
+    }).status,
+    "ok",
+  );
+});
+
+test("a route table never runs past its budget", () => {
+  const started = Date.now();
+  const table = routeTable({
+    blockAt: house(),
+    registry,
+    points: [
+      { name: "pit", x: -7, y: 61, z: 0 },
+      { name: "upstairs", x: 5, y: 68, z: 0 },
+    ],
+    configs: configsFor(16),
+    timeoutMs: 5000,
+    budgetMs: 50,
+  });
+  assert.ok(Date.now() - started < 1000);
+  assert.match(table.text, /not tried \(time budget\)|timed out/);
+  assert.match(table.text, /gates opens fence gates \(not doors\)/);
 });
