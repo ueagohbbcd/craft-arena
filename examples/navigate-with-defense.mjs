@@ -9,6 +9,7 @@ import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
 import { sampleObservation } from "../packages/observation/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
+import { watchdog } from "../packages/bot-sdk/watchdog.mjs";
 
 export async function navigateWithDefense(
   bot,
@@ -283,6 +284,7 @@ async function main() {
   const bot = await connectBot();
   const inbox = new InboxClient(),
     controller = new AbortController();
+  const dog = watchdog(bot, { inbox });
   const { Movements, goals } = loadSelectedPlugins(bot, { inbox });
   const movements = new Movements(bot);
   movements.canDig = false;
@@ -309,6 +311,7 @@ async function main() {
       process.exitCode = 1;
   } finally {
     await bot.combatReport.close();
+    dog.close();
     bot.closeBridge();
     process.off("SIGTERM", onTerm);
     process.off("SIGINT", onInt);

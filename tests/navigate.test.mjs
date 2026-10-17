@@ -56,6 +56,7 @@ async function harness({ failDelivery = false, failFlush = false } = {}) {
   });
   const done = runInNewContext(`(async () => {${source}\n})()`, {
     connectBot: async () => bot,
+    watchdog: () => ({ close() {} }),
     summarizeTerrain: () => ({
       freeSpace: { cells: 1 },
       counts: { unknown: 0 },

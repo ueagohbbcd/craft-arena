@@ -27,7 +27,7 @@ Load Pathfinder and PvP with `loadSelectedPlugins(bot)` from `plugins.mjs` (see 
 | Read blocks   | `blockAt`, `findBlock`, `findBlocks`, `canDigBlock`, `knownBlockAt`, `knownBlocksIn`, `blockAtCursor`, `canSeeBlock`, `digTime`                                                                   |
 | Local reads   | `findPlayer`, `recipesFor`, `recipesAll`, `isABed`, `getExplosionDamages`, `addChatPattern`, `awaitMessage`, `waitForChunksToLoad`                                                                |
 | Find entities | `nearestEntity(predicate)`                                                                                                                                                                        |
-| Session state | `await getSessionState()`: the public session state, briefing and result                                                                            |
+| Session state | `await getSessionState()`: the public session state, briefing and result                                                                                                                          |
 | Navigate      | `bot.pathfinder` with native `Movements` and `goals` (after `loadSelectedPlugins`)                                                                                                                |
 | Fight         | `bot.pvp` (after `loadSelectedPlugins`), `attack(entity, swing?)`, `swingArm`                                                                                                                     |
 | Move and look | `setControlState`, `getControlState`, `clearControlStates`, `stop`, `look`, `lookAt`                                                                                                              |
@@ -111,6 +111,10 @@ The SDK only reconnects its own connection to the bridge. Nothing reconnects the
 `knownBlocksIn({ min, max })` yields the same shape for every position in the box: loaded columns first, then remembered positions in unloaded columns.
 
 The history is fed by the blocks the bridge samples around the character (8 blocks sideways, 4 up and down, once a second) and by block change events. It does not keep whole columns. It belongs to one program, holds at most 50,000 blocks (oldest dropped first) and is wiped on a `bridgeReset` or a dimension change. To read terrain another program saw, or whole columns that are no longer loaded, use [block memory](BLOCK-MEMORY.md).
+
+## Watchdog
+
+`watchdog(bot, { inbox? , ...options })` from [watchdog.mjs](watchdog.mjs) is the general Mineflayer watchdog from `mineflayer-world-memory` (see its `docs/watchdog.md`), with findings sent to the inbox: `stuck` and `repeat` as ordinary events, `blocked` (a synchronous loop) as an urgent report sent from a worker thread. Call it right after `connectBot()`; it returns `{ failure(error), pause(), resume(), close() }`. The example control programs call it.
 
 ## Pathfinder and PvP
 
