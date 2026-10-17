@@ -95,7 +95,7 @@ test("non-sneaking observed players have larger coordinate range through walls",
     r.players.map((p) => p.name),
     ["other"],
   );
-  assert.equal(r.players[0].visibility, "player-range");
+  assert.equal(r.players[0].visibility, "name-tag");
   assert.equal(r.excluded.blocked, 1);
 });
 test("unknown sneak status requires visibility and radius is adjustable", () => {
@@ -229,4 +229,60 @@ test("chunk radar in a sample keeps risk entities listed one by one", async () =
   });
   assert.equal(list.radar.entities.length, 2);
   assert.equal(list.radar.alerts, undefined);
+});
+
+test("entities whose name tag shows are listed through walls as named", () => {
+  const nbtName = (text) => ({
+    type: "compound",
+    name: "",
+    value: { text: { type: "string", value: text } },
+  });
+  const entities = {
+    2: {
+      id: 2,
+      name: "zombie",
+      height: 1.95,
+      metadata: { 2: nbtName("Gate guard"), 3: true },
+      position: { x: 50, y: 0, z: 0 },
+    },
+    3: {
+      id: 3,
+      name: "armor_stand",
+      metadata: { 2: '{"text":"Base"}', 3: true },
+      position: { x: 10, y: 0, z: 0 },
+    },
+    4: {
+      id: 4,
+      name: "cow",
+      metadata: { 2: nbtName("Hidden tag"), 3: false },
+      position: { x: 5, y: 0, z: 0 },
+    },
+    5: {
+      id: 5,
+      name: "player",
+      username: "ghost",
+      metadata: { 0: 0x20 },
+      position: { x: 5, y: 0, z: 0 },
+    },
+    6: {
+      id: 6,
+      name: "zombie",
+      metadata: { 2: nbtName("Too far"), 3: true },
+      position: { x: 70, y: 0, z: 0 },
+    },
+  };
+  const r = entityRadar(
+    bot(entities, () => solid),
+    { entities: "list" },
+  );
+  assert.deepEqual(
+    r.named.map((e) => [e.name, e.customName, e.visibility]),
+    [
+      ["armor_stand", "Base", "name-tag"],
+      ["zombie", "Gate guard", "name-tag"],
+    ],
+  );
+  assert.equal(r.entities.length, 0, "a name only shown on aim stays hidden");
+  assert.equal(r.players.length, 0, "an invisible player shows no name");
+  assert.equal(r.nameRadius, 64);
 });

@@ -54,7 +54,8 @@ The observer samples once a second and compares each sample with what you last r
 `radar` lists what you could plausibly see now:
 
 - Non-player entities within 48 blocks whose center is visible from your eyes (a straight line through known, transparent cells). An entity partly hidden behind a block can be missed.
-- Players within 64 blocks. A player known not to be sneaking is always listed with coordinates; a sneaking player (or one whose sneaking state is unknown) is listed only when visible.
+- Players within 64 blocks (`nameRadius`). The game draws a player's name above them through walls unless they sneak or are invisible, so a player known not to be sneaking is listed with coordinates and `visibility: "name-tag"`; a sneaking player (or one whose sneaking state is unknown) is listed only when visible.
+- `named`: other entities within 64 blocks whose name the game always shows (a mob with a name tag set to show, a named armor stand), with `customName` and `visibility: "name-tag"`, through walls like players. Invisible entities show no name. Team name-tag rules are not read. These entities are not also counted in `entityChunks` or `entities`.
 - Item drops grouped within 3 blocks of a seed drop: `center`, `items` (name → count), `count`, `entities`, `unknownStacks`.
 - `excluded` counts what was left out: `outsideRadius`, `blocked`, `unknownVisibility`.
 
@@ -125,7 +126,7 @@ Events only signal; they never stop or change your programs.
 | `--full-entities` (`fullEntities`) | all observed non-player entities and their raw metadata, instead of the 12-entry summary |
 | `--full-local` (`fullLocal`)       | the whole local cube (bounds, counts, every block) and every loaded sign                 |
 
-`radar: {radius, playerRadius, dropGroupRadius, entities}` (defaults 48, 64, 3, `"chunks"`) is an option of `observe()`; the script takes it from `observer.json`. Task and program state are not part of a sample: they are in the runtime reports and in `runtime.json` in the task directory.
+`radar: {radius, nameRadius, dropGroupRadius, entities}` (defaults 48, 64, 3, `"chunks"`) is an option of `observe()`; the script takes it from `observer.json`. Task and program state are not part of a sample: they are in the runtime reports and in `runtime.json` in the task directory.
 
 `state` has the report sections above plus:
 
@@ -146,7 +147,7 @@ For a picture, run `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX min
 {
   "radar": {
     "radius": 32,
-    "playerRadius": 64,
+    "nameRadius": 64,
     "dropGroupRadius": 3,
     "entities": "list"
   },
@@ -185,16 +186,16 @@ process.once("SIGTERM", () => {
 
 All are read-only. Import them from `$ARENA_TOOLKIT_ROOT/packages/observation/`. Each example assumes `const bot = await connectBot();`.
 
-| Function                                                              | File           | Use                                                                           |
-| --------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------- |
-| `sampleObservation(bot, options)`                                     | `index.mjs`    | one synchronous sample, the same shape as `observe`'s `state`                 |
-| `observe(bot, options)`                                               | `observe.mjs`  | `{state, metadata}`, what `examples/observe.mjs` prints                       |
-| `entityRadar(bot, {radius, playerRadius, dropGroupRadius, entities})` | `index.mjs`    | the `radar` section alone, without `alerts`                                   |
-| `watchObservation(bot, {post, ...thresholds})`                        | `index.mjs`    | the event listeners; returns `sample()`, `close()`, `lastError`               |
-| `startObserver({bot, inbox, intervalMs})`                             | `observer.mjs` | the full default observer, reporting through an `InboxClient`                 |
-| `createDefaultObserver({getBot, connectionStatus, post})`             | `observer.mjs` | the observer's sampling and event logic without the inbox wiring              |
-| `queryTreeCandidate({blockAt, seed})`                                 | `queries.mjs`  | connected logs, leaf evidence and unknown edges of the tree containing `seed` |
-| `queryEntitiesIntersecting({entities, bounds})`                       | `queries.mjs`  | entities whose box overlaps `bounds`, for example before placing a block      |
+| Function                                                            | File           | Use                                                                           |
+| ------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------- |
+| `sampleObservation(bot, options)`                                   | `index.mjs`    | one synchronous sample, the same shape as `observe`'s `state`                 |
+| `observe(bot, options)`                                             | `observe.mjs`  | `{state, metadata}`, what `examples/observe.mjs` prints                       |
+| `entityRadar(bot, {radius, nameRadius, dropGroupRadius, entities})` | `index.mjs`    | the `radar` section alone, without `alerts`                                   |
+| `watchObservation(bot, {post, ...thresholds})`                      | `index.mjs`    | the event listeners; returns `sample()`, `close()`, `lastError`               |
+| `startObserver({bot, inbox, intervalMs})`                           | `observer.mjs` | the full default observer, reporting through an `InboxClient`                 |
+| `createDefaultObserver({getBot, connectionStatus, post})`           | `observer.mjs` | the observer's sampling and event logic without the inbox wiring              |
+| `queryTreeCandidate({blockAt, seed})`                               | `queries.mjs`  | connected logs, leaf evidence and unknown edges of the tree containing `seed` |
+| `queryEntitiesIntersecting({entities, bounds})`                     | `queries.mjs`  | entities whose box overlaps `bounds`, for example before placing a block      |
 
 `sampleObservation` options: `fullItems`, `fullEntities`, `fullLocal`, `local` (`false` leaves the section out, as the default observer does), `loadedSigns` (`false` skips signs from loaded chunks outside the local crop), `radar`, `localRadius` (2), `blockLimit` (16), `signLimit` (16), `entityLimit` (12), `entityRadius`, `entityAttentionRadius` (16), `staleAfterMs` (5000), `teams`.
 
@@ -300,7 +301,7 @@ More examples: `examples/watch-surroundings.mjs` (a listener that calls `request
 | state reports      | sampled every 1 s; a change shorter than that can be missed                                         |
 | events             | only while the observer runs; events missed while it is stopped are not replayed                    |
 | stale data         | marked `stale` after 5 s without new data                                                           |
-| radar              | 48 blocks (entities), 64 blocks (players); center-line visibility only                              |
+| radar              | 48 blocks (entities), 64 blocks (players and shown names); center-line visibility only              |
 | local              | not reported by the observer; `observe.mjs` looks 3 blocks each way, notable blocks within 2 blocks |
 | recent blocks      | radius 6, at most 4096 cells per scan, 3 positions per type, delivered at most every 30 s           |
 | sign text          | 240 characters per side                                                                             |

@@ -790,7 +790,7 @@ export function sampleObservation(bot, options = {}) {
         state: player.state,
       });
   }
-  for (const entry of radar.entities) {
+  for (const entry of [...radar.named, ...radar.entities]) {
     const source = bot?.entities?.[entry.id];
     if (source)
       entry.state = entityState(source, bot.registry, options.fullEntities);
@@ -799,7 +799,9 @@ export function sampleObservation(bot, options = {}) {
     // The chunk summary drops positions and decoded state; risk signs on a
     // visible entity (lit TNT, a swelling creeper, a moving projectile,
     // something targeting you) stay listed one by one.
-    const visible = new Set(radar.entities.map((entry) => entry.id));
+    const visible = new Set(
+      [...radar.named, ...radar.entities].map((entry) => entry.id),
+    );
     radar.alerts = observedEntities.entities.entries
       .filter(
         (entity) => entity.attention?.priority === 2 && visible.has(entity.id),
