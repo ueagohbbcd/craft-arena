@@ -372,12 +372,20 @@ export class TaskManager {
       result.previouslyReturnedBytes = previously;
     return result;
   }
-  async wait(id, { timeoutMs = Infinity, signal } = {}) {
+  /**
+   * `stallMs` ends the wait early with reason "no progress" when the task
+   * printed nothing and `progress()` (an optional sync function returning a
+   * comparable key, such as the character's rounded position) stayed the same
+   * for that long. 0 or unset waits the full `timeoutMs`.
+   */
+  async wait(id, { timeoutMs = Infinity, signal, stallMs = 0, progress } = {}) {
     if (
       timeoutMs !== Infinity &&
       (!Number.isFinite(timeoutMs) || timeoutMs < 0 || timeoutMs > 2147483647)
     )
       throw new Error("Invalid wait timeout");
+    if (!Number.isFinite(stallMs) || stallMs < 0 || stallMs > 2147483647)
+      throw new Error("Invalid stall time");
     const task = this.get(id);
     const finish = () => this.claim(task);
     if (task.status === "completed") return finish();
@@ -389,8 +397,10 @@ export class TaskManager {
       );
     const reason = await new Promise((resolve) => {
       let timer;
+      let stallTimer;
       const wake = (reason) => {
         clearTimeout(timer);
+        clearInterval(stallTimer);
         task.waiters.delete(wake);
         signal?.removeEventListener("abort", abort);
         resolve(reason);
@@ -400,6 +410,22 @@ export class TaskManager {
       signal?.addEventListener("abort", abort, { once: true });
       if (timeoutMs !== Infinity)
         timer = setTimeout(() => wake("wait timeout"), timeoutMs);
+      if (stallMs > 0 && stallMs < timeoutMs) {
+        const key = () =>
+          `${task.written.stdout + task.written.stderr}|${progress?.() ?? ""}`;
+        let last = key();
+        let changedAt = this.now();
+        stallTimer = setInterval(
+          () => {
+            const current = key();
+            if (current !== last) {
+              last = current;
+              changedAt = this.now();
+            } else if (this.now() - changedAt >= stallMs) wake("no progress");
+          },
+          Math.max(10, Math.min(5000, stallMs / 4)),
+        );
+      }
     });
     return task.status === "completed" ? finish() : this.running(task, reason);
   }
