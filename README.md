@@ -50,7 +50,7 @@ flowchart LR
 ## 一场比赛怎么进行
 
 1. **准备。** 运营者选定地图、规则和时限，配置队伍和模型接入，启动服务器和可信侧服务，每个参赛者的游戏桥连上一个 bot。运营者用命令行准备（`prepare`）：写入会话配置，数据包重置地图，此时动作仍被拒绝。
-2. **开局。** 启动器在容器里启动 Pi，等运营者开赛（`start`）、游戏桥报告会话进入 `running`，然后发出一次开局提示，内容是比赛简报（队伍、地图、目标、时限等公开事实）。每局都要用的基本知识（任务怎样运行、信息怎样送达、东西在哪）在 [participant/PROMPT.md](participant/PROMPT.md)，追加在 Pi 的系统提示里。不附图像，模型需要时自己运行截图脚本。Pi 会话一开始，Pi 扩展就把默认观察器和默认聊天转发作为后台任务启动；第一个请求最多等观察器 5 秒，带上它的第一份状态报告。
+2. **开局。** 启动器在容器里启动 Pi，等运营者开赛（`start`）、游戏桥报告会话进入 `running`，然后发出一次开局提示，内容是比赛简报（队伍、地图、目标、时限等公开事实）。每局都要用的基本知识（任务怎样运行、信息怎样送达、东西在哪）在 [participant/agents.d/10-arena.md](participant/agents.d/10-arena.md)，追加在 Pi 的系统提示里。不附图像，模型需要时自己运行截图脚本。Pi 会话一开始，Pi 扩展就把默认观察器和默认聊天转发作为后台任务启动；第一个请求最多等观察器 5 秒，带上它的第一份状态报告。
 3. **比赛。** 模型在普通的工具调用循环里工作：调用工具、写程序、启动任务。`bash` 默认最多等 30 秒，等满时返回 `running` 和 `taskId`，程序继续运行；模型再用 `bash` 加 `taskId` 接着等。模型思考和排队时，游戏照常进行。Pi 在模型回答结束后也不退出（持续会话）。模型停下、比赛仍在进行、又没有非后台任务在运行时，5 秒后 Pi 扩展会提醒它继续（空闲提醒）。
 4. **结束。** 服务器上的规则数据包判定胜负（羊毛竞速：每刻检查纪念碑方块），时间到也由数据包判平局并结束；运营者也可以提前 `stop`。游戏桥通过 RCON 读到结束，停止接受动作。结果留在 `arena:session`，存档和录像由运营者自己的脚本做。启动器读到结束状态后关闭 Pi，Pi 扩展随之停止所有任务。
 
@@ -112,7 +112,7 @@ flowchart LR
 
 **参赛模型**（容器内路径前缀为 `$ARENA_TOOLKIT_ROOT`）
 
-- [participant/PROMPT.md](participant/PROMPT.md)：追加到系统提示的参赛说明：任务和等待、信息通道、文件位置
+- [participant/agents.d/10-arena.md](participant/agents.d/10-arena.md)：追加到系统提示的参赛说明：任务和等待、信息通道、文件位置
 - [participant/skills/](participant/skills)：7 个 Skill：`arena-programs`（程序写法）、`arena-navigation`（走路、可达地形图、路点）、`arena-surroundings`（观察、截图、区块记忆）、`arena-survival`（吃、战斗、床）、`arena-items`（挖放、合成、箱子）、`arena-reporting`（收件箱和平台消息）、`arena-team`（队内 Git）
 - [packages/observation/README.md](packages/observation/README.md)：默认观察器报告什么、怎样改
 - [packages/bot-sdk/README.md](packages/bot-sdk/README.md)：SDK 及与 Mineflayer 的差异

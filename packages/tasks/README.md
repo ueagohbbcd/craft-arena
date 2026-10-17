@@ -1,6 +1,6 @@
 # Task manager
 
-`TaskManager` ([index.mjs](index.mjs)) runs and tracks every process started through `bash`, plus the default scripts. A **task** is one such process, identified by a `taskId`. The [Pi extension](../pi-extension/README.md) creates one manager per session; the participant-facing behavior of `bash` and `arena-task` is in the appended system prompt, [participant/PROMPT.md](../../participant/PROMPT.md#programs-keep-running).
+`TaskManager` ([index.mjs](index.mjs)) runs and tracks every process started through `bash`, plus the default scripts. A **task** is one such process, identified by a `taskId`. The [Pi extension](../pi-extension/README.md) creates one manager per session; the participant-facing behavior of `bash` and `arena-task` is in the appended system prompt, [participant/agents.d/10-arena.md](../../participant/agents.d/10-arena.md#programs-keep-running).
 
 The core rule: **waiting and process life are separate.** Ending a wait never kills a process; only `cancel`, a kill deadline or shutdown do.
 

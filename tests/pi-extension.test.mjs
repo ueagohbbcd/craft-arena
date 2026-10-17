@@ -504,7 +504,7 @@ test(
     assert.equal(requests[0].path, "/v1/chat/completions");
     assert.equal(requests[0].authorization, "Bearer scoped-fixture-token");
     const guidance = await readFile(
-      new URL("../participant/PROMPT.md", import.meta.url),
+      new URL("../participant/agents.d/10-arena.md", import.meta.url),
       "utf8",
     );
     assert.ok(

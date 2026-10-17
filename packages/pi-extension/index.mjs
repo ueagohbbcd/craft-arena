@@ -572,7 +572,7 @@ export default function arenaExtension(pi) {
       message: {
         customType: "arena-inbox-setup",
         display: false,
-        // How bash waits and what wakes the model are in participant/PROMPT.md
+        // How bash waits and what wakes the model are in participant/agents.d/10-arena.md
         // and the bash tool description; this only opens the inbox.
         content: `Inbox open for session ${r.sessionId}; your programs report here through InboxClient (packages/inbox).${initial ? "\n" + JSON.stringify(initial.message) : ""}${batch ? "\n" + batchText(batch) : ""}`,
       },

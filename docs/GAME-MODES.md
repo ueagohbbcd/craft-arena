@@ -85,7 +85,7 @@ data merge storage arena:config {version:1, kind:"match", teams:[{id:"red", play
   - 判断"会话在运行"，不再只认比赛。
   - 空闲提醒在 `open` 会话中照样生效。
   - 平台消息不带时钟，只在会话状态或胜者变化时通知模型（2026-10-16 起）。
-- **提示词：** `participant/PROMPT.md` 改为和玩法无关的通用说明，只讲怎样控制角色、程序怎样运行、信息怎样到达。玩法提示词由会话配置提供（`briefing.promptFile`），启动器把它追加在通用说明后面。
+- **提示词：** `participant/agents.d/10-arena.md` 改为和玩法无关的通用说明，只讲怎样控制角色、程序怎样运行、信息怎样到达。玩法提示词由会话配置提供（`briefing.promptFile`），启动器把它追加在通用说明后面。
 
 ## 陪玩：独立游戏桥
 

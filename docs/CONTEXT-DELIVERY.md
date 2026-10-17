@@ -1,6 +1,6 @@
 # 模型上下文：来源与时机
 
-本文写给要修改 Pi 扩展、默认脚本或自动报告内容的开发者。它说明参赛模型在什么时候看到什么。参赛模型自己读到的说明在 [participant/PROMPT.md](../participant/PROMPT.md)；术语见 [README](../README.md)。
+本文写给要修改 Pi 扩展、默认脚本或自动报告内容的开发者。它说明参赛模型在什么时候看到什么。参赛模型自己读到的说明在 [participant/agents.d/10-arena.md](../participant/agents.d/10-arena.md)；术语见 [README](../README.md)。
 
 ## 请求边界
 

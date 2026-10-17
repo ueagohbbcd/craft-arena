@@ -40,26 +40,30 @@ const positiveInteger = (value, fallback) => {
 };
 
 /**
- * Append the participant prompt (participant/PROMPT.md) once, without disabling
- * Pi's own discovery of user/project context files. The repository's root
- * AGENTS.md is the developer guide, not this prompt.
+ * Append each system prompt file (the agents.d fragments, including the
+ * arena's own participant/agents.d/10-arena.md) once, without disabling Pi's
+ * own discovery of user/project context files: a file Pi already loads as a
+ * context file is not appended again. The repository's root AGENTS.md is the
+ * developer guide, not a participant prompt.
  */
-export async function arenaGuidanceArgs({ cwd, agentDir, args = [] }) {
-  const guidance = join(projectRoot, "participant", "PROMPT.md");
+export async function systemPromptArgs({ cwd, agentDir, args = [], files }) {
+  const loaded = new Set();
   if (!args.includes("--no-context-files") && !args.includes("-nc")) {
     const { loadProjectContextFiles } =
       await import("@earendil-works/pi-coding-agent");
     // A spawned Node process reports the physical cwd, even when its caller used
     // a symlink. Match that discovery scope and compare file identity, not text.
-    const files = loadProjectContextFiles({
+    for (const file of loadProjectContextFiles({
       cwd: await realpath(cwd),
       agentDir,
-    });
-    const target = await realpath(guidance);
-    for (const file of files)
-      if ((await realpath(file.path).catch(() => null)) === target) return [];
+    }))
+      loaded.add(await realpath(file.path).catch(() => null));
   }
-  return ["--append-system-prompt", guidance];
+  const out = [];
+  for (const file of files)
+    if (!loaded.has(await realpath(file)))
+      out.push("--append-system-prompt", file);
+  return out;
 }
 
 /**
@@ -278,10 +282,11 @@ async function launchPi({
       env,
       builtinAgentsDir: join(projectRoot, "participant", "agents.d"),
     });
-    guidanceArgs = await arenaGuidanceArgs({
+    guidanceArgs = await systemPromptArgs({
       cwd,
       agentDir: profile.agentDir,
       args,
+      files: config.systemPromptFiles,
     });
     await mkdir(sessionDir, { recursive: true, mode: 0o700 });
     sessionFiles = resident
@@ -307,10 +312,6 @@ async function launchPi({
       : []),
     ...(args.includes("--mode") ? [] : ["--mode", resident ? "rpc" : "json"]),
     ...guidanceArgs,
-    ...config.systemPromptFiles.flatMap((path) => [
-      "--append-system-prompt",
-      path,
-    ]),
     "--skill",
     join(projectRoot, "participant/skills"),
     ...(config.skillsDir ? ["--skill", config.skillsDir] : []),

@@ -17,10 +17,12 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
 import { Vector } from "../packages/bot-sdk/index.mjs";
-import { arenaGuidanceArgs } from "../packages/pi-extension/bootstrap.mjs";
+import { systemPromptArgs } from "../packages/pi-extension/bootstrap.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const guidance = join(root, "participant", "PROMPT.md");
+const guidance = join(root, "participant", "agents.d", "10-arena.md");
+const arenaGuidanceArgs = (options) =>
+  systemPromptArgs({ ...options, files: [guidance] });
 const append = ["--append-system-prompt", guidance];
 const defaultTools = ["bash", "edit", "read", "write"];
 
@@ -46,7 +48,7 @@ test("arena guidance matches physical cwd and symlinked instruction identity", a
   const { dir, agentDir } = await fixture(t);
   const alias = join(dir, "toolkit-alias");
   await symlink(root, alias, "dir");
-  for (const cwd of [alias, join(alias, "participant")])
+  for (const cwd of [alias, join(alias, "participant", "agents.d")])
     assert.deepEqual(await arenaGuidanceArgs({ cwd, agentDir }), append);
   const workspace = join(dir, "workspace");
   await mkdir(workspace);
