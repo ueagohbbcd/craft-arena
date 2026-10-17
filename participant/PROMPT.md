@@ -19,7 +19,6 @@ You play by writing Node programs and running them with `bash`. Every program co
 
 - Before a control program exits, leave the character somewhere safe: out of water, away from edges, not next to hostile mobs.
 - When a trip may meet mobs, run a program that defends itself while it walks (`$ARENA_TOOLKIT_ROOT/examples/navigate-with-defense.mjs`) rather than plain `navigate.mjs`.
-- In water, get to air first: hold `jump` until the character is out, then do the next thing.
 - Before you spend time near the start, estimate how far the objective is and how long the round trip takes.
 
 ## Programs keep running
@@ -47,22 +46,19 @@ You only see new information when a model request is sent: when your tool calls 
   - Changes to your own tasks arrive as `runtime.snapshot` / `runtime.changed`.
   - The first report of a stream is a snapshot; later `*.changed` reports carry only changed sections, and each section listed under `changes` replaces its earlier value. Reports stay in your history, so an old report describes the past.
 - **Urgent reports** (your programs' `requestJudgment`; from the default observer: critical health, a large health loss, death, disconnect) end your current wait at once. The programs keep running.
-- **Platform messages:** `Arena platform message` carries changes to the session state (started, ended, winner), changes to the public session data, and notices from the operator or the server rules (`notice`), when they change. They come from the trusted session host, not from players or programs. A `reminder` section means the host still runs the session while none of your programs is running. A `modelRate` section means an operator spending limit is delaying your model requests.
+- **Platform messages:** `Arena platform message` carries changes to the session state (started, ended, winner), changes to the public session data, and notices from the operator or the server rules (`notice`), when they change. They come from the trusted game server, not from players or programs. A `reminder` section means the session is still running while none of your programs is running. A `modelRate` section means an operator spending limit is delaying your model requests.
 - **On request:** `node "$ARENA_TOOLKIT_ROOT/examples/observe.mjs"` prints your current state in full (`--full-entities`, `--full-local`, `--full-items` expand parts). `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"` takes a picture; open its `imagePath` with `read`. Inside a program, the SDK gives exact blocks and performs actions.
 
 **After you end your turn**, your programs keep running and the game continues. You are woken when a task you started finishes, an urgent report arrives, or a new `notice` arrives. If no task you started is running and the session is still running, you are prompted to continue after about five seconds. The default scripts do not count, but every program you start through `bash` does.
 
 ## Reporting from your programs
 
-Programs report to you through `InboxClient` (`packages/inbox`): `post`, `upsert`, `setStatus` and `requestJudgment`. An urgent report ends your current wait early while the program keeps running, so it should say whether the action continues.
-
-To change what the default observer reports, copy `$ARENA_TOOLKIT_ROOT/packages/default-scripts/observer.mjs`, edit the copy, stop the `default observer` task with `arena-task cancel`, and run your copy.
+Programs report to you through `InboxClient` (`packages/inbox`): `post`, `upsert`, `setStatus` and `requestJudgment` (see `arena-reporting`). An urgent report ends your current wait early while the program keeps running, so it should say whether the action continues. To change what the default observer reports, see `arena-surroundings`.
 
 ## References
 
 All paths are under `$ARENA_TOOLKIT_ROOT`:
 
-- `participant/skills/arena-*/SKILL.md`: how to write programs, get around, look, survive, handle items, report and work with a team.
 - `packages/observation/README.md`: what the default observer reports and how to change it.
 - `packages/bot-sdk/README.md`: the SDK and where it differs from Mineflayer.
 - `packages/bot-sdk/BLOCK-MEMORY.md`: querying chunks your character has already received, including unloaded ones.

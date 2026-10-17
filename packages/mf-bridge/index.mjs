@@ -142,6 +142,39 @@ export function createAuthority(
   num(snapshotRadius, 0, Infinity, true);
   const windowRefs = new WeakMap();
   const windowTargets = new WeakMap();
+  // Furnace, anvil, enchanting and villager windows carry extra state and
+  // methods; only the listed methods can be called on them, by windowCall.
+  const windowKinds = new WeakMap();
+  const specialFields = {
+    furnace: [
+      "totalFuel",
+      "fuel",
+      "fuelSeconds",
+      "totalFuelSeconds",
+      "totalProgress",
+      "progress",
+      "progressSeconds",
+      "totalProgressSeconds",
+    ],
+    anvil: [],
+    enchantmentTable: ["enchantments", "xpseed"],
+    villager: [],
+  };
+  const trade = (t) =>
+    t && {
+      inputItem1: item(t.inputItem1),
+      inputItem2: item(t.inputItem2) ?? null,
+      outputItem: item(t.outputItem),
+      hasItem2: t.hasItem2,
+      tradeDisabled: t.tradeDisabled,
+      nbTradeUses: t.nbTradeUses,
+      maximumNbTradeUses: t.maximumNbTradeUses,
+      xp: t.xp,
+      specialPrice: t.specialPrice,
+      priceMultiplier: t.priceMultiplier,
+      demand: t.demand,
+      realPrice: t.realPrice,
+    };
   let windowRevision = 0;
   const serializeWindow = (window) => {
     if (!window) return null;
@@ -161,6 +194,14 @@ export function createAuthority(
       "requiresConfirmation",
     ])
       if (window[name] !== undefined) out[name] = window[name];
+    const kind = windowKinds.get(window);
+    if (kind) {
+      out.kind = kind;
+      for (const name of specialFields[kind])
+        if (window[name] !== undefined) out[name] = window[name];
+      if (kind === "villager" && window.trades)
+        out.trades = window.trades.map(trade);
+    }
     return {
       ...out,
       slots: window.slots.map(item),
@@ -228,6 +269,99 @@ export function createAuthority(
       fail("Entity out of reach");
     return e;
   }
+  // The window Mineflayer's inventory helpers act on: the open one, else the inventory.
+  const activeWindow = (ref) => {
+    const window = bot.currentWindow ?? bot.inventory;
+    if (ref !== undefined && windowRefs.get(window) !== ref)
+      fail("Window is no longer open");
+    return window;
+  };
+  const slotOf = (window, slot) => num(slot, 0, window.slots.length - 1, true);
+  const range = (window, start, end) => {
+    num(start, 0, window.slots.length, true);
+    num(end, start, window.slots.length, true);
+    return [start, end];
+  };
+  const text = (value, max) => {
+    if (typeof value !== "string" || value.length > max) fail("Invalid text");
+    return value;
+  };
+  const pages = (list) => {
+    if (!Array.isArray(list) || list.length > 100) fail("Invalid pages");
+    return list.map((page) => text(page, 1024));
+  };
+  const bookSlot = (slot) =>
+    num(
+      slot,
+      bot.inventory.inventoryStart,
+      bot.inventory.inventoryEnd - 1,
+      true,
+    );
+  const skinParts = (parts) => {
+    if (!obj(parts)) fail("Invalid skin parts");
+    const out = { ...bot.settings?.skinParts };
+    for (const [key, value] of Object.entries(parts))
+      out[
+        one(key, [
+          "showCape",
+          "showJacket",
+          "showLeftSleeve",
+          "showRightSleeve",
+          "showLeftPants",
+          "showRightPants",
+          "showHat",
+        ])
+      ] = bool(value);
+    return out;
+  };
+  const opened = (window, container, kind) => {
+    windowTargets.set(
+      window,
+      container.position && container.id === undefined
+        ? { kind: "block", position: vec(container.position) }
+        : { kind: "entity", entityId: container.id },
+    );
+    if (kind) windowKinds.set(window, kind);
+    return serializeWindow(window);
+  };
+  const openSpecial = async (kind, container, open) =>
+    opened(await open(container), container, kind);
+  const putArgs = (window, [itemType, metadata, count]) => [
+    num(itemType, 0, Infinity, true),
+    metadata == null ? null : num(metadata, 0, Infinity, true),
+    count == null ? null : num(count, 1, Infinity, true),
+  ];
+  const windowItem = (window, slot) => inventoryItem(slot, window);
+  const itemName = (name) => (name == null ? undefined : text(name, 50));
+  const windowMethods = {
+    furnace: {
+      takeInput: () => [],
+      takeFuel: () => [],
+      takeOutput: () => [],
+      putInput: putArgs,
+      putFuel: putArgs,
+    },
+    anvil: {
+      combine: (w, [first, second, name]) => [
+        windowItem(w, first),
+        windowItem(w, second),
+        itemName(name),
+      ],
+      rename: (w, [slot, name]) => [windowItem(w, slot), itemName(name)],
+    },
+    enchantmentTable: {
+      enchant: (w, [choice]) => [num(choice, 0, 2, true)],
+      takeTargetItem: () => [],
+      putTargetItem: (w, [slot]) => [windowItem(w, slot)],
+      putLapis: (w, [slot]) => [windowItem(w, slot)],
+    },
+    villager: {
+      trade: (w, [index, count]) => [
+        num(index, 0, (w.trades?.length ?? 0) - 1, true),
+        count == null ? undefined : num(count, 1, Infinity, true),
+      ],
+    },
+  };
   const actions = Object.freeze({
     setControlState(a) {
       return bot.setControlState(one(a.control, controls), bool(a.state));
@@ -335,6 +469,12 @@ export function createAuthority(
       return bot.setQuickBarSlot(num(a.slot, 0, 8, true));
     },
     toss(a) {
+      if (a.itemType !== undefined)
+        return bot.toss(
+          num(a.itemType, 0, Infinity, true),
+          a.metadata == null ? null : num(a.metadata, 0, Infinity, true),
+          a.count == null ? null : num(a.count, 1, Infinity, true),
+        );
       const i = inventoryItem(a.slot);
       return bot.toss(i.type, i.metadata, num(a.count, 1, i.count, true));
     },
@@ -346,8 +486,35 @@ export function createAuthority(
     },
     async craft(a) {
       const t = a.table ? block(a.table) : null;
-      const type = num(a.itemType, 0, Infinity, true),
-        count = num(a.count, 1, Infinity, true);
+      const type = num(a.itemType, 0, Infinity, true);
+      if (a.delta !== undefined) {
+        // Mineflayer's craft(recipe, count): the bridge's own recipe whose
+        // ingredient change matches the caller's, run count times.
+        if (!Array.isArray(a.delta)) fail("Invalid recipe");
+        const delta = JSON.stringify(
+          a.delta.map((d) => [
+            num(d?.id, -1, Infinity, true),
+            d.metadata == null ? null : num(d.metadata, -1, Infinity, true),
+            num(d.count, -Infinity, Infinity, true),
+          ]),
+        );
+        const r = bot
+          .recipesAll(type, null, t)
+          .find(
+            (r) =>
+              JSON.stringify(
+                r.delta.map((d) => [d.id, d.metadata ?? null, d.count]),
+              ) === delta,
+          );
+        if (!r) fail("No such recipe for this crafting table");
+        await bot.craft(
+          r,
+          a.runs == null ? 1 : num(a.runs, 1, Infinity, true),
+          t,
+        );
+        return inventoryState();
+      }
+      const count = num(a.count, 1, Infinity, true);
       const r = bot.recipesFor(type, null, count, t)[0];
       if (!r)
         fail(
@@ -365,13 +532,7 @@ export function createAuthority(
         a.direction == null ? undefined : vector(pos(a.direction, false)),
         a.cursorPos == null ? undefined : vector(pos(a.cursorPos, false)),
       );
-      windowTargets.set(
-        window,
-        a.entityId === undefined
-          ? { kind: "block", position: vec(container.position) }
-          : { kind: "entity", entityId: container.id },
-      );
-      return serializeWindow(window);
+      return opened(window, container);
     },
     async closeWindow(a) {
       const window =
@@ -392,6 +553,158 @@ export function createAuthority(
         num(a.mouseButton, -128, 127, true),
         num(a.mode, 0, 6, true),
       );
+    },
+    async moveSlotItem(a) {
+      const window = activeWindow(a.windowRef);
+      await bot.moveSlotItem(
+        slotOf(window, a.sourceSlot),
+        slotOf(window, a.destSlot),
+      );
+      return inventoryState();
+    },
+    async putAway(a) {
+      await bot.putAway(slotOf(activeWindow(a.windowRef), a.slot));
+      return inventoryState();
+    },
+    async putSelectedItemRange(a) {
+      const window = activeWindow(a.windowRef);
+      const [start, end] = range(window, a.start, a.end);
+      await bot.putSelectedItemRange(
+        start,
+        end,
+        window,
+        a.slot == null ? null : slotOf(window, a.slot),
+      );
+      return inventoryState();
+    },
+    async transfer(a) {
+      const window = activeWindow(a.windowRef);
+      const [sourceStart, sourceEnd] = range(
+        window,
+        a.sourceStart,
+        a.sourceEnd,
+      );
+      const [destStart, destEnd] = range(window, a.destStart, a.destEnd);
+      await bot.transfer({
+        window,
+        itemType: num(a.itemType, 0, Infinity, true),
+        metadata:
+          a.metadata == null ? null : num(a.metadata, 0, Infinity, true),
+        count: a.count == null ? null : num(a.count, 0, Infinity, true),
+        nbt: a.nbt,
+        sourceStart,
+        sourceEnd,
+        destStart,
+        destEnd,
+      });
+      return inventoryState();
+    },
+    openFurnace: (a) =>
+      openSpecial("furnace", block(a.position), bot.openFurnace),
+    openAnvil: (a) => openSpecial("anvil", block(a.position), bot.openAnvil),
+    openEnchantmentTable: (a) =>
+      openSpecial(
+        "enchantmentTable",
+        block(a.position),
+        bot.openEnchantmentTable,
+      ),
+    openVillager: (a) =>
+      openSpecial("villager", target(a.entityId), bot.openVillager),
+    async windowCall(a) {
+      const window = currentWindow(a.windowRef);
+      const methods = windowMethods[windowKinds.get(window)] ?? {};
+      if (typeof a.method !== "string" || !Object.hasOwn(methods, a.method))
+        fail("Window method not allowed");
+      if (a.args !== undefined && !Array.isArray(a.args))
+        fail("Invalid arguments");
+      const value = await window[a.method](
+        ...methods[a.method](window, a.args ?? []),
+      );
+      return {
+        value: value?.type !== undefined ? item(value) : null,
+        window: serializeWindow(window),
+        ...inventoryState(),
+      };
+    },
+    activateEntity: (a) => bot.activateEntity(target(a.entityId)),
+    activateEntityAt: (a) =>
+      bot.activateEntityAt(target(a.entityId), vector(pos(a.position, false))),
+    useOn(a) {
+      return bot.useOn(target(a.entityId));
+    },
+    mount(a) {
+      return bot.mount(target(a.entityId));
+    },
+    dismount() {
+      return bot.dismount();
+    },
+    moveVehicle(a) {
+      return bot.moveVehicle(num(a.left, -1, 1), num(a.forward, -1, 1));
+    },
+    elytraFly() {
+      return bot.elytraFly();
+    },
+    async fish() {
+      await bot.fish();
+      return inventoryState();
+    },
+    async placeEntity(a) {
+      const f = pos(a.face);
+      if (Math.abs(f.x) + Math.abs(f.y) + Math.abs(f.z) !== 1)
+        fail("Invalid placement face");
+      return entity(await bot.placeEntity(block(a.position), vector(f)));
+    },
+    sleep(a) {
+      return bot.sleep(block(a.position));
+    },
+    updateSign(a) {
+      if (typeof a.text !== "string" || a.text.length > 512)
+        fail("Invalid sign text");
+      return bot.updateSign(
+        block(a.position),
+        a.text,
+        a.back === undefined ? false : bool(a.back),
+      );
+    },
+    async writeBook(a) {
+      await bot.writeBook(bookSlot(a.slot), pages(a.pages));
+      return inventoryState();
+    },
+    async signBook(a) {
+      await bot.signBook(
+        bookSlot(a.slot),
+        pages(a.pages),
+        text(a.author, 16),
+        text(a.title, 32),
+      );
+      return inventoryState();
+    },
+    whisper(a) {
+      if (!allowChat) fail("Chat disabled by arena policy");
+      return bot.whisper(text(a.username, 16), text(a.message, 256));
+    },
+    setSettings(a) {
+      // View distance stays with the host: it sets how much world the bridge loads.
+      const settings = {};
+      for (const [key, value] of Object.entries(a.settings ?? {}))
+        settings[key] =
+          key === "chat"
+            ? one(value, ["enabled", "commandsOnly", "disabled"])
+            : key === "mainHand"
+              ? one(value, ["left", "right"])
+              : key === "locale"
+                ? text(value, 16)
+                : key === "skinParts"
+                  ? skinParts(value)
+                  : [
+                        "colorsEnabled",
+                        "enableTextFiltering",
+                        "enableServerListing",
+                      ].includes(key)
+                    ? bool(value)
+                    : fail(`Setting ${key} not allowed`);
+      bot.setSettings(settings);
+      return bot.settings;
     },
   });
   return {

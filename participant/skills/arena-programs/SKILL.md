@@ -5,13 +5,13 @@ description: How to write arena programs. Query and control program skeletons, r
 
 # Writing programs
 
-How tasks, waiting and reports work is in your system prompt. This skill covers how to write a program that does its job and leaves the character in a clean state. The other `arena-*` skills cover walking, looking, survival, items, reporting and team work.
+How tasks, waiting and reports work is in your system prompt. This skill covers writing a program that does its job and leaves the character in a clean state.
 
-Each `connectBot()` call keeps its own copy of what the character has seen (the local mirror). `connectBot()` reads the address and token of the bridge (the trusted service that runs your character in Minecraft) from the environment, so call it with no arguments.
+Import the toolkit through `ARENA_TOOLKIT_ROOT` and call `connectBot()` with no arguments: it reads the bridge (the trusted service that runs your character in Minecraft) address and token from the environment. Each `connectBot()` call keeps its own copy of what the character has seen (the local mirror).
 
 ## Query program
 
-Save this as `query.mjs` and run `node query.mjs` through `bash`. It only reads, so it is safe while another program moves the character.
+A query program only reads, so it is safe while another program moves the character. Always end it with `bot.closeBridge()`.
 
 ```js
 const { connectBot } = await import(
@@ -24,7 +24,6 @@ try {
     JSON.stringify({
       position: bot.entity.position,
       health: bot.health,
-      food: bot.food,
       inventory: bot.inventory.items().map((i) => [i.name, i.count]),
       below: bot.blockAt(p.offset(0, -1, 0))?.name ?? null,
     }),
@@ -79,35 +78,23 @@ try {
 }
 ```
 
-Common actions (full list and differences from Mineflayer in the [SDK README](../../../packages/bot-sdk/README.md)):
+Other actions (full list and differences from Mineflayer in the [SDK README](../../../packages/bot-sdk/README.md)): `bot.activateBlock(block)` for buttons, levers, doors, gates and beds; `bot.chat(message)` then `await bot.flush()`; `await bot.getSessionState()`. Walking, items, fighting and eating are in the `arena-navigation`, `arena-items` and `arena-survival` skills. To face a way, give Pathfinder or `bot.lookAt(point)` a target point rather than computing a yaw.
 
-- Walk: `await bot.pathfinder.goto(new goals.GoalNear(x, y, z, 1))`; see the `arena-navigation` skill
-- Find blocks: `bot.blockAt(pos)`, `bot.findBlock(...)`, `bot.findBlocks(...)`
-- Press a button, pull a lever, open a door or gate, use a bed: `await bot.activateBlock(block)`
-- Dig, place, equip, craft, containers: see the `arena-items` skill
-- Fight and eat: see the `arena-survival` skill
-- Chat: `bot.chat(message)`, then `await bot.flush()`
-- Session state: `await bot.getSessionState()`
-
-Directions: north is −Z, south is +Z, east is +X, west is −X. To move or face a way, give a target point to Pathfinder or `bot.lookAt(point)` instead of working out a yaw by hand.
-
-Rules for control programs:
+Bridge rules for control programs:
 
 - Methods change the game. Assigning to `bot.entity.position` or a window object changes only your program's copy.
 - After synchronous-style calls (`setControlState`, `chat`, `clearControlStates`), `await bot.flush()` sends them and reports the first failure.
-- `closeBridge()` closes this program's connection. Movement keys this program pressed are released by the bridge about 1 second after its connection closes, also when the program crashes or is cancelled; item use and digging are not. Release controls before closing to stop at once.
-- Programs receive `death`, `spawn` (first spawn and respawn) and `bridgeReset` events. A `bridgeReset` means the connection was rebuilt. Get entities, windows and goals again after it. The plugins clear their Pathfinder and PvP targets on reset.
-- When an action call returns, check whether it happened. `await bot.consume()` returns after eating, with the inventory updated. `await bot.wake()` returns once the request was accepted; wait for the `wake` event or check `bot.isSleeping === false`. For synchronous-style calls, `await bot.flush()` reports whether they were sent. To know whether a movement worked, check the actual position.
+- `closeBridge()` closes this program's connection. The bridge releases movement keys this program pressed about 1 second after its connection closes, also on a crash or cancel; item use and digging are not released. Release controls before closing to stop at once.
+- Programs receive `death`, `spawn` (first spawn and respawn) and `bridgeReset` events. After a `bridgeReset` (the connection was rebuilt), get entities, windows and goals again; the plugins clear their Pathfinder and PvP targets.
+- Check that an action happened. `await bot.consume()` returns after eating, with the inventory updated. `await bot.wake()` returns once the request was accepted; wait for the `wake` event or `bot.isSleeping === false`. For movement, check the actual position.
 
 ## The main hand is shared
 
-Every program that controls the character uses the same main hand. If an eating or guarding program equips food or a sword, the building program's next placement uses that item. Let one program own the hand at a time, and equip the right item again each time work resumes. [navigate-with-autoeat.mjs](../../../examples/navigate-with-autoeat.mjs) pauses the route to eat and then resumes. [build-with-autoeat.mjs](../../../examples/build-with-autoeat.mjs) keeps building and eating in one program and takes turns with the hand.
+Every control program uses the same main hand: if an eating or guarding program equips food or a sword, the building program's next placement uses that item. Let one program own the hand at a time, and equip the right item again each time work resumes. [navigate-with-autoeat.mjs](../../../examples/navigate-with-autoeat.mjs) pauses the route to eat and then resumes; [build-with-autoeat.mjs](../../../examples/build-with-autoeat.mjs) builds and eats in one program and takes turns with the hand.
 
 ## Listener beside a controller
 
-The default observer already reports ordinary surroundings. Write a listener when one specific discovery should reach you before the current action finishes, for example a chest near the route or a named player arriving. A listener only reads and reports. It never moves the character, so it can run beside a controller. The example programs exit when their job is done; a listener runs until you cancel it.
-
-[watch-surroundings.mjs](../../../examples/watch-surroundings.mjs) is a complete listener: it watches for a block type and reports each new find once with `requestJudgment`. Copy it when you need a different trigger.
+The default observer already reports ordinary surroundings. Write a listener when one specific discovery should reach you before the current action finishes, for example a chest near the route or a named player arriving. A listener only reads and reports, so it can run beside a controller, and it runs until you cancel it. [watch-surroundings.mjs](../../../examples/watch-surroundings.mjs) watches for a block type and reports each new find once with `requestJudgment`; copy it for a different trigger.
 
 Start the listener and then the controller as two separate `bash` calls, so each gets its own `taskId`:
 
@@ -125,17 +112,15 @@ Start the listener and then the controller as two separate `bash` calls, so each
 }
 ```
 
-`wait_seconds: 0` returns at once and leaves the listener running. Keep both task IDs.
-
-**When an urgent report arrives**, your wait ends, but both programs are still running. The character has moved since the report, so check the current position or blocks with a query program before you act. Then choose one of these:
+**When an urgent report arrives**, your wait ends but both programs keep running. The character has moved since the report, so check the current position or blocks with a query program, then:
 
 1. **Ignore it.** Call `bash` with the controller's `taskId` again.
 2. **Look or act without moving.** Leave the controller running. Anything that needs movement or the main hand must wait for the controller or replace it.
-3. **Change the plan.** `arena-task cancel` the controller (it prints the final status once the process has ended), check that the character stopped, then start the new program.
+3. **Change the plan.** `arena-task cancel` the controller, check that the character stopped, then start the new program.
 4. **It is already handled.** Cancel what is left and continue from the current state.
 
 ## When a wait ends or a program misbehaves
 
-- **`bash` returned `running`.** The wait time ran out, or an urgent report ended the wait. The program is still running. Call `bash` with `{"taskId": ...}` to keep waiting, or stop it with `arena-task cancel <taskId>`. Do not start it again, or two copies will fight over the character. Each `running` result shows only the output printed since the previous `running` result for that task.
-- **A program finished while you were thinking.** Its output is in your next `bash` result for that `taskId`, or in a `task.completed` inbox report, once. Waiting on that task again afterwards returns `status: "delivered"` with the exit code.
-- **You cancelled a controller, but the character is still moving.** `arena-task cancel <taskId>` sends SIGTERM to the program's process group, SIGKILL after 500 ms, and prints the task's final status once it has ended. A program that exits without releasing its controls leaves the movement keys pressed for about 1 more second. Check the position before you start a new controller, and have controllers call `bot.clearControlStates()` and `await bot.flush()` before they exit.
+- **`bash` returned `running`.** The wait ran out or an urgent report ended it; the program is still running. Wait again with `{"taskId": ...}` or `arena-task cancel` it. Never start it again.
+- **A program finished while you were thinking.** Its final output arrives once, in your next `bash` result for that `taskId` or as a `task.completed` report; after that the task returns `status: "delivered"`.
+- **You cancelled a controller, but the character is still moving.** A program that exits without releasing its controls leaves the movement keys pressed for about 1 more second. Check the position before you start a new controller, and have controllers call `bot.clearControlStates()` and `await bot.flush()` before they exit.

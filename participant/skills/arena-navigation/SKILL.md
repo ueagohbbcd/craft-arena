@@ -7,7 +7,7 @@ description: Getting around in the arena. The first movement with navigate.mjs, 
 
 ## First movement
 
-Pick a destination from the briefing and what you have observed. Then call `bash`:
+Walk with `navigate.mjs`:
 
 ```json
 {
