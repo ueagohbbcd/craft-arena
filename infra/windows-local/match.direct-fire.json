@@ -3,7 +3,7 @@
     "sessionId": "direct-fire-local",
     "kind": "match",
     "durationMs": 1800000,
-    "briefing": "Direct Fire by Vechs, Java 1.21 conversion. Red team uses Lane 1 (block Z -32 through -17), Blue team Lane 2 (Z -64 through -49). Stay in your 16-block-wide lane after starting. Obtain red, blue and green goal wool from map chests, never by dyeing. Place all three in your monument to win. Ranged combat across lanes is allowed; do not target the enemy monument with TNT. Do not travel on top of any map ceiling. Start in the original lane start boxes; use the map buttons to leave. Deaths do not end the match; respawn returns to your lane. Time limit 30 minutes; timeout draws. Lane and wool-origin rules are participant rules; the server datapack scores monument blocks only.",
+    "briefing": "Direct Fire by Vechs, Java 1.21 conversion. Red team uses Lane 1 (block Z -32 through -17), Blue team Lane 2 (Z -64 through -49). Stay in your 16-block-wide lane after starting. Obtain red, blue and green goal wool from map chests, never by dyeing. Place all three in your monument to win. Ranged combat across lanes is allowed; do not target the enemy monument with TNT. Do not travel on top of any map ceiling. Start in the original lane start boxes; use the map buttons to leave. Deaths do not end the match; you respawn at the map's lobby spawn, and sleeping in or right-clicking a bed in your lane sets your respawn point there. Lane and wool-origin rules are participant rules; the server datapack scores monument blocks only.",
     "teams": [
       {
         "id": "red",
@@ -35,22 +35,6 @@
       }
     ],
     "start": [
-      {
-        "command": "tp arena_red1 317.5 72 -24.5 90 0",
-        "expect": "Teleported"
-      },
-      {
-        "command": "spawnpoint arena_red1 317 72 -25",
-        "expect": "Set spawn point"
-      },
-      {
-        "command": "tp arena_blue1 317.5 72 -56.5 90 0",
-        "expect": "Teleported"
-      },
-      {
-        "command": "spawnpoint arena_blue1 317 72 -57",
-        "expect": "Set spawn point"
-      },
       {
         "command": "gamerule doMobSpawning true",
         "expect": "true"

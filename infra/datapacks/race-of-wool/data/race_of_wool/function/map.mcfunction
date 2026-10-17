@@ -5,8 +5,12 @@
 # - publishGoals: 1b publishes `goals` to the models in arena:session.public.
 # - watchItems: items whose 0 <-> positive inventory changes the default
 #   observer reports to the model.
+# - starts: optional, at most one entry per team; #arena:start teleports the
+#   team's players there (overworld, yaw and pitch in degrees). A team
+#   without an entry is not moved. Respawns stay with the map.
 # Values below: Direct Fire by Vechs, Java 1.21 conversion v1.1.
 data remove storage race_of_wool:map objectives
 data remove storage race_of_wool:map goals
 data remove storage race_of_wool:map watchItems
-data merge storage race_of_wool:map {publishGoals:1b,objectives:["red-wool","blue-wool","green-wool"],goals:[{team:"red",objective:"red-wool",x:290,y:68,z:-18,block:"minecraft:red_wool"},{team:"red",objective:"blue-wool",x:291,y:68,z:-18,block:"minecraft:blue_wool"},{team:"red",objective:"green-wool",x:292,y:68,z:-18,block:"minecraft:green_wool"},{team:"blue",objective:"red-wool",x:290,y:68,z:-63,block:"minecraft:red_wool"},{team:"blue",objective:"blue-wool",x:291,y:68,z:-63,block:"minecraft:blue_wool"},{team:"blue",objective:"green-wool",x:292,y:68,z:-63,block:"minecraft:green_wool"}],watchItems:["white_wool","orange_wool","magenta_wool","light_blue_wool","yellow_wool","lime_wool","pink_wool","gray_wool","light_gray_wool","cyan_wool","purple_wool","blue_wool","brown_wool","green_wool","red_wool","black_wool"]}
+data remove storage race_of_wool:map starts
+data merge storage race_of_wool:map {publishGoals:1b,objectives:["red-wool","blue-wool","green-wool"],goals:[{team:"red",objective:"red-wool",x:290,y:68,z:-18,block:"minecraft:red_wool"},{team:"red",objective:"blue-wool",x:291,y:68,z:-18,block:"minecraft:blue_wool"},{team:"red",objective:"green-wool",x:292,y:68,z:-18,block:"minecraft:green_wool"},{team:"blue",objective:"red-wool",x:290,y:68,z:-63,block:"minecraft:red_wool"},{team:"blue",objective:"blue-wool",x:291,y:68,z:-63,block:"minecraft:blue_wool"},{team:"blue",objective:"green-wool",x:292,y:68,z:-63,block:"minecraft:green_wool"}],starts:[{team:"red",x:317.5,y:72,z:-24.5,yaw:90f,pitch:0f},{team:"blue",x:317.5,y:72,z:-56.5,yaw:90f,pitch:0f}],watchItems:["white_wool","orange_wool","magenta_wool","light_blue_wool","yellow_wool","lime_wool","pink_wool","gray_wool","light_gray_wool","cyan_wool","purple_wool","blue_wool","brown_wool","green_wool","red_wool","black_wool"]}

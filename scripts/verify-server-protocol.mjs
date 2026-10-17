@@ -12,10 +12,12 @@
  *     the reply for a missing function tag;
  *   - race-of-wool: monument reset and force-loading, scores following placed
  *     and removed blocks, a win, a same-tick draw, #arena:stop, the time
- *     limit from arena:config.durationMs, and no limit without it;
+ *     limit from arena:config.durationMs, and no limit without it; starts
+ *     with the listed players offline;
  *   - live (unless --skip-live): two bridge processes in BRIDGE_SESSION=server
  *     mode with real Mineflayer bots, a round run by packages/arena/src/cli.mjs
- *     from a match file; the red bot places its wool through the SDK and the
+ *     from a match file; #arena:start must move both bots to their map
+ *     starts, then the red bot places its wool through the SDK and the
  *     datapack must declare red the winner;
  *   - server-mode bridge: follows a round run with plain RCON commands, gates
  *     actions by its state and releases held keys when it ends.
@@ -286,6 +288,29 @@ async function raceOfWool(rcon) {
   return map;
 }
 
+/**
+ * A 7x7 stone floor under each map start, so a bot moved there does not fall,
+ * even after the hostless round walks it forward a little.
+ */
+async function startPads(rcon, map) {
+  for (const start of map.starts) {
+    const [x, y, z] = [start.x, start.y - 1, start.z].map(Math.floor);
+    const area = `${x - 3} ${z - 3} ${x + 3} ${z + 3}`;
+    await rcon.command(`forceload add ${area}`);
+    await rcon.command(
+      `fill ${x - 3} ${y} ${z - 3} ${x + 3} ${y} ${z + 3} minecraft:stone`,
+    );
+    await rcon.command(`forceload remove ${area}`);
+  }
+}
+
+/** `Pos` or `Rotation` of an online player, or null on a lost reply. */
+async function entityList(rcon, name, path) {
+  const reply = await rcon.command(`data get entity ${name} ${path}`);
+  const m = reply.match(/has the following entity data: (\[[^\]]*\])/);
+  return m ? parseSnbt(m[1]) : null;
+}
+
 /** Runs packages/arena/src/cli.mjs; resolves its parsed output. */
 function arenaCli(...args) {
   return new Promise((resolve, reject) =>
@@ -326,7 +351,7 @@ async function live(rcon, dir, map) {
   );
   await rcon.command("forceload remove all");
 
-  // The shipped Direct Fire match file, with start commands for this world.
+  // The shipped Direct Fire match file, plus the red bot's wool.
   const match = JSON.parse(
     await readFile(
       join(root, "infra/windows-local/match.direct-fire.json"),
@@ -335,9 +360,8 @@ async function live(rcon, dir, map) {
   );
   match.config.sessionId = "verify-live";
   match.config.durationMs = 120000;
-  const stand = (goal) => `${goal.x + 0.5} ${goal.y} ${goal.z + 3.5}`;
   match.commands.start = [
-    { command: `tp arena_red1 ${stand(red[1])}`, expect: "Teleported" },
+    ...(match.commands.start ?? []),
     ...red.map((g) => ({
       command: `give arena_red1 ${g.block} 1`,
       expect: "Gave",
@@ -391,6 +415,34 @@ async function live(rcon, dir, map) {
     );
     assert.equal((await session()).briefing.text, match.config.briefing);
     await arenaCli("start", matchPath);
+    // The datapack moved every listed player to the team's map start.
+    for (const team of match.config.teams) {
+      const start = map.starts.find((s) => s.team === team.id);
+      for (const name of team.players) {
+        let pos, rotation;
+        await waitFor(
+          async () => {
+            pos = await entityList(rcon, name, "Pos");
+            rotation = await entityList(rcon, name, "Rotation");
+            return (
+              pos &&
+              rotation &&
+              Math.abs(pos[0] - start.x) < 0.3 &&
+              Math.abs(pos[1] - start.y) < 0.3 &&
+              Math.abs(pos[2] - start.z) < 0.3 &&
+              Math.abs(rotation[0] - start.yaw) < 1
+            );
+          },
+          5000,
+          () =>
+            `${name} not at ${JSON.stringify(start)}: Pos ${JSON.stringify(pos)} Rotation ${JSON.stringify(rotation)}`,
+        );
+      }
+    }
+    log("ok live: #arena:start moved each team to its map start");
+    // Then next to the red monument, which this flat world has elsewhere.
+    const stand = `${red[1].x + 0.5} ${red[1].y} ${red[1].z + 3.5}`;
+    await rcon.command(`tp arena_red1 ${stand}`);
     const { connectBot, Vector } =
       await import("../packages/bot-sdk/index.mjs");
     const bot = await connectBot({
@@ -582,6 +634,7 @@ try {
   await rcon.connect();
   await arenaExample(rcon);
   const map = await raceOfWool(rcon);
+  await startPads(rcon, map);
   if (!args.includes("--skip-live")) await live(rcon, dir, map);
   await hostless(rcon);
   log("All server protocol checks passed.");

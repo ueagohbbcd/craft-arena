@@ -120,4 +120,41 @@ test("map.mcfunction matches the Direct Fire match config", async () => {
     assert.match(goal.block, /^minecraft:[a-z_]+(\[.*\])?$/);
   }
   assert.ok(map.watchItems.every((item) => /^[a-z_]+$/.test(item)));
+  // Every team has one start; the datapack, not the match file, moves players.
+  for (const team of teams)
+    assert.equal(map.starts.filter((s) => s.team === team).length, 1, team);
+  for (const start of map.starts)
+    for (const key of ["x", "y", "z", "yaw", "pitch"])
+      assert(Number.isFinite(start[key]), JSON.stringify(start));
+  for (const [phase, list] of Object.entries(config.commands))
+    for (const entry of list) {
+      const command = entry.command ?? entry;
+      assert.doesNotMatch(command, /^(tp|teleport|spawnpoint)\b/, phase);
+    }
+});
+
+test("race-of-wool start teleports listed players to their team start", async () => {
+  const start = lines(await fn("start"));
+  const walk = start.indexOf(
+    'function race_of_wool:each {run:"race_of_wool:start_team"}',
+  );
+  assert(walk > 0, "start walks arena:config teams");
+  assert(
+    walk < start.findIndex((l) => l.includes('state set value "running"')),
+    "players move before the release",
+  );
+  assert.match(
+    await fn("start_team"),
+    /^execute unless data storage race_of_wool:work start run return 0$/m,
+  );
+  // A selector, not a bare name: an offline player matches nobody and the
+  // start goes on.
+  assert.match(
+    await fn("start_player"),
+    /^\$execute as @a\[name=\$\(player\),limit=1\] in minecraft:overworld run tp @s \$\(x\) \$\(y\) \$\(z\) \$\(yaw\) \$\(pitch\)$/m,
+  );
+  for (const path of await files(root))
+    if (path.endsWith(".mcfunction"))
+      for (const line of lines(await readFile(join(root, path), "utf8")))
+        assert.doesNotMatch(line, /\bspawnpoint\b/, `${path}: ${line}`);
 });
