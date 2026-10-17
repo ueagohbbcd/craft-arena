@@ -77,6 +77,42 @@ function item(i) {
     }
   );
 }
+/**
+ * A value from a generic event, made wire-safe: blocks, entities and vectors
+ * become tagged objects the SDK turns back into its own; items and plain data
+ * are copied a few levels deep; functions are dropped.
+ */
+export function genericValue(value, depth = 0) {
+  if (
+    value === null ||
+    ["string", "number", "boolean", "bigint"].includes(typeof value)
+  )
+    return value;
+  if (typeof value !== "object" || depth > 4) return null;
+  if (value instanceof Error) return { message: value.message };
+  if (typeof value.stateId === "number" && value.position)
+    return { $block: serializeBlock(value) };
+  if (typeof value.id === "number" && value.position && "type" in value)
+    return { $entity: entity(value) };
+  if (
+    ["x", "y", "z"].every((k) => typeof value[k] === "number") &&
+    Object.keys(value).length <= 3
+  )
+    return { $vec3: vec(value) };
+  if (typeof value.type === "number" && typeof value.count === "number")
+    return item(value);
+  if (Buffer.isBuffer(value)) return null;
+  if (typeof value.toString === "function" && value.json !== undefined)
+    return { text: String(value), json: genericValue(value.json, depth + 1) };
+  if (Array.isArray(value))
+    return value.slice(0, 256).map((entry) => genericValue(entry, depth + 1));
+  const out = {};
+  for (const key of Object.keys(value).slice(0, 64)) {
+    if (key.startsWith("_") || typeof value[key] === "function") continue;
+    out[key] = genericValue(value[key], depth + 1);
+  }
+  return out;
+}
 function entity(e) {
   if (!e) return null;
   const out = {};
@@ -362,7 +398,70 @@ export function createAuthority(
       ],
     },
   };
+  // Generic calls (`call`): any Mineflayer method on the bot, or on
+  // bot.creative, except the ones below. Connection control and raw packets
+  // stay with the trusted side; EventEmitter methods could fake events on the
+  // trusted bot; methods with their own action keep its checks and policy.
+  const callDenied = new Set([
+    "quit",
+    "end",
+    "connect",
+    "loadPlugin",
+    "loadPlugins",
+    "hasPlugin",
+    "emit",
+    "on",
+    "once",
+    "off",
+    "addListener",
+    "prependListener",
+    "prependOnceListener",
+    "removeListener",
+    "removeAllListeners",
+    "setMaxListeners",
+    "listeners",
+    "rawListeners",
+    "listenerCount",
+    "eventNames",
+    "getMaxListeners",
+  ]);
+  const callArg = (value, depth = 0) => {
+    if (depth > 4) fail("Arguments nested too deeply");
+    if (value === null || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map((v) => callArg(v, depth + 1));
+    if (value.$vec3) return vector(pos(value.$vec3, false));
+    if (value.$block) return block(value.$block.position ?? value.$block);
+    if (value.$entity) return target(value.$entity.id ?? value.$entity);
+    if (value.$item) return inventoryItem(value.$item.slot ?? value.$item);
+    const out = {};
+    for (const [key, v] of Object.entries(value))
+      if (!key.startsWith("_")) out[key] = callArg(v, depth + 1);
+    return out;
+  };
   const actions = Object.freeze({
+    async call(a) {
+      if (typeof a.method !== "string") fail("Invalid method");
+      const path = a.method.split(".");
+      if (
+        path.length > 2 ||
+        (path.length === 2 && path[0] !== "creative") ||
+        path.some((part) => !/^[A-Za-z][A-Za-z0-9]*$/.test(part)) ||
+        callDenied.has(path.at(-1)) ||
+        Object.hasOwn(actions, path.at(-1))
+      )
+        fail(
+          Object.hasOwn(actions, path.at(-1))
+            ? `Use the ${path.at(-1)} action for this method`
+            : "Method not allowed",
+        );
+      const owner = path.length === 2 ? bot[path[0]] : bot;
+      if (typeof owner?.[path.at(-1)] !== "function")
+        fail(`No method ${a.method}`);
+      if (a.args !== undefined && !Array.isArray(a.args))
+        fail("Invalid arguments");
+      const args = (a.args ?? []).map((value) => callArg(value));
+      return genericValue(await owner[path.at(-1)](...args));
+    },
     setControlState(a) {
       return bot.setControlState(one(a.control, controls), bool(a.state));
     },
@@ -1121,6 +1220,38 @@ export function createBridgeServer({
     bot.on(name, fn);
     listeners.push([name, fn]);
   }
+  // Every other Mineflayer event (and plugin events emitted on the bot) is
+  // forwarded by name with its arguments made wire-safe. Skipped: events the
+  // snapshot already carries every tick, 'error' (an unhandled 'error' would
+  // throw in each program), 'message', which repeats chat/messagestr, and the
+  // per-position `blockUpdate:(x, y, z)` copies of blockUpdate.
+  const handled = new Set([
+    ...listeners.map(([name]) => name),
+    "physicTick",
+    "move",
+    "error",
+    "message",
+    "inject_allowed",
+  ]);
+  const nativeEmit = bot.emit;
+  bot.emit = function (name, ...args) {
+    if (
+      typeof name === "string" &&
+      !handled.has(name) &&
+      !name.includes(":") &&
+      clients.size
+    )
+      try {
+        publish("event", {
+          name,
+          args: args.map((value) => genericValue(value)),
+          generic: true,
+        });
+      } catch {
+        // A value that cannot be serialized never breaks the native bot.
+      }
+    return nativeEmit.call(this, name, ...args);
+  };
   let lastBlocks = 0;
   const timer = setInterval(() => {
     if (clients.size) {
@@ -1312,6 +1443,7 @@ export function createBridgeServer({
       bot.inventory?.off?.("updateSlot", onSlotUpdate);
       watchWindow(null);
       for (const [n, f] of listeners) bot.off(n, f);
+      bot.emit = nativeEmit;
       for (const c of clients) c.end();
       for (const c of chatClients) c.end();
       server.closeAllConnections();

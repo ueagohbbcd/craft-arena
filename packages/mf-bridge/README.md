@@ -75,6 +75,8 @@ Snapshot fields: `sampledAt`, `version`, `username`, `connectionStatus` (`connec
 
 Forwarded events: `chat`, `messagestr`, `entityMoved`, `entitySpawn`, `entityGone`, `entityHurt`, `entityEquip`, `entityUpdate`, `entityEquipmentChange`, `health`, `sleep`, `wake`, `heldItemChanged`, `windowOpen`, `windowClose`, `diggingCompleted`, `diggingAborted`, `chunkColumnLoad`, `chunkColumnUnload`, `blockUpdate`, `blockEntityData`, `spawn`, `death`, `end`, `kicked`. Entities, blocks and windows in `args` are serialized the same way as in snapshots.
 
+Every other event emitted on the bot is forwarded generically as `{name, args, generic: true}`, except `error`, `message`, `physicTick`, `move` and names containing `:` (per-position `blockUpdate:(x, y, z)`). Its arguments are copied up to four levels deep: blocks become `{$block}`, entities `{$entity}`, vectors `{$vec3}`, items keep their item fields; functions, buffers and `_`-prefixed keys are dropped.
+
 ## Actions
 
 `/v1/action` accepts only these names. Each reads only its own named arguments; anything else in the request is ignored.
@@ -87,6 +89,7 @@ Forwarded events: `chat`, `messagestr`, `entityMoved`, `entitySpawn`, `entityGon
 | Crafting             | `craft`                                                                                                                               |
 | Containers           | `openContainer`, `closeWindow`, `windowWithdraw`, `windowDeposit`, `clickWindow`                                                      |
 | Chat                 | `chat`                                                                                                                                |
+| Generic              | `call`                                                                                                                                |
 
 Validation:
 
@@ -95,6 +98,7 @@ Validation:
 - `stop` only clears control states. It does not teleport, centre or change velocity.
 - `craft {itemType, count, table?}` picks the first recipe Mineflayer's `recipesFor` offers for that item and count, then crafts `ceil(count / result.count)` runs. There is no one-stack cap. Participants cannot send recipe objects.
 - `equip` takes `itemType` or an inventory `slot`; destination defaults to `hand`.
+- `call {method, args}` runs `bot[method]` or `bot.creative[name]` (`method` is `name` or `creative.name`). Refused: `quit`, `end`, `connect`, `loadPlugin(s)`, `hasPlugin`, EventEmitter methods, any other path (so `_client` is unreachable), and any name that has its own action here, which keeps that action's checks. Arguments may carry `{$vec3}`, `{$block: {position}}` and `{$entity: {id}}` (resolved with the `maxReach` check) and `{$item: {slot}}`; other objects pass as data without `_`-prefixed keys. The result is returned in the generic event format.
 
 Errors: a failed action returns `{ok:false, error, errorDetails}` where `errorDetails` is `{name, message, code?, action?}`. Stacks and other error properties are dropped, and the bridge token, bearer values, URL credentials and `password`/`token`/`secret`/`api_key`-style values are replaced with `[redacted]`. Status codes: `400` bad request or failed action, `403` refused by match policy, `429` rate limit.
 

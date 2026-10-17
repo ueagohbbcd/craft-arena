@@ -172,6 +172,64 @@ export class BotFacade extends EventEmitter {
       this._requests.delete(request);
     }
   }
+  /**
+   * Call a Mineflayer method on the real bot by name, for methods this facade
+   * does not mirror: `await bot.call("activateEntity", entity)`, or
+   * `bot.native.activateEntity(entity)`. `"creative.flyTo"` reaches
+   * bot.creative. Blocks, entities, vectors and inventory items in the
+   * arguments are sent by reference; the result comes back as data (blocks,
+   * entities and vectors as local objects). Connection control, raw packets
+   * and EventEmitter methods are refused, and so are methods with their own
+   * facade call (use that one).
+   */
+  async call(method, ...args) {
+    const callArg = (value, depth = 0) => {
+      if (value === null || typeof value !== "object" || depth > 4)
+        return value;
+      if (Array.isArray(value)) return value.map((v) => callArg(v, depth + 1));
+      if (this.Vec3 && value instanceof this.Vec3)
+        return { $vec3: { x: value.x, y: value.y, z: value.z } };
+      if (typeof value.stateId === "number" && value.position)
+        return { $block: { position: value.position } };
+      if (typeof value.id === "number" && value.position)
+        return { $entity: { id: value.id } };
+      if (typeof value.type === "number" && Number.isInteger(value.slot))
+        return { $item: { slot: value.slot } };
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [k, callArg(v, depth + 1)]),
+      );
+    };
+    return this._revive(
+      await this.action("call", { method, args: args.map((a) => callArg(a)) }),
+    );
+  }
+  /** Turns the bridge's tagged blocks, entities and vectors into local objects. */
+  _revive(value) {
+    if (value === null || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map((v) => this._revive(v));
+    if (value.$block) return this._block(value.$block);
+    if (value.$entity) return this._entity(value.$entity);
+    if (value.$vec3) return this._vector(value.$vec3);
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, this._revive(v)]),
+    );
+  }
+  /** `bot.native.name(...args)` is `bot.call("name", ...args)`; `bot.native.creative.name(...)` too. */
+  get native() {
+    const methods = (prefix) =>
+      new Proxy(
+        {},
+        {
+          get: (_, name) =>
+            typeof name !== "string"
+              ? undefined
+              : !prefix && name === "creative"
+                ? methods("creative.")
+                : (...args) => this.call(`${prefix}${name}`, ...args),
+        },
+      );
+    return methods("");
+  }
   /** Session state from /v1/session. */
   async getSessionState() {
     const res = await this.fetch(`${this.url}/v1/session`, {
@@ -308,8 +366,13 @@ export class BotFacade extends EventEmitter {
     this.sequence = frame.sequence;
     if (frame.type === "snapshot") await this._snapshot(frame.data);
     else if (frame.type === "event") {
-      const { name, args } = frame.data;
+      const { name, args, generic } = frame.data;
       let local = args;
+      if (generic) {
+        // Forwarded by name; tagged blocks, entities and vectors become local objects.
+        this.emit(name, ...args.map((value) => this._revive(value)));
+        return;
+      }
       if (name.startsWith("entity")) local = args.map((e) => this._entity(e));
       else if (name === "blockUpdate") {
         local = args.map((b) => this._block(b));
