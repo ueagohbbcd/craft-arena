@@ -288,13 +288,19 @@ async function raceOfWool(rcon) {
   return map;
 }
 
-/** A stone block under each map start, so a bot moved there does not fall. */
+/**
+ * A 7x7 stone floor under each map start, so a bot moved there does not fall,
+ * even after the hostless round walks it forward a little.
+ */
 async function startPads(rcon, map) {
   for (const start of map.starts) {
     const [x, y, z] = [start.x, start.y - 1, start.z].map(Math.floor);
-    await rcon.command(`forceload add ${x} ${z}`);
-    await rcon.command(`setblock ${x} ${y} ${z} minecraft:stone`);
-    await rcon.command(`forceload remove ${x} ${z}`);
+    const area = `${x - 3} ${z - 3} ${x + 3} ${z + 3}`;
+    await rcon.command(`forceload add ${area}`);
+    await rcon.command(
+      `fill ${x - 3} ${y} ${z - 3} ${x + 3} ${y} ${z + 3} minecraft:stone`,
+    );
+    await rcon.command(`forceload remove ${area}`);
   }
 }
 
