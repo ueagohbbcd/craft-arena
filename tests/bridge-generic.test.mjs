@@ -165,3 +165,29 @@ test("the bot's other data fields are mirrored before the event that changed the
   assert.equal(late.time.timeOfDay, 7000);
   assert.equal(late.players.red1.username, "red1");
 });
+
+test("the first client's reset already carries every field", async (t) => {
+  const b = callBot();
+  b.time = { timeOfDay: 6000 };
+  const service = await startBridge({ bot: b, token, snapshotRadius: 0 });
+  t.after(() => service.close());
+  const controller = new AbortController();
+  t.after(() => controller.abort());
+  const res = await fetch(`${service.url}/v1/events`, {
+    headers: { authorization: `Bearer ${token}` },
+    signal: controller.signal,
+  });
+  const reader = res.body.getReader();
+  let text = "";
+  while (!text.includes("\n\n"))
+    text += new TextDecoder().decode((await reader.read()).value);
+  const reset = JSON.parse(
+    text
+      .split("\n\n")[0]
+      .split("\n")
+      .find((line) => line.startsWith("data:"))
+      .slice(5),
+  );
+  assert.equal(reset.type, "reset");
+  assert.equal(reset.data.fields.time.timeOfDay, 6000);
+});

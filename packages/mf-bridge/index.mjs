@@ -1320,6 +1320,16 @@ export function createBridgeServer({
     for (const [name, text] of sentFields) fields[name] = parseWire(text);
     return fields;
   };
+  /** The full field set for the first client, which nobody has sent yet. */
+  const firstFields = () => {
+    sentFields.clear();
+    const fields = {};
+    for (const [name, { data, text }] of readFields()) {
+      sentFields.set(name, text);
+      fields[name] = data;
+    }
+    return fields;
+  };
   const nativeEmit = bot.emit;
   bot.emit = function (name, ...args) {
     if (
@@ -1426,16 +1436,14 @@ export function createBridgeServer({
       });
       // Bring the other clients up to date first; then the full field set
       // in the reset matches what they have.
-      if (!clients.size) sentFields.clear();
-      const fields = clients.size ? allFields() : null;
+      const fields = clients.size ? allFields() : firstFields();
       write(res, {
         epoch,
         sequence,
         type: "reset",
-        data: { ...authority.snapshot(), fields: fields ?? {} },
+        data: { ...authority.snapshot(), fields },
       });
       clients.add(res);
-      if (!fields) allFields();
       const id = clientId(req);
       if (id) {
         streamsByClient.set(id, (streamsByClient.get(id) ?? 0) + 1);
