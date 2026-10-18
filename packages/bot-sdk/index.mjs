@@ -1224,21 +1224,50 @@ export async function connectBot(options = {}) {
           throw new Error(`Bridge events HTTP ${response.status}`);
         const reader = response.body.getReader(),
           decoder = new TextDecoder();
-        let buffer = "";
-        while (!bot.closed) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let end;
-          while ((end = buffer.indexOf("\n\n")) >= 0) {
-            const frame = buffer.slice(0, end);
-            buffer = buffer.slice(end + 2);
-            if (frame.startsWith("data: ")) {
-              await bot.accept(parseWire(frame.slice(6)));
-              if (initial) {
-                initial = false;
-                resolve(bot);
+        // Keep reading while frames are applied. Applying a reset fetches
+        // every loaded column; a stream left unread meanwhile passes the
+        // bridge's slow-reader limit, and the reconnect's reset starts over.
+        const frames = [];
+        let streamDone = false,
+          wake = null;
+        const pump = (async () => {
+          let buffer = "";
+          try {
+            for (;;) {
+              const { value, done } = await reader.read();
+              if (done) return;
+              buffer += decoder.decode(value, { stream: true });
+              let end;
+              while ((end = buffer.indexOf("\n\n")) >= 0) {
+                frames.push(buffer.slice(0, end));
+                buffer = buffer.slice(end + 2);
               }
+              wake?.();
+            }
+          } finally {
+            streamDone = true;
+            wake?.();
+          }
+        })();
+        pump.catch(() => {}); // Surfaced by the await below.
+        let next = 0;
+        while (!bot.closed) {
+          if (next === frames.length) {
+            frames.length = next = 0;
+            if (streamDone) {
+              await pump;
+              break;
+            }
+            await new Promise((r) => (wake = r));
+            wake = null;
+            continue;
+          }
+          const frame = frames[next++];
+          if (frame.startsWith("data: ")) {
+            await bot.accept(parseWire(frame.slice(6)));
+            if (initial) {
+              initial = false;
+              resolve(bot);
             }
           }
         }

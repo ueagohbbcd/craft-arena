@@ -115,6 +115,8 @@
 | ✅   | 桥新增动作后再补的 20 个：实体交互（`activateEntity`、`useOn`、`mount`）、`sleep`、`fish`、`updateSign`、`trade`、写书等                                                                                                                                                                                                                                                                   |
 | ✅   | 通用转发（10-17 定下的原则）：SDK 与原生 Mineflayer 一致，只拦任意发包（`_client`）和登录、断开连接；规则上的作弊交给服务端权限。其余事件按名字转发（`playerJoined`、`time`、`rain` 等）；其余数据字段（`players`、`time`、`isRaining`、`experience`、`scoreboards`、`tablist` 等）按字段比对、变了才发、先于事件到达；`bot.call(name, ...)` / `bot.native.name(...)` 通用调用（禁止名单） |
 | ⬜   | 只依赖 bot 接口的插件（auto-eat、collectblock 等）像 Pathfinder 一样在容器里对着镜像运行                                                                                                                                                                                                                                                                                                   |
+| ✅   | SDK 读事件流不再等处理完成：重置时拉取全部区块列期间照常读流，不再超过慢读者上限被断开、重连后又重新拉取（10-18 本地开放世界实测：约 930 列时每 4 秒断开一次，`goto` 随之被清空）                                                                                                                                                                                                          |
+| ⬜   | 快照体积：每 50 毫秒的快照带全部实体和区块列清单（10-18 实测 145 个实体、947 列时约 110 KB），改为只发变化；死亡重生后旧区块列没有释放（重生后从约 510 列涨到约 950 列），确认是 Mineflayer 的行为还是要在桥上处理                                                                                                                                                                         |
 
 ## 代码整理（简化审查中暂缓的项）
 
