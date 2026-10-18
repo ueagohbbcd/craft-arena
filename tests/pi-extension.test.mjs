@@ -585,7 +585,7 @@ test("session state reaches the model once per change, without a clock", async (
   });
   const h = await harness(t, {
     env: {
-      ARENA_SESSION_URL: `http://127.0.0.1:${server.address().port}`,
+      ARENA_SESSION_URL: `http://127.0.0.1:${server.address().port}/v1/session`,
       ARENA_BOT: "clock-fixture",
       // A host stub, not a game: no default observer/chat scripts.
       ARENA_DEFAULT_SCRIPTS: "",
@@ -702,7 +702,7 @@ test(
       }),
       OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
       OPENAI_API_KEY: "resident-scoped-fixture-token",
-      ARENA_SESSION_URL: `http://127.0.0.1:${server.address().port}`,
+      ARENA_SESSION_URL: `http://127.0.0.1:${server.address().port}/v1/session`,
       ARENA_BOT: "host-resident-fixture",
       // A host stub, not a game: no default observer/chat scripts.
       ARENA_DEFAULT_SCRIPTS: "",

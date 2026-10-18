@@ -474,7 +474,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
             ARENA_MODEL_CONFIG: join(dir, "model.json"),
             OPENAI_BASE_URL: `${base}/v1`,
             OPENAI_API_KEY: "model-fixture",
-            ARENA_SESSION_URL: base,
+            ARENA_SESSION_URL: `${base}/v1/session`,
             ARENA_BOT: "recovery-fixture",
             ARENA_PROMPT: "Complete the local fixture objective.",
             ARENA_IDLE_REMINDER_MS: "120",
