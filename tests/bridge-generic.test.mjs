@@ -115,3 +115,40 @@ test("SDK call and native revive results; other events arrive by name", async (t
   service.close();
   assert.equal(b.emit, nativeEmit);
 });
+
+test("the bot's other data fields are mirrored before the event that changed them", async (t) => {
+  const b = callBot();
+  Object.assign(b, {
+    time: { timeOfDay: 6000, bigTime: 10n },
+    players: { red1: { username: "red1", entity: b.entities[2] } },
+    isRaining: false,
+    url: "http://elsewhere",
+    pluginLike: { start() {} },
+    _secret: 1,
+  });
+  const service = await startBridge({ bot: b, token, snapshotRadius: 0 });
+  t.after(() => service.close());
+  const bot = await connectBot({ url: service.url, token });
+  t.after(() => bot.closeBridge());
+
+  assert.equal(bot.time.timeOfDay, 6000);
+  assert.equal(bot.time.bigTime, 10n);
+  assert.equal(bot.players.red1.entity, bot.entities[2]);
+  assert.equal(bot.isRaining, false);
+  assert.notEqual(bot.url, "http://elsewhere");
+  assert.equal("pluginLike" in bot || "_secret" in bot, false);
+
+  const seen = new Promise((resolve) =>
+    bot.once("time", () => resolve(bot.time.timeOfDay)),
+  );
+  b.time.timeOfDay = 7000;
+  delete b.isRaining;
+  b.emit("time");
+  assert.equal(await seen, 7000);
+  assert.equal("isRaining" in bot, false);
+
+  const late = await connectBot({ url: service.url, token });
+  t.after(() => late.closeBridge());
+  assert.equal(late.time.timeOfDay, 7000);
+  assert.equal(late.players.red1.username, "red1");
+});

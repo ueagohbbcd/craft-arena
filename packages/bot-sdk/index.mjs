@@ -100,6 +100,7 @@ export class BotFacade extends EventEmitter {
     this.token = token;
     // Lets the bridge release this client's controls if it dies holding them.
     this.clientId = randomUUID();
+    this._nativeFields = new Set();
     this.fetch = fetchImpl;
     this.reconnectDelay = reconnectDelay;
     this.loadRegistry = loadRegistry;
@@ -202,6 +203,19 @@ export class BotFacade extends EventEmitter {
     return this._revive(
       await this.action("call", { method, args: args.map((a) => callArg(a)) }),
     );
+  }
+  /**
+   * The real bot's other data fields (players, time, experience, ...), as the
+   * bridge sends them. A field never replaces one the facade has itself.
+   */
+  _applyFields(fields = {}, removed = []) {
+    for (const [name, value] of Object.entries(fields))
+      if (this._nativeFields.has(name) || !(name in this)) {
+        this._nativeFields.add(name);
+        this[name] = this._revive(value);
+      }
+    for (const name of removed)
+      if (this._nativeFields.delete(name)) delete this[name];
   }
   /** Turns the bridge's tagged blocks, entities and vectors into local objects. */
   _revive(value) {
@@ -357,7 +371,10 @@ export class BotFacade extends EventEmitter {
       this.blocks.clear();
       this.columns.clear();
       this.knownBlocks.clear();
+      for (const name of this._nativeFields) delete this[name];
+      this._nativeFields.clear();
       await this._snapshot(frame.data);
+      this._applyFields(frame.data.fields ?? {});
       this.emit("bridgeReset");
       return;
     }
@@ -365,6 +382,8 @@ export class BotFacade extends EventEmitter {
       throw new Error("Bridge sequence gap");
     this.sequence = frame.sequence;
     if (frame.type === "snapshot") await this._snapshot(frame.data);
+    else if (frame.type === "fields")
+      this._applyFields(frame.data.fields, frame.data.removed);
     else if (frame.type === "event") {
       const { name, args, generic } = frame.data;
       let local = args;

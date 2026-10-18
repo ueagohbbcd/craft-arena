@@ -1233,6 +1233,89 @@ export function createBridgeServer({
     "message",
     "inject_allowed",
   ]);
+  // The bot's other data fields (players, time, isRaining, experience,
+  // scoreboards, tablist, data that plugins keep on the bot, ...) are mirrored
+  // the same way: compared field by field before each generic event and once
+  // a second, and only changed fields are sent, so a program sees the new
+  // value when the event arrives. Left out: functions, `_` fields, plugin
+  // objects (objects with their own methods), fields the snapshot carries,
+  // and large internals.
+  const fieldsSkipped = new Set([
+    "version",
+    "username",
+    "entity",
+    "entities",
+    "inventory",
+    "heldItem",
+    "quickBarSlot",
+    "currentWindow",
+    "game",
+    "health",
+    "food",
+    "isSleeping",
+    "oxygenLevel",
+    "jumpTicks",
+    "jumpQueued",
+    "controlState",
+    "world",
+    "registry",
+    "chatPatterns",
+  ]);
+  const fieldLimit = 64 * 1024;
+  const sentFields = new Map(); // name → wire text last sent
+  const readFields = () => {
+    const out = new Map();
+    for (const name of Object.keys(bot)) {
+      const value = bot[name];
+      if (
+        name.startsWith("_") ||
+        fieldsSkipped.has(name) ||
+        typeof value === "function" ||
+        value === undefined ||
+        (value &&
+          typeof value === "object" &&
+          !Array.isArray(value) &&
+          Object.values(value).some((v) => typeof v === "function"))
+      )
+        continue;
+      try {
+        let data = genericValue(value);
+        let text = wireStringify(data);
+        if (text.length > fieldLimit) {
+          data = { $omitted: true, bytes: text.length };
+          text = wireStringify(data);
+        }
+        out.set(name, { data, text });
+      } catch {
+        // A field that cannot be read is left out.
+      }
+    }
+    return out;
+  };
+  const publishFields = () => {
+    if (!clients.size) return;
+    const current = readFields(),
+      fields = {},
+      removed = [];
+    for (const [name, { data, text }] of current)
+      if (sentFields.get(name) !== text) {
+        sentFields.set(name, text);
+        fields[name] = data;
+      }
+    for (const name of sentFields.keys())
+      if (!current.has(name)) {
+        sentFields.delete(name);
+        removed.push(name);
+      }
+    if (Object.keys(fields).length || removed.length)
+      publish("fields", { fields, removed });
+  };
+  const allFields = () => {
+    publishFields();
+    const fields = {};
+    for (const [name, text] of sentFields) fields[name] = parseWire(text);
+    return fields;
+  };
   const nativeEmit = bot.emit;
   bot.emit = function (name, ...args) {
     if (
@@ -1242,6 +1325,7 @@ export function createBridgeServer({
       clients.size
     )
       try {
+        publishFields();
         publish("event", {
           name,
           args: args.map((value) => genericValue(value)),
@@ -1257,6 +1341,7 @@ export function createBridgeServer({
     if (clients.size) {
       const refresh = Date.now() - lastBlocks >= 1000;
       if (refresh) lastBlocks = Date.now();
+      if (refresh) publishFields();
       publish("snapshot", authority.snapshot(refresh));
       publish("event", { name: "physicsTick", args: [] });
     }
@@ -1335,13 +1420,18 @@ export function createBridgeServer({
         "cache-control": "no-cache",
         connection: "keep-alive",
       });
+      // Bring the other clients up to date first; then the full field set
+      // in the reset matches what they have.
+      if (!clients.size) sentFields.clear();
+      const fields = clients.size ? allFields() : null;
       write(res, {
         epoch,
         sequence,
         type: "reset",
-        data: authority.snapshot(),
+        data: { ...authority.snapshot(), fields: fields ?? {} },
       });
       clients.add(res);
+      if (!fields) allFields();
       const id = clientId(req);
       if (id) {
         streamsByClient.set(id, (streamsByClient.get(id) ?? 0) + 1);
