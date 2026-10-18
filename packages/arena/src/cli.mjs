@@ -8,6 +8,8 @@
  *   node packages/arena/src/cli.mjs status
  *   node packages/arena/src/cli.mjs check MATCH.json    (no server needed)
  *   node packages/arena/src/cli.mjs command say Five minutes left
+ *   node packages/arena/src/cli.mjs provision MAP_DIR MATCH.json OUT_DIR [MODEL_DIR]
+ *                                       (no server needed; see provision.mjs)
  *
  * MATCH.json is `{config, commands?: {prepare?, start?, stop?}}`: `config` is
  * written to `arena:config` before `#arena:prepare`; each command list runs
@@ -22,6 +24,7 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { provision } from "./provision.mjs";
 import { RconClient } from "./rcon.mjs";
 import {
   readSession,
@@ -32,7 +35,7 @@ import {
 } from "./server-protocol.mjs";
 
 const USAGE =
-  "Usage: cli.mjs prepare MATCH.json | start [MATCH.json] | stop [MATCH.json] | status | command TEXT... | check MATCH.json";
+  "Usage: cli.mjs prepare MATCH.json | start [MATCH.json] | stop [MATCH.json] | status | command TEXT... | check MATCH.json | provision MAP_DIR MATCH.json OUT_DIR [MODEL_DIR]";
 const PHASES = ["prepare", "start", "stop"];
 
 /** Reads and checks a match file. */
@@ -89,6 +92,15 @@ export async function runCli(
     case "check":
       await match(true);
       return { valid: true };
+    case "provision":
+      if (rest.length < 3 || rest.length > 4) throw new Error(USAGE);
+      // The compiled match file must still be a valid one.
+      return provision({
+        mapDir: rest[0],
+        matchPath: rest[1],
+        outDir: rest[2],
+        ...(rest[3] ? { modelDir: rest[3] } : {}),
+      });
     case "command":
       if (!rest.length) throw new Error(USAGE);
       return { reply: (await runCommands(rcon, [rest.join(" ")]))[0] };
@@ -110,10 +122,10 @@ if (
   try {
     if (
       !PHASES.includes(process.argv[2]) &&
-      !["status", "command", "check"].includes(process.argv[2])
+      !["status", "command", "check", "provision"].includes(process.argv[2])
     )
       throw new Error(USAGE);
-    if (process.argv[2] !== "check") await rcon.connect();
+    if (!["check", "provision"].includes(process.argv[2])) await rcon.connect();
     console.log(JSON.stringify(await runCli(process.argv.slice(2), { rcon })));
   } catch (e) {
     console.error(e.message);

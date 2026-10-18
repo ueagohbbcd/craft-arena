@@ -93,10 +93,7 @@
       "types": 4,
       "characters": 65,
       "bytes": 65,
-      "tokenEstimate": [
-        17,
-        22
-      ],
+      "tokenEstimate": [17, 22],
       "counts": {
         "chest": 1,
         "crafting_table": 1,
@@ -112,10 +109,7 @@
       "types": 4,
       "characters": 56,
       "bytes": 56,
-      "tokenEstimate": [
-        14,
-        19
-      ],
+      "tokenEstimate": [14, 19],
       "counts": {
         "chest": 2,
         "oak_wall_sign": 2,
@@ -140,10 +134,7 @@
       "types": 5,
       "characters": 67,
       "bytes": 67,
-      "tokenEstimate": [
-        17,
-        23
-      ],
+      "tokenEstimate": [17, 23],
       "counts": {
         "bedrock": 16,
         "chest": 1,
@@ -170,10 +161,7 @@
       "types": 4,
       "characters": 57,
       "bytes": 57,
-      "tokenEstimate": [
-        15,
-        19
-      ],
+      "tokenEstimate": [15, 19],
       "counts": {
         "bedrock": 16,
         "crafting_table": 1,
@@ -195,10 +183,7 @@
       "types": 6,
       "characters": 103,
       "bytes": 103,
-      "tokenEstimate": [
-        26,
-        35
-      ],
+      "tokenEstimate": [26, 35],
       "counts": {
         "birch_leaves": 21,
         "cobblestone_stairs": 6,
@@ -220,10 +205,7 @@
       "types": 5,
       "characters": 70,
       "bytes": 70,
-      "tokenEstimate": [
-        18,
-        24
-      ],
+      "tokenEstimate": [18, 24],
       "counts": {
         "bricks": 12,
         "chest": 1,
@@ -244,10 +226,7 @@
       "types": 5,
       "characters": 68,
       "bytes": 68,
-      "tokenEstimate": [
-        17,
-        23
-      ],
+      "tokenEstimate": [17, 23],
       "counts": {
         "crafting_table": 1,
         "dirt": 3,

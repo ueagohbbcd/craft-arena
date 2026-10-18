@@ -333,7 +333,7 @@ test("observer script retries an unavailable bridge and closes its connection", 
 test("default scripts are configurable by name and refuse unknown names", () => {
   assert.deepEqual(
     defaultScripts({}).map((s) => s.name),
-    ["observer", "chat"],
+    ["observer", "chat", "watchdog"],
   );
   assert.deepEqual(defaultScripts({ ARENA_DEFAULT_SCRIPTS: "" }), []);
   assert.deepEqual(

@@ -3,16 +3,18 @@ import { fileURLToPath } from "node:url";
 const scripts = {
   observer: new URL("../default-scripts/observer.mjs", import.meta.url),
   chat: new URL("../default-scripts/chat.mjs", import.meta.url),
+  watchdog: new URL("../default-scripts/watchdog.mjs", import.meta.url),
 };
 
 /**
  * Scripts the runtime starts at session start, as ordinary tasks.
- * ARENA_DEFAULT_SCRIPTS lists them by name ("observer,chat" by default; empty
+ * ARENA_DEFAULT_SCRIPTS lists them by name ("observer,chat,watchdog" by
+ * default; empty
  * starts none). The observer is listed first: the opening request waits
  * briefly for its first report.
  */
 export function defaultScripts(env = process.env) {
-  const names = (env.ARENA_DEFAULT_SCRIPTS ?? "observer,chat")
+  const names = (env.ARENA_DEFAULT_SCRIPTS ?? "observer,chat,watchdog")
     .split(",")
     .map((name) => name.trim())
     .filter(Boolean);

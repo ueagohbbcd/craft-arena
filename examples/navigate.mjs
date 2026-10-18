@@ -2,6 +2,7 @@
 import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
+import { watchdog } from "../packages/bot-sdk/watchdog.mjs";
 import { summarizeTerrain } from "./summarize-terrain.mjs";
 const args = process.argv.slice(2);
 const noDig = args.includes("--no-dig");
@@ -10,11 +11,13 @@ if (xyz.length !== 3 || !xyz.every(Number.isFinite))
   throw new Error("Usage: node examples/navigate.mjs X Y Z [--no-dig]");
 const bot = await connectBot(),
   inbox = new InboxClient();
+// Reports a stuck bot, repeated failures and a blocked program to the inbox.
+const dog = watchdog(bot, { inbox });
 const { Movements, goals } = loadSelectedPlugins(bot, { pvp: false });
 // Participant policy: tune for the terrain (digging may legitimately take time).
 const stallMs = 30_000,
   reviewMs = 120_000;
-let watchdog;
+let routeReview;
 let latestPath = null;
 let stopping = false;
 // All connections share movement controls. Finish the previous movement
@@ -23,7 +26,7 @@ const stop = (signal) => {
   if (stopping) return;
   stopping = true;
   process.exitCode = signal === "SIGINT" ? 130 : 143;
-  clearInterval(watchdog);
+  clearInterval(routeReview);
   // stop() waits for the next path node. Clearing the goal stops immediately
   // and rejects the pending goto, allowing its finally to flush before close.
   bot.pathfinder.setGoal(null);
@@ -75,7 +78,7 @@ try {
   let lastMoved = started,
     anchor = bot.entity.position.clone();
   let requested = false;
-  watchdog = setInterval(() => {
+  routeReview = setInterval(() => {
     const now = performance.now(),
       position = bot.entity.position;
     // Replanning and tiny jitter do not count as movement. The total review
@@ -154,7 +157,7 @@ try {
     process.exitCode = 1;
   }
 } finally {
-  clearInterval(watchdog);
+  clearInterval(routeReview);
   bot.off("path_update", reportPath);
   try {
     try {
@@ -167,6 +170,7 @@ try {
       await bot.flush();
     }
   } finally {
+    dog.close();
     bot.closeBridge();
     process.off("SIGTERM", onTerm);
     process.off("SIGINT", onInterrupt);

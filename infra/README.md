@@ -67,7 +67,7 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
    - `commands.prepare` / `start` / `stop`：每个阶段额外执行的 RCON 命令和期望回应，例如传送、设出生点、gamerule。
    - 玩家名必须和 Compose 里游戏桥的 `MF_USERNAME` 一致。
    - 纪念碑坐标是否公开由数据包决定（`map.mcfunction` 里的 `publishGoals`）。不要把秘密写进 `briefing`。
-   - 玩法提示由游戏桥读 `BRIDGE_PROMPT_FILE`；`compose.live.yaml` 默认挂 [`maps/race-of-wool/PROMPT.md`](maps/race-of-wool/PROMPT.md)，换玩法时在 `.env` 设 `ARENA_PROMPT_FILE`。
+   - 玩法提示由游戏桥读 `BRIDGE_PROMPT_FILE`；`compose.live.yaml` 默认挂 [`maps/race-of-wool/agents.d/20-race-of-wool.md`](maps/race-of-wool/agents.d/20-race-of-wool.md)，换玩法时在 `.env` 设 `ARENA_PROMPT_FILE`。
    - 游戏内聊天默认开启（包括 `/tell`、`/teammsg` 这类普通命令）。要关掉，给游戏桥设 `BRIDGE_ALLOW_CHAT=false`。
    - 用 `node packages/arena/src/cli.mjs check infra/match.live.json` 检查格式。
 

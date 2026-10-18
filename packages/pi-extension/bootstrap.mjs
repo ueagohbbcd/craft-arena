@@ -25,6 +25,11 @@ import {
   createSessionFiles,
   listRuleFiles,
 } from "./session-files.mjs";
+import {
+  applyProvisionFiles,
+  profileAcceptsImages,
+  readParticipantConfig,
+} from "./participant-config.mjs";
 
 const extensionPath = fileURLToPath(new URL("./index.mjs", import.meta.url));
 const projectRoot = resolve(dirname(extensionPath), "../..");
@@ -36,26 +41,30 @@ const positiveInteger = (value, fallback) => {
 };
 
 /**
- * Append the participant prompt (participant/PROMPT.md) once, without disabling
- * Pi's own discovery of user/project context files. The repository's root
- * AGENTS.md is the developer guide, not this prompt.
+ * Append each system prompt file (the agents.d fragments, including the
+ * arena's own participant/agents.d/10-arena.md) once, without disabling Pi's
+ * own discovery of user/project context files: a file Pi already loads as a
+ * context file is not appended again. The repository's root AGENTS.md is the
+ * developer guide, not a participant prompt.
  */
-export async function arenaGuidanceArgs({ cwd, agentDir, args = [] }) {
-  const guidance = join(projectRoot, "participant", "PROMPT.md");
+export async function systemPromptArgs({ cwd, agentDir, args = [], files }) {
+  const loaded = new Set();
   if (!args.includes("--no-context-files") && !args.includes("-nc")) {
     const { loadProjectContextFiles } =
       await import("@earendil-works/pi-coding-agent");
     // A spawned Node process reports the physical cwd, even when its caller used
     // a symlink. Match that discovery scope and compare file identity, not text.
-    const files = loadProjectContextFiles({
+    for (const file of loadProjectContextFiles({
       cwd: await realpath(cwd),
       agentDir,
-    });
-    const target = await realpath(guidance);
-    for (const file of files)
-      if ((await realpath(file.path).catch(() => null)) === target) return [];
+    }))
+      loaded.add(await realpath(file.path).catch(() => null));
   }
-  return ["--append-system-prompt", guidance];
+  const out = [];
+  for (const file of files)
+    if (!loaded.has(await realpath(file)))
+      out.push("--append-system-prompt", file);
+  return out;
 }
 
 /**
@@ -268,12 +277,18 @@ async function launchPi({
     env.PI_CODING_AGENT_SESSION_DIR || join(cwd, ".pi", "sessions");
   // Copies of the trusted briefing for the model to re-read after compaction.
   const ownSessionFilesDir = resident && !env.ARENA_SESSION_DIR;
-  let guidanceArgs, sessionFiles;
+  let guidanceArgs, sessionFiles, config;
   try {
-    guidanceArgs = await arenaGuidanceArgs({
+    await applyProvisionFiles(env.ARENA_PROVISION_DIR, { workspace: cwd });
+    config = await readParticipantConfig(env.ARENA_CONFIG_DIR, {
+      env,
+      builtinAgentsDir: join(projectRoot, "participant", "agents.d"),
+    });
+    guidanceArgs = await systemPromptArgs({
       cwd,
       agentDir: profile.agentDir,
       args,
+      files: config.systemPromptFiles,
     });
     await mkdir(sessionDir, { recursive: true, mode: 0o700 });
     sessionFiles = resident
@@ -290,6 +305,7 @@ async function launchPi({
     throw error;
   }
   const initialPrompt =
+    config.firstMessage ||
     env.ARENA_PROMPT ||
     "Play the Minecraft session by writing Node programs and running them with bash, as your system prompt describes. Reports from your programs and the default scripts reach you as inbox reports. Follow the session briefing if there is one, and keep going until its goal is complete or the session ends.";
   const cliArgs = [
@@ -300,6 +316,7 @@ async function launchPi({
     ...guidanceArgs,
     "--skill",
     join(projectRoot, "participant/skills"),
+    ...(config.skillsDir ? ["--skill", config.skillsDir] : []),
     ...profile.extensions.flatMap((path) => ["-e", path]),
     ...args,
   ];
@@ -310,7 +327,17 @@ async function launchPi({
     ...(profile.generated ? { PI_CODING_AGENT_DIR: profile.agentDir } : {}),
     PI_CODING_AGENT_SESSION_DIR: sessionDir,
     ...(sessionFiles ? { ARENA_SESSION_DIR: sessionFiles.directory } : {}),
+    ...(config.defaultScripts !== undefined
+      ? { ARENA_DEFAULT_SCRIPTS: config.defaultScripts }
+      : {}),
   };
+  let images = config.images;
+  if (images.length && !profileAcceptsImages(profile)) {
+    process.stderr.write(
+      `Config images: the model does not declare image input; ${images.length} image(s) not sent\n`,
+    );
+    images = [];
+  }
   const child = spawn(
     process.execPath,
     [join(packageRoot, "dist/bundle/cli.js"), ...cliArgs],
@@ -418,7 +445,12 @@ async function launchPi({
         ruleFiles,
       });
       child.stdin.write(
-        `${JSON.stringify({ id: "arena-initial-prompt", type: "prompt", message })}\n`,
+        `${JSON.stringify({
+          id: "arena-initial-prompt",
+          type: "prompt",
+          message,
+          ...(images.length ? { images } : {}),
+        })}\n`,
       );
     };
     if (!waitForMatch) {

@@ -7,6 +7,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { renameSync, writeFileSync } from "node:fs";
 import { Inbox, createInboxServer } from "../inbox/index.mjs";
 import { TaskManager } from "../tasks/index.mjs";
+import { createMotionProbe } from "./motion-probe.mjs";
 import {
   createSessionReader,
   createPlatformMessages,
@@ -36,6 +37,18 @@ export function defaultToolWaitSeconds(env = process.env) {
     value <= seconds.maximum
     ? value
     : 30;
+}
+/** No-progress window for bash waits (ARENA_STALL_SECONDS, default 60; 0 turns it off). */
+export function defaultStallSeconds(env = process.env) {
+  const raw = env.ARENA_STALL_SECONDS;
+  const value = Number(raw);
+  return raw !== undefined &&
+    String(raw).trim() !== "" &&
+    Number.isFinite(value) &&
+    value >= seconds.minimum &&
+    value <= seconds.maximum
+    ? value
+    : 60;
 }
 /** Task identity and status matter; elapsed time alone is not a change. */
 const compactRuntime = ({ observedAt, tasks, ...state }) => ({
@@ -93,6 +106,7 @@ const rateSection = ({ perHour, burst, heldMs, nextWaitMs }) => ({
 
 export default function arenaExtension(pi) {
   const waitSeconds = defaultToolWaitSeconds();
+  const stallSeconds = defaultStallSeconds();
   let runtime;
   let starting;
   let context;
@@ -558,7 +572,7 @@ export default function arenaExtension(pi) {
       message: {
         customType: "arena-inbox-setup",
         display: false,
-        // How bash waits and what wakes the model are in participant/PROMPT.md
+        // How bash waits and what wakes the model are in participant/agents.d/10-arena.md
         // and the bash tool description; this only opens the inbox.
         content: `Inbox open for session ${r.sessionId}; your programs report here through InboxClient (packages/inbox).${initial ? "\n" + JSON.stringify(initial.message) : ""}${batch ? "\n" + batchText(batch) : ""}`,
       },
@@ -567,12 +581,13 @@ export default function arenaExtension(pi) {
   pi.registerTool({
     name: "bash",
     label: "bash",
-    description: `Run a shell command as a task, or keep waiting on one. Pass command to start it, or taskId to wait on a task already started (never start the same program twice). Waits up to wait_seconds (default ${waitSeconds}; 0 returns at once), then returns status running with the taskId while the process keeps running; an urgent inbox message also ends the wait early. Running results show only output printed since the previous result for that task; the final result (status completed, with exitCode/signal) shows the retained tail once. Every result has logDir (unless the runtime report says task files are unavailable), which holds stdout.log, stderr.log (full output) and status.json (pid, pgid). timeout is a separate kill deadline in seconds for a new command. Stop a task with: arena-task cancel <taskId>. List tasks with: arena-task list.`,
+    description: `Run a shell command as a task, or keep waiting on one. Pass command to start it, or taskId to wait on a task already started (never start the same program twice). Waits up to wait_seconds (default ${waitSeconds}; 0 returns at once), then returns status running with the taskId while the process keeps running; an urgent inbox message also ends the wait early, and so does no progress: the program printed nothing and the character neither moved nor changed its inventory for stall_seconds (default ${stallSeconds}; 0 turns this off), returned as reason "no progress". Running results show only output printed since the previous result for that task; the final result (status completed, with exitCode/signal) shows the retained tail once. Every result has logDir (unless the runtime report says task files are unavailable), which holds stdout.log, stderr.log (full output) and status.json (pid, pgid). timeout is a separate kill deadline in seconds for a new command. Stop a task with: arena-task cancel <taskId>. List tasks with: arena-task list.`,
     parameters: object({
       command: string,
       taskId: string,
       timeout: seconds,
       wait_seconds: seconds,
+      stall_seconds: seconds,
     }),
     executionMode: "parallel",
     outputSchema: { type: "object", additionalProperties: true },
@@ -591,10 +606,23 @@ export default function arenaExtension(pi) {
               : { timeoutMs: params.timeout * 1000 }),
           })
         : params.taskId;
-      const result = await r.tasks.wait(taskId, {
-        timeoutMs: (params.wait_seconds ?? waitSeconds) * 1000,
-        signal,
-      });
+      const timeoutMs = (params.wait_seconds ?? waitSeconds) * 1000;
+      const stallMs = (params.stall_seconds ?? stallSeconds) * 1000;
+      const probe =
+        bridgeUrl && bridgeToken && stallMs > 0 && stallMs < timeoutMs
+          ? createMotionProbe({ url: bridgeUrl, token: bridgeToken })
+          : undefined;
+      let result;
+      try {
+        result = await r.tasks.wait(taskId, {
+          timeoutMs,
+          signal,
+          stallMs,
+          progress: probe?.key,
+        });
+      } finally {
+        probe?.close();
+      }
       return {
         content: [text(result)],
         details: result,

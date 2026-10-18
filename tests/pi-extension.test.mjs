@@ -504,7 +504,7 @@ test(
     assert.equal(requests[0].path, "/v1/chat/completions");
     assert.equal(requests[0].authorization, "Bearer scoped-fixture-token");
     const guidance = await readFile(
-      new URL("../participant/PROMPT.md", import.meta.url),
+      new URL("../participant/agents.d/10-arena.md", import.meta.url),
       "utf8",
     );
     assert.ok(
@@ -1222,4 +1222,25 @@ test("bash takes exactly one of command or taskId, and a kill deadline only for 
   assert.ok(
     runtime.tasks.some((task) => task.taskId === result.details.taskId),
   );
+});
+
+test("a bash wait returns early when the program shows no progress", async (t) => {
+  const h = await harness(t, { env: { ARENA_STALL_SECONDS: "0.2" } });
+  assert.match(
+    h.tools.get("bash").description,
+    /stall_seconds \(default 0\.2;/,
+  );
+  const stalled = await h.run(
+    "bash",
+    { command: "sleep 3", wait_seconds: 5 },
+    "stalled",
+  );
+  assert.equal(stalled.details.status, "running");
+  assert.equal(stalled.details.reason, "no progress");
+  const off = await h.run("bash", {
+    taskId: stalled.details.taskId,
+    wait_seconds: 0.5,
+    stall_seconds: 0,
+  });
+  assert.equal(off.details.reason, "wait timeout");
 });

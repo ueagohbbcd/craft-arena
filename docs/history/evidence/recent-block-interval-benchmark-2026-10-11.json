@@ -14,19 +14,13 @@
       "types": 10,
       "characters": 396,
       "bytes": 396,
-      "tokenEstimate": [
-        99,
-        132
-      ],
+      "tokenEstimate": [99, 132],
       "projection": {
         "coverage": "Nearby coarse transparent connectivity; may go around corners.",
         "radius": 6,
         "everyMs": 1000,
         "samples": 10,
-        "interval": [
-          1000,
-          10000
-        ],
+        "interval": [1000, 10000],
         "ageMs": 0,
         "status": "sampled",
         "unknownReads": 10,
@@ -55,19 +49,13 @@
       "types": 20,
       "characters": 530,
       "bytes": 530,
-      "tokenEstimate": [
-        133,
-        177
-      ],
+      "tokenEstimate": [133, 177],
       "projection": {
         "coverage": "Nearby coarse transparent connectivity; may go around corners.",
         "radius": 6,
         "everyMs": 1000,
         "samples": 10,
-        "interval": [
-          1000,
-          10000
-        ],
+        "interval": [1000, 10000],
         "ageMs": 0,
         "status": "sampled",
         "unknownReads": 10,
@@ -106,19 +94,13 @@
       "types": 30,
       "characters": 661,
       "bytes": 661,
-      "tokenEstimate": [
-        166,
-        221
-      ],
+      "tokenEstimate": [166, 221],
       "projection": {
         "coverage": "Nearby coarse transparent connectivity; may go around corners.",
         "radius": 6,
         "everyMs": 1000,
         "samples": 10,
-        "interval": [
-          1000,
-          10000
-        ],
+        "interval": [1000, 10000],
         "ageMs": 0,
         "status": "sampled",
         "unknownReads": 10,

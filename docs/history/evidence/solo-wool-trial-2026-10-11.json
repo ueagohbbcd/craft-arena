@@ -36,10 +36,7 @@
   },
   "persistentProgress": {
     "bridge": {
-      "x": [
-        206,
-        229
-      ],
+      "x": [206, 229],
       "y": 63,
       "z": -26,
       "continuousBlocks": 24
@@ -52,11 +49,7 @@
       "note": "Partially sealed working shaft, not a completed safe return route."
     },
     "cache": {
-      "position": [
-        114,
-        61,
-        -31
-      ],
+      "position": [114, 61, -31],
       "contents": {
         "ladder": 12,
         "oak_planks": 5,

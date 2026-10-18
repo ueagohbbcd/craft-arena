@@ -7,7 +7,7 @@ description: How to write arena programs. Query and control program skeletons, r
 
 How tasks, waiting and reports work is in your system prompt. This skill covers writing a program that does its job and leaves the character in a clean state.
 
-Import the toolkit through `ARENA_TOOLKIT_ROOT` and call `connectBot()` with no arguments: it reads the bridge (the trusted service that runs your character in Minecraft) address and token from the environment. Each `connectBot()` call keeps its own copy of what the character has seen (the local mirror).
+Import the toolkit through `ARENA_TOOLKIT_ROOT` and call `connectBot()` with no arguments: it reads the bridge (the trusted service that runs your character in Minecraft) address and token from the environment. Each `connectBot()` call keeps its own copy of what the character has seen (the local mirror). If you have more than one character, `connectBot({ username: "name" })` connects to that one instead (names are under `bots` in `/arena/provision/manifest.json`).
 
 ## Query program
 
@@ -46,8 +46,12 @@ const { connectBot } = await import(
 const { loadSelectedPlugins } = await import(
   `${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/plugins.mjs`
 );
+const { watchdog } = await import(
+  `${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/watchdog.mjs`
+);
 const [x, y, z] = process.argv.slice(2).map(Number);
 const bot = await connectBot();
+const dog = watchdog(bot); // Reports a stuck character, repeats and a frozen program.
 const { Movements, goals } = loadSelectedPlugins(bot, { pvp: false });
 bot.pathfinder.setMovements(new Movements(bot));
 bot.on("error", (error) => console.error(error));
@@ -63,6 +67,7 @@ try {
   console.log(JSON.stringify({ arrived, position: bot.entity.position }));
 } catch (error) {
   if (process.exitCode !== 143) {
+    dog.failure(error);
     console.error(JSON.stringify({ failed: error.message }));
     process.exitCode = 1;
   }
@@ -73,6 +78,7 @@ try {
     bot.clearControlStates();
     await bot.flush();
   } finally {
+    dog.close();
     bot.closeBridge();
   }
 }
@@ -121,6 +127,6 @@ Start the listener and then the controller as two separate `bash` calls, so each
 
 ## When a wait ends or a program misbehaves
 
-- **`bash` returned `running`.** The wait ran out or an urgent report ended it; the program is still running. Wait again with `{"taskId": ...}` or `arena-task cancel` it. Never start it again.
+- **`bash` returned `running`.** The wait ran out, an urgent report ended it, or (reason `no progress`) the program printed nothing and the character did not move; the program is still running. After `no progress`, find out why before you wait again. Wait again with `{"taskId": ...}` or `arena-task cancel` it. Never start it again.
 - **A program finished while you were thinking.** Its final output arrives once, in your next `bash` result for that `taskId` or as a `task.completed` report; after that the task returns `status: "delivered"`.
 - **You cancelled a controller, but the character is still moving.** A program that exits without releasing its controls leaves the movement keys pressed for about 1 more second. Check the position before you start a new controller, and have controllers call `bot.clearControlStates()` and `await bot.flush()` before they exit.

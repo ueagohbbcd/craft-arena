@@ -17,7 +17,7 @@ flowchart LR
   end
   subgraph box["参赛容器（每个参赛者一个）"]
     pi["Pi + Pi 扩展<br/>bash（任务、等待）<br/>收件箱、平台消息"]
-    scripts["默认脚本<br/>default observer / default chat"]
+    scripts["默认脚本<br/>default observer / default chat / default watchdog"]
     progs["参赛者自己的程序<br/>（SDK、Pathfinder、PvP）"]
   end
   upstream["模型服务<br/>（OpenAI 兼容接口）"]
@@ -50,7 +50,7 @@ flowchart LR
 ## 一场比赛怎么进行
 
 1. **准备。** 运营者选定地图、规则和时限，配置队伍和模型接入，启动服务器和可信侧服务，每个参赛者的游戏桥连上一个 bot。运营者用命令行准备（`prepare`）：写入会话配置，数据包重置地图，此时动作仍被拒绝。
-2. **开局。** 启动器在容器里启动 Pi，等运营者开赛（`start`）、游戏桥报告会话进入 `running`，然后发出一次开局提示，内容是比赛简报（队伍、地图、目标、时限等公开事实）。每局都要用的基本知识（任务怎样运行、信息怎样送达、东西在哪）在 [participant/PROMPT.md](participant/PROMPT.md)，追加在 Pi 的系统提示里。不附图像，模型需要时自己运行截图脚本。Pi 会话一开始，Pi 扩展就把默认观察器和默认聊天转发作为后台任务启动；第一个请求最多等观察器 5 秒，带上它的第一份状态报告。
+2. **开局。** 启动器在容器里启动 Pi，等运营者开赛（`start`）、游戏桥报告会话进入 `running`，然后发出一次开局提示，内容是比赛简报（队伍、地图、目标、时限等公开事实）。每局都要用的基本知识（任务怎样运行、信息怎样送达、东西在哪）在 [participant/agents.d/10-arena.md](participant/agents.d/10-arena.md)，追加在 Pi 的系统提示里。不附图像，模型需要时自己运行截图脚本。Pi 会话一开始，Pi 扩展就把默认观察器和默认聊天转发作为后台任务启动；第一个请求最多等观察器 5 秒，带上它的第一份状态报告。
 3. **比赛。** 模型在普通的工具调用循环里工作：调用工具、写程序、启动任务。`bash` 默认最多等 30 秒，等满时返回 `running` 和 `taskId`，程序继续运行；模型再用 `bash` 加 `taskId` 接着等。模型思考和排队时，游戏照常进行。Pi 在模型回答结束后也不退出（持续会话）。模型停下、比赛仍在进行、又没有非后台任务在运行时，5 秒后 Pi 扩展会提醒它继续（空闲提醒）。
 4. **结束。** 服务器上的规则数据包判定胜负（羊毛竞速：每刻检查纪念碑方块），时间到也由数据包判平局并结束；运营者也可以提前 `stop`。游戏桥通过 RCON 读到结束，停止接受动作。结果留在 `arena:session`，存档和录像由运营者自己的脚本做。启动器读到结束状态后关闭 Pi，Pi 扩展随之停止所有任务。
 
@@ -90,29 +90,29 @@ flowchart LR
 
 ## 术语表
 
-| 术语       | 含义                                                                                                                                                                                     |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 可信侧     | 游戏桥、模型转发、Minecraft 服务器和运营命令行；参赛者不能访问或修改                                                                                                                     |
-| 运营命令行 | `packages/arena`：通过 RCON 写 `arena:config`、调 `#arena:prepare/start/stop`、读会话状态（compose 服务 `arena`，`tools` 配置组）                                                        |
-| 游戏桥     | `packages/mf-bridge`：每个参赛者一个真实 Mineflayer bot，只执行校验过的语义动作                                                                                                          |
-| 模型转发   | `packages/model-relay`：参赛者没有外网时的模型入口，把请求原样转发到一个配置好的地址，key 只在这里；不计量、不限速                                                                       |
-| 参赛者     | 一个参赛单位：一个容器、一个角色、一个模型会话                                                                                                                                           |
-| Pi 扩展    | `packages/pi-extension`：加载进 Pi 的本项目代码，提供工具、收件箱、平台消息和默认脚本启动                                                                                                |
-| 工具包     | `$ARENA_TOOLKIT_ROOT` 下参赛者可以读、运行、复制或不用的全部代码和资料                                                                                                                   |
-| 默认脚本   | Pi 会话开始时由 Pi 扩展作为后台任务启动的普通脚本（`ARENA_DEFAULT_SCRIPTS` 选择）：`default observer`（报告状态变化、附近方块和告示牌、受伤死亡等事件）和 `default chat`（转发游戏聊天） |
-| 任务       | 通过 `bash` 启动、用 `taskId` 跟踪的进程；用 `bash` 加 `taskId` 继续等、`arena-task cancel` 停止；输出和状态写在任务目录里                                                               |
-| 等待时长   | 一次 `bash` 调用最多阻塞多久（默认 30 秒，`wait_seconds` 可改）；到时返回 `running`，进程不停                                                                                            |
-| 请求边界   | 向模型发出请求的时刻；新信息只能在这时进入模型                                                                                                                                           |
-| 收件箱     | Pi 扩展里的消息队列；程序用 `InboxClient` 发消息，随下一个请求边界送达并保留在历史中                                                                                                     |
-| 紧急消息   | 优先级为 urgent 的收件箱消息：提前结束正在进行的等待（程序继续运行），或唤醒空闲会话                                                                                                     |
-| 平台消息   | 回合结束时会话状态、公开数据或通知若有变化，发一条 `Arena platform message`；不属于收件箱                                                                                                |
-| 区块记忆   | 游戏桥记录的角色收到过的区块，卸载后仍可查询；查到的是最后一次收到时的样子                                                                                                               |
+| 术语       | 含义                                                                                                                                                                                                                                                                                 |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 可信侧     | 游戏桥、模型转发、Minecraft 服务器和运营命令行；参赛者不能访问或修改                                                                                                                                                                                                                 |
+| 运营命令行 | `packages/arena`：通过 RCON 写 `arena:config`、调 `#arena:prepare/start/stop`、读会话状态（compose 服务 `arena`，`tools` 配置组）                                                                                                                                                    |
+| 游戏桥     | `packages/mf-bridge`：每个参赛者一个真实 Mineflayer bot，只执行校验过的语义动作                                                                                                                                                                                                      |
+| 模型转发   | `packages/model-relay`：参赛者没有外网时的模型入口，把请求原样转发到一个配置好的地址，key 只在这里；不计量、不限速                                                                                                                                                                   |
+| 参赛者     | 一个参赛单位：一个容器、一个角色、一个模型会话                                                                                                                                                                                                                                       |
+| Pi 扩展    | `packages/pi-extension`：加载进 Pi 的本项目代码，提供工具、收件箱、平台消息和默认脚本启动                                                                                                                                                                                            |
+| 工具包     | `$ARENA_TOOLKIT_ROOT` 下参赛者可以读、运行、复制或不用的全部代码和资料                                                                                                                                                                                                               |
+| 默认脚本   | Pi 会话开始时由 Pi 扩展作为后台任务启动的普通脚本（`ARENA_DEFAULT_SCRIPTS` 选择）：`default observer`（报告状态变化、附近方块和告示牌、受伤死亡等事件）、`default watchdog`（报告持续几分钟的异常：无进展、兜圈、撞墙、重复，同一处反复死亡为紧急）和 `default chat`（转发游戏聊天） |
+| 任务       | 通过 `bash` 启动、用 `taskId` 跟踪的进程；用 `bash` 加 `taskId` 继续等、`arena-task cancel` 停止；输出和状态写在任务目录里                                                                                                                                                           |
+| 等待时长   | 一次 `bash` 调用最多阻塞多久（默认 30 秒，`wait_seconds` 可改）；到时返回 `running`，进程不停                                                                                                                                                                                        |
+| 请求边界   | 向模型发出请求的时刻；新信息只能在这时进入模型                                                                                                                                                                                                                                       |
+| 收件箱     | Pi 扩展里的消息队列；程序用 `InboxClient` 发消息，随下一个请求边界送达并保留在历史中                                                                                                                                                                                                 |
+| 紧急消息   | 优先级为 urgent 的收件箱消息：提前结束正在进行的等待（程序继续运行），或唤醒空闲会话                                                                                                                                                                                                 |
+| 平台消息   | 回合结束时会话状态、公开数据或通知若有变化，发一条 `Arena platform message`；不属于收件箱                                                                                                                                                                                            |
+| 区块记忆   | 游戏桥记录的角色收到过的区块，卸载后仍可查询；查到的是最后一次收到时的样子                                                                                                                                                                                                           |
 
 ## 文档索引
 
 **参赛模型**（容器内路径前缀为 `$ARENA_TOOLKIT_ROOT`）
 
-- [participant/PROMPT.md](participant/PROMPT.md)：追加到系统提示的参赛说明：任务和等待、信息通道、文件位置
+- [participant/agents.d/10-arena.md](participant/agents.d/10-arena.md)：追加到系统提示的参赛说明：任务和等待、信息通道、文件位置
 - [participant/skills/](participant/skills)：7 个 Skill：`arena-programs`（程序写法）、`arena-navigation`（走路、可达地形图、路点）、`arena-surroundings`（观察、截图、区块记忆）、`arena-survival`（吃、战斗、床）、`arena-items`（挖放、合成、箱子）、`arena-reporting`（收件箱和平台消息）、`arena-team`（队内 Git）
 - [packages/observation/README.md](packages/observation/README.md)：默认观察器报告什么、怎样改
 - [packages/bot-sdk/README.md](packages/bot-sdk/README.md)：SDK 及与 Mineflayer 的差异

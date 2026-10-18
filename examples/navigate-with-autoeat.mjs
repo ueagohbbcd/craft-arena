@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
+import { watchdog } from "../packages/bot-sdk/watchdog.mjs";
 
 const foods = new Set([
   "bread",
@@ -262,6 +263,7 @@ async function main() {
   const bot = await connectBot();
   const inbox = new InboxClient(),
     controller = new AbortController();
+  const dog = watchdog(bot, { inbox });
   const { Movements, goals } = loadSelectedPlugins(bot, { pvp: false });
   const moves = new Movements(bot);
   if (noDig) moves.canDig = false;
@@ -285,6 +287,7 @@ async function main() {
     console.log(JSON.stringify(result));
     if (result.status === "failed") process.exitCode = 1;
   } finally {
+    dog.close();
     bot.closeBridge();
     process.off("SIGTERM", onTerm);
     process.off("SIGINT", onInt);

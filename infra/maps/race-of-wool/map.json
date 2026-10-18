@@ -1,0 +1,14 @@
+{
+  "defaults": {
+    "files": [
+      {
+        "source": "agents.d/20-race-of-wool.md",
+        "target": "/arena/config/agents.d/20-race-of-wool.md"
+      }
+    ]
+  },
+  "agents": {
+    "red1": { "team": "red", "bots": ["arena_red1"] },
+    "blue1": { "team": "blue", "bots": ["arena_blue1"] }
+  }
+}

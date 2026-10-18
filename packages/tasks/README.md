@@ -1,6 +1,6 @@
 # Task manager
 
-`TaskManager` ([index.mjs](index.mjs)) runs and tracks every process started through `bash`, plus the default scripts. A **task** is one such process, identified by a `taskId`. The [Pi extension](../pi-extension/README.md) creates one manager per session; the participant-facing behavior of `bash` and `arena-task` is in the appended system prompt, [participant/PROMPT.md](../../participant/PROMPT.md#programs-keep-running).
+`TaskManager` ([index.mjs](index.mjs)) runs and tracks every process started through `bash`, plus the default scripts. A **task** is one such process, identified by a `taskId`. The [Pi extension](../pi-extension/README.md) creates one manager per session; the participant-facing behavior of `bash` and `arena-task` is in the appended system prompt, [participant/agents.d/10-arena.md](../../participant/agents.d/10-arena.md#programs-keep-running).
 
 The core rule: **waiting and process life are separate.** Ending a wait never kills a process; only `cancel`, a kill deadline or shutdown do.
 
@@ -33,13 +33,13 @@ Each process gets the manager's `env` (the inbox connection variables) and `MC_I
 
 ## Wait
 
-`wait(id, {timeoutMs, signal})` blocks for at most the **wait time** `timeoutMs` (no limit if omitted; `bash` passes `wait_seconds`, default 30 s). It returns:
+`wait(id, {timeoutMs, signal, stallMs, progress})` blocks for at most the **wait time** `timeoutMs` (no limit if omitted; `bash` passes `wait_seconds`, default 30 s). With `stallMs`, it also returns once the task printed nothing and the optional `progress()` key (`bash` passes the character's rounded position and inventory) stayed the same for that long. It returns:
 
-| Result                               | When                                                                                                                                                                                                                                                                                           |
-| ------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Full result, `status: "completed"`   | The process exited. Includes the full retained `stdout` and `stderr`, `exitCode`, `signal`.                                                                                                                                                                                                    |
-| `status: "running"` with `reason`    | `wait timeout`; `urgent inbox message <id>`; or `caller detached` (the `signal` aborted). The process keeps running. `stdout` / `stderr` hold only output that no earlier running result returned; `previouslyReturnedBytes` (per channel, when non-zero) counts the retained output left out. |
-| `status: "delivered"` with `channel` | The final result was already handed out (`wait` or `inbox`). Output is not repeated.                                                                                                                                                                                                           |
+| Result                               | When                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Full result, `status: "completed"`   | The process exited. Includes the full retained `stdout` and `stderr`, `exitCode`, `signal`.                                                                                                                                                                                                                   |
+| `status: "running"` with `reason`    | `wait timeout`; `no progress`; `urgent inbox message <id>`; or `caller detached` (the `signal` aborted). The process keeps running. `stdout` / `stderr` hold only output that no earlier running result returned; `previouslyReturnedBytes` (per channel, when non-zero) counts the retained output left out. |
+| `status: "delivered"` with `channel` | The final result was already handed out (`wait` or `inbox`). Output is not repeated.                                                                                                                                                                                                                          |
 
 A final result is delivered once. If no wait is active when the process exits, the manager posts it as a `task.completed` inbox event (source `runtime`). If a later `wait` claims the result first, that queued event is removed.
 

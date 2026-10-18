@@ -7,6 +7,7 @@ import {
 import { createSectionDiff } from "./section-diff.mjs";
 import { observationOptionsFromSession } from "./session-options.mjs";
 import { observerOptions, readObserverConfig } from "./observer-config.mjs";
+import { createReportPolicy } from "./report-policy.mjs";
 
 // The default observer: createDefaultObserver is the sampling and event
 // policy; startObserver runs it against a bot and reports through an inbox
@@ -21,36 +22,44 @@ export function createDefaultObserver({
   onError = () => {},
   options = {},
   recentBlocks = RECENT_BLOCK_DEFAULTS,
+  // Which of the interval reports to send (see report-policy.mjs).
+  report = { recentBlocks: true, signs: true },
   watch = watchObservation,
   sample = sampleObservation,
 }) {
   let watcher;
+  const scanning =
+    recentBlocks.enabled !== false && (report.recentBlocks || report.signs);
   const recent = startNearbyScan({
     getBot,
     connectionStatus,
     now,
-    options: recentBlocks,
+    options: { ...recentBlocks, enabled: scanning },
     postReport: (data, { onDelivered, onLost, minDeliveryDelayMs }) =>
-      post(
-        {
-          kind: "state",
-          key: "observation.recent_blocks",
-          minDeliveryDelayMs,
-          priority: "normal",
-          data: { type: "observation.recent_blocks", ...data },
-        },
-        { onDelivered, onLost },
-      ),
-    postSigns: (data, { key, onDelivered, onLost }) =>
-      post(
-        {
-          kind: "state",
-          key,
-          priority: "normal",
-          data: { type: "observation.nearby_signs", ...data },
-        },
-        { onDelivered, onLost },
-      ),
+      !report.recentBlocks
+        ? (onDelivered(), { accepted: true }) // Scanned for signs only.
+        : post(
+            {
+              kind: "state",
+              key: "observation.recent_blocks",
+              minDeliveryDelayMs,
+              priority: "normal",
+              data: { type: "observation.recent_blocks", ...data },
+            },
+            { onDelivered, onLost },
+          ),
+    postSigns: !report.signs
+      ? undefined
+      : (data, { key, onDelivered, onLost }) =>
+          post(
+            {
+              kind: "state",
+              key,
+              priority: "normal",
+              data: { type: "observation.nearby_signs", ...data },
+            },
+            { onDelivered, onLost },
+          ),
   });
   return {
     attachBot(bot) {
@@ -69,7 +78,7 @@ export function createDefaultObserver({
       return {
         ...this.sampleState(overrides),
         nearbySigns: recent.currentSigns(),
-        ...(recentBlocks.enabled === false
+        ...(!scanning || !report.recentBlocks
           ? {}
           : { recentBlocks: projectRecentBlocks(recent.snapshot(), now()) }),
       };
@@ -165,6 +174,7 @@ export async function startObserver({
     return { accepted: true };
   }
 
+  const policy = createReportPolicy(config.report);
   const core = createDefaultObserver({
     getBot: () => bot,
     connectionStatus: () => status,
@@ -173,6 +183,7 @@ export async function startObserver({
     onError,
     options,
     recentBlocks: { ...RECENT_BLOCK_DEFAULTS, ...config.recentBlocks },
+    report: policy.options,
     ...(watch ? { watch } : {}),
     ...(sample ? { sample } : {}),
   });
@@ -190,11 +201,13 @@ export async function startObserver({
     try {
       // Signs in loaded columns are reported by the nearby scan, not here.
       // The local cube is on request only (observe.mjs --full-local, reach-map.mjs).
-      snapshot = core.sampleState({
-        ...connection(),
-        loadedSigns: false,
-        local: false,
-      });
+      snapshot = policy.project(
+        core.sampleState({
+          ...connection(),
+          loadedSigns: false,
+          local: false,
+        }),
+      );
     } catch (error) {
       onError(error);
       return;

@@ -66,6 +66,7 @@ Each SSE frame is `{epoch, sequence, type, data}`. `epoch` is a UUID per bridge 
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `reset`      | first frame of every `/v1/events` connection; full snapshot including `blocks`                                                                                                                      |
 | `snapshot`   | every 50 ms while a client is connected; also right before events that change state (health, sleep, wake, held item, window open/close, spawn, death, end, kicked) and after inventory slot changes |
+| `fields`     | `{fields, removed}`: the bot's other data fields that changed (see below), checked before each generic event and once a second                                                                      |
 | `event`      | `{name, args}` for a Mineflayer event (list below), plus a `physicsTick` every 50 ms                                                                                                                |
 
 Snapshot fields: `sampledAt`, `version`, `username`, `connectionStatus` (`connecting`/`connected`/`disconnected`), `disconnectReason`, `entity`, `entities`, `inventory`, `heldItem`, `quickBarSlot`, `currentWindow`, `game`, `health`, `food`, `isSleeping`, `oxygenLevel`, `jumpTicks`, `jumpQueued`, `controlState`, `blocks`, `replaceBlocks`, `columns`.
@@ -74,6 +75,10 @@ Snapshot fields: `sampledAt`, `version`, `username`, `connectionStatus` (`connec
 - `columns` lists the chunk columns Mineflayer has loaded now. Clients fetch each with `GET /v1/chunk`; the SDK's `blockAt` and block search use those full columns, not `blocks`.
 
 Forwarded events: `chat`, `messagestr`, `entityMoved`, `entitySpawn`, `entityGone`, `entityHurt`, `entityEquip`, `entityUpdate`, `entityEquipmentChange`, `health`, `sleep`, `wake`, `heldItemChanged`, `windowOpen`, `windowClose`, `diggingCompleted`, `diggingAborted`, `chunkColumnLoad`, `chunkColumnUnload`, `blockUpdate`, `blockEntityData`, `spawn`, `death`, `end`, `kicked`. Entities, blocks and windows in `args` are serialized the same way as in snapshots.
+
+Other data fields: every own field of the bot that is not a function, not `_`-prefixed, not an object with its own methods (a plugin), not carried by the snapshot, and not `world`, `registry` or `chatPatterns`, is serialized like a generic event argument and compared with what was last sent. Changed fields go out in a `fields` frame right before the generic event that is being forwarded, and once a second otherwise; `removed` lists fields that no longer exist. A field over 64 KB is sent as `{$omitted: true, bytes}`. The `reset` frame carries all of them as `data.fields`.
+
+Every other event emitted on the bot is forwarded generically as `{name, args, generic: true}`, except `error`, `message`, `physicTick`, `move` and names containing `:` (per-position `blockUpdate:(x, y, z)`). Its arguments are copied up to four levels deep: blocks become `{$block}`, entities `{$entity}`, vectors `{$vec3}`, items keep their item fields; functions, buffers and `_`-prefixed keys are dropped.
 
 ## Actions
 
@@ -87,6 +92,7 @@ Forwarded events: `chat`, `messagestr`, `entityMoved`, `entitySpawn`, `entityGon
 | Crafting             | `craft`                                                                                                                               |
 | Containers           | `openContainer`, `closeWindow`, `windowWithdraw`, `windowDeposit`, `clickWindow`                                                      |
 | Chat                 | `chat`                                                                                                                                |
+| Generic              | `call`                                                                                                                                |
 
 Validation:
 
@@ -95,6 +101,7 @@ Validation:
 - `stop` only clears control states. It does not teleport, centre or change velocity.
 - `craft {itemType, count, table?}` picks the first recipe Mineflayer's `recipesFor` offers for that item and count, then crafts `ceil(count / result.count)` runs. There is no one-stack cap. Participants cannot send recipe objects.
 - `equip` takes `itemType` or an inventory `slot`; destination defaults to `hand`.
+- `call {method, args}` runs `bot[method]` or `bot.creative[name]` (`method` is `name` or `creative.name`). Refused: `quit`, `end`, `connect`, `loadPlugin(s)`, `hasPlugin`, EventEmitter methods, any other path (so `_client` is unreachable), and any name that has its own action here, which keeps that action's checks. Arguments may carry `{$vec3}`, `{$block: {position}}` and `{$entity: {id}}` (resolved with the `maxReach` check) and `{$item: {slot}}`; other objects pass as data without `_`-prefixed keys. The result is returned in the generic event format.
 
 Errors: a failed action returns `{ok:false, error, errorDetails}` where `errorDetails` is `{name, message, code?, action?}`. Stacks and other error properties are dropped, and the bridge token, bearer values, URL credentials and `password`/`token`/`secret`/`api_key`-style values are replaced with `[redacted]`. Status codes: `400` bad request or failed action, `403` refused by match policy, `429` rate limit.
 

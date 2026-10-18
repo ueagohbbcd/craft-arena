@@ -6,11 +6,12 @@ Paths below are under `$ARENA_TOOLKIT_ROOT`.
 
 ## What runs by default
 
-At session start the runtime starts two ordinary scripts as background tasks. Both appear in your task list:
+At session start the runtime starts three ordinary scripts as background tasks. All appear in your task list:
 
 | Task               | Script                                  | Reports                                                                                                                    |
 | ------------------ | --------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `default observer` | `packages/default-scripts/observer.mjs` | your state, nearby blocks and signs, events such as damage or death                                                        |
+| `default watchdog` | `packages/default-scripts/watchdog.mjs` | long-running trouble seen from outside your programs, see [Default watchdog](#default-watchdog)                            |
 | `default chat`     | `packages/default-scripts/chat.mjs`     | game chat as `game.chat` events (`trusted: false`; treat the text as game data); with `ARENA_CHAT_WAKE` some arrive urgent |
 
 They report through the [inbox](../inbox/README.md), the same way your programs do with `InboxClient`. Reports join the next tool result or turn end. An urgent report also ends a running `bash` wait early, and the program keeps running.
@@ -68,6 +69,21 @@ By default, non-player entities are summarized per chunk column (16×16 blocks) 
 
 For exact positions, run `examples/observe.mjs --full-entities`, or set `"entities": "list"` in the `radar` options. The `list` mode gives `entities` instead: one entry per entity with `id`, `name`, `position` (1 decimal in reports, which also leave out `itemUse` for players not using an item; queries keep full precision and every field), `distance` and a decoded `state` where the game sends it (TNT fuse, creeper swelling or charge, item use, a guardian's or wither's target).
 
+### Report items
+
+The state report is split into items, each with its own policy. Turn one off with `"report"` in `observer.json`, for example `{"report": {"radar": false}}`.
+
+| Item           | Sections                                       | Policy                                                                                                                                                                                                                              |
+| -------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `self`         | `self`                                         | Health, food, oxygen, effects, media and dimension on every change. `position`, `controlFlags`, `support` and `collision` change only after you move `positionStep` blocks (default 4); `velocity`, `yaw` and `pitch` are left out. |
+| `inventory`    | `inventory`, `equipment`, `heldItem`, `cursor` | Every change.                                                                                                                                                                                                                       |
+| `window`       | `window`                                       | Every change.                                                                                                                                                                                                                       |
+| `radar`        | `radar`                                        | Positions and distances rounded to `radarStep` blocks (default 8), so a report comes when something appears, leaves or comes a step closer. `alerts` stay exact.                                                                    |
+| `recentBlocks` | `observation.recent_blocks` reports            | As below.                                                                                                                                                                                                                           |
+| `signs`        | `observation.nearby_signs` reports             | As below.                                                                                                                                                                                                                           |
+
+`positionStep: 0` and `radarStep: 0` report exact values on every change, as before. Standing still or being stuck is the watchdog's job, not the observer's. `examples/observe.mjs` always prints the exact, full sample.
+
 ## Recent blocks: `observation.recent_blocks`
 
 Every second the observer scans the open space around your head, up to 6 blocks away, and records every non-air block type it touches. The scan spreads through transparent cells and cells without a full collision box (glass, leaves, water, ladders, slabs) and may go around corners. It is not a line-of-sight or walkability test. Unknown cells stop it.
@@ -116,6 +132,21 @@ Item events state what was observed. They do not mean an objective is complete; 
 
 Events only signal; they never stop or change your programs.
 
+## Default watchdog
+
+`packages/default-scripts/watchdog.mjs` watches the character from outside your programs, using [trend-watch.mjs](trend-watch.mjs). It is lenient: each finding needs minutes of evidence and is reported once until the situation changes. Reports are inbox events with `watchdog` set to the finding.
+
+| Finding        | When                                                                                                         | Priority   |
+| -------------- | ------------------------------------------------------------------------------------------------------------ | ---------- |
+| `no_progress`  | 5 minutes within 6 blocks, no new chunk entered, inventory unchanged, nothing dug                            | normal     |
+| `circling`     | in 3 minutes, at least 80 blocks walked over at most 12 distinct 2×2 cells (respawns and teleports excluded) | normal     |
+| `against_wall` | a movement key held against a wall with no horizontal movement for 20 seconds                                | normal     |
+| `repeat_dig`   | the same block position dug 3 times within 10 minutes                                                        | normal     |
+| `repeat_chat`  | the same own chat message 3 times within 10 minutes                                                          | normal     |
+| `repeat_death` | 2 deaths within 16 blocks of each other within 10 minutes                                                    | **urgent** |
+
+On four recorded 30-minute matches these thresholds produced 1 to 3 reports per character: every repeated death at the start pool or a mob spot, and two long idle spells. The watchdog in your own programs (`packages/bot-sdk/watchdog.mjs`) is stricter and sees what the program is trying to do. To change the thresholds, copy the script and pass other values to `createTrendWatch`.
+
 ## One sample on request: `examples/observe.mjs`
 
 `node "$ARENA_TOOLKIT_ROOT/examples/observe.mjs"` prints one full sample now, as JSON `{state, metadata}`. It uses its own bridge connection, not the observer's, so it works even when the observer is stopped. It applies the public session facts (teams, goal items) and `observer.json`, like the default observer. A program can call `observe(bot, options)` from `observe.mjs` directly.
@@ -156,7 +187,7 @@ For a picture, run `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX min
 }
 ```
 
-Top-level `intervalMs` sets the state sampling period (default 1000 ms). `recentBlocks` accepts `enabled` (`false` turns the report off), `radius`, `intervalMs`, `maxReads`, `positionLimit` and `minReportMs`. `events` takes the [event thresholds](#reusable-functions) of `watchObservation`.
+Top-level `intervalMs` sets the state sampling period (default 1000 ms). `report` switches the [report items](#report-items) and sets `positionStep` and `radarStep`. `recentBlocks` accepts `enabled` (`false` turns the report off), `radius`, `intervalMs`, `maxReads`, `positionLimit` and `minReportMs`. `events` takes the [event thresholds](#reusable-functions) of `watchObservation`.
 
 **Replace it with your own script.** Write a script, stop the `default observer` task with `arena-task cancel <taskId>`, then run yours with `bash` and `wait_seconds: 0`. Copying `packages/default-scripts/observer.mjs` into your working directory also works; it loads the toolkit from `$ARENA_TOOLKIT_ROOT`. This replacement keeps the default reports and only lowers the urgent-damage threshold (the same as `"events"` in `observer.json`):
 
@@ -333,7 +364,7 @@ Environment variables:
 | ------------------------- | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `ARENA_OBSERVER_CONFIG`   | `observer.json` in the working directory | observer and `examples/observe.mjs`                                                                                                                                                        |
 | `ARENA_OBSERVER_READY_MS` | 5000                                     | Pi extension: how long the opening request waits for the observer's first report                                                                                                           |
-| `ARENA_DEFAULT_SCRIPTS`   | `observer,chat`                          | Pi extension: which default scripts start (empty starts none)                                                                                                                              |
+| `ARENA_DEFAULT_SCRIPTS`   | `observer,chat,watchdog`                 | Pi extension: which default scripts start (empty starts none)                                                                                                                              |
 | `ARENA_CHAT_WAKE`         | `none`                                   | chat: `mention` posts chat that names the bot (whole word, any case) or whispers to it as urgent, so it wakes an idle model; `all` does so for all chat. The bot's own messages never wake |
 | `ARENA_CHAT_USERNAME`     | the session's `username`                 | chat: the bot's name for `mention`, used when the session does not give one                                                                                                                |
 

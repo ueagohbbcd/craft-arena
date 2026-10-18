@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { createRequire } from "node:module";
 import { isDeepStrictEqual } from "node:util";
 import { findBlocksInColumns } from "./find-blocks.mjs";
@@ -98,6 +100,7 @@ export class BotFacade extends EventEmitter {
     this.token = token;
     // Lets the bridge release this client's controls if it dies holding them.
     this.clientId = randomUUID();
+    this._nativeFields = new Set();
     this.fetch = fetchImpl;
     this.reconnectDelay = reconnectDelay;
     this.loadRegistry = loadRegistry;
@@ -169,6 +172,77 @@ export class BotFacade extends EventEmitter {
     } finally {
       this._requests.delete(request);
     }
+  }
+  /**
+   * Call a Mineflayer method on the real bot by name, for methods this facade
+   * does not mirror: `await bot.call("activateEntity", entity)`, or
+   * `bot.native.activateEntity(entity)`. `"creative.flyTo"` reaches
+   * bot.creative. Blocks, entities, vectors and inventory items in the
+   * arguments are sent by reference; the result comes back as data (blocks,
+   * entities and vectors as local objects). Connection control, raw packets
+   * and EventEmitter methods are refused, and so are methods with their own
+   * facade call (use that one).
+   */
+  async call(method, ...args) {
+    const callArg = (value, depth = 0) => {
+      if (value === null || typeof value !== "object" || depth > 4)
+        return value;
+      if (Array.isArray(value)) return value.map((v) => callArg(v, depth + 1));
+      if (this.Vec3 && value instanceof this.Vec3)
+        return { $vec3: { x: value.x, y: value.y, z: value.z } };
+      if (typeof value.stateId === "number" && value.position)
+        return { $block: { position: value.position } };
+      if (typeof value.id === "number" && value.position)
+        return { $entity: { id: value.id } };
+      if (typeof value.type === "number" && Number.isInteger(value.slot))
+        return { $item: { slot: value.slot } };
+      return Object.fromEntries(
+        Object.entries(value).map(([k, v]) => [k, callArg(v, depth + 1)]),
+      );
+    };
+    return this._revive(
+      await this.action("call", { method, args: args.map((a) => callArg(a)) }),
+    );
+  }
+  /**
+   * The real bot's other data fields (players, time, experience, ...), as the
+   * bridge sends them. A field never replaces one the facade has itself.
+   */
+  _applyFields(fields = {}, removed = []) {
+    for (const [name, value] of Object.entries(fields))
+      if (this._nativeFields.has(name) || !(name in this)) {
+        this._nativeFields.add(name);
+        this[name] = this._revive(value);
+      }
+    for (const name of removed)
+      if (this._nativeFields.delete(name)) delete this[name];
+  }
+  /** Turns the bridge's tagged blocks, entities and vectors into local objects. */
+  _revive(value) {
+    if (value === null || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map((v) => this._revive(v));
+    if (value.$block) return this._block(value.$block);
+    if (value.$entity) return this._entity(value.$entity);
+    if (value.$vec3) return this._vector(value.$vec3);
+    return Object.fromEntries(
+      Object.entries(value).map(([k, v]) => [k, this._revive(v)]),
+    );
+  }
+  /** `bot.native.name(...args)` is `bot.call("name", ...args)`; `bot.native.creative.name(...)` too. */
+  get native() {
+    const methods = (prefix) =>
+      new Proxy(
+        {},
+        {
+          get: (_, name) =>
+            typeof name !== "string"
+              ? undefined
+              : !prefix && name === "creative"
+                ? methods("creative.")
+                : (...args) => this.call(`${prefix}${name}`, ...args),
+        },
+      );
+    return methods("");
   }
   /** Session state from /v1/session. */
   async getSessionState() {
@@ -297,7 +371,10 @@ export class BotFacade extends EventEmitter {
       this.blocks.clear();
       this.columns.clear();
       this.knownBlocks.clear();
+      for (const name of this._nativeFields) delete this[name];
+      this._nativeFields.clear();
       await this._snapshot(frame.data);
+      this._applyFields(frame.data.fields ?? {});
       this.emit("bridgeReset");
       return;
     }
@@ -305,9 +382,16 @@ export class BotFacade extends EventEmitter {
       throw new Error("Bridge sequence gap");
     this.sequence = frame.sequence;
     if (frame.type === "snapshot") await this._snapshot(frame.data);
+    else if (frame.type === "fields")
+      this._applyFields(frame.data.fields, frame.data.removed);
     else if (frame.type === "event") {
-      const { name, args } = frame.data;
+      const { name, args, generic } = frame.data;
       let local = args;
+      if (generic) {
+        // Forwarded by name; tagged blocks, entities and vectors become local objects.
+        this.emit(name, ...args.map((value) => this._revive(value)));
+        return;
+      }
       if (name.startsWith("entity")) local = args.map((e) => this._entity(e));
       else if (name === "blockUpdate") {
         local = args.map((b) => this._block(b));
@@ -1079,8 +1163,44 @@ export class BotFacade extends EventEmitter {
     this.emit("end", "bridge closed");
   }
 }
+/**
+ * The bridge of one of this participant's bots: the main bot (ARENA_BOT) from
+ * ARENA_BRIDGE_URL/ARENA_BRIDGE_TOKEN, another one from the provisioned
+ * manifest (ARENA_PROVISION_DIR/manifest.json).
+ */
+export function bridgeFor(username, env = process.env) {
+  if (!username || username === env.ARENA_BOT)
+    return { url: env.ARENA_BRIDGE_URL, token: env.ARENA_BRIDGE_TOKEN };
+  let manifest;
+  try {
+    manifest = JSON.parse(
+      readFileSync(
+        join(env.ARENA_PROVISION_DIR ?? "", "manifest.json"),
+        "utf8",
+      ),
+    );
+  } catch (error) {
+    throw new Error(
+      `No bridge for ${username}: this participant has no bot list (${error.message})`,
+    );
+  }
+  const bot = manifest.bots?.find((entry) => entry.name === username);
+  if (!bot)
+    throw new Error(
+      `No bridge for ${username}; this participant's bots: ${(manifest.bots ?? []).map((entry) => entry.name).join(", ")}`,
+    );
+  return { url: bot.url, token: bot.token };
+}
+
+/**
+ * Connect to a bridge. `{ username }` picks one of this participant's bots
+ * (default: the main bot); `{ url, token }` names a bridge directly.
+ */
 export async function connectBot(options = {}) {
-  const bot = new BotFacade(options);
+  const { username, ...rest } = options;
+  const bot = new BotFacade(
+    rest.url ? rest : { ...rest, ...bridgeFor(username) },
+  );
   let resolve, reject;
   const ready = new Promise((r, j) => {
     resolve = r;

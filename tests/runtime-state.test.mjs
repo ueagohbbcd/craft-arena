@@ -476,6 +476,7 @@ test(
       [
         { label: "default chat", background: true, status: "running" },
         { label: "default observer", background: true, status: "running" },
+        { label: "default watchdog", background: true, status: "running" },
       ],
     );
     // The opening may already carry the first interval; together with the
