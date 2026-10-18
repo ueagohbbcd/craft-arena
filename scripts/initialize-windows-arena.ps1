@@ -69,7 +69,10 @@ try {
     # The operator's match file stays as match.source.json; provision writes
     # match.json (teams from the map), compose.agents.yaml, agents/ and agents.env.
     Copy-Item -LiteralPath $match -Destination (Join-Path $stage 'match.source.json')
-    & $node (Join-Path $repo 'packages/arena/src/cli.mjs') provision $map (Join-Path $stage 'match.source.json') $stage
+    # Provision reads the original match file, so a model path it names is
+    # relative to where the operator keeps it; default descriptors come from
+    # the templates copied above.
+    & $node (Join-Path $repo 'packages/arena/src/cli.mjs') provision $map $match $stage $stage
     if ($LASTEXITCODE -ne 0) { throw 'Provisioning the map failed (see above).' }
     # Each agent now has its own copy (agents/<id>/model.json); the templates
     # would only mislead later edits.

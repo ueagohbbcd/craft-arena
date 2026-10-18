@@ -301,6 +301,9 @@ export async function provision({
   mapDir,
   matchPath,
   outDir,
+  // Where the default `model.<relay>.json` descriptors live; a `model` the
+  // match file names is relative to the match file.
+  modelDir = dirname(matchPath),
   token = () => randomBytes(32).toString("hex"),
 }) {
   mapDir = resolve(mapDir);
@@ -336,10 +339,9 @@ export async function provision({
       throw new Error(
         `agent ${agent.id}: relay ${agent.relay} must match ${RELAY}`,
       );
-    agent.model = resolve(
-      dirname(matchPath),
-      own.model ?? `model.${agent.relay}.json`,
-    );
+    agent.model = own.model
+      ? resolve(dirname(matchPath), own.model)
+      : resolve(modelDir, `model.${agent.relay}.json`);
     if (!(await exists(agent.model)))
       throw new Error(
         `agent ${agent.id}: model descriptor ${agent.model} not found`,

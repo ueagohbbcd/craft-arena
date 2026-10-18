@@ -21,7 +21,7 @@ node packages/arena/src/cli.mjs stop [MATCH.json]    # #arena:stop, run stop com
 node packages/arena/src/cli.mjs status               # arena:session as JSON
 node packages/arena/src/cli.mjs command say Five minutes left
 node packages/arena/src/cli.mjs check MATCH.json     # validate only; no server needed
-node packages/arena/src/cli.mjs provision MAP_DIR MATCH.json OUT_DIR  # see Provision; no server needed
+node packages/arena/src/cli.mjs provision MAP_DIR MATCH.json OUT_DIR [MODEL_DIR]  # see Provision; no server needed
 ```
 
 It connects to `MC_RCON_HOST` (default `127.0.0.1`) and `MC_RCON_PORT` (default `25575`) with `MC_RCON_PASSWORD`, prints one line of JSON and exits 1 on any failure. Both Compose deployments have an `arena` service under the `tools` profile that runs it on the backend network: `docker compose --profile tools run --rm arena status`.
@@ -95,7 +95,7 @@ A map package is a directory with `map.json`:
 | `files`       | `{source, target, mode}`. `source` is relative to the map directory. `target` is under `/arena/config/` (read-only in the container; the files the launcher and extension read, see the [Pi extension README](../pi-extension/README.md#config-directory)) or `/workspace/` (copied by the launcher before Pi starts; `mode: "once"` keeps a file that is already there). |
 | `defaults`    | `team`, `bots` and `files` for every agent. An agent's own value replaces the default; lists are not merged.                                                                                                                                                                                                                                                              |
 
-The match file is the usual one. `config.teams` can be left out (provision fills it in) or must equal what the map implies. An optional `agents` object binds agents to model relays: `{"red1": {"relay": "red", "model": "model.red.json"}}`. The relay defaults to the agent's team, else its id; the model descriptor defaults to `model.<relay>.json` next to the match file.
+The match file is the usual one. `config.teams` can be left out (provision fills it in) or must equal what the map implies. An optional `agents` object binds agents to model relays: `{"red1": {"relay": "red", "model": "model.red.json"}}`. The relay defaults to the agent's team, else its id; the model descriptor defaults to `model.<relay>.json` in `MODEL_DIR` (default: next to the match file); a `model` the match file names is relative to the match file.
 
 `OUT_DIR` may exist, but none of the outputs may:
 

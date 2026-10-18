@@ -254,6 +254,25 @@ test("teammates share one Git volume and keep their own workspaces", async (t) =
   assert.ok(services["participant-a"].volumes.includes("a-work:/workspace"));
 });
 
+test("default model descriptors come from modelDir; named ones from the match file", async (t) => {
+  const f = await fixture(t, twoBots, {
+    config: { sessionId: "s1" },
+    agents: { blue1: { model: "models/blue.json" } },
+  });
+  const modelDir = join(f.root, "templates");
+  await mkdir(join(f.root, "models"));
+  await mkdir(modelDir);
+  await writeFile(join(f.root, "models/blue.json"), '{"id":"named"}');
+  await writeFile(join(modelDir, "model.red.json"), '{"id":"template"}');
+  await provision({ ...f, modelDir });
+  const model = async (id) =>
+    JSON.parse(
+      await readFile(join(f.outDir, "agents", id, "model.json"), "utf8"),
+    ).id;
+  assert.equal(await model("red1"), "template");
+  assert.equal(await model("blue1"), "named");
+});
+
 test("the manifest is handed to the participant user", async () => {
   const calls = [];
   const ops = {
