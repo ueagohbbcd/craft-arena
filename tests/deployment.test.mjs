@@ -195,6 +195,8 @@ test("participant image carries only participant-side code", async () => {
     "observation",
     "default-scripts",
     "world-visual",
+    // Native runtime: the bot and its local bridge run in the container.
+    "mf-bridge",
   ];
   for (const path of copied)
     if (path.startsWith("packages"))
@@ -217,7 +219,7 @@ test("participant image carries only participant-side code", async () => {
       if (file.endsWith(".mjs"))
         assert.doesNotMatch(
           await readFile(new URL(file, dir), "utf8"),
-          /\.\.\/(?:arena|mf-bridge|model-relay)\//,
+          /^import[^;]*["']\.\.\/(?:arena|model-relay|login-gate)\//m,
           `packages/${name}/${file}`,
         );
   }

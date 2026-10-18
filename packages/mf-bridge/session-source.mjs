@@ -1,5 +1,6 @@
-import { RconClient } from "../arena/src/rcon.mjs";
-import { readConfig, readSession } from "../arena/src/server-protocol.mjs";
+// The server readers load the trusted side's RCON code only when used: in
+// the native runtime this file runs in the participant container without it.
+const serverProtocol = () => import("../arena/src/server-protocol.mjs");
 import { sessionObject } from "./session-object.mjs";
 
 // A reading older than this cannot vouch that the session still runs.
@@ -103,6 +104,7 @@ export function serverSessionReader({
   let config = null,
     configState;
   return async () => {
+    const { readConfig, readSession } = await serverProtocol();
     const session = await readSession(rcon);
     // Re-read on a state change, and keep retrying until a read succeeds.
     if (session.state !== configState) {
@@ -161,7 +163,12 @@ export function serverSession({ rcon, intervalMs, staleAfterMs, ...reader }) {
     getSessionState: () => polled.getSessionState(),
     authorizeAction: () => polled.authorizeAction(),
     poll: () => polled.poll(),
-    async start(started, { createRcon = (o) => new RconClient(o) } = {}) {
+    async start(started, { createRcon } = {}) {
+      createRcon ??= await import("../arena/src/rcon.mjs").then(
+        ({ RconClient }) =>
+          (o) =>
+            new RconClient(o),
+      );
       service = started;
       client = createRcon(rcon);
       await client.connect();
@@ -172,5 +179,46 @@ export function serverSession({ rcon, intervalMs, staleAfterMs, ...reader }) {
       polled.close();
       client?.close();
     },
+  };
+}
+
+/**
+ * A session read from the participant's login gate (`GET <url>`, answered
+ * with `{ok, result}`), for a bridge that runs inside the participant
+ * container. The gate reads the server; this side cannot reach RCON.
+ */
+export function remoteSession({
+  url,
+  intervalMs,
+  staleAfterMs,
+  now,
+  fetch = globalThis.fetch,
+}) {
+  let service;
+  const polled = polledSession({
+    intervalMs,
+    staleAfterMs,
+    now,
+    read: async () => {
+      const response = await fetch(url, { cache: "no-store" });
+      const body = await response.json();
+      if (!response.ok || !body?.ok || !body.result)
+        throw new Error(`Session read failed: ${response.status}`);
+      return body.result;
+    },
+    onChange: (next, previous) => {
+      if (previous?.state === "running") releaseHeld(service?.bot);
+    },
+    onStale: () => releaseHeld(service?.bot),
+  });
+  return {
+    getSessionState: () => polled.getSessionState(),
+    authorizeAction: () => polled.authorizeAction(),
+    poll: () => polled.poll(),
+    async start(started) {
+      service = started;
+      await polled.start();
+    },
+    close: () => polled.close(),
   };
 }
