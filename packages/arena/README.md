@@ -42,9 +42,7 @@ It connects to `MC_RCON_HOST` (default `127.0.0.1`) and `MC_RCON_PORT` (default 
     "prepare": [
       { "command": "gamerule doMobSpawning false", "expect": "false" }
     ],
-    "start": [
-      { "command": "tp arena_red1 317.5 72 -24.5 90 0", "expect": "Teleported" }
-    ],
+    "start": [{ "command": "gamerule doMobSpawning true", "expect": "true" }],
     "stop": []
   }
 }
@@ -52,15 +50,15 @@ It connects to `MC_RCON_HOST` (default `127.0.0.1`) and `MC_RCON_PORT` (default 
 
 `config` becomes `arena:config` (with `version: 1`, and a fresh `runId` unless one is given):
 
-| Key          | Requirement                                                                                          |
-| ------------ | ---------------------------------------------------------------------------------------------------- |
-| `sessionId`  | `[A-Za-z0-9_-]{1,64}`                                                                                |
-| `kind`       | `match` (default) or `open`                                                                          |
-| `durationMs` | optional positive integer; the rules datapack ends the match when it runs out (race-of-wool: a draw) |
-| `briefing`   | optional text; bridges in server mode serve it as `briefing.text` instead of `BRIDGE_BRIEFING`       |
-| `teams`      | `[{id, players: [usernames]}]`; `draw` is reserved and cannot be a team ID                           |
+| Key          | Requirement                                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------------------- |
+| `sessionId`  | `[A-Za-z0-9_-]{1,64}`                                                                                    |
+| `kind`       | `match` (default) or `open`                                                                              |
+| `durationMs` | optional positive integer; the rules datapack ends the match when it runs out (race-of-wool: a draw)     |
+| `briefing`   | optional text; bridges in server mode serve it as `briefing.text` instead of `BRIDGE_BRIEFING`           |
+| `teams`      | `[{id, players: [usernames]}]`; `draw` is reserved and cannot be a team ID; a player is in one team only |
 
-Each command is a string or `{command, expect}`; with `expect` (a regular expression) a reply that does not match fails the command and stops the run. `prepare` and `start` commands run before their function tag, `stop` commands after it.
+Each command is a string or `{command, expect}`; with `expect` (a regular expression) a reply that does not match fails the command and stops the run. `prepare` and `start` commands run before their function tag, `stop` commands after it. Opening teleports belong to the rules datapack, not to these commands (race-of-wool: `starts` in its `map.mcfunction`); the Direct Fire match file sets no spawnpoint, so deaths follow the map's own respawn.
 
 Starting points: [infra/match.live.template.json](../../infra/match.live.template.json) and [infra/windows-local/match.direct-fire.json](../../infra/windows-local/match.direct-fire.json).
 

@@ -163,6 +163,16 @@ test("match files and arena:config values are checked", () => {
       errors.some((e) => pattern.test(e)),
       String(pattern),
     );
+  assert.deepEqual(
+    validateServerConfig({
+      sessionId: "s",
+      teams: [
+        { id: "red", players: ["p"] },
+        { id: "blue", players: ["p"] },
+      ],
+    }),
+    ["player p is in more than one team"],
+  );
   assert.throws(
     () => parseMatch(JSON.stringify({ ...match, commands: { end: [] } })),
     /unknown command phase end/,
