@@ -14,16 +14,16 @@ RUN npm ci --ignore-scripts && node scripts/prune-node-modules.mjs node_modules 
 # Only participant-side code and its documentation enter this image: no
 # trusted-side source (arena commands, login gate, model relay), no
 # tests, no developer docs, no operator configuration. The list is checked by
-# tests/deployment.test.mjs.
+# tests/deployment.test.mjs. The trusted login gate runs in its own trusted
+# service; only the bot host and participant-side runtime belong here.
 COPY --chown=node:node packages/pi-extension ./packages/pi-extension
 COPY --chown=node:node packages/tasks ./packages/tasks
 COPY --chown=node:node packages/inbox ./packages/inbox
-COPY --chown=node:node packages/bot-sdk ./packages/bot-sdk
 COPY --chown=node:node packages/observation ./packages/observation
 COPY --chown=node:node packages/default-scripts ./packages/default-scripts
 COPY --chown=node:node packages/world-visual ./packages/world-visual
-# Native runtime: each character's bot runs here behind a local bridge.
-COPY --chown=node:node packages/mf-bridge ./packages/mf-bridge
+# Native runtime: one host per character runs inside the participant container.
+COPY --chown=node:node packages/bot-host ./packages/bot-host
 COPY --chown=node:node examples ./examples
 COPY --chown=node:node participant ./participant
 COPY --chown=node:node docs/CONTEXT-DELIVERY.md ./docs/CONTEXT-DELIVERY.md

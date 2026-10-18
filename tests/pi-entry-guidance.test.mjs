@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { EventEmitter, once } from "node:events";
+import { once } from "node:events";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import {
@@ -15,8 +15,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { startBridge } from "../packages/mf-bridge/index.mjs";
-import { Vector } from "../packages/bot-sdk/index.mjs";
 import { systemPromptArgs } from "../packages/pi-extension/bootstrap.mjs";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -182,159 +180,5 @@ test(
       });
     }
     assert.equal(requests.length, 8);
-  },
-);
-
-test(
-  "real default bootstrap returns direct bash stdout and the observe script's state without codemode",
-  { timeout: 20000 },
-  async (t) => {
-    const { dir } = await fixture(t);
-    const backend = new EventEmitter();
-    Object.assign(backend, {
-      version: "1.21.1",
-      username: "entry-observer",
-      entity: {
-        id: 1,
-        position: new Vector(0, 1, 0),
-        velocity: new Vector(),
-        yaw: 0,
-        pitch: 0,
-        height: 1.8,
-      },
-      entities: {},
-      inventory: {
-        slots: Array(46).fill(null),
-        inventoryStart: 9,
-        inventoryEnd: 45,
-      },
-      health: 20,
-      food: 20,
-      game: {},
-      controlState: {},
-      blockAt: (position) => ({
-        position: new Vector(position.x, position.y, position.z),
-        name: position.y === 0 ? "stone" : "air",
-        stateId: position.y === 0 ? 1 : 0,
-        type: position.y === 0 ? 1 : 0,
-        shapes: position.y === 0 ? [[0, 0, 0, 1, 1, 1]] : [],
-        boundingBox: position.y === 0 ? "block" : "empty",
-      }),
-    });
-    const bridge = await startBridge({
-      bot: backend,
-      token: "entry-observe-fixture-token",
-      snapshotRadius: 1,
-    });
-    t.after(() => bridge.close());
-    let actions = 0;
-    bridge.server.on("request", (request) => {
-      if (request.url === "/v1/action") actions++;
-    });
-    const requests = [];
-    const server = http.createServer(async (req, res) => {
-      let raw = "";
-      for await (const chunk of req) raw += chunk;
-      requests.push(JSON.parse(raw));
-      const first = requests.length === 1;
-      const delta = first
-        ? {
-            role: "assistant",
-            tool_calls: [
-              {
-                name: "bash",
-                args: {
-                  command: "node -e 'console.log(\"DIRECT_NODE_STDOUT\")'",
-                  wait_seconds: 5,
-                },
-              },
-              {
-                name: "bash",
-                id: "entry-direct-observe",
-                args: {
-                  command: `node ${JSON.stringify(join(root, "examples/observe.mjs"))}`,
-                  wait_seconds: 10,
-                },
-              },
-            ].map(({ name, id, args }, index) => ({
-              index,
-              id: id ?? `entry-direct-${name}`,
-              type: "function",
-              function: { name, arguments: JSON.stringify(args) },
-            })),
-          }
-        : { role: "assistant", content: "Direct entry fixture complete." };
-      res.writeHead(200, { "content-type": "text/event-stream" });
-      res.end(
-        `data: ${JSON.stringify({ id: "entry-direct-fixture", object: "chat.completion.chunk", created: 0, model: "fixture", choices: [{ index: 0, delta, finish_reason: first ? "tool_calls" : "stop" }] })}\n\ndata: {"choices":[],"usage":{"prompt_tokens":10,"completion_tokens":5,"total_tokens":15}}\n\ndata: [DONE]\n\n`,
-      );
-    });
-    server.listen(0, "127.0.0.1");
-    await once(server, "listening");
-    t.after(async () => {
-      server.closeAllConnections();
-      await new Promise((done) => server.close(done));
-    });
-    const modelPath = join(dir, "model.json");
-    await writeFile(
-      modelPath,
-      JSON.stringify({
-        id: "fixture",
-        api: "openai-completions",
-        contextWindow: 32768,
-        maxOutputTokens: 2048,
-      }),
-    );
-    const operation = promisify(execFile)(
-      process.execPath,
-      [
-        join(root, "packages/pi-extension/bootstrap.mjs"),
-        "--print",
-        "Run the direct-tool entry fixture.",
-      ],
-      {
-        cwd: dir,
-        timeout: 15000,
-        env: {
-          PATH: process.env.PATH,
-          HOME: dir,
-          ARENA_MODEL_CONFIG: modelPath,
-          OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
-          OPENAI_API_KEY: "entry-fixture-only",
-          ARENA_BRIDGE_URL: bridge.url,
-          ARENA_BRIDGE_TOKEN: "entry-observe-fixture-token",
-          PI_CODING_AGENT_SESSION_DIR: join(dir, "sessions"),
-        },
-      },
-    );
-    operation.child.stdin.end();
-    const { stdout, stderr } = await operation;
-    assert.match(stdout, /Direct entry fixture complete/);
-    assert.doesNotMatch(stderr, /Error loading extension/);
-    assert.equal(requests.length, 2);
-    for (const request of requests)
-      assert.deepEqual(
-        request.tools.map((tool) => tool.function.name).toSorted(),
-        defaultTools,
-      );
-    const messages = requests[1].messages;
-    const bash = messages.find(
-      (message) =>
-        message.role === "tool" && message.tool_call_id === "entry-direct-bash",
-    );
-    assert.ok(bash, "native bash tool result reaches the next request");
-    assert.match(JSON.stringify(bash), /DIRECT_NODE_STDOUT/);
-    assert.match(JSON.stringify(bash), /completed/);
-    const observation = messages.find(
-      (message) =>
-        message.role === "tool" &&
-        message.tool_call_id === "entry-direct-observe",
-    );
-    assert.ok(
-      observation,
-      "the observe script's result reaches the next request",
-    );
-    assert.match(JSON.stringify(observation), /entry-observer/);
-    assert.equal(actions, 0, "direct observation does not submit game actions");
   },
 );

@@ -9,8 +9,6 @@
  * a wall, a drop, water or blocks the character has not received. It is not a
  * route: use reach-map.mjs or Pathfinder for that. Read-only.
  */
-import { pathToFileURL } from "node:url";
-import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { terrainProfile } from "../packages/observation/reach.mjs";
 import { worldReader } from "./reach-map.mjs";
 
@@ -31,27 +29,22 @@ export function parseProfileArgs(args) {
   return { target: { x, z } };
 }
 
-async function main() {
-  const options = parseProfileArgs(process.argv.slice(2));
-  const bot = await connectBot();
-  try {
-    const p = bot.entity.position;
-    const end = options.target ?? {
-      x: p.x + ({ east: 1, west: -1 }[options.direction] ?? 0) * options.steps,
-      z:
-        p.z + ({ south: 1, north: -1 }[options.direction] ?? 0) * options.steps,
-    };
-    const { blockAt, note } = await worldReader(bot, {
-      minX: Math.floor(Math.min(p.x, end.x)),
-      maxX: Math.floor(Math.max(p.x, end.x)),
-      minZ: Math.floor(Math.min(p.z, end.z)),
-      maxZ: Math.floor(Math.max(p.z, end.z)),
-    });
-    const profile = terrainProfile({ blockAt, origin: p, ...options });
-    console.log(`${profile.text}\nBlocks: ${note}.`);
-  } finally {
-    bot.closeBridge();
-  }
+export default async function profileProgram(
+  bot,
+  { args = [], log = console.log },
+) {
+  const options = parseProfileArgs(args);
+  const p = bot.entity.position;
+  const end = options.target ?? {
+    x: p.x + ({ east: 1, west: -1 }[options.direction] ?? 0) * options.steps,
+    z: p.z + ({ south: 1, north: -1 }[options.direction] ?? 0) * options.steps,
+  };
+  const { blockAt, note } = await worldReader(bot, {
+    minX: Math.floor(Math.min(p.x, end.x)),
+    maxX: Math.floor(Math.max(p.x, end.x)),
+    minZ: Math.floor(Math.min(p.z, end.z)),
+    maxZ: Math.floor(Math.max(p.z, end.z)),
+  });
+  const profile = terrainProfile({ blockAt, origin: p, ...options });
+  log(`${profile.text}\nBlocks: ${note}.`);
 }
-
-if (import.meta.url === pathToFileURL(process.argv[1]).href) await main();

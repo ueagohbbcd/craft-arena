@@ -1,143 +1,58 @@
 # 目标架构
 
-2026-10-17 定下的方向，大部分已实现，各项进度见 [ROADMAP.md](ROADMAP.md#目标架构10-17-定下的方向)。现状的设计见 [GAME-MODES.md](GAME-MODES.md) 和 [CONTEXT-DELIVERY.md](CONTEXT-DELIVERY.md)。
+本架构采用单一的原生 Mineflayer 路径：每个角色在参赛容器中运行一个常驻 Mineflayer 进程。参赛程序以任务形式请求该进程运行模块；模块直接使用真实 bot 对象。平台不在进程间复制 Mineflayer 状态，也不提供远程 bot 对象或通用 bot 方法调用。待办只记录在 [ROADMAP.md](ROADMAP.md)。
 
-10-18 改了 bot 放在哪：原生 Mineflayer 回到参赛容器里，可信侧只管身份（每个参赛者一个登录入口）和服务端。默认用原版端，公平靠提示词约束；反作弊端可选，开了也只安静记录。取舍和备选方案见 [ARENA-ARCHITECTURE-DECISION.md](ARENA-ARCHITECTURE-DECISION.md)。旧的"可信侧一个 bot 一个桥"保留为 `runtime: "bridge"`。
+## 边界与数据流
 
-多 bot 已定的方向如下。一个参赛者可以控制几个 bot：主 bot 默认开观察；副 bot 默认不开，由模型自己接上；副 bot 在第一次被连接时才登录。
-
-## 一句话
-
-地图声明一切与玩法有关的东西：数据包管规则，角色位管每个 agent 拿到什么。可信侧把这些编译成每个参赛者一份只读配置，容器里的程序只按数据执行，不执行地图提供的脚本。参赛程序看到的 bot 尽量等同于原生 Mineflayer。
-
-## 分层
-
-```
-┌─ 地图包 infra/maps/<地图>/ ───────────────────────────────┐
-│ datapack/   规则：实现协议 v1（prepare/start/stop、        │
-│             读 arena:config、写 arena:session）            │
-│ map.json    角色位 agents{…} + defaults：每个 agent 的队、 │
-│             bot 名单、要写进容器的文件（files）            │
-│ files/ images/ PROMPT.md 等被 map.json 引用的素材          │
-└──────────────────────────────────────────────────────────┘
-┌─ 比赛文件 match.json ─┐  绑定：哪个模型/key 坐哪个角色位、时限等运行参数
-└──────────────────────┘
-          │  cli.mjs provision（可信侧，up 之前）
-          ▼
-┌─ 生成物 runtime/ ─────────────────────────────────────────┐
-│ compose.yaml       每个角色位一个参赛容器和一个登录入口    │
-│ provision/<agent>/ manifest.json + 被引用的文件            │
-│ arena:config       teams 由角色位推出                      │
-└──────────────────────────────────────────────────────────┘
-          │  cli.mjs prepare / start / stop（RCON 调数据包）
-          ▼
-Minecraft 服务端（原版端，或可选的反作弊端）+ 数据包
-   ▲ 游戏连接（原样转发）          │ RCON 读 arena:session
-登录入口 gate-<agent>（可信侧，每个参赛者一个）：只放行本角色位的 bot，每个 bot 一条连接；只读会话接口
-   ▲ 参赛者网络只能连到自己的入口
-参赛容器：启动器 → 每个 bot 一个常驻进程（原生 Mineflayer + 本机桥 + 模块运行）
-          → Pi（扩展：收件箱、任务、默认脚本）→ 参赛程序（SDK 连本机桥，或 run.mjs 跑进 bot 进程）
+```text
+模型 ──Pi 工具──> bash 任务 ──run/cancel/status──> 角色进程中的模块
+  ▲                    │                               │
+  │                    └──InboxClient──> 收件箱        └──原生 Mineflayer──> 登录入口──> Minecraft
+  │
+  └──平台消息：session / public / notice / model relay 状态
 ```
 
-## 各层职责
+- **角色进程**拥有唯一的 Mineflayer 连接、世界与实体对象、背包、插件和事件循环。直接操控与同步查询只在该进程中进行；不得通过 RPC 镜像这些对象或转发任意 Mineflayer 方法。
+- **任务接口**只负责在角色进程中启动模块、取消运行、读取任务状态和结果，以及读取会话状态。模块通过 `run.mjs` 启动，收到 `AbortSignal`；取消或失败时释放移动控制并停止 Pathfinder/PvP。运行结束后清理该次运行注册的监听器和计时器。
+- **任务管理**由 `bash` 与 `arena-task` 提供。每次命令有 `taskId`；等待可返回 `running`，随后用同一 ID 继续等待，或取消任务。输出、状态和最终结果有明确的交付语义，结果只交付一次。
+- **收件箱**由程序通过 `InboxClient` 投递。普通消息随下一次工具结果送达；紧急判断请求可提前结束当前的受管等待，但不会杀掉仍在运行的任务。它是程序向模型汇报的通道，不承载可信平台状态。
+- **会话状态**由服务器规则数据包维护。可信侧通过 RCON 读取结果；参赛侧只读会话 RPC 为模块和平台消息提供 `kind`、`sessionId`、`state`、`winner` 与公开数据。时限、判定和规则都由服务器执行。
+- **世界记忆**只记录角色实际收到的区块。模块在角色进程内查询记忆；历史结果带观察时间，未收到的区域仍为未知。它不提供服务器全知视图，也不属于任务 RPC 的对象镜像。
+- **模型转发**只把 Pi 的模型请求转发到配置的上游，不参与任务、会话或游戏控制。参赛容器不持有上游密钥。
+- **登录入口**把每个参赛者限制在获分配的角色名和连接范围内，并原样转发 Minecraft 流量。游戏行为规则由服务端数据包或插件执行；进程内的便捷库、提示词与登录入口都不是游戏规则边界。
 
-### 1. 数据包（地图规则）
+## 角色程序
 
-- 唯一放地图逻辑的地方。主控侧不加脚本或 DSL。
-- 按协议 v1 实现：三个函数标签；读 `arena:config`；写 `arena:session`（状态、胜者、分数、`public`、`message`）。
-- 开赛起点、纪念碑、时限都在这里。
-- 想通知模型的事，写进 `public` 或 `message`，由桥转发。
-- 数据包跟着地图一起发布，bot 名字也由同一个地图包的 `map.json` 定，所以数据包里可以直接写死角色名。
-- 不做"数据包请求主控做事"的请求队列，先保持现状。PR #18 之后没有常驻主控，常驻读 RCON 的只有桥。
+模块导出一个默认异步函数，接收原生 bot 和运行上下文：
 
-### 2. `map.json`（只给模型看的信息 + 角色配置）
+```js
+export default async function (bot, { signal, args, log }) {
+  // 直接调用 Mineflayer 与已加载插件；长循环需让出事件循环。
+  return { done: true };
+}
+```
 
-- `agents: { red1: {...}, red2: {...} }` 逐个定义角色位；`defaults` 写共用部分，角色位只写差异。这是显式覆盖，不是自动推导。
-- 每个角色位只有三个字段：
-  - `team`：可省略，开放模式没有队伍。
-  - `bots: [name, ...]`：第一个是主 bot。可信侧据此建桥、发 token、生成 `teams`。
-  - `files: [{ source, target, mode }]`：通用的"往容器写文件"。`target` 限定在允许的根目录下（`/workspace`、`/arena/session`、`/arena/config`）；`mode` 为 `once` 或 `replace`。
-- 其余的行为，都是往容器组件约定的配置路径写文件。组件自己读，文件不存在就用组件的默认值：
+模块经 `node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" [--bot NAME] file.mjs [args...]` 作为受管任务运行。`--bot` 选择该参赛者已分配的其他角色。同步循环会阻塞这个角色的全部模块和 Mineflayer 网络处理，因此每轮工作都应适时 `await`。模块应在取消信号到达时结束；平台会在取消或异常时进行控制清理。
 
-  | 路径                                   | 谁读                                       | 内容                                                                                                             |
-  | -------------------------------------- | ------------------------------------------ | ---------------------------------------------------------------------------------------------------------------- |
-  | `/arena/config/default-scripts.json`   | 扩展                                       | 按 bot 名列出默认脚本，例如 `{"arena_red1": ["observer","chat"], "arena_red2": []}`                              |
-  | `/arena/config/first-message.md`       | 启动器                                     | 第一条消息，原样发出，不用模板                                                                                   |
-  | `/arena/config/images/`                | 启动器                                     | 随第一条消息发出的图片                                                                                           |
-  | `/arena/config/agents.d/*.md`          | 启动器                                     | 按文件名排序，逐个用 `--append-system-prompt` 加进系统提示；镜像自带 `participant/agents.d/`，同名文件以配置为准 |
-  | `observer.json`（工作目录）            | observer                                   | 已有的观察设置                                                                                                   |
-  | `/arena/config/skills/<名字>/SKILL.md` | 启动器（作为额外的 `--skill` 目录交给 Pi） | 地图或角色专属的 skill，和镜像里自带的 `participant/skills` 并列                                                 |
+默认观察、聊天和看门狗仍是普通任务，可由模型查看或取消。程序向模型报告使用 `InboxClient`；模块也可直接监听 Mineflayer 事件或查询原生对象，无需让观察报告成为唯一的信息来源。
 
-  启动器和扩展不认识地图的任何字段。这张表就是地图作者要对齐的接口，命令行按表检查格式。
+## 地图与比赛配置
 
-- 不想给的东西就不写，不设开关。
-- 不支持容器启动脚本：容器组件读约定路径上的配置文件就够了。
+地图数据包负责玩法规则和判定；角色配置指定队伍、角色名以及投放到容器的静态文件。比赛配置绑定模型、密钥和角色位等运行参数。可信侧将两者编译成每个参赛者的只读清单及容器配置。地图提供的数据只作为数据读取，不作为容器内脚本执行。
 
-### 3. 比赛文件（运营者）
+开局提示由通用参赛说明、地图提供的首条消息、会话简报和公开数据组成。可信侧的会话、公开数据及通知通过平台消息交付；程序自身的进度与分析通过收件箱交付。
 
-- 只做绑定和运行参数：模型和 key 对应哪个角色位、时限、会话编号等。
-- 地图不碰凭据，比赛文件不碰玩法。
+## 责任归属
 
-### 4. `cli.mjs provision`（可信侧编译）
+| 能力                                        | 所属组件                                    |
+| ------------------------------------------- | ------------------------------------------- |
+| Mineflayer 连接、对象、事件、插件与模块运行 | 参赛容器中的角色进程                        |
+| 启动、等待、取消、任务日志与状态            | `packages/tasks`、`bash`、`arena-task`      |
+| 程序到模型的消息与回执                      | `packages/inbox`、`InboxClient`             |
+| 会话判定、计时与公开结果                    | Minecraft 数据包及可信侧 RCON 主控          |
+| 登录角色约束                                | `packages/login-gate`                       |
+| Pi 生命周期、默认任务与平台消息             | `packages/pi-extension`                     |
+| 模型 API 请求转发                           | `packages/model-relay`                      |
+| 观察与已收区块记忆                          | `packages/observation` 及 world-memory 能力 |
 
-- 合并地图包和比赛文件，生成三样东西：
-  - 每个参赛者一份 `manifest.json` 加文件；
-  - `compose.yaml`；
-  - `arena:config` 里的 `teams`。
-- 在这一步校验：路径越界、引用的文件不存在、同一 bot 被两个角色位使用等。
-- 容器数量和桥数量由地图决定，compose 不再写死 `red1`、`blue1`。
-
-### 5. 登录入口和容器里的 bot（10-18 起默认）
-
-- **登录入口**（`packages/login-gate`，每个参赛者一个 `gate-<agent>` 服务，在后端网络和该参赛者的网络里）：
-  - 读登录包里的用户名，只放行本角色位的 bot，每个 bot 同时只有一条连接；放行后原样转发字节，不改包、不保留游戏状态。
-  - 参赛容器只连得到自己的入口，连不到服务端和别人的入口，所以冒用不了别人的角色。
-  - 同时提供只读的 `/v1/session?username=…`（RCON 读数据包的会话），容器里的 bot 从这里读会话。
-- **容器里的 bot**：启动器给每个 bot 起一个常驻进程（`packages/mf-bridge/cli.mjs`），里面是原生 Mineflayer，经入口登录；进程退出就重启。
-  - 同一进程在 127.0.0.1 上提供原来的桥接口，现有程序、默认脚本、`connectBot()` 不用改。桥上的检查只是方便，不再是安全边界。
-  - 需要完整同步接口的代码（Pathfinder 等插件、大量监听）写成模块，用 `run.mjs` 跑进 bot 进程：`export default async (bot, { signal, args, log }) => …`。运行结束时移除它加的监听和定时器；取消或出错时松开移动键、停 Pathfinder 和 PvP。
-  - 不能自己 `createBot`：入口只给每个 bot 一条连接，已经被常驻进程占着。
-- **公平**：默认原版端，原版只粗查移动。提示词（`participant/agents.native.d/15-fair-play.md`）写明能用什么（Mineflayer 公开接口、插件、收到的所有信息）、不能用什么（自己发包、改物理参数、`creative` 飞行、改源码），违规取消成绩。服务端录像（ServerReplay）留作事后核查。
-- **反作弊端（可选）**：`infra/minecraft-anticheat.json` 是默认端加 Grim（Fabric 版）。配置改成只记录：不回拉、不取消包或攻击、不踢人；提示打到控制台，每次标记写进 Grim 的历史库，赛后再看。
-- 旧方案 `runtime: "bridge"`：可信侧每个 bot 一个桥，通过 RCON 读会话；暴露原则同前（只拦任意发包和连接控制，其余通用转发）。
-
-### 6. 参赛容器
-
-- 只读挂载 `/arena/provision`（本角色位的清单），以及现有的 `/arena/rules`。
-- **启动器**，在拉起 Pi 之前：
-  1. 按清单的 `files` 投放文件；
-  2. 把镜像自带的 `participant/agents.d/*.md` 和 `/arena/config/agents.d/*.md` 按文件名合并（同名以配置为准），逐个用 `--append-system-prompt` 交给 Pi。不写 `AGENTS.md`，运营者自己 Pi 配置里的 `AGENTS.md` 不受影响。这些内容在系统提示里，压缩后仍在；只放事实和索引，不放会变的状态。
-
-  然后拉起 Pi，等开赛，发第一条消息：`first-message.md` 原文，加上竞技场附的会话事实（有什么列什么），再加 `images/`。模型配置不含 `image` 时跳过图片，并写警告。
-
-- **扩展**：读 `default-scripts.json`，给每个 bot 启动默认脚本。文件不存在时，主 bot 开 `observer,chat,watchdog`，副 bot 不开。默认脚本都是普通任务，可以停、可以替换。收件箱、任务管理不变。
-- **`bash` 等待**：所等的任务在等待期间既无输出、角色也没动，超过约 60 秒就提前返回"无进展"。只在这次等待里生效，参数设 0 可关闭。
-
-### 7. SDK 与库
-
-- `connectBot({ username })` 从清单查地址，不传时用主 bot（也可用 `ARENA_BOT`）。
-- 通用库（`mineflayer-world-memory` 仓库，见 ROADMAP 的仓库分工）只依赖 Mineflayer，不碰收件箱，报告通过回调交出：
-  - `watchdog(bot, { report })`：检测卡住、`worker_threads` 心跳（同步死循环）、重复重试；
-  - 浮水：只看物理状态，按住跳；氧气低于一半时上浮并报告；
-  - observer：按用途分项、每项可以单独开关。
-- 竞技场包一层，把回调接到收件箱：普通报告或紧急唤醒。示例程序第一行**显式**调用 `watchdog`，不藏进 `connectBot()`。
-- 全局后台看门狗作为默认脚本，宽松地看长时间无进展、兜圈、重复和撞墙。阈值先在已有比赛记录上离线回放，看报告次数和漏报，再定数值。
-
-## 和现在的差别
-
-|                      | 现在                                                         | 以后                                              |
-| -------------------- | ------------------------------------------------------------ | ------------------------------------------------- |
-| 参赛者数量、bot 数量 | compose 写死 red1/blue1，一人一 bot                          | 地图角色位决定，compose 生成                      |
-| 地图提示             | 桥挂载单个 `PROMPT.md`，作为开局消息里的 "Mode instructions" | `first-message.md` 和 `agents.d/` 里的文件        |
-| 默认脚本             | 环境变量 `ARENA_DEFAULT_SCRIPTS`，只对一个 bot               | `/arena/config/default-scripts.json`，按 bot 配置 |
-| 往容器写东西         | 没有通用办法                                                 | 清单的 `files`                                    |
-| 常驻信息             | `--append-system-prompt PROMPT.md`                           | `agents.d/*.md`，逐个追加进系统提示               |
-| SDK 覆盖面           | 手写的允许名单，缺不少事件和字段                             | 原生 bot（`run.mjs`）；本机桥通用转发             |
-| bot 在哪             | 可信侧，每个 bot 一个桥                                      | 参赛容器里，可信侧只有登录入口                    |
-| 卡住检测             | 只有 `navigate.mjs` 自带                                     | 库函数 + 等待提前返回 + 全局宽松检测              |
-
-## 未定
-
-- `provision` 由 `up` 自动调用，还是作为单独一步。
-- `map.json` 的 `defaults` 合并规则：数组是替换还是追加，建议替换。
-- 现有 Linux 部署（`compose.live.yaml`）是否也改为生成。
+客户端只能通过 `run`、`cancel`、`status`、`session` 这组窄接口跨进程交互。禁止恢复远程 bot facade、状态镜像、任意方法调用或事件代理；需要 Mineflayer 能力的代码必须在角色进程中运行。

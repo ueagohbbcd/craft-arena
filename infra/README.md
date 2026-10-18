@@ -1,6 +1,6 @@
 # 运营部署指南
 
-这份指南写给部署和主持比赛的运营者，按操作顺序排列。Windows 本机部署有自己的脚本，见 [windows-local/README.md](windows-local/README.md)；陪玩部署（独立游戏桥 + 一个参赛容器，接入普通服务器）见 [companion/README.md](companion/README.md)；本页讲通用的 Docker Compose 部署，以及两种部署共用的配置、录像和检查。架构说明见 [README](../README.md)。
+这份指南写给部署和主持比赛的运营者，按操作顺序排列。Windows 本机部署有自己的脚本，见 [windows-local/README.md](windows-local/README.md)；陪玩部署（登录门 + 一个原生 bot host，接入普通服务器）见 [companion/README.md](companion/README.md)；本页讲通用的 Docker Compose 部署，以及两种部署共用的配置、录像和检查。架构说明见 [README](../README.md)。
 
 ## 部署由哪些服务组成
 
@@ -9,7 +9,7 @@
 | 服务                                     | 作用                                                                                                                                | 网络                            |
 | ---------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
 | `minecraft`                              | Minecraft 1.21.1 Fabric 服务器，带 ServerReplay 录像模组                                                                            | `backend`                       |
-| `bridge-red1` / `bridge-blue1`           | 每个参赛者的游戏桥：一个真实 bot，通过 RCON 从服务器读会话状态（`BRIDGE_SESSION=server`）                                           | `backend` 和本队网络            |
+| `gate-red1` / `gate-blue1`           | 每个参赛者的登录入口：校验玩家名，并通过 RCON 提供只读会话接口                                           | `backend` 和本队网络            |
 | `arena`（`tools` 配置组）                | 运营命令行 [`packages/arena`](../packages/arena/README.md)：写 `arena:config`，调 `#arena:prepare/start/stop`，读会话状态；按需运行 | `backend`                       |
 | `model-relay`                            | 模型转发：把参赛者的模型请求转发到一个配置好的地址，持有上游 key（见[模型接入](#模型接入)）                                         | `red1`、`blue1`、`model-egress` |
 | `participant-red1` / `participant-blue1` | 参赛容器：Pi、Pi 扩展、默认脚本和参赛者自己的程序                                                                                   | 各自的 `red1` / `blue1`         |
@@ -63,12 +63,12 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
    ```
 
 4. 复制 [`match.live.template.json`](match.live.template.json) 为 `infra/match.live.json`，填好 `OPERATOR_...` 占位值。格式见 [packages/arena/README.md](../packages/arena/README.md#match-file)：
-   - `config` 写进 `arena:config`：会话 ID、队伍和玩家名、`durationMs`（数据包按它结束比赛）、给参赛者的 `briefing`（游戏桥原样交给模型）。
+   - `config` 写进 `arena:config`：会话 ID、队伍和玩家名、`durationMs`（数据包按它结束比赛）、给参赛者的 `briefing`（会话简报交给模型）。
    - `commands.prepare` / `start` / `stop`：每个阶段额外执行的 RCON 命令和期望回应，例如传送、设出生点、gamerule。
-   - 玩家名必须和 Compose 里游戏桥的 `MF_USERNAME` 一致。
+   - 玩家名必须和 Compose 登录门的 `GATE_USERNAMES` 一致。
    - 纪念碑坐标是否公开由数据包决定（`map.mcfunction` 里的 `publishGoals`）。不要把秘密写进 `briefing`。
-   - 玩法提示由游戏桥读 `BRIDGE_PROMPT_FILE`；`compose.live.yaml` 默认挂 [`maps/race-of-wool/agents.d/20-race-of-wool.md`](maps/race-of-wool/agents.d/20-race-of-wool.md)，换玩法时在 `.env` 设 `ARENA_PROMPT_FILE`。
-   - 游戏内聊天默认开启（包括 `/tell`、`/teammsg` 这类普通命令）。要关掉，给游戏桥设 `BRIDGE_ALLOW_CHAT=false`。
+   - 玩法提示由比赛文件中的 `briefing` 提供；地图专属说明随参赛容器配置挂载。
+   - 游戏内聊天行为由参赛容器中的 bot host 控制。
    - 用 `node packages/arena/src/cli.mjs check infra/match.live.json` 检查格式。
 
 ### 服务端配置：原版端和反作弊端
@@ -83,13 +83,13 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
 
 用法：准备服务器构建目录时传 `--manifest infra/minecraft-anticheat.json`（Windows 初始化脚本用 `-ServerDownload`），换端要重建服务器镜像，并从原始地图副本开局。Grim 和 Mineflayer 的兼容性还没在真实对局里验证过，先看日志里的误报再决定要不要启用拦截。
 
-参赛 bot 跑在参赛容器里（`runtime: "native"`，默认），原版端只粗查移动；公平靠提示词约束，服务器录像留作事后核查，见 [docs/TARGET-ARCHITECTURE.md](../docs/TARGET-ARCHITECTURE.md#5-登录入口和容器里的-bot10-18-起默认)。
+参赛 bot 跑在参赛容器里（native runtime），原版端只粗查移动；公平靠提示词约束，服务器录像留作事后核查，见 [docs/TARGET-ARCHITECTURE.md](../docs/TARGET-ARCHITECTURE.md#5-登录入口和容器里的-bot10-18-起默认)。
 
 ### 玩法与判定
 
 规则、计分、胜负和时限都在服务器上的数据包或插件里，平台通过服务器协议 v1 交换 `arena:config` 和 `arena:session`，设计见 [docs/GAME-MODES.md](../docs/GAME-MODES.md)。羊毛竞速见 [datapacks/race-of-wool](datapacks/race-of-wool/README.md)，最小示例见 [datapacks/arena-example](datapacks/arena-example/README.md)。管理员也可以直接在游戏里执行 `function #arena:prepare`／`#arena:start`／`#arena:stop`，效果和命令行一样。
 
-不比赛、只想让模型在普通服务器上陪玩时，游戏桥自己提供一个 `open` 会话，部署模板见 [companion/README.md](companion/README.md)。
+不比赛、只想让模型在普通服务器上陪玩时，原生 bot host 在未设置会话 URL 时提供一个 `open` 会话，部署模板见 [companion/README.md](companion/README.md)。
 
 ### 规则书和会话文件
 
@@ -97,9 +97,9 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
 
 要给模型一份规则书，把文件放进 `infra/rules/`（两个 Compose 部署都把它只读挂到 `/arena/rules`），开局提示会列出其中的顶层文件。以 `.` 开头的文件不列出。不要放只给运营者看的内容：参赛容器能读到这个目录。
 
-### 游戏桥是独立服务
+### 登录入口是独立服务
 
-两个 Compose 部署里，每个参赛者的游戏桥是单独的服务（`bridge-red1`、`bridge-blue1`），只接在后端网络和本队网络上；参赛容器只能访问本队的游戏桥。游戏桥用 RCON 读 `arena:session` 和 `arena:config`（`BRIDGE_SESSION=server`），只在 `running` 时放行游戏动作；一轮结束后 bot 留在服务器上等下一轮。见[游戏桥 README](../packages/mf-bridge/README.md#standalone-cli)。
+每个参赛者有一个独立登录门（`gate-red1`、`gate-blue1`），只接在后端网络和本队网络上；它校验 Minecraft 登录名，并通过 RCON 提供只读会话接口。参赛 bot 在各自参赛容器中运行，无法直连服务器。
 
 ## 模型接入
 
@@ -121,7 +121,7 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
 | 文件                                                             | 内容                                                                                                                                                                                                            | 谁能读               |
 | ---------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------- |
 | [`model.example.json`](model.example.json)                       | 上游那个模型的公开描述：`id`、`api`（Pi 的接口类型）、`reasoning`、`input`、`contextWindow`、`maxOutputTokens`、可选 `compaction` 和 `cost`（标价，美元／百万 token；设了限速就必须有）。启动器据此生成 Pi 配置 | 参赛容器（只读挂载） |
-| `.env`（从 [`operator.env.example`](operator.env.example) 复制） | RCON 密码、模型地址和 key、游戏桥令牌、资源上限                                                                                                                                                                 | 只有 Compose         |
+| `.env`（从 [`operator.env.example`](operator.env.example) 复制） | RCON 密码、模型地址和 key、资源上限                                                                                                                                                                 | 只有 Compose         |
 
 1. 在 `model.example.json` 里写定模型。上下文和输出上限只改这一个文件。
 2. 在 `.env` 里填 `MODEL_UPSTREAM_URL`（OpenAI 兼容的基地址，Pi 在后面接 `/chat/completions`）和可选的 `MODEL_UPSTREAM_KEY`。
@@ -153,11 +153,12 @@ services:
 
 1. 检查合成后的配置：`C config`。输出里有密钥，只在私下查看。
 2. 构建镜像：`C build`。参赛镜像会克隆离线参考仓库（见下文），构建机需要能访问 GitHub。
-3. 启动服务器和游戏桥，等两个 bot 都上线：
+3. 启动服务器和登录门：
 
    ```sh
-   C up -d minecraft bridge-red1 bridge-blue1
+   C up -d minecraft gate-red1 gate-blue1
    A() { C --profile tools run --rm arena "$@"; }
+   C up -d model-relay participant-red1 participant-blue1
    A command list   # 两个 bot 都在线后再准备
    ```
 
@@ -169,8 +170,8 @@ services:
    C run --rm --no-deps participant-blue1 sh -c 'test -d /team-git/project.git || git init --bare /team-git/project.git'
    ```
 
-6. 启动模型转发和参赛者：`C up -d`。参赛容器配了游戏桥，启动器加载好工具后就等待，会话进入 `running` 前不发开局提示。等待上限是 `ARENA_START_TIMEOUT_MS`（默认 600000，即 10 分钟），超时后参赛容器退出；要等更久，在 Compose 文件里给参赛容器设这个变量（Windows 模板设为 86400000）。
-7. 开赛：`A start /config/match.json`。执行开赛命令后调 `#arena:start`，游戏桥看到 `running` 才放行游戏动作。
+6. 参赛容器启动后，bot host 通过登录门加入服务器；启动器加载好工具后等待，会话进入 `running` 前不发开局提示。等待上限是 `ARENA_START_TIMEOUT_MS`（默认 600000，即 10 分钟），超时后参赛容器退出；要等更久，在 Compose 文件里给参赛容器设这个变量（Windows 模板设为 86400000）。
+7. 开赛：`A start /config/match.json`。执行开赛命令后调 `#arena:start`，参赛者启动器收到 `running` 会话后发送开局提示。
 
 参赛容器在比赛中退出不会结束比赛，由运营者决定是否 `A stop`。
 
@@ -184,13 +185,13 @@ services:
 
 ## 结束比赛
 
-- **自然结束**：数据包在目标完成或时间到时把 `arena:session` 写成 `ended`。游戏桥随即拒绝游戏动作，参赛容器的启动器看到 `ended` 后关闭 Pi。
+- **自然结束**：数据包在目标完成或时间到时把 `arena:session` 写成 `ended`。参赛容器的启动器看到 `ended` 后关闭 Pi。
 - **提前结束**：`A stop /config/match.json`，数据包记下当前分数并结束，然后执行结束命令。
 - 结果在 `arena:session`：`A status` 打印胜者、分数和说明。需要存档时由自己的脚本保存这份输出。
 
 ```sh
 A status
-C stop participant-red1 participant-blue1 model-relay bridge-red1 bridge-blue1
+C stop participant-red1 participant-blue1 model-relay gate-red1 gate-blue1
 C stop minecraft
 ```
 
@@ -198,8 +199,8 @@ C stop minecraft
 
 ### 下一场之前
 
-- 游戏桥可以留着：bot 一直在线，下一次 `A prepare` 开始新的一轮。
-- 冷启动时，游戏桥等 Minecraft 的健康检查通过（端口 25565 能连上）才启动。
+- 登录门和参赛容器可以留着：bot 一直在线，下一次 `A prepare` 开始新的一轮。
+- 冷启动时，登录门等 Minecraft 的健康检查通过（端口 25565 能连上）才启动。
 - 按需要恢复地图。通用部署没有重置脚本；Windows 的 `reset` 做了什么见 [windows-local/README.md](windows-local/README.md)。
 - 参赛者工作区里上一场的代码会保留下来。新开局时清空工作区还在[路线图](../docs/ROADMAP.md)上。
 
@@ -215,8 +216,8 @@ C stop minecraft
 
 在目标宿主机上逐项确认，不要沿用别的机器的结论：
 
-- [ ] 经模型转发时：从参赛容器里访问外网、模型厂商、Minecraft（`minecraft:25565`）都失败；只能访问自己的游戏桥和模型转发。也试 IPv6 和 `host.docker.internal`。
-- [ ] 用一个参赛者的令牌访问另一个参赛者的游戏桥，被拒绝。每个参赛者能读到自己的游戏桥令牌，这是预期的；绝不能给它别人的令牌。
+- [ ] 经模型转发时：从参赛容器里访问外网、模型厂商、Minecraft（`minecraft:25565`）都失败；只能访问自己的登录门和模型转发。也试 IPv6 和 `host.docker.internal`。
+- [ ] 一个参赛容器无法通过对方的登录门认证，且无法访问另一队的服务和卷。
 - [ ] 一队的容器挂不到另一队的工作卷和 Git 卷。
 - [ ] 资源上限生效（`docker stats`），且对两队相同。
 - [ ] UID 1000 能写 `/results`。新建的卷由镜像设好权限；已有的卷保留原来的权限，需要自己检查。
@@ -230,4 +231,4 @@ Docker 的 `internal: true` 去掉了普通的外网路由，但不能证明完�
 
 ## 单组件调试：compose.yaml
 
-[`compose.yaml`](compose.yaml) 有 Minecraft、两个独立的游戏桥容器、模型转发和两个参赛容器。它需要 `MC_SERVER_IMAGE` 和 `MC_VERSION`。先用 `docker compose --env-file .env -f infra/compose.yaml config` 检查。不要用它办正式比赛。
+[`compose.yaml`](compose.yaml) 有 Minecraft、两个独立的登录门、模型转发和两个参赛容器。它需要 `MC_SERVER_IMAGE` 和 `MC_VERSION`。先用 `docker compose --env-file .env -f infra/compose.yaml config` 检查。不要用它办正式比赛。

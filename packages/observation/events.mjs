@@ -57,7 +57,6 @@ export function watchObservation(
   const lifecycle = {
     disconnected:
       bot.closed === true || bot.connectionStatus === "disconnected",
-    observationLost: false,
     sampledAt: finite(bot.sampledAt),
   };
   const listeners = [],
@@ -460,7 +459,6 @@ export function watchObservation(
     previousHealth = finite(bot.health);
     critical = previousHealth !== null && previousHealth <= criticalHealth;
     lifecycle.disconnected = false;
-    lifecycle.observationLost = false;
     inventoryBaseline = inventoryState();
     attachInventory();
     emit(respawn ? "respawn" : "spawn", {
@@ -468,40 +466,6 @@ export function watchObservation(
       position: vector(bot.entity?.position),
     });
     spawned = true;
-  });
-  on("bridgeDisconnected", () => {
-    if (lifecycle.observationLost || lifecycle.disconnected) return;
-    flushHealth(false);
-    resetDamage();
-    lifecycle.observationLost = true;
-    emit("lost", {
-      reason:
-        "bridge observation transport disconnected; game state is unknown",
-    });
-  });
-  on("bridgeReset", () => {
-    flushHealth(false);
-    resetDamage();
-    const restored = lifecycle.observationLost || lifecycle.disconnected;
-    lifecycle.disconnected =
-      bot.closed === true || bot.connectionStatus === "disconnected";
-    lifecycle.observationLost = false;
-    staleReported = false;
-    previousHealth = finite(bot.health);
-    critical = previousHealth !== null && previousHealth <= criticalHealth;
-    inventoryBaseline = inventoryState();
-    attachInventory();
-    emit(
-      restored &&
-        !lifecycle.disconnected &&
-        bot.connectionStatus !== "connecting"
-        ? "restored"
-        : "reset",
-      {
-        position: vector(bot.entity?.position),
-        connectionStatus: bot.connectionStatus ?? null,
-      },
-    );
   });
   const disconnected = (reason) => {
     if (lifecycle.disconnected) return;
@@ -516,7 +480,8 @@ export function watchObservation(
   };
   on("end", disconnected);
   on("kicked", disconnected);
-  // Native bots have no bridge stamp; a tick only updates freshness, never posts state.
+  // Mineflayer has no external observation timestamp; ticks update freshness
+  // locally without generating extra reports.
   on("physicsTick", () => {
     if (bot.sampledAt == null) lifecycle.sampledAt = clock(now);
   });

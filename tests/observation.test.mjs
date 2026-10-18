@@ -7,8 +7,6 @@ import {
   sampleObservation,
   watchObservation,
 } from "../packages/observation/index.mjs";
-import { BotFacade } from "../packages/bot-sdk/index.mjs";
-import { createAuthority } from "../packages/mf-bridge/index.mjs";
 const require = createRequire(import.meta.url);
 const registry = require("prismarine-registry")("1.21.1");
 const Item = require("prismarine-item")(registry);
@@ -386,7 +384,7 @@ test("critical health hysteresis prevents repeat alarms until meaningful recover
   watcher.close();
 });
 
-test("observation loss is distinct from actual disconnection and stale state recovers without actions", () => {
+test("native disconnect is distinct from stale state and spawn restores freshness", () => {
   const bot = fixture(),
     messages = [];
   let now = 1000;
@@ -403,27 +401,27 @@ test("observation loss is distinct from actual disconnection and stale state rec
     messages.filter((m) => m.data.type === "observation.stale").length,
     1,
   );
-  bot.emit("bridgeDisconnected");
-  bot.emit("bridgeDisconnected");
-  assert.equal(watcher.sample().freshness.status, "unavailable");
+  bot.emit("end", "Server closed");
+  bot.emit("end", "Server closed");
+  assert.equal(watcher.sample().freshness.status, "disconnected");
   assert.equal(
-    messages.filter((m) => m.data.type === "observation.lost").length,
+    messages.filter((m) => m.data.type === "observation.disconnected").length,
     1,
   );
   assert.equal(
-    messages.find((m) => m.data.type === "observation.lost").priority,
-    "normal",
+    messages.find((m) => m.data.type === "observation.disconnected").priority,
+    "urgent",
   );
   bot.sampledAt = now;
   bot.epoch = "epoch-b";
   bot.sequence = 0;
-  bot.emit("bridgeReset");
+  bot.emit("spawn");
   assert.equal(watcher.sample().freshness.status, "fresh");
   bot.emit("kicked", "Server closed");
   bot.emit("end", "Server closed");
   assert.equal(
     messages.filter((m) => m.data.type === "observation.disconnected").length,
-    1,
+    2,
   );
   assert.equal(messages.at(-1).priority, "urgent");
   assert.equal(watcher.sample().freshness.disconnected, true);
@@ -476,51 +474,11 @@ test("watcher cleanup removes listeners, pending aggregation, handles rejected a
   watcher.close();
   assert.equal(bot.listenerCount("health"), 1);
   assert.equal(bot.inventory.listenerCount("updateSlot"), 0);
-  for (const event of [
-    "death",
-    "spawn",
-    "bridgeDisconnected",
-    "bridgeReset",
-    "end",
-    "kicked",
-    "physicsTick",
-  ])
+  for (const event of ["death", "spawn", "end", "kicked", "physicsTick"])
     assert.equal(bot.listenerCount(event), 0);
   const before = posts;
   await sleep(15);
   assert.equal(posts, before);
-});
-
-test("native authority snapshots and SDK roundtrip preserve complete default inventory and window perception", async () => {
-  const native = fixture();
-  native.inventory.updateSlot(9, item("oak_log", 64));
-  native.inventory.updateSlot(10, item("oak_log", 32));
-  native.inventory.updateSlot(5, item("iron_helmet"));
-  native.currentWindow = windows.createWindow(
-    4,
-    "minecraft:generic_9x3",
-    "Chest",
-  );
-  native.currentWindow.updateSlot(0, item("diamond", 12));
-  native.currentWindow.updateSlot(27, item("oak_log", 64));
-  native.currentWindow.updateSlot(28, item("oak_log", 32));
-  const authority = createAuthority(native, { snapshotRadius: 0 });
-  const bot = new BotFacade({ url: "http://unused", token: "test" });
-  await bot.accept({
-    type: "reset",
-    epoch: "roundtrip",
-    sequence: 0,
-    data: authority.snapshot(false),
-  });
-  const snapshot = sampleObservation(bot, { now: Date.now() });
-  assert.equal(
-    snapshot.inventory.items.find((group) => group.name === "oak_log").count,
-    96,
-  );
-  assert.equal(snapshot.equipment.head.name, "iron_helmet");
-  assert.equal(snapshot.window.containerItems[0].count, 12);
-  assert.equal(snapshot.freshness.status, "fresh");
-  assert.equal(snapshot.freshness.epoch, "roundtrip");
 });
 
 test("open-window player slots supersede stale main inventory after real transfer semantics", () => {
@@ -702,7 +660,7 @@ test("loadedSigns: false skips the loaded-column sign scan", () => {
   assert.equal(light.local.signs.length, 0);
 });
 
-test("persistent native disconnect stays disconnected after a new observer and bridge reset", () => {
+test("persistent native disconnect stays disconnected after a new observer and spawn", () => {
   const bot = fixture(),
     messages = [];
   bot.connectionStatus = "disconnected";
@@ -717,7 +675,7 @@ test("persistent native disconnect stays disconnected after a new observer and b
   });
   assert.equal(messages[0].data.type, "observation.disconnected");
   assert.equal(messages[0].priority, "urgent");
-  bot.emit("bridgeReset");
+  bot.emit("spawn");
   assert.equal(watcher.sample().freshness.status, "disconnected");
   assert.equal(
     messages.some((m) => m.data.type === "observation.restored"),
@@ -880,30 +838,6 @@ test("only specifically synchronized special targets are exposed, preserving zer
     target_c: 0,
   });
   assert.equal(summary[2].state.targetEntityIds, undefined);
-});
-
-test("semantic entity metadata and observed active equipment survive native authority to SDK projection", async () => {
-  const native = fixture();
-  native.entities[2] = entity(2, "player", 3, {
-    username: "using-shield",
-    metadata: metadataFor("player", { living_entity_flags: 3 }),
-    equipment: [item("iron_sword"), item("shield")],
-  });
-  native.entities[3] = entity(3, "tnt", 2, {
-    metadata: metadataFor("tnt", { fuse: 40 }),
-  });
-  const authority = createAuthority(native, { snapshotRadius: 0 });
-  const bot = new BotFacade({ url: "http://unused", token: "test" });
-  await bot.accept({
-    type: "reset",
-    epoch: "semantic",
-    sequence: 0,
-    data: authority.snapshot(false),
-  });
-  const snapshot = sampleObservation(bot);
-  assert.equal(snapshot.players[0].state.itemUse.activeItem.name, "shield");
-  assert.equal(snapshot.players[0].state.itemUse.activityCandidate, "blocking");
-  assert.equal(snapshot.entities.entries[0].state.tnt.fuseTicksReceived, 40);
 });
 
 test("nearby received danger survives crowded default slots with explicit reasons and complete counts", () => {
@@ -1195,7 +1129,7 @@ test("critical and death escalation do not duplicate urgent damage for the same 
 });
 
 test("rebuilding or losing the health baseline clears previous damage evidence", async (t) => {
-  for (const transition of ["bridgeReset", "spawn", "unknown"]) {
+  for (const transition of ["spawn", "unknown"]) {
     const f = damageFixture(t);
     await f.health(18, 1000);
     if (transition === "unknown") {

@@ -18,12 +18,13 @@ export function defaultScripts(env = process.env) {
     .split(",")
     .map((name) => name.trim())
     .filter(Boolean);
+  const runner = fileURLToPath(new URL("../bot-host/run.mjs", import.meta.url));
   return names.map((name) => {
     if (!scripts[name]) throw new Error(`Unknown default script: ${name}`);
     const path = fileURLToPath(scripts[name]);
     return {
       name,
-      command: `${JSON.stringify(process.execPath)} ${JSON.stringify(path)}`,
+      command: `${JSON.stringify(process.execPath)} ${JSON.stringify(runner)} --persistent ${JSON.stringify(path)}`,
     };
   });
 }

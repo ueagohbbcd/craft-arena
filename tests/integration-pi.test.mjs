@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { EventEmitter, once } from "node:events";
+import { once } from "node:events";
 import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -15,8 +15,6 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { createModelRelay } from "../packages/model-relay/index.mjs";
-import { startBridge } from "../packages/mf-bridge/index.mjs";
-import { Vector } from "../packages/bot-sdk/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
 import inboxExtension from "../packages/pi-extension/index.mjs";
 process.env.PI_OFFLINE = "1";
@@ -592,163 +590,11 @@ for (const nested of [false, true])
     },
   );
 
-test(
-  "the observe script through bash returns durable state",
-  { timeout: 20000 },
-  async (t) => {
-    const saved = {
-      url: process.env.ARENA_BRIDGE_URL,
-      token: process.env.ARENA_BRIDGE_TOKEN,
-    };
-    const backend = new EventEmitter();
-    Object.assign(backend, {
-      version: "1.21.1",
-      username: "default-observer",
-      entity: {
-        id: 1,
-        position: new Vector(0, 1, 0),
-        velocity: new Vector(),
-        yaw: 0,
-        pitch: 0,
-        height: 1.8,
-      },
-      entities: {},
-      inventory: {
-        slots: Array(46).fill(null),
-        inventoryStart: 9,
-        inventoryEnd: 45,
-      },
-      health: 20,
-      food: 20,
-      game: {},
-      controlState: {},
-      blockAt: (position) => ({
-        position: new Vector(position.x, position.y, position.z),
-        name: position.y === 0 ? "stone" : "air",
-        stateId: position.y === 0 ? 1 : 0,
-        type: position.y === 0 ? 1 : 0,
-        shapes: position.y === 0 ? [[0, 0, 0, 1, 1, 1]] : [],
-        boundingBox: position.y === 0 ? "block" : "empty",
-      }),
-    });
-    let actions = 0;
-    const bridge = await startBridge({
-      bot: backend,
-      token: "observe-tool-integration-token",
-      snapshotRadius: 1,
-    });
-    bridge.server.on("request", (request) => {
-      if (request.url === "/v1/action") actions++;
-    });
-    process.env.ARENA_BRIDGE_URL = bridge.url;
-    process.env.ARENA_BRIDGE_TOKEN = "observe-tool-integration-token";
-    t.after(async () => {
-      await bridge.close();
-      for (const [name, value] of [
-        ["ARENA_BRIDGE_URL", saved.url],
-        ["ARENA_BRIDGE_TOKEN", saved.token],
-      ]) {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-      }
-    });
-    const h = await harness(t, (_body, n) => {
-      if (n !== 1) return "Current state received.";
-      return [
-        {
-          id: "observe-script",
-          name: "bash",
-          args: {
-            command: `${quote(process.execPath)} ${quote(resolve("examples/observe.mjs"))}`,
-            wait_seconds: 15,
-          },
-        },
-      ];
-    });
-    await h.session.prompt("Inspect the current state and nearby layer.");
-    assert.equal(h.requests.length, 2);
-    const transcript = JSON.stringify(h.requests[1].messages);
-    assert.doesNotMatch(transcript, /data:image\/png;base64,/);
-    assert.match(transcript, /default-observer/);
-    const result = h.session.agent.state.messages.find(
-      (message) => message.role === "toolResult",
-    );
-    assert(
-      result.content.some(
-        (block) =>
-          block.type === "text" && block.text.includes("default-observer"),
-      ),
-      "observe output remains in durable tool result",
-    );
-    assert.doesNotMatch(
-      JSON.stringify(h.session.agent.state.messages),
-      /mc-current-observation|Current observation for this model request only\./,
-    );
-    assert.equal(
-      actions,
-      0,
-      "requested observation and runtime setup do not act",
-    );
-  },
-);
-
 /** Run the shipped launcher once with --print against a fixture upstream. */
 test(
-  "after compaction the next request carries the full character and runtime state",
+  "after compaction the next request carries the full runtime state",
   { timeout: 30000 },
   async (t) => {
-    const saved = {
-      url: process.env.ARENA_BRIDGE_URL,
-      token: process.env.ARENA_BRIDGE_TOKEN,
-    };
-    const backend = new EventEmitter();
-    Object.assign(backend, {
-      version: "1.21.1",
-      username: "default-observer",
-      entity: {
-        id: 1,
-        position: new Vector(0, 1, 0),
-        velocity: new Vector(),
-        yaw: 0,
-        pitch: 0,
-        height: 1.8,
-      },
-      entities: {},
-      inventory: {
-        slots: Array(46).fill(null),
-        inventoryStart: 9,
-        inventoryEnd: 45,
-      },
-      health: 20,
-      food: 20,
-      game: {},
-      controlState: {},
-      blockAt: (position) => ({
-        position: new Vector(position.x, position.y, position.z),
-        name: position.y === 0 ? "stone" : "air",
-        stateId: position.y === 0 ? 1 : 0,
-        type: position.y === 0 ? 1 : 0,
-        shapes: position.y === 0 ? [[0, 0, 0, 1, 1, 1]] : [],
-        boundingBox: position.y === 0 ? "block" : "empty",
-      }),
-    });
-    const bridge = await startBridge({
-      bot: backend,
-      token: "compaction-integration-token",
-      snapshotRadius: 1,
-    });
-    process.env.ARENA_BRIDGE_URL = bridge.url;
-    process.env.ARENA_BRIDGE_TOKEN = "compaction-integration-token";
-    t.after(async () => {
-      await bridge.close();
-      for (const [name, value] of [
-        ["ARENA_BRIDGE_URL", saved.url],
-        ["ARENA_BRIDGE_TOKEN", saved.token],
-      ]) {
-        if (value === undefined) delete process.env[name];
-        else process.env[name] = value;
-      }
-    });
     const h = await harness(t, () => "Noted.", {
       settings: { compaction: { enabled: false, keepRecentTokens: 1 } },
     });
@@ -758,7 +604,6 @@ test(
     await h.session.prompt("Continue.");
     const last = JSON.stringify(h.requests.at(-1).messages);
     assert.match(last, /Context was compacted/);
-    assert.match(last, /default-observer/, "the observe sample reached it");
     assert.match(last, /runtime\.snapshot/);
   },
 );
@@ -978,17 +823,23 @@ test(
       stdout = "",
       stderr = "";
     let matchState = "running";
-    const matchToken = "resident-match-fixture-token";
-    const bridge = await startBridge({
-      bot: new EventEmitter(),
-      token: matchToken,
-      getSessionState: () => ({
-        sessionId: "resident-fixture",
-        state: matchState,
-        now: Date.now(),
-        winner: matchState === "ended" ? "blue" : null,
-      }),
+    const sessionGate = http.createServer((req, res) => {
+      assert.match(req.url, /^\/v1\/session\?username=arena_red1$/);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          ok: true,
+          result: {
+            sessionId: "resident-fixture",
+            state: matchState,
+            now: Date.now(),
+            winner: matchState === "ended" ? "blue" : null,
+          },
+        }),
+      );
     });
+    sessionGate.listen(0, "127.0.0.1");
+    await once(sessionGate, "listening");
     const upstream = http.createServer(async (req, res) => {
       let raw = "";
       for await (const c of req) raw += c;
@@ -1041,7 +892,8 @@ test(
         } catch {}
       upstream.closeAllConnections();
       await new Promise((r) => upstream.close(r));
-      await bridge.close();
+      sessionGate.closeAllConnections();
+      await new Promise((r) => sessionGate.close(r));
       await rm(dir, { recursive: true, force: true });
     });
     await writeFile(
@@ -1060,8 +912,8 @@ test(
       OPENAI_BASE_URL: `http://127.0.0.1:${upstream.address().port}`,
       OPENAI_API_KEY: "resident-fixture-key",
       ARENA_PROMPT: "Start the resident fixture and keep its program alive.",
-      ARENA_BRIDGE_URL: bridge.url,
-      ARENA_BRIDGE_TOKEN: matchToken,
+      ARENA_SESSION_URL: `http://127.0.0.1:${sessionGate.address().port}/v1/session`,
+      ARENA_BOT: "arena_red1",
     };
     for (const name of [
       "PI_MAX_TOKENS",
@@ -1154,12 +1006,7 @@ test(
       { code: "ESRCH" },
       "session shutdown reaps background worker",
     );
-    const final = await (
-      await fetch(`${bridge.url}/v1/session`, {
-        headers: { authorization: `Bearer ${matchToken}` },
-      })
-    ).json();
-    assert.equal(final.result.state, "ended");
+    assert.equal(matchState, "ended");
   },
 );
 

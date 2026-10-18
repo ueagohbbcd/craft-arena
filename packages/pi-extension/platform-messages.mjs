@@ -30,12 +30,11 @@ export function validSession(value) {
 }
 
 /**
- * Authenticated bridge session snapshot, cached briefly; undefined when
- * unavailable. Reads the bridge's /v1/session.
+ * Session snapshot from the participant's read-only login-gate endpoint, cached briefly; undefined when
+ * unavailable. Reads the login gate's read-only /v1/session endpoint.
  */
 export function createSessionReader({
   url,
-  token,
   cacheMs = 2000,
   timeoutMs = 300,
   now = Date.now,
@@ -44,12 +43,11 @@ export function createSessionReader({
   let snapshot;
   let reading;
   const get = () =>
-    fetch(`${url.replace(/\/$/, "")}/v1/session`, {
-      headers: { authorization: `Bearer ${token}` },
+    fetch(url, {
       signal: AbortSignal.timeout(timeoutMs),
     });
   return async function readSession(fresh = false) {
-    if (!url || !token) return undefined;
+    if (!url) return undefined;
     if (reading) return reading;
     if (!fresh && now() - readAt < cacheMs) return snapshot;
     readAt = now();

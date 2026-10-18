@@ -7,8 +7,6 @@
 // the read tool.
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { pathToFileURL } from "node:url";
-import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
 import {
   capturePrismarineSnapshot,
@@ -46,19 +44,18 @@ export function parseScreenshotArgs(args) {
   return { views, box: args.map(Number) };
 }
 
-async function main() {
-  const { views, box } = parseScreenshotArgs(process.argv.slice(2));
-  const bot = await connectBot();
+export default async function screenshotProgram(
+  bot,
+  { args = [], log = console.log },
+) {
+  const { views, box } = parseScreenshotArgs(args);
   let snapshot;
-  try {
+  {
     const [x, y, z, maxX, maxY, maxZ] = box;
     const bounds = box.length
       ? { min: { x, y, z }, max: { x: maxX, y: maxY, z: maxZ } }
       : observationBounds(bot);
     snapshot = snapshotFromBot(bot, { bounds });
-  } finally {
-    // One mirror capture is enough; the renderer needs no live bot connection.
-    bot.closeBridge();
   }
   await mkdir("out", { recursive: true });
   await writeFile("out/world.snapshot.json", JSON.stringify(snapshot));
@@ -71,7 +68,7 @@ async function main() {
       : await capturePrismarineSnapshot(snapshot, {
           outputPath: resolve("out/world.png"),
         });
-  console.log(
+  log(
     JSON.stringify({
       imagePath,
       bounds: metadata.bounds,
@@ -81,5 +78,3 @@ async function main() {
     }),
   );
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  await main();

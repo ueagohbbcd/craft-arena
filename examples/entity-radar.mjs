@@ -1,7 +1,5 @@
 /** Read-only participant radar. No hostility assumptions or automatic movement. */
 import { setTimeout as sleep } from "node:timers/promises";
-import { pathToFileURL } from "node:url";
-import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
 
 const vector = (p) => ({ x: p.x, y: p.y, z: p.z });
@@ -39,11 +37,7 @@ export function sampleEntities(
     .sort((a, b) => a.distance - b.distance || a.id - b.id);
   return {
     sampledAt: now,
-    mirror: {
-      sampledAt: bot.sampledAt ?? null,
-      sequence: bot.sequence ?? null,
-      epoch: bot.epoch ?? null,
-    },
+    mirror: { source: "native Mineflayer entity list", observedAt: now },
     origin,
     radius,
     total: entities.length,
@@ -97,30 +91,23 @@ export async function watchEntities(
   }
 }
 
-async function main() {
-  if (process.argv.length > 4)
+export default async function entityRadarProgram(
+  bot,
+  { args = [], signal, log = console.log },
+) {
+  if (args.length > 2)
     throw new Error(
       "Usage: node examples/entity-radar.mjs [radius=32] [intervalMs=1000]",
     );
-  const radius = Number(process.argv[2] ?? 32),
-    intervalMs = Number(process.argv[3] ?? 1000);
-  const bot = await connectBot();
-  const controller = new AbortController();
-  const stop = () => controller.abort();
-  process.once("SIGTERM", stop);
-  process.once("SIGINT", stop);
+  const radius = Number(args[0] ?? 32),
+    intervalMs = Number(args[1] ?? 1000);
   try {
     await watchEntities(bot, new InboxClient(), {
       radius,
       intervalMs,
       ttlMs: Math.max(5000, intervalMs * 3),
-      signal: controller.signal,
+      signal,
     });
   } finally {
-    process.off("SIGTERM", stop);
-    process.off("SIGINT", stop);
-    bot.closeBridge();
   }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  await main();

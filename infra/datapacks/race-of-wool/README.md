@@ -24,7 +24,7 @@
 
 ## 公开数据
 
-准备阶段写入 `arena:session.public`，游戏桥原样放进每个参赛者会话的 `briefing.public`：
+准备阶段写入 `arena:session.public`，可信侧登录入口通过 RCON 读取后，原样放进每个参赛者会话的 `briefing.public`：
 
 | 字段         | 内容                                                                                       |
 | ------------ | ------------------------------------------------------------------------------------------ |
@@ -57,4 +57,4 @@ data merge storage race_of_wool:map {publishGoals:1b,objectives:["red-wool",...]
 
 ## 验证
 
-2026-10-14 在真实的 1.21.1 原版服务器上跑过：RCON 下的获胜、拆掉目标后持有数回落、同一刻双方完成判平局、`#arena:stop` 记录持有数并释放区块；以及（当时的）比赛主控 + 两个真实 Mineflayer bot，红方 bot 通过 SDK 放下三块羊毛后由数据包判红方胜。时限倒数和改用命令行、server 模式游戏桥后的完整一局由 CI 的 `server-protocol` 任务验证（`scripts/verify-server-protocol.mjs`）。步骤见 [docs/VALIDATION.md](../../../docs/VALIDATION.md)。
+2026-10-14 的真实 1.21.1 原版服务器检查覆盖 RCON 下的获胜、拆掉目标后持有数回落、同一刻双方完成判平局，以及 `#arena:stop` 记录持有数并释放区块。当前完整对局由 CI 的 `server-protocol` 任务验证：运营命令行配置会话，可信登录入口经 RCON 读取 session，两个原生 Mineflayer bot 运行模块，红方放下三块羊毛后由数据包判胜。时限倒数也包含在验证中。步骤见 [docs/VALIDATION.md](../../../docs/VALIDATION.md)。

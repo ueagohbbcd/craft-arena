@@ -45,22 +45,24 @@ async function cancelExample(t, name, args, env = {}) {
     null,
     "cleanup must finish before forced SIGKILL",
   );
-  assert.equal(result.exitCode, name === "entity-radar.mjs" ? 0 : 143);
-  assert.equal(result.stderr, "");
+  assert.equal(result.exitCode, 130);
+  if (name === "build-with-autoeat.mjs")
+    assert.match(result.stderr, /Run cancelled/);
+  else assert.equal(result.stderr, "");
   const trace = events(result.stdout);
   const closed = trace.at(-1);
   assert.equal(closed.type, "closed");
   assert.equal(
     closed.pending,
     0,
-    "release RPCs must settle before bridge close",
+    "host cleanup must settle before the runner exits",
   );
   assert.equal(closed.healthListeners, 0);
   assert.equal(closed.pathListeners, 0);
   return { trace, closed };
 }
 
-test("managed SIGTERM stops the actual navigation CLI and flushes controls before exit", async (t) => {
+test("managed SIGTERM cancels the native navigation module and clears controls before exit", async (t) => {
   const { trace, closed } = await cancelExample(t, "navigate.mjs", [
     "10",
     "1",
@@ -74,13 +76,12 @@ test("managed SIGTERM stops the actual navigation CLI and flushes controls befor
   );
   assert.ok(trace.some((event) => event.type === "goal.cleared"));
   assert.ok(trace.some((event) => event.type === "controls.released"));
-  assert.equal(trace.at(-2).type, "flush.completed");
   assert.ok(!trace.some((event) => event.type === "deferred.stop"));
   assert.ok(!trace.some((event) => event.type === "inbox.post"));
 });
 
 for (const slowEquip of [false, true]) {
-  test(`managed SIGTERM during ${slowEquip ? "equip" : "eating"} cancels queued build work without changing movement`, async (t) => {
+  test(`managed SIGTERM during ${slowEquip ? "equip" : "eating"} cancels queued build work`, async (t) => {
     const directory = await mkdtemp(join(tmpdir(), "example-cleanup-"));
     t.after(() => rm(directory, { recursive: true, force: true }));
     const plan = join(directory, "plan.json");
@@ -98,8 +99,12 @@ for (const slowEquip of [false, true]) {
       { EXAMPLE_SLOW_EQUIP: slowEquip ? "1" : "0" },
     );
     assert.equal(closed.usingItem, false);
-    assert.equal(closed.controls.right, true, "independent movement survives");
-    assert.ok(!trace.some((event) => event.type === "controls.released"));
+    assert.equal(
+      closed.controls.right,
+      false,
+      "host cancellation clears movement",
+    );
+    assert.ok(trace.some((event) => event.type === "controls.released"));
     assert.ok(!trace.some((event) => event.type === "placed"));
     assert.equal(
       trace.filter((event) => event.type === "equipped").length,
@@ -108,19 +113,22 @@ for (const slowEquip of [false, true]) {
     );
     assert.equal(
       trace.filter((event) => event.type === "item.released").length,
-      slowEquip ? 0 : 1,
-      "release only this program's active use-item action",
+      slowEquip ? 1 : 2,
+      "release the meal action when active and always clear the module's use-item state",
     );
-    assert.equal(trace.at(-2).type, "flush.completed");
   });
 }
 
-test("cancelling the actual read-only radar CLI leaves unrelated movement untouched", async (t) => {
+test("cancelling the native read-only radar module leaves it without active movement", async (t) => {
   const { trace, closed } = await cancelExample(t, "entity-radar.mjs", [
     "32",
     "1000",
   ]);
-  assert.equal(closed.controls.forward, true);
-  assert.ok(!trace.some((event) => event.type === "controls.released"));
-  assert.ok(!trace.some((event) => event.type === "goal.cleared"));
+  assert.equal(closed.controls.forward, false);
+  assert.ok(trace.some((event) => event.type === "controls.released"));
+  assert.equal(
+    trace.filter((event) => event.type === "goal.cleared").length,
+    1,
+    "the host clears movement as part of cancellation",
+  );
 });

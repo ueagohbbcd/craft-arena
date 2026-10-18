@@ -15,7 +15,7 @@
    `open` 会话或没有时限时不写 `durationMs`。写入时先 `data remove` 上一场可能留下的可选键（`durationMs`、`briefing`、`runId`），再 `data merge storage arena:config {...}`。时限由数据包自己执行；这个示例不计时。
 
 2. 依次执行 `function #arena:prepare`、`function #arena:start`，需要提前结束时执行 `function #arena:stop`。
-3. 游戏桥每 250 ms 执行 `data get storage arena:session`，解析返回的 SNBT：
+3. 可信侧登录入口通过 RCON 读取 `arena:session`，解析返回的 SNBT，并向参赛者提供只读会话状态：
 
    ```
    {version:1, state:"running", winner:"", scores:{red:2, blue:1}, public:{goal:"..."}, message:""}

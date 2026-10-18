@@ -9,7 +9,7 @@ import {
   shareWithParticipant,
 } from "../packages/arena/src/provision.mjs";
 import { applyProvisionFiles } from "../packages/pi-extension/participant-config.mjs";
-import { bridgeFor } from "../packages/bot-sdk/index.mjs";
+import { runSocket } from "../packages/bot-host/run.mjs";
 
 async function fixture(t, map, match = { config: { sessionId: "s1" } }) {
   const root = await mkdtemp(join(tmpdir(), "arena-provision-"));
@@ -52,12 +52,8 @@ const twoBots = {
 };
 
 test("provision writes per-agent config, manifests, teams and Compose services", async (t) => {
-  const f = await fixture(t, twoBots, {
-    config: { sessionId: "s1" },
-    runtime: "bridge",
-  });
-  let n = 0;
-  const result = await provision({ ...f, token: () => `token-${++n}` });
+  const f = await fixture(t, twoBots);
+  const result = await provision(f);
   assert.deepEqual(result.teams, [
     { id: "red", players: ["arena_red1", "arena_red2"] },
     { id: "blue", players: ["arena_blue1"] },
@@ -83,25 +79,10 @@ test("provision writes per-agent config, manifests, teams and Compose services",
   const red = JSON.parse(
     await readFile(join(f.outDir, "agents/red1/manifest.json"), "utf8"),
   );
-  assert.deepEqual(red.bots, [
-    {
-      name: "arena_red1",
-      url: "http://bridge-arena-red1:8080",
-      token: "token-1",
-    },
-    {
-      name: "arena_red2",
-      url: "http://bridge-arena-red2:8080",
-      token: "token-2",
-    },
-  ]);
+  assert.deepEqual(red.bots, [{ name: "arena_red1" }, { name: "arena_red2" }]);
   assert.equal(
     await readFile(join(f.outDir, "agents/red1/model.json"), "utf8"),
     '{"id":"red"}',
-  );
-  assert.match(
-    await readFile(join(f.outDir, "agents.env"), "utf8"),
-    /^BRIDGE_TOKEN_ARENA_RED1=token-1\nBRIDGE_TOKEN_ARENA_RED2=token-2\n/,
   );
   const compose = JSON.parse(
     (await readFile(join(f.outDir, "compose.agents.yaml"), "utf8")).replace(
@@ -110,9 +91,8 @@ test("provision writes per-agent config, manifests, teams and Compose services",
     ),
   );
   assert.deepEqual(Object.keys(compose.services).sort(), [
-    "bridge-arena-blue1",
-    "bridge-arena-red1",
-    "bridge-arena-red2",
+    "gate-blue1",
+    "gate-red1",
     "model-blue",
     "model-red",
     "participant-blue1",
@@ -132,10 +112,10 @@ test("provision writes per-agent config, manifests, teams and Compose services",
   assert.ok(
     "team-red-git" in compose.volumes && "red1-work" in compose.volumes,
   );
-  assert.deepEqual(compose.services["bridge-arena-red2"].networks, [
-    "backend",
-    "agent-red1",
-  ]);
+  assert.equal(
+    await readFile(join(f.outDir, "agents.env")).catch(() => ""),
+    "",
+  );
   await assert.rejects(provision(f), /already exists/);
 });
 
@@ -150,7 +130,10 @@ test("the native runtime gives each agent a login gate and no bridge", async (t)
     await readFile(join(f.outDir, "agents/red1/manifest.json"), "utf8"),
   );
   assert.deepEqual(red.bots, [{ name: "arena_red1" }, { name: "arena_red2" }]);
-  assert.equal(await readFile(join(f.outDir, "agents.env"), "utf8"), "");
+  assert.equal(
+    await readFile(join(f.outDir, "agents.env")).catch(() => ""),
+    "",
+  );
   const compose = JSON.parse(
     (await readFile(join(f.outDir, "compose.agents.yaml"), "utf8")).replace(
       /^#.*\n/,
@@ -180,9 +163,9 @@ test("the native runtime gives each agent a login gate and no bridge", async (t)
   ]);
 });
 
-test("provision refuses an unknown runtime", async (t) => {
-  const f = await fixture(t, twoBots, { config: {}, runtime: "magic" });
-  await assert.rejects(provision(f), /runtime must be one of native, bridge/);
+test("provision refuses a legacy runtime selector", async (t) => {
+  const f = await fixture(t, twoBots, { config: {}, runtime: "bridge" });
+  await assert.rejects(provision(f), /runtime has been removed/);
 });
 
 test("relays and models can be shared through the match file", async (t) => {
@@ -336,6 +319,31 @@ test("the manifest is handed to the participant user", async () => {
   ]);
 });
 
+test("unsupported manifest chown falls back to readable mode only", async () => {
+  const calls = [];
+  await shareWithParticipant("m.json", 0, {
+    chown: async () => {
+      throw Object.assign(new Error("unsupported mount"), { code: "EINVAL" });
+    },
+    chmod: async (...args) => calls.push(args),
+  });
+  assert.deepEqual(calls, [["m.json", 0o644]]);
+});
+
+test("manifest permission errors other than unsupported chown still fail", async () => {
+  const calls = [];
+  await assert.rejects(
+    shareWithParticipant("m.json", 0, {
+      chown: async () => {
+        throw Object.assign(new Error("filesystem error"), { code: "EIO" });
+      },
+      chmod: async (...args) => calls.push(args),
+    }),
+    /filesystem error/,
+  );
+  assert.deepEqual(calls, []);
+});
+
 test("the launcher copies workspace files; once keeps an existing file", async (t) => {
   const f = await fixture(t, twoBots);
   await provision(f);
@@ -354,36 +362,27 @@ test("the launcher copies workspace files; once keeps an existing file", async (
   assert.deepEqual(await applyProvisionFiles(undefined, { workspace }), []);
 });
 
-test("connectBot's bridge lookup uses the manifest for a second bot", async (t) => {
-  const f = await fixture(t, twoBots, {
-    config: { sessionId: "s1" },
-    runtime: "bridge",
-  });
-  await provision({ ...f, token: () => "tok" });
+test("native run socket lookup uses the participant manifest for any owned bot", async (t) => {
+  const f = await fixture(t, twoBots);
+  await provision(f);
+  const botsFile = join(f.root, "runtime-bots.json");
+  await writeFile(
+    botsFile,
+    JSON.stringify({
+      bots: [
+        { name: "arena_red1", runSocket: "/tmp/arena-bots/arena_red1.sock" },
+        { name: "arena_red2", runSocket: "/tmp/arena-bots/arena_red2.sock" },
+      ],
+    }),
+  );
   const env = {
     ARENA_BOT: "arena_red1",
-    ARENA_BRIDGE_URL: "http://main",
-    ARENA_BRIDGE_TOKEN: "main-token",
-    ARENA_PROVISION_DIR: join(f.outDir, "agents/red1"),
+    ARENA_BOTS_FILE: botsFile,
   };
-  assert.deepEqual(bridgeFor(undefined, env), {
-    url: "http://main",
-    token: "main-token",
-  });
-  assert.deepEqual(bridgeFor("arena_red1", env), {
-    url: "http://main",
-    token: "main-token",
-  });
-  assert.deepEqual(bridgeFor("arena_red2", env), {
-    url: "http://bridge-arena-red2:8080",
-    token: "tok",
-  });
+  assert.equal(runSocket("arena_red1", env), "/tmp/arena-bots/arena_red1.sock");
+  assert.equal(runSocket("arena_red2", env), "/tmp/arena-bots/arena_red2.sock");
   assert.throws(
-    () => bridgeFor("arena_blue1", env),
-    /this participant's bots: arena_red1, arena_red2/,
-  );
-  assert.throws(
-    () => bridgeFor("arena_red2", { ...env, ARENA_PROVISION_DIR: f.root }),
-    /no bot list/,
+    () => runSocket("arena_blue1", env),
+    /not one of this participant's characters/,
   );
 });

@@ -9,7 +9,7 @@
 代理不会每来一行输出就调用一次模型：每次调用都要花预算、排队，还会把上下文塞满。所以工具调用会先等待，有结果再返回。本项目的 `bash`（带 `command` 启动任务，或带 `taskId` 接着等一个已有任务）在两种情况下返回：
 
 - 进程结束：返回 `completed` 和输出。
-- 等待期间程序没有输出、角色没有移动约两格、背包也没变，超过 `stall_seconds`（默认 60 秒，`ARENA_STALL_SECONDS` 可改，0 关闭）：提前返回 `running`，原因是 `no progress`，进程继续运行。没有桥时只看输出。
+- 等待期间程序没有输出、角色没有移动约两格、背包也没变，超过 `stall_seconds`（默认 60 秒，`ARENA_STALL_SECONDS` 可改，0 关闭）：提前返回 `running`，原因是 `no progress`，进程继续运行。角色进程提供任务状态与活动快照，不向任务客户端镜像 Mineflayer 对象。
 - 等待时长用完（默认 30 秒，`wait_seconds` 或 `ARENA_TOOL_WAIT_SECONDS` 可改）：返回 `running` 和 `taskId`，**进程继续运行**，并带上程序到目前为止的输出。之后每次返回 `running` 只带上次返回之后的新输出（`previouslyReturnedBytes` 说明省掉了多少），持续打日志的程序不会把同样的输出一遍遍塞进上下文。程序结束时的结果仍带完整的保留输出。模型之后用 `bash` 加 `taskId` 接着等，或运行 `arena-task cancel <taskId>` 停掉。完整输出另存在任务目录的 `stdout.log`／`stderr.log` 里，模型和程序都能用普通命令读。
 
 Pi 原生的 `bash` 不是这样：它一直阻塞到命令结束，超时或中止时杀掉进程。本项目把“这次等多久”和“进程活多久”分开：`timeout` 是单独的终止期限，中止一次工具调用只让它不再等待，不会结束进程。
@@ -29,7 +29,7 @@ Pi 在下面这些时刻发出请求：
 
 - **工具结果**：模型自己调用的工具返回的内容。
 - **收件箱**：参赛者程序（包括默认脚本）通过 `InboxClient` 发来的消息，以及 Pi 扩展自己发的运行时报告。
-- **平台**：可信侧和启动器发来的内容，包括会话状态的变化（开始、结束、胜者，来自游戏桥读到的服务器状态）、开局提示（含会话简报）、公开数据的变化和通知。没有时钟。
+- **平台**：可信侧和启动器发来的内容，包括会话状态的变化（开始、结束、胜者，来自可信侧读取并由角色 session 接口提供的服务器状态）、开局提示（含会话简报）、公开数据的变化和通知。没有时钟。
 
 相对请求边界，信息有四种到达方式：
 
@@ -60,7 +60,7 @@ Pi 在下面这些时刻发出请求：
 
 ## 平台消息何时送达
 
-平台消息不进收件箱。`turn_end` 时 Pi 扩展通过游戏桥的 `/v1/session` 读取会话状态（缓存 2 秒，超时 300 ms），会话的 `kind`、`sessionId`、`state` 或 `winner` 有变化时组成一条带 `session` 段的 `arena-platform` 消息，用 `triggerTurn: false` 交给 Pi。不报已用时间和剩余时间：时限由服务器上的规则执行。
+平台消息不进收件箱。`turn_end` 时 Pi 扩展通过只读 `session` 接口读取会话状态（缓存 2 秒，超时 300 ms），会话的 `kind`、`sessionId`、`state` 或 `winner` 有变化时组成一条带 `session` 段的 `arena-platform` 消息，用 `triggerTurn: false` 交给 Pi。不报已用时间和剩余时间：时限由服务器上的规则执行。
 
 `public` 段：开局提示带的 `briefing.public` 是基线，之后它一变，下一条平台消息就带 `public`（JSON 超过 4096 字节时只报大小和 `public.json` 的路径）。`public.notice` 是给模型的通知：变化时另带 `notice` 段（超过 2000 字符截断）。Pi 空闲时扩展每 `ARENA_NOTICE_POLL_MS`（2000 ms）读一次会话，通知一变就用 `triggerTurn: true` 发一条平台消息开启新一轮，模型在等自己的程序时也算空闲；模型忙时，通知随下一次 `turn_end` 送达。
 
@@ -87,7 +87,7 @@ Pi 在下面这些时刻发出请求：
 
 ## 一次导航的例子
 
-模型运行一个导航程序，`bash` 等了 30 秒后返回 `running` 和 `taskId`，附带这段时间里默认观察器报告的位置和物品变化。模型用 `bash` 加 `taskId` 继续等。途中经过的方块类型累计成沿途方块报告，最早 30 秒后随某次工具返回送达；附近告示牌的文字也随下一次返回送达。游戏桥同时记录角色收到的区块，以后模型可以在程序里查询已经卸载的位置，得到的是最后收到的历史。
+模型运行一个导航模块，`bash` 等了 30 秒后返回 `running` 和 `taskId`，附带这段时间里默认观察器报告的位置和物品变化。模型用 `bash` 加 `taskId` 继续等。途中经过的方块类型累计成沿途方块报告，最早 30 秒后随某次工具返回送达；附近告示牌的文字也随下一次返回送达。原生 Mineflayer 收到的区块由 world-memory 记录；模块可以查询已卸载的位置，历史结果对应最后一次观察。
 
 途中生命降到 6，默认观察器发出紧急消息。这次 `bash` 等待立刻返回 `running`，模型马上得到一次请求，导航程序继续跑。模型可以接着等，也可以取消导航去吃东西。
 
@@ -101,7 +101,7 @@ Pi 在下面这些时刻发出请求：
 | 沿途方块报告 | 是，每秒采样                                    | 汇总后最早 30 秒送达一次；逐格数据留给查询                                          |
 | 默认聊天转发 | 是                                              | 默认随下一次边界附带；配置 `ARENA_CHAT_WAKE` 后，匹配的聊天作为紧急消息唤醒空闲模型 |
 | 图像         | 否，运行截图脚本时才生成                        | 不主动交付；模型用 `read` 读截图脚本写出的 PNG                                      |
-| 区块记忆     | 是，在游戏桥上                                  | 不交付，程序查询时才读                                                              |
+| 区块记忆     | 是，在角色的原生 Mineflayer 进程中              | 不交付，模块查询时才读                                                              |
 | 运行时报告   | 是                                              | 只发变化部分，在顶层工具返回时附带                                                  |
 | 平台消息     | 是                                              | 只发变化部分，随下一次请求附带                                                      |
 
@@ -131,7 +131,7 @@ Pi 在下面这些时刻发出请求：
 | 变化报告                                   | [packages/observation/section-diff.mjs](../packages/observation/section-diff.mjs)                                                                                                                                                   |
 | 开局提示与会话文件                         | [packages/pi-extension/bootstrap.mjs](../packages/pi-extension/bootstrap.mjs)                                                                                                                                                       |
 
-各包的用法见 [Pi 扩展](../packages/pi-extension/README.md)、[收件箱](../packages/inbox/README.md)、[观察库](../packages/observation/README.md)、[区块记忆](../packages/bot-sdk/BLOCK-MEMORY.md)。
+各包的用法见 [Pi 扩展](../packages/pi-extension/README.md)、[收件箱](../packages/inbox/README.md)、[任务管理](../packages/tasks/README.md) 与 [观察库](../packages/observation/README.md)。Mineflayer 世界记忆由参赛模块在角色进程内查询。
 
 ## 已退役的方案
 

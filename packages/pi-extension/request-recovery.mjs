@@ -5,6 +5,7 @@ export function observeRpcOutput(
   stream,
   receive,
   maxLineBytes = 16 * 1024 * 1024,
+  onError = (error) => console.error("Arena RPC handler failed:", error),
 ) {
   const decoder = new StringDecoder("utf8");
   let pending = "",
@@ -29,8 +30,9 @@ export function observeRpcOutput(
         ) {
           try {
             receive(value);
-          } catch {
-            /* Malformed/non-RPC JSON logs cannot stop the session. */
+          } catch (error) {
+            // Parsing succeeded: a consumer failure is not malformed log noise.
+            onError(error);
           }
         }
       }

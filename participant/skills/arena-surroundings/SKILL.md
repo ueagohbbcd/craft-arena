@@ -11,7 +11,7 @@ The default observer already reports changes to your state, inventory, nearby en
 - **Where you can walk:** [reach-map.mjs](../../../examples/reach-map.mjs) and [profile.mjs](../../../examples/profile.mjs), see the `arena-navigation` skill.
 - **Local terrain and connectivity as numbers:** [summarize-terrain.mjs](../../../examples/summarize-terrain.mjs).
 - **Entities near you:** `examples/observe.mjs --full-entities`, or [entity-radar.mjs](../../../examples/entity-radar.mjs).
-- **Blocks seen earlier, also in unloaded chunks:** [query-block-memory.mjs](../../../examples/query-block-memory.mjs) and [BLOCK-MEMORY.md](../../../packages/bot-sdk/BLOCK-MEMORY.md). Block memory records chunks as the character received them, so it is not necessarily the current world: a result with `status: "historical"` is what the block was at `observedAt`, and something may have changed it since. `unknown` means the character never received it.
+- **Blocks seen earlier, also in unloaded chunks:** query the world-memory library from a native bot module. It records chunks as the character received them, so it is not necessarily the current world: `historical` describes the block at `observedAt`, and something may have changed it since. `unknown` means the character never received it. See `arena-programs` for how to run a module.
 - **Signs:** the default observer sends the text of signs near you as `observation.nearby_signs` reports.
 - **Be told when something specific appears:** [watch-surroundings.mjs](../../../examples/watch-surroundings.mjs), see "Listener beside a controller" in the `arena-programs` skill.
 

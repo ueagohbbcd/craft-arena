@@ -1,12 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { queryEntitiesIntersecting } from "../packages/observation/queries.mjs";
 import { sampleObservation } from "../packages/observation/index.mjs";
 import { inspectPlacementEntities } from "../examples/inspect-placement-entities.mjs";
-import { createAuthority } from "../packages/mf-bridge/index.mjs";
-import { BotFacade } from "../packages/bot-sdk/index.mjs";
 
 const bounds = {
   min: { x: 0, y: 33, z: 0 },
@@ -54,35 +50,20 @@ test("target query finds a bat omitted by the unchanged risk-first default summa
   assert.equal(result.examined, 14);
   assert.equal(result.total, 1);
   assert.equal(result.omitted, 0);
-  assert.deepEqual(result.mirror, {
-    sampledAt: 123,
-    sequence: 7,
-    epoch: "placement-test",
-  });
 });
 
-test("native geometry survives authority serialization and SDK mirror projection", async () => {
+test("placement entity inspection reads native entity geometry directly", () => {
   const self = entity(1, { x: 0.5, y: 33, z: -1.5 }, { name: "player" });
   const native = {
     entity: self,
     entities: { 1: self, 2: entity(2) },
     inventory: { slots: [] },
   };
-  const data = JSON.parse(
-    JSON.stringify(createAuthority(native).snapshot(false)),
-  );
-  const bot = new BotFacade({
-    url: "http://unused",
-    token: "test",
-    loadRegistry: false,
-  });
-  await bot.accept({ type: "reset", epoch: "placement", sequence: 0, data });
-  const result = inspectPlacementEntities(bot, bounds.min);
+  const result = inspectPlacementEntities(native, bounds.min);
   assert.equal(result.total, 1);
   assert.equal(result.entities[0].name, "bat");
   assert.equal(result.entities[0].width, 0.5);
   assert.equal(result.entities[0].height, 0.9);
-  assert.equal(result.mirror.epoch, "placement");
 });
 
 test("width is centered on x/z and height extends upward from feet", () => {
@@ -189,28 +170,4 @@ test("invalid query and target arguments fail instead of silently querying elsew
     () => inspectPlacementEntities({}, { x: 0.5, y: 33, z: 0 }),
     /integer/,
   );
-});
-
-test("actual read-only CLI prints one report, closes its bridge and performs no action", () => {
-  const fixture = fileURLToPath(
-    new URL("./fixtures/example-process.mjs", import.meta.url),
-  );
-  const example = fileURLToPath(
-    new URL("../examples/inspect-placement-entities.mjs", import.meta.url),
-  );
-  const child = spawnSync(
-    process.execPath,
-    [fixture, example, "0", "33", "0"],
-    {
-      encoding: "utf8",
-      timeout: 10_000,
-    },
-  );
-  assert.equal(child.status, 0, child.stderr);
-  const trace = child.stdout.trim().split("\n").map(JSON.parse);
-  assert.equal(trace.length, 2);
-  assert.deepEqual(trace[0].bounds, bounds);
-  assert.equal(trace[0].total, 0);
-  assert.equal(trace[1].type, "closed");
-  assert.equal(trace[1].pending, 0);
 });

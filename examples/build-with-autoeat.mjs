@@ -6,10 +6,8 @@
  */
 import { readFile } from "node:fs/promises";
 import { setTimeout as sleep } from "node:timers/promises";
-import { pathToFileURL } from "node:url";
-import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
-import { watchdog } from "../packages/bot-sdk/watchdog.mjs";
+import { Vec3 } from "vec3";
 
 const foods = new Set([
   "bread",
@@ -48,7 +46,6 @@ export async function buildWithAutoeat(
   };
   const checkAbort = () => signal?.throwIfAborted();
   const snapshot = (name) => ({
-    sampledAt: bot.sampledAt ?? null,
     health: bot.health,
     food: bot.food,
     itemCount: bot.inventory
@@ -134,12 +131,11 @@ export async function buildWithAutoeat(
           checkAbort();
           try {
             bot.activateItem();
-            await bot.flush();
+
             await pause(1800, undefined, { signal });
           } finally {
             // Release only this program's item use, never independent movement.
             bot.deactivateItem();
-            await bot.flush();
           }
           checkAbort();
           const after = snapshot(item.name);
@@ -184,12 +180,17 @@ export async function buildWithAutoeat(
           .items()
           .find((item) => item.name === plan.material);
         if (!material) throw new Error(`Missing material: ${plan.material}`);
-        const against = bot.blockAt(step.against);
+        const against = bot.blockAt(
+          new Vec3(step.against.x, step.against.y, step.against.z),
+        );
         if (!against) throw new Error("Placement reference is unknown");
         await bot.equip(material, "hand");
         checkAbort();
         resumeBuild();
-        await bot.placeBlock(against, step.face);
+        await bot.placeBlock(
+          against,
+          new Vec3(step.face.x, step.face.y, step.face.z),
+        );
       });
       placed++;
       checkAbort();
@@ -233,38 +234,19 @@ export async function buildWithAutoeat(
   };
 }
 
-async function main() {
-  if (!process.argv[2]) throw new Error("Pass a JSON placement plan");
-  const plan = JSON.parse(await readFile(process.argv[2], "utf8"));
-  const bot = await connectBot(),
-    inbox = new InboxClient(),
-    controller = new AbortController();
-  const dog = watchdog(bot, { inbox });
-  const stop = (name) => {
-    process.exitCode = name === "SIGINT" ? 130 : 143;
-    controller.abort();
-  };
-  const onTerm = () => stop("SIGTERM"),
-    onInterrupt = () => stop("SIGINT");
-  process.on("SIGTERM", onTerm);
-  process.on("SIGINT", onInterrupt);
-  bot.on("error", console.error);
+export default async function buildWithAutoeatProgram(
+  bot,
+  { args = [], signal, log = console.log },
+) {
+  if (!args[0]) throw new Error("Pass a JSON placement plan");
+  const plan = JSON.parse(await readFile(args[0], "utf8"));
+  const inbox = new InboxClient();
   try {
-    const result = await buildWithAutoeat(bot, inbox, plan, {
-      signal: controller.signal,
-    });
-    console.log(JSON.stringify(result));
-    if (result.status === "failed") process.exitCode = 1;
+    const result = await buildWithAutoeat(bot, inbox, plan, { signal });
+    log(JSON.stringify(result));
+    if (result.error) throw new Error(result.error);
   } finally {
-    try {
-      await bot.flush();
-    } finally {
-      dog.close();
-      bot.closeBridge();
-      process.off("SIGTERM", onTerm);
-      process.off("SIGINT", onInterrupt);
-    }
+    bot.clearControlStates();
+    bot.deactivateItem();
   }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  await main();

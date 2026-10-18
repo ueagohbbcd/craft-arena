@@ -1,76 +1,88 @@
-/** Choose among explicitly supplied observed entity IDs, then use native PvP. */
+/** Attack the nearest currently observed entity among supplied entity IDs. */
+import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
-import { connectBot } from "../packages/bot-sdk/index.mjs";
-import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
+import { InboxClient } from "../packages/inbox/index.mjs";
+import { loadPvp, stopBot } from "./native.mjs";
 
-const ids = process.argv.slice(2).map(Number);
-if (!ids.length || !ids.every(Number.isInteger))
-  throw new Error(
-    "Usage: node examples/fight-target.mjs ENTITY_ID [ENTITY_ID ...]",
-  );
-const bot = await connectBot();
-const controller = new AbortController();
-const cancel = () => {
-  controller.abort(new Error("Controller cancelled"));
-  bot.pvp?.forceStop();
-  bot.pathfinder?.setGoal(null);
-};
-process.on("SIGTERM", cancel);
-process.on("SIGINT", cancel);
-for (const name of ["death", "bridgeReset", "end"]) bot.on(name, cancel);
-bot.on("error", console.error);
-loadSelectedPlugins(bot); // Includes the read-only Inbox observer by default.
-try {
-  const candidates = ids
-    .map((id) => bot.entities[id])
-    .filter(Boolean)
-    .map((entity) => ({
-      entity,
-      distance: entity.position.distanceTo(bot.entity.position),
-    }))
-    .sort((a, b) => a.distance - b.distance);
-  if (!candidates.length)
-    throw new Error("None of the supplied IDs is currently observed");
-  const target = candidates[0].entity;
-  bot.combatReport.reportDecision({
-    candidates: candidates.map(({ entity, distance }) => ({
-      ...entity,
-      distance,
-    })),
-    selectedTargetId: target.id,
-    reason:
-      "This example chooses the nearest currently observed entity among the supplied IDs",
-  });
-  // PvP owns a separate Movements instance and installs it on attack(). Tune
-  // that instance for this action, rather than assuming earlier route settings.
-  bot.pvp.movements.canDig = false;
-  await bot.pvp.attack(target);
-  await sleep(10000, undefined, { signal: controller.signal });
-  bot.combatReport.reportStopReason("Example's ten-second action window ended");
-  await bot.pvp.stop(); // Native stop can wait until the next path node.
-} catch (error) {
-  bot.combatReport.reportStopReason(error.message);
-  if (!controller.signal.aborted) {
-    console.error(error);
-    process.exitCode = 1;
-  }
-} finally {
-  bot.pvp.forceStop();
-  bot.pathfinder.setGoal(null);
+export default async function fightTarget(
+  bot,
+  { signal, args = [], log = console.log },
+) {
+  const ids = args.map(Number);
+  if (!ids.length || !ids.every(Number.isInteger))
+    throw new Error("Usage: fight-target.mjs ENTITY_ID [ENTITY_ID ...]");
+  const inbox = new InboxClient();
+  const pvp = loadPvp(bot);
+  const combatId = randomUUID();
+  const startedAt = Date.now();
+  const startingHealth = bot.health;
+  let target;
+  let outcome = "failed";
+  const cancel = () => {
+    pvp.forceStop();
+    bot.pathfinder?.setGoal(null);
+  };
+  const onDeath = () => cancel();
+  bot.on("death", onDeath);
+  signal?.addEventListener("abort", cancel, { once: true });
   try {
-    await bot.flush();
+    signal?.throwIfAborted();
+    const candidates = ids
+      .map((id) => bot.entities[id])
+      .filter((e) => e?.position)
+      .map((entity) => ({
+        entity,
+        distance: entity.position.distanceTo(bot.entity.position),
+      }))
+      .sort((a, b) => a.distance - b.distance);
+    if (!candidates.length)
+      throw new Error("None of the supplied IDs is currently observed");
+    target = candidates[0].entity;
+    await inbox.post({
+      type: "combat.decision",
+      combatId,
+      candidates: candidates.map(({ entity, distance }) => ({
+        id: entity.id,
+        name: entity.name,
+        distance,
+      })),
+      selectedTargetId: target.id,
+      reason: "Nearest currently observed entity among supplied IDs",
+    });
+    await inbox.upsert(`combat.phase:${combatId}`, {
+      type: "combat.phase",
+      combatId,
+      target: { id: target.id, name: target.name ?? null },
+      activity: "combat observation continues",
+    });
+    pvp.movements.canDig = false;
+    await pvp.attack(target);
+    await sleep(10000, undefined, { signal });
+    await pvp.stop();
+    outcome = signal?.aborted ? "cancelled" : "finished";
   } finally {
-    bot.clearControlStates();
-    bot.deactivateItem();
-    try {
-      await bot.flush();
-    } finally {
-      await bot.combatReport.close();
-      console.log(JSON.stringify(bot.combatReport.summary()));
-      process.off("SIGTERM", cancel);
-      process.off("SIGINT", cancel);
-      for (const name of ["death", "bridgeReset", "end"]) bot.off(name, cancel);
-      bot.closeBridge();
-    }
+    if (signal?.aborted) outcome = "cancelled";
+    cancel();
+    stopBot(bot);
+    bot.off("death", onDeath);
+    signal?.removeEventListener("abort", cancel);
+    if (target)
+      try {
+        await inbox.post({
+          type: "combat.summary",
+          combatId,
+          target: { id: target.id, name: target.name ?? null },
+          startedAt,
+          endedAt: Date.now(),
+          durationMs: Date.now() - startedAt,
+          health: { start: startingHealth, end: bot.health },
+          outcome: "unknown",
+          status: outcome,
+          note: "Attacks do not prove that a target was defeated.",
+        });
+      } catch (error) {
+        log(`combat summary report failed: ${error.message}`);
+      }
+    log(JSON.stringify({ status: signal?.aborted ? "cancelled" : "finished" }));
   }
 }

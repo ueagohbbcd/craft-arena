@@ -13,7 +13,7 @@ import { RconClient } from "../arena/src/rcon.mjs";
 import {
   polledSession,
   serverSessionReader,
-} from "../mf-bridge/session-source.mjs";
+} from "../bot-host/server-session.mjs";
 import { startLoginGate } from "./index.mjs";
 
 export function gateOptions(env = process.env) {

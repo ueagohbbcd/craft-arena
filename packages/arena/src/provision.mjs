@@ -3,12 +3,10 @@
  * deployment runs (docs/TARGET-ARCHITECTURE.md):
  *
  *   OUT/match.json             the match file, with teams derived from the map's agents
- *   OUT/compose.agents.yaml    one login gate per agent (native runtime) or one
- *                              bridge per bot (bridge runtime), one model relay
- *                              per relay name, one participant container per agent
- *   OUT/agents.env             bridge runtime: a fresh bridge token per bot
+ *   OUT/compose.agents.yaml    one login gate per agent, one model relay per
+ *                              relay name, one participant container per agent
  *   OUT/agents/<id>/           mounted read-only at /arena/provision:
- *     manifest.json            agent, team, bots (name; bridge runtime: url, token), workspace files
+ *     manifest.json            agent, team, bots (name), workspace files
  *     model.json               the model descriptor for this agent's relay
  *     config/                  mounted at /arena/config (agents.d, skills, ...)
  *     files/<n>                sources of files the launcher copies into /workspace
@@ -23,17 +21,15 @@
  * (default) or "once" (workspace only: keep a file the participant already has).
  * An agent's own `files` (and `team`) replace the defaults; they are not merged.
  *
- * Runtime ("runtime" in the match file): "native" (default) runs each bot as a
- * real Mineflayer bot inside its participant container, logging in through the
- * agent's login gate (packages/login-gate), which admits only that agent's
- * characters and serves the session read-only. "bridge" keeps the bots on the
- * trusted side behind one capability bridge each (the earlier layout).
+ * Each bot runs inside its participant container through its agent's login
+ * gate (packages/login-gate), which admits only that agent's characters and
+ * serves the session read-only. The participant launcher starts bot-host
+ * processes and exposes their sockets to Pi and participant runs.
  *
  * The match file may add "agents": { "red1": { "relay": "red", "model": "model.red.json" } };
  * the relay defaults to the agent's team (else its id) and the model to
  * model.<relay>.json next to the match file.
  */
-import { randomBytes } from "node:crypto";
 import {
   chmod,
   chown,
@@ -66,12 +62,7 @@ const gitVolume = (agent) =>
     ? `team-${String(agent.team).replace(/[^A-Za-z0-9_.-]/g, "-")}-git`
     : `${agent.id}-git`;
 
-export const tokenVariable = (bot) => `BRIDGE_TOKEN_${envName(bot)}`;
-// Service names double as host names, which take no underscores.
-export const bridgeService = (bot) =>
-  `bridge-${bot.toLowerCase().replace(/_/g, "-")}`;
 export const gateService = (agentId) => `gate-${agentId.replace(/_/g, "-")}`;
-export const RUNTIMES = ["native", "bridge"];
 
 function checkFile(file, where, errors) {
   if (!file || typeof file !== "object") {
@@ -166,10 +157,8 @@ export function teamsOf(agents) {
 const PARTICIPANT_UID = 1000;
 
 /**
- * The manifest holds the agent's bridge tokens: private to its owner, and
- * that owner must be the container user. As root, hand it over; as another
- * user (who cannot chown), let it be read and rely on the deployment
- * directory's own permissions. Windows has no POSIX owners.
+ * Make the participant manifest readable to its container user. Windows has
+ * no POSIX owners.
  */
 export async function shareWithParticipant(
   file,
@@ -177,12 +166,21 @@ export async function shareWithParticipant(
   ops = { chown, chmod },
 ) {
   if (uid === null || uid === PARTICIPANT_UID) return;
-  if (uid === 0) await ops.chown(file, PARTICIPANT_UID, PARTICIPANT_UID);
-  else await ops.chmod(file, 0o644);
+  if (uid === 0) {
+    try {
+      await ops.chown(file, PARTICIPANT_UID, PARTICIPANT_UID);
+    } catch (error) {
+      // Some mounted filesystems do not implement chown. The manifest has no
+      // credentials, so readable mode still lets the participant start its
+      // native host.
+      if (!["EPERM", "EINVAL", "ENOTSUP"].includes(error.code)) throw error;
+      await ops.chmod(file, 0o644);
+    }
+  } else await ops.chmod(file, 0o644);
 }
 
 /** The Compose services, networks and volumes for the agents (plain data). */
-export function agentsCompose(agents, { mapId, relays, runtime = "native" }) {
+export function agentsCompose(agents, { mapId, relays }) {
   const common = {
     user: `${PARTICIPANT_UID}:${PARTICIPANT_UID}`,
     cap_drop: ["ALL"],
@@ -211,46 +209,20 @@ export function agentsCompose(agents, { mapId, relays, runtime = "native" }) {
   for (const agent of agents) {
     const net = `agent-${agent.id}`;
     networks[net] = { internal: true };
-    if (runtime === "native") {
-      services[gateService(agent.id)] = {
-        ...common,
-        ...trusted(),
-        command: ["node", "packages/login-gate/cli.mjs"],
-        depends_on: { minecraft: { condition: "service_healthy" } },
-        environment: {
-          GATE_USERNAMES: agent.bots.join(","),
-          GATE_UPSTREAM_HOST: "minecraft",
-          GATE_RCON_HOST: "minecraft",
-          GATE_RCON_PASSWORD: "${MC_RCON_PASSWORD}",
-        },
-        networks: ["backend", net],
-      };
-      built = true;
-      continue;
-    }
-    for (const bot of agent.bots) {
-      services[bridgeService(bot)] = {
-        ...common,
-        ...trusted(),
-        command: ["node", "packages/mf-bridge/cli.mjs"],
-        depends_on: { minecraft: { condition: "service_healthy" } },
-        environment: {
-          MF_HOST: "minecraft",
-          MF_VERSION: "${MC_VERSION:-1.21.1}",
-          MF_USERNAME: bot,
-          BRIDGE_HOST: "0.0.0.0",
-          BRIDGE_PORT: "8080",
-          BRIDGE_TOKEN: `\${${tokenVariable(bot)}}`,
-          BRIDGE_SESSION: "server",
-          BRIDGE_RCON_HOST: "minecraft",
-          BRIDGE_RCON_PASSWORD: "${MC_RCON_PASSWORD}",
-          BRIDGE_WORLD_ID: mapId,
-          BRIDGE_PARTICIPANT_ID: agent.id,
-        },
-        networks: ["backend", net],
-      };
-      built = true;
-    }
+    services[gateService(agent.id)] = {
+      ...common,
+      ...trusted(),
+      command: ["node", "packages/login-gate/cli.mjs"],
+      depends_on: { minecraft: { condition: "service_healthy" } },
+      environment: {
+        GATE_USERNAMES: agent.bots.join(","),
+        GATE_UPSTREAM_HOST: "minecraft",
+        GATE_RCON_HOST: "minecraft",
+        GATE_RCON_PASSWORD: "${MC_RCON_PASSWORD}",
+      },
+      networks: ["backend", net],
+    };
+    built = true;
   }
   for (const [relay, ids] of relays) {
     services[`model-${relay}`] = {
@@ -282,18 +254,11 @@ export function agentsCompose(agents, { mapId, relays, runtime = "native" }) {
             },
           }),
       environment: {
-        ...(runtime === "native"
-          ? {
-              ARENA_MINECRAFT_HOST: gateService(agent.id),
-              ARENA_SESSION_URL: `http://${gateService(agent.id)}:8080/v1/session`,
-              MC_VERSION: "${MC_VERSION:-1.21.1}",
-              ARENA_WORLD_ID: mapId,
-              ARENA_PARTICIPANT_ID: agent.id,
-            }
-          : {
-              ARENA_BRIDGE_URL: `http://${bridgeService(main)}:8080`,
-              ARENA_BRIDGE_TOKEN: `\${${tokenVariable(main)}}`,
-            }),
+        ARENA_MINECRAFT_HOST: gateService(agent.id),
+        ARENA_SESSION_URL: `http://${gateService(agent.id)}:8080/v1/session`,
+        MC_VERSION: "${MC_VERSION:-1.21.1}",
+        ARENA_WORLD_ID: mapId,
+        ARENA_PARTICIPANT_ID: agent.id,
         ARENA_BOT: main,
         ARENA_PROVISION_DIR: "/arena/provision",
         OPENAI_BASE_URL: `http://model-${agent.relay}:8080`,
@@ -340,23 +305,18 @@ export async function provision({
   // Where the default `model.<relay>.json` descriptors live; a `model` the
   // match file names is relative to the match file.
   modelDir = dirname(matchPath),
-  token = () => randomBytes(32).toString("hex"),
 }) {
   mapDir = resolve(mapDir);
-  for (const name of [
-    "match.json",
-    "compose.agents.yaml",
-    "agents.env",
-    "agents",
-  ])
+  for (const name of ["match.json", "compose.agents.yaml", "agents"])
     if (await exists(join(outDir, name)))
       throw new Error(`${join(outDir, name)} already exists`);
   const map = JSON.parse(await readFile(join(mapDir, "map.json"), "utf8"));
   const agents = resolveAgents(map);
   const match = JSON.parse(await readFile(matchPath, "utf8"));
-  const runtime = match.runtime ?? "native";
-  if (!RUNTIMES.includes(runtime))
-    throw new Error(`match.json runtime must be one of ${RUNTIMES.join(", ")}`);
+  if (match.runtime !== undefined)
+    throw new Error(
+      "match.json runtime has been removed; bots always run in native participant hosts",
+    );
   const matchAgents = match.agents ?? {};
   for (const id of Object.keys(matchAgents))
     if (!agents.some((agent) => agent.id === id))
@@ -400,11 +360,6 @@ export async function provision({
     }
 
   await mkdir(outDir, { recursive: true });
-  const tokens = new Map(
-    runtime === "bridge"
-      ? agents.flatMap((a) => a.bots.map((bot) => [bot, token()]))
-      : [],
-  );
   for (const agent of agents) {
     const dir = join(outDir, "agents", agent.id);
     await mkdir(join(dir, "config"), { recursive: true });
@@ -437,15 +392,7 @@ export async function provision({
         {
           agent: agent.id,
           ...(agent.team ? { team: agent.team } : {}),
-          bots: agent.bots.map((bot) =>
-            runtime === "bridge"
-              ? {
-                  name: bot,
-                  url: `http://${bridgeService(bot)}:8080`,
-                  token: tokens.get(bot),
-                }
-              : { name: bot },
-          ),
+          bots: agent.bots.map((bot) => ({ name: bot })),
           files: workspace,
         },
         null,
@@ -455,22 +402,14 @@ export async function provision({
     );
     await shareWithParticipant(join(dir, "manifest.json"));
   }
-  const { agents: _agents, runtime: _runtime, ...rest } = match;
+  const { agents: _agents, ...rest } = match;
   await writeFile(
     join(outDir, "match.json"),
     `${JSON.stringify({ ...rest, config }, null, 2)}\n`,
   );
-  await writeFile(
-    join(outDir, "agents.env"),
-    [...tokens]
-      .map(([bot, value]) => `${tokenVariable(bot)}=${value}\n`)
-      .join(""),
-    { mode: 0o600 },
-  );
   const compose = agentsCompose(agents, {
     mapId: basename(mapDir),
     relays,
-    runtime,
   });
   // JSON is valid YAML; Compose merges this file over the deployment's base file.
   await writeFile(

@@ -14,8 +14,6 @@
  * Check mirror age and the actual target block alongside these candidates.
  * Pose-specific and server collision rules may differ from the observed boxes.
  */
-import { pathToFileURL } from "node:url";
-import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { queryEntitiesIntersecting } from "../packages/observation/queries.mjs";
 
 export function inspectPlacementEntities(bot, target, { limit = 12 } = {}) {
@@ -24,11 +22,6 @@ export function inspectPlacementEntities(bot, target, { limit = 12 } = {}) {
   const { x, y, z } = target;
   return {
     observedAt: Date.now(),
-    mirror: {
-      sampledAt: bot.sampledAt ?? null,
-      sequence: bot.sequence ?? null,
-      epoch: bot.epoch ?? null,
-    },
     ...queryEntitiesIntersecting({
       entities: bot.entities,
       bounds: { min: { x, y, z }, max: { x: x + 1, y: y + 1, z: z + 1 } },
@@ -37,20 +30,14 @@ export function inspectPlacementEntities(bot, target, { limit = 12 } = {}) {
   };
 }
 
-async function main() {
-  const args = process.argv.slice(2);
+export default async function inspectPlacementEntitiesProgram(
+  bot,
+  { args = [], log = console.log },
+) {
   if (args.length !== 3 || !args.map(Number).every(Number.isSafeInteger))
     throw new Error(
       "Usage: node examples/inspect-placement-entities.mjs X Y Z",
     );
   const [x, y, z] = args.map(Number);
-  const bot = await connectBot();
-  try {
-    console.log(JSON.stringify(inspectPlacementEntities(bot, { x, y, z })));
-  } finally {
-    bot.closeBridge();
-  }
+  log(JSON.stringify(inspectPlacementEntities(bot, { x, y, z })));
 }
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  await main();

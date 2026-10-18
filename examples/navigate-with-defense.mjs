@@ -4,12 +4,9 @@
  */
 import { once } from "node:events";
 import { setTimeout as sleep } from "node:timers/promises";
-import { pathToFileURL } from "node:url";
-import { connectBot } from "../packages/bot-sdk/index.mjs";
-import { loadSelectedPlugins } from "../packages/bot-sdk/plugins.mjs";
 import { sampleObservation } from "../packages/observation/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
-import { watchdog } from "../packages/bot-sdk/watchdog.mjs";
+import { loadPvp, stopBot } from "./native.mjs";
 
 export async function navigateWithDefense(
   bot,
@@ -83,7 +80,6 @@ export async function navigateWithDefense(
       report("upsert", "journey.progress", {
         type: "journey.progress",
         activity: "navigating",
-        sampledAt: state.freshness.sampledAt,
         position: state.self.position,
         health: state.self.health,
         nearbyPotentialThreats: candidates.length,
@@ -92,7 +88,8 @@ export async function navigateWithDefense(
     if (!candidates.length) return;
     selection = { state, candidates, targetId: candidates[0].id };
     // Save this decision's evidence now. Later combat ticks may show different entities.
-    bot.combatReport.reportDecision({
+    report("post", {
+      type: "combat.decision",
       candidates,
       selectedTargetId: selection.targetId,
       reason: `Example selected the nearest observed registry-hostile mob within ${radius} blocks`,
@@ -109,11 +106,9 @@ export async function navigateWithDefense(
     bot.pathfinder.setGoal(null);
   };
   const onDeath = () => cancel("Bot died"),
-    onReset = () => cancel("Bridge reset"),
-    onEnd = () => cancel("Bridge ended");
+    onEnd = () => cancel("Bot disconnected");
   bot.on("physicsTick", inspect);
   bot.on("death", onDeath);
-  bot.on("bridgeReset", onReset);
   bot.on("end", onEnd);
   signal.addEventListener("abort", externalAbort, { once: true });
   let resumeReport = null;
@@ -152,7 +147,7 @@ export async function navigateWithDefense(
         bot.pathfinder.isBuilding()
       )
         await once(bot, "physicsTick", { signal });
-      await bot.flush();
+
       signal.throwIfAborted();
       const chosen = selection,
         target = bot.entities[chosen.targetId];
@@ -166,7 +161,6 @@ export async function navigateWithDefense(
         continue;
       }
       const before = {
-        sampledAt: chosen.state.freshness.sampledAt,
         position: chosen.state.self.position,
         health: chosen.state.self.health,
         omittedCandidates: Math.max(0, chosen.candidates.length - 12),
@@ -203,20 +197,19 @@ export async function navigateWithDefense(
           stopReason = "defense_window_elapsed";
         else await pause(100, undefined, { signal });
       }
-      bot.combatReport.reportStopReason(stopReason);
+      report("post", { type: "combat.stop", reason: stopReason });
       await bot.pvp.stop();
       // entityGone may already have started native stop before our own call.
       // Wait for its actual event before restoring the route.
       const stopError = await stopped;
       if (stopError) throw stopError;
       signal.throwIfAborted();
-      await bot.combatReport.flush();
+
       const after = perception();
       Object.assign(resumeReport, {
         endedAt: now(),
         stopReason,
         after: {
-          sampledAt: after.freshness.sampledAt,
           position: after.self.position,
           health: after.self.health,
           nearbyPotentialThreats: candidatesFrom(after).length,
@@ -238,22 +231,19 @@ export async function navigateWithDefense(
     navigation = false;
     bot.off("physicsTick", inspect);
     bot.off("death", onDeath);
-    bot.off("bridgeReset", onReset);
     bot.off("end", onEnd);
     signal.removeEventListener("abort", externalAbort);
     controller.abort(); // Remove a pending native-event wait after failure.
     if (resumeReport) report("post", resumeReport);
-    bot.combatReport.reportStopReason(result.error ?? result.status);
+    report("post", {
+      type: "combat.stop",
+      reason: result.error ?? result.status,
+    });
     bot.pvp.forceStop();
     bot.pathfinder.setGoal(null);
-    try {
-      await bot.flush();
-    } finally {
-      bot.deactivateItem();
-      bot.clearControlStates();
-      await bot.flush();
-    }
-    await bot.combatReport.flush();
+    bot.deactivateItem();
+    bot.clearControlStates();
+
     // Final event is distinct history, not a replacement for progress. The final
     // stdout also survives Inbox TTL and states whether this program has exited.
     report("upsert", "journey.progress", {
@@ -273,49 +263,33 @@ export async function navigateWithDefense(
   return {
     ...result,
     activity: "controller stopped",
-    combat: bot.combatReport.summary(),
   };
 }
 
-async function main() {
-  const xyz = process.argv.slice(2).map(Number);
+export default async function navigateWithDefenseProgram(
+  bot,
+  { args = [], signal, log = console.log },
+) {
+  const xyz = args.map(Number);
   if (xyz.length !== 3 || !xyz.every(Number.isFinite))
-    throw new Error("Usage: node examples/navigate-with-defense.mjs X Y Z");
-  const bot = await connectBot();
-  const inbox = new InboxClient(),
-    controller = new AbortController();
-  const dog = watchdog(bot, { inbox });
-  const { Movements, goals } = loadSelectedPlugins(bot, { inbox });
+    throw new Error("Usage: navigate-with-defense.mjs X Y Z");
+  const inbox = new InboxClient();
+  const { Movements, goals } = loadPvp(bot);
   const movements = new Movements(bot);
   movements.canDig = false;
   bot.pathfinder.setMovements(movements);
   bot.pvp.movements.canDig = false;
-  const stop = (name) => {
-    process.exitCode = name === "SIGINT" ? 130 : 143;
-    controller.abort(new Error(name));
-  };
-  const onTerm = () => stop("SIGTERM"),
-    onInt = () => stop("SIGINT");
-  process.on("SIGTERM", onTerm);
-  process.on("SIGINT", onInt);
-  bot.on("error", console.error);
   try {
     const result = await navigateWithDefense(
       bot,
       inbox,
       new goals.GoalNear(...xyz, 1),
-      { signal: controller.signal },
+      { signal },
     );
-    console.log(JSON.stringify(result));
+    log(JSON.stringify(result));
     if (["failed", "defense_timeout"].includes(result.status))
-      process.exitCode = 1;
+      throw new Error(result.error ?? result.status);
   } finally {
-    await bot.combatReport.close();
-    dog.close();
-    bot.closeBridge();
-    process.off("SIGTERM", onTerm);
-    process.off("SIGINT", onInt);
+    stopBot(bot);
   }
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  await main();

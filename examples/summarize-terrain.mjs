@@ -1,6 +1,5 @@
 /** Bounded local geometry summary to use alongside a minimap or structure view. */
-import { pathToFileURL } from "node:url";
-import { connectBot } from "../packages/bot-sdk/index.mjs";
+import { Vec3 } from "vec3";
 
 const axes = ["x", "y", "z"];
 const airNames = new Set(["air", "cave_air", "void_air"]);
@@ -150,35 +149,26 @@ export function summarizeTerrain({
   };
 }
 
-async function main() {
-  const args = process.argv.slice(2);
+export default async function summarizeTerrainProgram(
+  bot,
+  { args = [], log = console.log },
+) {
   if (args.length && args.length !== 6)
     throw new Error(
       "Usage: node examples/summarize-terrain.mjs [minX minY minZ maxX maxY maxZ]",
     );
-  const bot = await connectBot();
-  try {
-    const position = bot.entity.position;
-    const [x, y, z, maxX, maxY, maxZ] = args.map(Number);
-    const bounds = args.length
-      ? { min: { x, y, z }, max: { x: maxX, y: maxY, z: maxZ } }
-      : terrainBounds(position);
-    console.log(
-      JSON.stringify(
-        summarizeTerrain({
-          blockAt: (p) => bot.blockAt(p),
-          position,
-          bounds,
-          sampledAt: bot.sampledAt,
-          sequence: bot.sequence,
-          epoch: bot.epoch,
-        }),
-      ),
-    );
-  } finally {
-    bot.closeBridge();
-  }
+  const position = bot.entity.position;
+  const [x, y, z, maxX, maxY, maxZ] = args.map(Number);
+  const bounds = args.length
+    ? { min: { x, y, z }, max: { x: maxX, y: maxY, z: maxZ } }
+    : terrainBounds(position);
+  log(
+    JSON.stringify(
+      summarizeTerrain({
+        blockAt: (p) => bot.blockAt(new Vec3(p.x, p.y, p.z)),
+        position,
+        bounds,
+      }),
+    ),
+  );
 }
-
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  await main();

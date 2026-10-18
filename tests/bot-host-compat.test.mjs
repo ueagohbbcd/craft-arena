@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
-import { compatibleMinecraftOptions } from "../packages/mf-bridge/minecraft-compat.mjs";
+import { compatibleMinecraftOptions } from "../packages/bot-host/minecraft-compat.mjs";
 const require = createRequire(import.meta.url);
 const loadData = require("minecraft-data");
 const originalProtocol = structuredClone(loadData("1.21").protocol);
@@ -73,7 +73,7 @@ test("explicit 1.21.1 alias gets the exact protocol-767 correction before parser
   const source = `
     import assert from "node:assert/strict";
     import { createRequire } from "node:module";
-    import { compatibleMinecraftOptions } from "./packages/mf-bridge/minecraft-compat.mjs";
+    import { compatibleMinecraftOptions } from "./packages/bot-host/minecraft-compat.mjs";
     const require = createRequire(import.meta.url);
     const loadData = require("minecraft-data");
     const original = structuredClone(loadData("1.21.1").protocol);

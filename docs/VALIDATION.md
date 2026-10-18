@@ -27,51 +27,35 @@
 | 送达回执 `InboxClient.delivery`                                              | 夹具测试           | `tests/inbox.test.mjs`（跨进程 IPC）                                                                                            | 没有真实 Pi 测试直接检查回执                                                                                        |
 | 程序自报状态 `InboxClient.setStatus`                                         | 夹具测试           | `tests/inbox-current.test.mjs`、`tests/runtime-state.test.mjs`、`tests/pi-extension.test.mjs`                                   | 覆盖跨进程写入、替换、过期、`programStatus` 显示上限和完整的 `runtime.json`；没有真实 Pi 测试                       |
 | 运行时报告 `runtime.snapshot`／`runtime.changed`                             | 真实 Pi 测试       | `tests/integration-pi.test.mjs` 最后一项                                                                                        | 报告写进对话历史                                                                                                    |
-| 平台消息（会话状态，无时钟）                                                 | 真实 Pi 测试       | `tests/integration-pi.test.mjs`（resident bootstrap 一项）、`tests/pi-extension.test.mjs`                                       | 没有实服或部署运行                                                                                                  |
+| 平台消息（会话状态，无时钟）                                                 | 真实 Pi 测试       | `tests/integration-pi.test.mjs`（resident bootstrap 一项）、`tests/pi-extension.test.mjs`                                       | Pi 测试使用登录入口 session endpoint 的 HTTP 桩；不启动原生 bot host 或本地任务 socket                              |
+| Pi 会话交付                                                                  | 真实 Pi 测试       | `tests/integration-pi.test.mjs`                                                                                                 | 会话 endpoint 使用登录入口的 HTTP 桩；不启动原生 bot host，也不覆盖本地任务 socket                                  |
 | 持续会话、空闲提醒                                                           | 真实 Pi 测试       | 持续会话启动测试、`tests/pi-extension.test.mjs`                                                                                 |                                                                                                                     |
 | 请求恢复                                                                     | 真实 Pi 测试       | `tests/request-recovery.test.mjs`（真实 Pi RPC）                                                                                |                                                                                                                     |
 | 默认观察器（默认脚本）                                                       | 夹具测试           | `tests/default-observer.test.mjs`、`tests/observation-*.test.mjs`、`tests/nearby-scan.test.mjs`、`tests/recent-blocks.test.mjs` | 改成脚本后**没有在真实服务器上跑过**。2026-10-11 的实服 9 项检查测的是已删除的会话内实现                            |
-| 默认聊天转发                                                                 | 夹具测试           | `tests/chat-forwarder.test.mjs`                                                                                                 | 用真实游戏桥 HTTP 接口，Pi 接口是桩                                                                                 |
-| 按需采样 `examples/observe.mjs`                                              | 真实 Pi 测试       | `tests/integration-pi.test.mjs`                                                                                                 | 经过真实游戏桥 HTTP 接口读取夹具 bot，不发出游戏动作                                                                |
-| 区块记忆                                                                     | 夹具测试           | `tests/block-memory.test.mjs`、`tests/world-memory-integration.test.mjs`                                                        | 没有在真实比赛中用过                                                                                                |
-| bot SDK、Pathfinder 适配                                                     | 实服验证（旧代码） | `tests/sdk-*.test.mjs`；2026-10-11 实服检查与单人试验                                                                           | 此后 SDK 有改动，没有重跑实服。与真实 Mineflayer 的差距见 `tests/sdk-fidelity.test.mjs`                             |
-| PvP 适配、战斗报告                                                           | 夹具测试           | `tests/sdk-plugins.test.mjs`、`tests/combat-report.test.mjs`                                                                    | 没有实战                                                                                                            |
-| 游戏桥：动作校验、背压、错误                                                 | 夹具测试           | `tests/bridge*.test.mjs`                                                                                                        | 2026-10-11 的实服检查经过游戏桥；之后有改动                                                                         |
+| 默认聊天转发                                                                 | 夹具测试           | `tests/chat-forwarder.test.mjs`                                                                                                 | 直接测试原生 Mineflayer 事件和 inbox；Pi 接口是桩                                                                   |
+| 原生 bot 模块与任务 socket                                                   | 夹具测试           | `tests/native-runner.test.mjs`                                                                                                  | 独立覆盖模块运行、取消、监听与定时器清理、角色进程生命周期；不验证 Pi 对话集成                                      |
+| 区块记忆                                                                     | 夹具测试           | `tests/block-memory.test.mjs`、`tests/world-memory-integration.test.mjs`                                                        | 使用测试 bot 验证已收到区块的记忆与查询；没有在真实比赛中评估其策略效果                                             |
 | 模型转发、启动器的两种模型接入                                               | 真实 Pi 测试       | `tests/model-relay.test.mjs`、`tests/integration-pi.test.mjs`、`tests/pi-extension.test.mjs`                                    | 本地假上游；没有连过真实模型，也没有在部署里跑过                                                                    |
-| 运营命令行与 RCON（2026-10-16 取代比赛主控）                                 | 实服验证（CI）     | `tests/arena-cli.test.mjs`（含本地 TCP RCON）；`npm run verify:server`                                                          | 命令行读比赛文件，带两个 server 模式游戏桥和真实 Mineflayer bot 跑完准备、开赛、数据包判胜、结束；没有参赛模型      |
+| 运营命令行与 RCON（2026-10-16 取代比赛主控）                                 | 实服验证（CI）     | `tests/arena-cli.test.mjs`（含本地 TCP RCON）；`npm run verify:server`                                                          | 命令行读比赛文件，由登录入口与原生 bot host 完成准备、开赛、数据包判胜、结束；没有参赛模型                          |
 | 服务器协议 v1、`race-of-wool`／`arena-example` 数据包                        | 实服验证           | `tests/datapack-*.test.mjs`（静态）；2026-10-14 实服运行                                                                        | 胜、平、`#arena:stop`、`durationMs` 倒数判平、拆除目标回落、区块强制加载与释放；Direct Fire 地图本身没有装进去跑    |
-| 游戏桥 server 模式（`BRIDGE_SESSION=server`）                                | 实服验证           | `tests/bridge-session-source.test.mjs`；`npm run verify:server`（CI 每次推送）                                                  | 跑完一局；手动开关一轮，动作按状态放行，结束时松开按键                                                              |
-| 程序断开后自动松开按键                                                       | 实服验证           | `tests/bridge-control-lease.test.mjs`；2026-10-14 实服复现与复验                                                                | 修复前程序退出后 bot 一直走（约 30 格），修复后约 1 秒后停下                                                        |
-| 游戏桥只读状态令牌                                                           | 夹具测试           | `tests/bridge-status-token.test.mjs`                                                                                            | 模板不再使用，留给外部读者                                                                                          |
 | 参赛镜像只含参赛侧代码                                                       | 夹具测试           | `tests/deployment.test.mjs`；按清单复制的目录能加载全部参赛侧模块                                                               | 没有在这个环境里构建镜像（没有 Docker 守护进程）                                                                    |
 | 服务端录像                                                                   | 无                 | 平台不再自动录像，运营者通过命令行发 ServerReplay 命令                                                                          | 真实服务器录像输出与回放播放都没验收                                                                                |
 | 截图脚本                                                                     | 夹具测试           | `tests/visual-*.test.mjs`                                                                                                       | 真实 Chromium 测试需 `MC_TEST_CHROMIUM=1`；上次跑通是 2026-10-11 的 Windows 部署，在删除 Pi 里的图像工具之前        |
-| Unix socket 收件箱                                                           | 夹具测试           | `tests/inbox.test.mjs`                                                                                                          | 运行环境拒绝绑定（`EPERM`）时这项跳过，只剩 loopback HTTP                                                           |
+| 本地 Unix socket                                                             | 夹具测试           | `tests/native-runner.test.mjs`、`tests/inbox.test.mjs`                                                                          | runner 和 inbox 测试的是独立本地 socket；受限环境可能因 `EPERM` 无法绑定，不能据此判断真实部署网络                  |
 | Windows 本机部署                                                             | 部署验证（旧代码） | `tests/deployment.test.mjs`、`tests/windows-*.test.mjs`                                                                         | 2026-10-11 跑过。删除 OAuth 适配器（`e6933a4`）后 PowerShell 脚本没有重跑；`windows-initialize` 只在 Windows 上运行 |
 | 完整自主对局                                                                 | 无                 | —                                                                                                                               | 没有一场从开局到判胜、全程无人干预的记录                                                                            |
 
-## 尚未验收
-
-比赛前要补的验收。待办本身记在 [ROADMAP.md](ROADMAP.md)。
-
-1. **完整自主对局**：从开局到判胜，全程无人干预。
-2. **默认观察器的实服重跑**：用 `scripts/validate-observation-live.mjs`（已改为调用 `startObserver`）在隔离服务器上重跑。
-3. **Windows 部署重跑**：改用模型转发之后，`initialize-windows-arena.ps1` 和 `windows-arena.ps1` 的完整流程，见 [infra/windows-local/README.md](../infra/windows-local/README.md)。
-4. **部署隔离**：Compose 网络与卷隔离、资源上限、参赛容器（经模型转发时）不能出网或直连 Minecraft，在目标主机上复验。
-5. **真实 Chromium 截图**：部署后用 `MC_TEST_CHROMIUM=1` 复验。
-6. **实战插件表现**：动态地形寻路、PvP、完整容器交互，按选定地图验证。
-7. **服务端录像**：实服录像输出、保存，以及 [近视回放客户端](../tools/replay-myopia/README.md) 播放。
-8. **模型读图与策略效果**：图像能送到模型已验证；模型据此做出更好决策没有评估。
+验证范围和限制以本页表格为准；需要补做的验收统一列在 [ROADMAP.md](ROADMAP.md)。
 
 ## 服务器协议实服运行
 
-这些检查已做成 `npm run verify:server`（`scripts/verify-server-protocol.mjs`），CI 每次推送都跑。2026-10-16 起它用运营命令行和 server 模式游戏桥跑完整一局，并检查 `durationMs` 倒数。下面是 2026-10-14 首次手工运行的记录（当时还有比赛主控）：Linux 上的 Minecraft 1.21.1 原版服务器（平坦世界，离线模式，开启 RCON），Java 21，Node 22。
+这些检查已做成 `npm run verify:server`（`scripts/verify-server-protocol.mjs`），CI 每次推送都跑。当前流程通过运营命令行、登录入口和原生 bot host 完成实服对局，并由原生模块执行放置动作。运行要求包括 Java 21 和 Node.js 24；本地 socket 权限问题会影响夹具 runner 测试，和实服验证分开判断。下列协议操作细节来自 Linux 上的 Minecraft 1.21.1 原版服务器（平坦世界、离线模式、开启 RCON）。
 
 1. 下载 `infra/minecraft-download.json` 里固定的 `server.jar`（SHA-1 一致），`server.properties` 开 RCON，把数据包复制进 `world/datapacks/`。
 2. 用仓库的 `RconClient`、`serverConfig`、`serializeSnbt`、`readServerSession` 直接走协议：
    - `arena-example`：写 `arena:config`、`#arena:prepare`（分数 0、`waiting`）、`#arena:start`（`running`）、`scoreboard players add red arena_points 3` 后服务器写出 `winner:"red"`、`state:"ended"`。缺少标签时 1.21.1 回复 `Can't find any functions for name arena:<阶段>`，判定器据此报"未安装数据包"。
    - `race-of-wool`（纪念碑坐标即 Direct Fire 的）：准备时清空已放好的目标并强制加载区块；`setblock` 放羊毛后分数 1→2，拆掉一块回落，集齐判胜；开赛前双方都放满，开赛第一刻判平局；`#arena:stop` 记录持有数（`most-score` 可用）并释放强制加载。
-3. 完整比赛主控：`live-cli.mjs` 读取由 `infra/windows-local/match.direct-fire.json` 改主机地址、关录像、改开赛传送命令得到的配置，两个参赛者的游戏桥各连一个真实 Mineflayer bot。等待开赛标记期间 `arena:config` 的队伍和玩家名正确；开赛后用 bot SDK（`connectBot`、`getSessionState`、`equip`、`placeBlock`）从红方游戏桥读取 `briefing.public.goals` 并放下三块羊毛，会话 `scores` 依次为 1、2、3，随后数据包判红方胜。结果：`reason: "judge-decision"`、`winner: "red"`、`scores: {red:3, blue:0}`、`stopConfirmed: true`。
+3. 当前 CI 实服流程：为两个角色启动原生 bot host，经登录入口读取会话；红方原生模块读取公开目标并放下三块羊毛。会话 `scores` 依次为 1、2、3，随后数据包判红方胜。结果：`reason: "judge-decision"`、`winner: "red"`、`scores: {red:3, blue:0}`、`stopConfirmed: true`。
 
 没有覆盖：Direct Fire 地图本身、参赛模型、服务端录像、默认观察器读新公开数据的实服运行、Windows 部署脚本里新增的 `-Datapacks` 复制（只在 Windows 上运行）。
 
@@ -109,7 +93,7 @@ npm run demo:screenshot           # 需要本地 Chromium 和可选依赖
 
 ## Pi 集成测试覆盖
 
-`tests/integration-pi.test.mjs` 导入安装好的 `@earendil-works/pi-coding-agent` 1.1.0，启动真实的 `AgentSession` 或 Pi CLI。模型是本地 HTTP 服务，按脚本返回 OpenAI 流式回复；游戏状态来自夹具 bot。所以这些测试证明的是消息和结果能正确送到模型，**不说明模型玩得好不好**。测试使用临时配置目录和内存会话，关闭 Pi 自带重试与压缩，结束时清理进程、socket 和 HTTP 服务。
+`tests/integration-pi.test.mjs` 导入安装好的 `@earendil-works/pi-coding-agent` 1.1.0，启动真实的 `AgentSession` 或 Pi CLI。模型是本地 HTTP 服务，按脚本返回 OpenAI 流式回复；需要会话数据的用例通过登录入口 session endpoint 的 HTTP 桩提供。测试不启动原生 bot host 或任务 socket，因此证明的是 Pi 消息、任务结果和会话内容的交付，**不说明模型玩得好不好，也不替代原生任务 socket 测试**。测试使用临时配置目录和内存会话，关闭 Pi 自带重试与压缩，结束时清理进程和 HTTP 服务。
 
 | 测试（名称开头）                                            | 证明了什么                                                                                                                                                                                                         |
 | ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -119,7 +103,6 @@ npm run demo:screenshot           # 需要本地 Chromium 和可选依赖
 | `Pi steer queues by default`                                | 运行中插入的用户消息（Pi 的 `steer`）排队到命令结束，不会提前结束等待                                                                                                                                              |
 | `real codemode can filter its raw nested result`            | 显式启用 codemode（默认关闭）时，嵌套命令的输出被脚本过滤掉，收件箱消息仍附在 codemode 自己的结果上送到模型                                                                                                        |
 | `ordinary Pi read ... preserves PNG`                        | `read` 读到的 PNG 经模型转发进入下一次请求（直接调用和 codemode 两种）；转发把参赛者的 key 换成自己的                                                                                                              |
-| `the observe script through bash`                           | `bash` 运行 `examples/observe.mjs`，经真实游戏桥 HTTP 接口读取夹具 bot，状态 JSON 留在工具结果里，不提交动作                                                                                                       |
 | `bootstrap launches shipped Pi CLI through the model relay` | 启动器生成的配置启动随包 Pi CLI，经模型转发访问上游；参赛者没有 key，上游只看到转发的 key；输出上限取自模型描述；模型收到 4 个默认工具（`read`、`edit`、`write`、`bash`），`bash` 带 `wait_seconds`，没有 codemode |
 | `bootstrap without OPENAI_BASE_URL`                         | 不设端点时 Pi 按运营者自己的配置目录运行，用其中的提供方、模型和 key；启动器不改写这个目录                                                                                                                         |
 | `resident bootstrap keeps child alive`                      | 持续会话：模型给出最终回答后后台任务继续运行，空闲时不调用模型；会话状态作为平台消息送达，不带时钟；紧急消息在同一对话里恰好触发一次新回合；比赛结束时启动器退出并回收子进程                                       |

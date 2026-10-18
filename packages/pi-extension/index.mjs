@@ -7,7 +7,7 @@ import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { renameSync, writeFileSync } from "node:fs";
 import { Inbox, createInboxServer } from "../inbox/index.mjs";
 import { TaskManager } from "../tasks/index.mjs";
-import { createMotionProbe } from "./motion-probe.mjs";
+import { createMotionProbe } from "../bot-host/motion-probe.mjs";
 import {
   createSessionReader,
   createPlatformMessages,
@@ -64,6 +64,9 @@ const taskBin = fileURLToPath(new URL("../tasks/bin", import.meta.url));
 const observeScript = fileURLToPath(
   new URL("../../examples/observe.mjs", import.meta.url),
 );
+const runScript = fileURLToPath(
+  new URL("../bot-host/run.mjs", import.meta.url),
+);
 /** Task directory; under a workspace .arena/ it is kept out of Git. */
 async function prepareTaskDir(dir) {
   await mkdir(dir, { recursive: true });
@@ -116,13 +119,15 @@ export default function arenaExtension(pi) {
   const noticePollMs = envMs("ARENA_NOTICE_POLL_MS", 2000);
   let lastStopReason;
   const idleDelayMs = envMs("ARENA_IDLE_REMINDER_MS", 5000);
-  const bridgeUrl = process.env.ARENA_BRIDGE_URL;
-  const bridgeToken = process.env.ARENA_BRIDGE_TOKEN;
+  const runSocket = process.env.ARENA_RUN_SOCKET;
+  const sessionUrl =
+    process.env.ARENA_SESSION_URL && process.env.ARENA_BOT
+      ? `${process.env.ARENA_SESSION_URL}${process.env.ARENA_SESSION_URL.includes("?") ? "&" : "?"}username=${encodeURIComponent(process.env.ARENA_BOT)}`
+      : undefined;
   const observerReadyMs = envMs("ARENA_OBSERVER_READY_MS", 5000);
   const observeAfterCompactionMs = 5000;
   const readSession = createSessionReader({
-    url: bridgeUrl,
-    token: bridgeToken,
+    url: sessionUrl,
   });
   const platform = createPlatformMessages({ readSession });
   const rateOptions = modelRateOptions();
@@ -228,6 +233,9 @@ export default function arenaExtension(pi) {
         cwd: ctx.cwd,
         env,
         logDir: taskDir,
+        // Give native modules time to observe SIGTERM and clean listeners or
+        // controls before the task process group is forcibly killed.
+        killGraceMs: envMs("ARENA_TASK_KILL_GRACE_MS", 2500),
       });
       runtime = {
         sessionId,
@@ -240,7 +248,7 @@ export default function arenaExtension(pi) {
         runtimeChanges: runtimeDiff(),
       };
       // Default scripts are ordinary tasks: listed, cancellable, replaceable.
-      if (bridgeUrl && bridgeToken)
+      if (runSocket)
         runtime.defaultTasks = new Map(
           defaultScripts().map(({ name, command }) => [
             name,
@@ -251,7 +259,7 @@ export default function arenaExtension(pi) {
           ]),
         );
       platform.reset();
-      if (bridgeUrl && bridgeToken && !noticeTimer) {
+      if (sessionUrl && !noticeTimer) {
         noticeTimer = setInterval(() => void checkNotice(), noticePollMs);
         noticeTimer.unref?.();
       }
@@ -307,7 +315,7 @@ export default function arenaExtension(pi) {
     );
   function checkIdle(r) {
     clearTimeout(idleTimer);
-    if (!bridgeUrl || !bridgeToken || !genuinelyIdle(r)) return;
+    if (!sessionUrl || !genuinelyIdle(r)) return;
     idleTimer = setTimeout(async () => {
       if (!genuinelyIdle(r)) return;
       const host = await readSession(true);
@@ -378,11 +386,11 @@ export default function arenaExtension(pi) {
   /** One full state sample from examples/observe.mjs, or why there is none. */
   const observeCharacter = (r, cwd) =>
     new Promise((resolve) => {
-      if (!bridgeUrl || !bridgeToken)
-        return resolve({ unavailable: "no bridge configured" });
+      if (!runSocket)
+        return resolve({ unavailable: "native bot host unavailable" });
       execFile(
         process.execPath,
-        [observeScript],
+        [runScript, observeScript],
         {
           cwd,
           env: { ...process.env, ...r.env },
@@ -609,8 +617,8 @@ export default function arenaExtension(pi) {
       const timeoutMs = (params.wait_seconds ?? waitSeconds) * 1000;
       const stallMs = (params.stall_seconds ?? stallSeconds) * 1000;
       const probe =
-        bridgeUrl && bridgeToken && stallMs > 0 && stallMs < timeoutMs
-          ? createMotionProbe({ url: bridgeUrl, token: bridgeToken })
+        runSocket && stallMs > 0 && stallMs < timeoutMs
+          ? createMotionProbe({ socketPath: runSocket })
           : undefined;
       let result;
       try {

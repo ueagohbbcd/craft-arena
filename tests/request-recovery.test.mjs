@@ -324,10 +324,10 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
         stderr = "";
       const requests = [];
       const server = http.createServer(async (req, res) => {
-        if (req.url === "/v1/session") {
+        if (req.url.startsWith("/v1/session")) {
           assert.equal(
-            req.headers.authorization,
-            "Bearer trusted-host-fixture",
+            new URL(req.url, "http://localhost").searchParams.get("username"),
+            "recovery-fixture",
           );
           res.setHeader("content-type", "application/json");
           res.end(
@@ -474,8 +474,8 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
             ARENA_MODEL_CONFIG: join(dir, "model.json"),
             OPENAI_BASE_URL: `${base}/v1`,
             OPENAI_API_KEY: "model-fixture",
-            ARENA_BRIDGE_URL: base,
-            ARENA_BRIDGE_TOKEN: "trusted-host-fixture",
+            ARENA_SESSION_URL: `${base}/v1/session`,
+            ARENA_BOT: "recovery-fixture",
             ARENA_PROMPT: "Complete the local fixture objective.",
             ARENA_IDLE_REMINDER_MS: "120",
             ARENA_RETRY_DELAY_MS: "200",
@@ -608,3 +608,25 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
       );
     },
   );
+
+test("valid RPC consumer failures are observable, not swallowed as log noise", () => {
+  const stream = new PassThrough();
+  const failure = new Error("recovery handler broke");
+  const errors = [],
+    received = [];
+  const stop = observeRpcOutput(
+    stream,
+    (event) => {
+      if (event.type === "agent_start") throw failure;
+      received.push(event.type);
+    },
+    undefined,
+    (error) => errors.push(error),
+  );
+  stream.write(
+    'plain log\n{bad json}\n{"type":"agent_start"}\n{"type":"agent_settled"}\n',
+  );
+  assert.deepEqual(errors, [failure]);
+  assert.deepEqual(received, ["agent_settled"]);
+  stop();
+});

@@ -14,13 +14,8 @@
  *     and removed blocks, a win, a same-tick draw, #arena:stop, the time
  *     limit from arena:config.durationMs, and no limit without it; starts
  *     with the listed players offline;
- *   - live (unless --skip-live): two bridge processes in BRIDGE_SESSION=server
- *     mode with real Mineflayer bots, a round run by packages/arena/src/cli.mjs
- *     from a match file; #arena:start must move both bots to their map
- *     starts, then the red bot places its wool through the SDK and the
- *     datapack must declare red the winner;
- *   - server-mode bridge: follows a round run with plain RCON commands, gates
- *     actions by its state and releases held keys when it ends.
+ *   - live (unless --skip-live): a login gate and native bot-host processes,
+ *     with module execution through a bot socket and a datapack verdict.
  * Needs Java 21 on PATH. Exits non-zero on the first failed check.
  */
 import assert from "node:assert/strict";
@@ -62,28 +57,28 @@ async function waitFor(check, ms, message) {
     await delay(150);
   }
 }
-/** Starts packages/mf-bridge/cli.mjs as its own process. */
-function spawnBridge(env, stdout = "ignore") {
-  return spawn(process.execPath, [join(root, "packages/mf-bridge/cli.mjs")], {
+/** Starts a native packages/bot-host/cli.mjs process behind the login gate. */
+function spawnBotHost(env) {
+  return spawn(process.execPath, [join(root, "packages/bot-host/cli.mjs")], {
     env: {
       ...process.env,
-      MF_HOST: "127.0.0.1",
-      MF_PORT: String(PORTS.game),
-      MF_VERSION: "1.21.1",
-      BRIDGE_HOST: "127.0.0.1",
-      BRIDGE_BLOCK_MEMORY: "false",
+      ARENA_MINECRAFT_HOST: "127.0.0.1",
+      ARENA_MINECRAFT_PORT: String(PORTS.gate),
+      MC_VERSION: "1.21.1",
+      MF_AUTH: "offline",
+      ARENA_WORLD_ID: "verify-world",
       ...env,
     },
-    stdio: ["ignore", stdout, "inherit"],
+    stdio: ["ignore", "inherit", "inherit"],
   });
 }
 const log = (text) => console.log(text);
 const PASSWORD = "verify-protocol-rcon";
 const PORTS = {
   game: 25565,
+  gate: 25566,
   rcon: 25575,
-  red: 18080,
-  blue: 18082,
+  session: 18080,
 };
 
 async function serverJar(dir) {
@@ -344,14 +339,11 @@ async function live(rcon, dir, map) {
     Math.max(...xs) + 4,
     Math.max(...zs) + 4,
   ];
-  // A stone floor under the monuments so the bot can place its wool.
   await rcon.command(`forceload add ${x0} ${z0} ${x1} ${z1}`);
   await rcon.command(
     `fill ${x0} ${y - 1} ${z0} ${x1} ${y - 1} ${z1} minecraft:stone`,
   );
   await rcon.command("forceload remove all");
-
-  // The shipped Direct Fire match file, plus the red bot's wool.
   const match = JSON.parse(
     await readFile(
       join(root, "infra/windows-local/match.direct-fire.json"),
@@ -369,55 +361,69 @@ async function live(rcon, dir, map) {
   ];
   const matchPath = join(dir, "match.json");
   await writeFile(matchPath, JSON.stringify(match));
-
-  const tokens = {
-    red: "verify-red-bridge-token",
-    blue: "verify-blue-bridge-token",
-  };
-  const bridges = [
-    ["arena_red1", PORTS.red, tokens.red],
-    ["arena_blue1", PORTS.blue, tokens.blue],
-  ].map(([username, port, token]) =>
-    spawnBridge({
+  const runDir = join(dir, "native-hosts");
+  await mkdir(runDir, { recursive: true });
+  const gate = spawn(
+    process.execPath,
+    [join(root, "packages/login-gate/cli.mjs")],
+    {
+      env: {
+        ...process.env,
+        GATE_HOST: "127.0.0.1",
+        GATE_PORT: String(PORTS.gate),
+        GATE_USERNAMES: "arena_red1,arena_blue1",
+        GATE_UPSTREAM_HOST: "127.0.0.1",
+        GATE_UPSTREAM_PORT: String(PORTS.game),
+        GATE_SESSION_PORT: String(PORTS.session),
+        GATE_RCON_HOST: "127.0.0.1",
+        GATE_RCON_PORT: String(PORTS.rcon),
+        GATE_RCON_PASSWORD: PASSWORD,
+      },
+      stdio: ["ignore", "ignore", "inherit"],
+    },
+  );
+  const hosts = ["arena_red1", "arena_blue1"].map((username) =>
+    spawnBotHost({
       MF_USERNAME: username,
-      BRIDGE_PORT: String(port),
-      BRIDGE_TOKEN: token,
-      BRIDGE_SESSION: "server",
-      BRIDGE_RCON_HOST: "127.0.0.1",
-      BRIDGE_RCON_PORT: String(PORTS.rcon),
-      BRIDGE_RCON_PASSWORD: PASSWORD,
+      ARENA_RUN_SOCKET: join(runDir, `${username}.sock`),
+      ARENA_SESSION_URL: `http://127.0.0.1:${PORTS.session}/v1/session`,
+      ARENA_PARTICIPANT_ID: username === "arena_red1" ? "red1" : "blue1",
     }),
   );
-  const session = async () =>
-    (
-      await (
-        await fetch(`http://127.0.0.1:${PORTS.red}/v1/session`, {
-          headers: { authorization: `Bearer ${tokens.red}` },
-        })
-      ).json()
-    ).result;
+  const session = async () => {
+    const response = await fetch(
+      `http://127.0.0.1:${PORTS.session}/v1/session?username=arena_red1`,
+    );
+    const body = await response.json();
+    if (!response.ok || !body.ok)
+      throw new Error("Login gate session read failed");
+    return body.result;
+  };
+  const stop = async (child) => {
+    if (child.exitCode === null) child.kill("SIGTERM");
+  };
   try {
     await waitFor(
       async () => {
-        for (const bridge of bridges)
-          if (bridge.exitCode !== null) throw new Error("bridge exited");
+        if (gate.exitCode !== null) throw new Error("login gate exited");
+        for (const host of hosts)
+          if (host.exitCode !== null) throw new Error("native bot host exited");
         const list = await rcon.command("list");
         return /arena_red1/.test(list) && /arena_blue1/.test(list);
       },
       60000,
-      () => "bots did not join",
+      () => "native bots did not join through the login gate",
     );
     await arenaCli("prepare", matchPath);
     await waitFor(
       async () => (await session().catch(() => null))?.state === "waiting",
       5000,
-      () => "bridge did not see the prepared round",
+      () => "native host did not see prepared round",
     );
     assert.equal((await session()).briefing.text, match.config.briefing);
     await arenaCli("start", matchPath);
-    // The datapack moved every listed player to the team's map start.
     for (const team of match.config.teams) {
-      const start = map.starts.find((s) => s.team === team.id);
+      const start = map.starts.find((item) => item.team === team.id);
       for (const name of team.players) {
         let pos, rotation;
         await waitFor(
@@ -434,184 +440,48 @@ async function live(rcon, dir, map) {
             );
           },
           5000,
-          () =>
-            `${name} not at ${JSON.stringify(start)}: Pos ${JSON.stringify(pos)} Rotation ${JSON.stringify(rotation)}`,
+          () => `${name} not at ${JSON.stringify(start)}`,
         );
       }
     }
-    log("ok live: #arena:start moved each team to its map start");
-    // Then next to the red monument, which this flat world has elsewhere.
-    const stand = `${red[1].x + 0.5} ${red[1].y} ${red[1].z + 3.5}`;
-    await rcon.command(`tp arena_red1 ${stand}`);
-    const { connectBot, Vector } =
-      await import("../packages/bot-sdk/index.mjs");
-    const bot = await connectBot({
-      url: `http://127.0.0.1:${PORTS.red}`,
-      token: tokens.red,
+    await rcon.command(
+      `tp arena_red1 ${red[1].x + 0.5} ${red[1].y} ${red[1].z + 3.5}`,
+    );
+    const modulePath = join(runDir, "place-goals.mjs");
+    await writeFile(
+      modulePath,
+      `import { Vec3 } from "vec3";\nexport default async function(bot) {\n  await bot.waitForChunksToLoad();\n  for (const goal of ${JSON.stringify(red)}) {\n    const item = bot.inventory.items().find((entry) => entry.name === goal.block.replace("minecraft:", ""));\n    if (!item) throw new Error("Missing " + goal.block);\n    await bot.equip(item, "hand");\n    await bot.placeBlock(bot.blockAt(new Vec3(goal.x, goal.y - 1, goal.z)), new Vec3(0, 1, 0));\n  }\n}\n`,
+    );
+    const run = spawn(
+      process.execPath,
+      [join(root, "packages/bot-host/run.mjs"), modulePath],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          ARENA_RUN_SOCKET: join(runDir, "arena_red1.sock"),
+        },
+        stdio: ["ignore", "inherit", "inherit"],
+      },
+    );
+    const runExit = await new Promise((resolveExit, reject) => {
+      run.once("error", reject);
+      run.once("exit", resolveExit);
     });
-    try {
-      await waitFor(
-        async () => (await bot.getSessionState()).state === "running",
-        5000,
-        () => "bridge did not see the start",
-      );
-      const state = await bot.getSessionState();
-      const mine = state.briefing.public.goals.filter(
-        (g) => g.team === state.teamId,
-      );
-      await delay(1000);
-      // Right-clicking a bed by day sets the respawn point. Record where the
-      // receipt arrives: a chat line reaches the chat inbox, an action-bar
-      // line (game_info) does not.
-      const messages = [];
-      bot.on("messagestr", (text, position) =>
-        messages.push({ text, position }),
-      );
-      const bed = { x: red[1].x + 2, y, z: red[1].z + 3 };
-      await rcon.command("time set day");
-      await rcon.command(
-        `setblock ${bed.x} ${bed.y} ${bed.z - 1} minecraft:red_bed[facing=north,part=head]`,
-      );
-      await rcon.command(
-        `setblock ${bed.x} ${bed.y} ${bed.z} minecraft:red_bed[facing=north,part=foot]`,
-      );
-      await waitFor(
-        () => bot.blockAt(new Vector(bed.x, bed.y, bed.z))?.name === "red_bed",
-        5000,
-        () => "bot did not see the bed",
-      );
-      await bot.activateBlock(bot.blockAt(new Vector(bed.x, bed.y, bed.z)));
-      await waitFor(
-        () => messages.some((m) => /respawn point set/i.test(m.text)),
-        5000,
-        () => `no respawn receipt; saw ${JSON.stringify(messages)}`,
-      );
-      await delay(500);
-      // arena-survival promises this as a forwarded system line: the chat
-      // script drops only game_info (the action bar).
-      const receipt = messages.find((m) => /respawn point set/i.test(m.text));
-      if (receipt.position !== "system")
-        throw new Error(
-          `respawn receipt came as ${receipt.position}, not system: ${JSON.stringify(messages)}`,
-        );
-      log(`ok bed: messages after right-click ${JSON.stringify(messages)}`);
-      await rcon.command(`setblock ${bed.x} ${bed.y} ${bed.z} minecraft:air`);
-      await rcon.command(
-        `setblock ${bed.x} ${bed.y} ${bed.z - 1} minecraft:air`,
-      );
-      for (const goal of mine) {
-        const name = goal.block.replace("minecraft:", "");
-        const item = bot.inventory.items().find((i) => i.name === name);
-        assert.ok(item, `bot holds ${name}`);
-        await bot.equip(item, "hand");
-        await bot.placeBlock(
-          bot.blockAt(new Vector(goal.x, goal.y - 1, goal.z)),
-          new Vector(0, 1, 0),
-        );
-      }
-    } finally {
-      bot.closeBridge();
-    }
+    assert.equal(runExit, 0, "native module run completed");
     await waitFor(
       async () => (await arenaCli("status")).state === "ended",
       10000,
-      () => "datapack did not end the match",
+      () => "datapack did not declare a winner after native placement",
     );
     assert.equal((await arenaCli("status")).winner, "red");
-    await waitFor(
-      async () => (await session()).winner === "red",
-      5000,
-      () => "bridge did not serve the verdict",
-    );
-    await arenaCli("stop", matchPath);
+    assert.equal((await session()).winner, "red");
     log(
-      "ok live: cli.mjs + two server-mode bridges with real bots, SDK placement, datapack verdict",
+      "ok live: login gate + native bot hosts, socket module run, datapack verdict",
     );
   } finally {
-    for (const bridge of bridges) bridge.kill("SIGTERM");
-    await delay(1000);
-  }
-}
-
-async function hostless(rcon) {
-  // A bridge reading the session straight from the server: the operator
-  // (here RCON, in-game the same commands) runs the rounds.
-  const token = "verify-hostless-bridge-token";
-  const bridge = spawnBridge(
-    {
-      MF_USERNAME: "arena_red1",
-      BRIDGE_PORT: String(PORTS.red),
-      BRIDGE_TOKEN: token,
-      BRIDGE_SESSION: "server",
-      BRIDGE_RCON_HOST: "127.0.0.1",
-      BRIDGE_RCON_PORT: String(PORTS.rcon),
-      BRIDGE_RCON_PASSWORD: PASSWORD,
-    },
-    "pipe",
-  );
-  let output = "";
-  bridge.stdout.on("data", (c) => (output += c));
-  const headers = { authorization: `Bearer ${token}` };
-  const url = `http://127.0.0.1:${PORTS.red}`;
-  const state = async () => {
-    await delay(700);
-    const session = await (
-      await fetch(`${url}/v1/session`, { headers })
-    ).json();
-    const action = await fetch(`${url}/v1/action`, {
-      method: "POST",
-      headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ action: "look", args: { yaw: 0, pitch: 0 } }),
-    });
-    return { session: session.result, action: action.status };
-  };
-  try {
-    await waitFor(
-      () => output.includes("listening") || bridge.exitCode !== null,
-      60000,
-      () => "bridge did not start",
-    );
-    assert.equal(bridge.exitCode, null, "bridge started");
-    await writeConfig(rcon, twoTeams);
-    await rcon.command("function #arena:prepare");
-    let s = await state();
-    assert.equal(s.session.state, "waiting");
-    assert.equal(s.session.teamId, "red");
-    assert.equal(s.action, 403);
-    await rcon.command("function #arena:start");
-    s = await state();
-    assert.equal(s.session.state, "running");
-    assert.equal(s.action, 200);
-    // Hold forward without a client id (no disconnect lease), then end the
-    // round: the bridge must release it while the bot stays online.
-    const press = await fetch(`${url}/v1/action`, {
-      method: "POST",
-      headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({
-        action: "setControlState",
-        args: { control: "forward", state: true },
-      }),
-    });
-    assert.equal(press.status, 200);
-    await rcon.command("function #arena:stop");
-    s = await state();
-    assert.equal(s.session.state, "ended");
-    assert.equal(s.action, 403);
-    const position = async () =>
-      (await rcon.command("data get entity arena_red1 Pos")).replace(
-        /^.*?: /,
-        "",
-      );
-    const before = await position();
-    await delay(1000);
-    assert.equal(await position(), before, "bot stopped when the round ended");
-    // The bot stays for the next round.
-    assert.match(await rcon.command("list"), /arena_red1/);
-    log(
-      "ok server-mode bridge: gates actions and releases held keys across a round",
-    );
-  } finally {
-    bridge.kill("SIGTERM");
+    await Promise.all(hosts.map(stop));
+    await stop(gate);
     await delay(1000);
   }
 }
@@ -636,7 +506,6 @@ try {
   const map = await raceOfWool(rcon);
   await startPads(rcon, map);
   if (!args.includes("--skip-live")) await live(rcon, dir, map);
-  await hostless(rcon);
   log("All server protocol checks passed.");
 } catch (e) {
   console.error(e);

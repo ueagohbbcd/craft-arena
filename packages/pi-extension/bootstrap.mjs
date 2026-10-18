@@ -70,7 +70,7 @@ export async function systemPromptArgs({ cwd, agentDir, args = [], files }) {
 
 /**
  * Opening prompt with the session briefing: public session fields, briefing
- * text, public data and the mode instructions, all from the bridge's session (the game server).
+ * text, public data and the mode instructions, all from the login gate's session snapshot (the game server).
  * `sessionFiles` are the copies in the session directory and `ruleFiles` the
  * operator's rule files; both are listed so the model can re-read them.
  */
@@ -176,6 +176,24 @@ async function modelProfile({ env, directory, cwd }) {
     keepRecentTokens: Math.floor(contextWindow / 4),
     ...model.compaction,
   };
+  if (maxTokens >= contextWindow)
+    throw new Error(
+      "ARENA_MODEL_CONFIG maxOutputTokens must be smaller than contextWindow",
+    );
+  if (
+    typeof compaction.enabled !== "boolean" ||
+    !positive(compaction.reserveTokens) ||
+    !Number.isSafeInteger(compaction.keepRecentTokens) ||
+    compaction.keepRecentTokens < 0 ||
+    compaction.reserveTokens + compaction.keepRecentTokens >= contextWindow
+  )
+    throw new Error(
+      "ARENA_MODEL_CONFIG compaction needs a boolean enabled, positive integer reserveTokens, nonnegative integer keepRecentTokens, and room for history within contextWindow",
+    );
+  if (compaction.enabled && compaction.reserveTokens < maxTokens)
+    throw new Error(
+      "ARENA_MODEL_CONFIG compaction.reserveTokens must cover maxOutputTokens",
+    );
   const agentDir = directory || (await mkdtemp(join(tmpdir(), "arena-pi-")));
   await mkdir(agentDir, { recursive: true, mode: 0o700 });
   const models = {
@@ -273,10 +291,12 @@ async function launchPi({
     ? await startBotHosts({ env })
     : undefined;
   if (hosts) env = { ...env, ...hosts.env };
-  const bridgeUrl = env.ARENA_BRIDGE_URL;
-  const token = env.ARENA_BRIDGE_TOKEN;
-  // With a bridge, the opening prompt waits until the session is running.
-  const waitForMatch = resident && Boolean(bridgeUrl && token);
+  const sessionUrl =
+    env.ARENA_SESSION_URL && env.ARENA_BOT
+      ? `${env.ARENA_SESSION_URL}${env.ARENA_SESSION_URL.includes("?") ? "&" : "?"}username=${encodeURIComponent(env.ARENA_BOT)}`
+      : undefined;
+  // Wait for the gate's authoritative session before sending the opening prompt.
+  const waitForMatch = resident && Boolean(sessionUrl);
   const startTimeoutMs = positiveInteger(env.ARENA_START_TIMEOUT_MS, 600000);
   const profile = await preparePiProfile({ env, cwd }).catch((error) => {
     hosts?.close();
@@ -392,14 +412,13 @@ async function launchPi({
   process.on("SIGINT", interrupt);
   if (resident) {
     child.stdin.on("error", () => {}); // Startup failure is reported by the child error/exit event.
-    // Shared validated reader of the bridge's /v1/session.
+    // Shared validated reader of the login gate's read-only session endpoint.
     const readSession = createSessionReader({
-      url: bridgeUrl,
-      token,
+      url: sessionUrl,
       cacheMs: 0,
       timeoutMs: 1000,
     });
-    if (bridgeUrl && token) {
+    if (sessionUrl) {
       recovery = createRequestRecovery({
         send(command) {
           if (stopping || child.stdin.destroyed)
@@ -421,8 +440,15 @@ async function launchPi({
         retryDelayMs: positiveInteger(env.ARENA_RETRY_DELAY_MS, 2000),
         maxRetryDelayMs: positiveInteger(env.ARENA_RETRY_MAX_DELAY_MS, 60000),
       });
-      detachRpc = observeRpcOutput(child.stdout, (event) =>
-        recovery.receive(event),
+      detachRpc = observeRpcOutput(
+        child.stdout,
+        (event) => recovery.receive(event),
+        undefined,
+        (error) => {
+          process.stderr.write(`Arena RPC handler failed: ${error.message}\n`);
+          runtimeFailed = true;
+          shutdown();
+        },
       );
     }
     child.stdout.pipe(process.stdout, { end: false });
@@ -470,8 +496,8 @@ async function launchPi({
     if (!waitForMatch) {
       // Matches without the wait start at once with no briefing, as before. An
       // open session is already running, so include its briefing when the
-      // bridge answers promptly.
-      if (bridgeUrl && token)
+      // login gate answers promptly.
+      if (sessionUrl)
         readSession()
           .then((host) =>
             sendInitial(
@@ -485,7 +511,7 @@ async function launchPi({
           });
       else sendInitial();
     }
-    if (bridgeUrl && token) {
+    if (sessionUrl) {
       const checkMatch = async () => {
         if (stopping || checkingMatch) return;
         if (!initialSent && Date.now() - startupAt >= startTimeoutMs) {
