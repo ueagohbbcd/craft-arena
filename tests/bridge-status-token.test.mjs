@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
 import { cliOptions } from "../packages/mf-bridge/cli.mjs";
-import { fakeBot } from "./bridge.test.mjs";
+import { fakeBot } from "./helpers/fake-bot.mjs";
 
 const token = "full-control-token-123";
 const statusToken = "read-only-status-token";

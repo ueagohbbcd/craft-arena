@@ -192,6 +192,7 @@ test("participant image carries only participant-side code", async () => {
     "tasks",
     "inbox",
     "bot-sdk",
+    "bridge-protocol",
     "observation",
     "default-scripts",
     "world-visual",

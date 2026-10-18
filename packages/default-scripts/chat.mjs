@@ -14,6 +14,8 @@ const toolkit = (path) =>
     : new URL(`../../${path}`, import.meta.url).href;
 const { InboxClient } = await import(toolkit("packages/inbox/index.mjs"));
 
+const { sseData } = await import(toolkit("packages/bridge-protocol/sse.mjs"));
+
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 /**
@@ -85,13 +87,7 @@ export function startChatForwarder({
       /* Retried on the next reconnect. */
     }
   };
-  function accept(frame) {
-    const payload = frame
-      .split("\n")
-      .filter((line) => line.startsWith("data:"))
-      .map((line) => line.slice(5).trimStart())
-      .join("\n");
-    if (!payload) return;
+  function accept(payload) {
     let event;
     try {
       event = JSON.parse(payload);
@@ -143,18 +139,7 @@ export function startChatForwarder({
           await response.body?.cancel();
           throw new Error("Chat stream unavailable");
         }
-        const decoder = new TextDecoder();
-        let buffer = "";
-        for await (const chunk of response.body) {
-          buffer += decoder.decode(chunk, { stream: true });
-          // SSE accepts CRLF as well as LF, even across chunk boundaries.
-          buffer = buffer.replace(/\r\n/g, "\n");
-          let end;
-          while ((end = buffer.indexOf("\n\n")) !== -1) {
-            accept(buffer.slice(0, end));
-            buffer = buffer.slice(end + 2);
-          }
-        }
+        for await (const data of sseData(response.body)) accept(data);
       } catch {
         // A disconnected bridge may return; no historical messages are replayed.
       }

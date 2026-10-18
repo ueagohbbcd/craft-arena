@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { createAuthority, startBridge } from "../packages/mf-bridge/index.mjs";
 import { connectBot, Vector } from "../packages/bot-sdk/index.mjs";
-import { fakeBot } from "./bridge.test.mjs";
+import { fakeBot } from "./helpers/fake-bot.mjs";
 
 const token = "bridge-methods-token-long";
 

@@ -2,46 +2,34 @@
 
 Craft Arena 给一个通用 coding AI 一个 Minecraft 角色。每个参赛者拿到的公开能力和资料都相同；它自己决定怎样观察、判断和写程序，比赛成绩用来比较这些做法的效果。首类场景是 Race of Wool 一类 PvP 竞速地图：两队收集指定羊毛并放到本队纪念碑上。玩法规则、时限和胜负判定都在服务器上的数据包或插件里，运营者用一个小命令行开局和结束；不比赛时，也可以让游戏桥单独运行一个 `open` 会话，让模型在普通服务器里陪玩（见 [docs/GAME-MODES.md](docs/GAME-MODES.md)）。
 
-## 架构：可信侧与参赛容器
+## 架构：默认原生运行时与可选桥接运行时
+
+`provision` 默认生成 `runtime: "native"`：真实 Mineflayer bot 在参赛容器里，可信侧保留 Minecraft 服务器、登录入口、运营命令行和模型转发。`runtime: "bridge"` 保留可信侧每个 bot 一个游戏桥的旧布局。具体取舍见 [架构决策](docs/ARENA-ARCHITECTURE-DECISION.md)，配置见 [目标架构](docs/TARGET-ARCHITECTURE.md)。
 
 ```mermaid
-flowchart LR
-  subgraph trusted["可信侧（参赛者不能访问或修改）"]
-    cli["运营命令行 packages/arena<br/>准备、开赛、结束"]
-    bridge["游戏桥（每个参赛者一个独立服务）<br/>真实 Mineflayer bot"]
-    relay["模型转发 model-relay<br/>只转发到一个地址"]
-    mc["Minecraft 服务器<br/>规则数据包：计分、时限、判胜"]
-    bridge --- mc
-    bridge -. "RCON：读 arena:session" .- mc
-    cli -. "RCON：写 arena:config、#arena:* 函数" .- mc
-  end
-  subgraph box["参赛容器（每个参赛者一个）"]
-    pi["Pi + Pi 扩展<br/>bash（任务、等待）<br/>收件箱、平台消息"]
-    scripts["默认脚本<br/>default observer / default chat / default watchdog"]
-    progs["参赛者自己的程序<br/>（SDK、Pathfinder、PvP）"]
-  end
-  upstream["模型服务<br/>（OpenAI 兼容接口）"]
-  scripts -- "状态与动作" --> bridge
-  progs -- "状态与动作" --> bridge
-  pi -- "observe、会话状态" --> bridge
-  pi -- "模型请求" --> relay
-  relay --> upstream
-  scripts -- "InboxClient" --> pi
-  progs -- "InboxClient" --> pi
+flowchart TD
+  cli["运营命令行"] -->|RCON| mc["Minecraft 服务器与规则数据包"]
+  gate["每位参赛者的可信登录入口"] --> mc
+  gate -->|只读会话| local["容器内原生 bot 与本机桥"]
+  local -->|游戏连接| gate
+  pi["Pi 扩展、任务与收件箱"] --> local
+  programs["参赛程序与默认脚本"] -->|SDK 或进程内模块| local
+  programs -->|InboxClient| pi
 ```
 
-- 每个参赛者的游戏桥是独立服务，只接在后端网络和本队网络上；参赛容器访问不到别队的游戏桥。游戏桥通过 RCON 直接从服务器读会话状态；陪玩时游戏桥自己提供一个 `open` 会话。
-- 只有游戏桥连接 Minecraft。它只接受经过校验的语义动作（移动、挖、放、攻击、交互等），不转发自定义数据包。比赛开始前和结束后，所有动作都被拒绝。
-- 模型接入由运营者配置。限速在参赛容器内的 Pi 扩展里按标价花费做（`ARENA_COST_PER_HOUR`），不在转发或网关上。模板里参赛容器没有外网，模型请求经模型转发发往一个配置好的地址（官方 API 或宿主机上的任何服务），key 只在转发那里；也可以让参赛容器带着自己的 Pi 配置直接访问模型。见 [infra/README.md](infra/README.md#模型接入)。
-- Pathfinder、PvP 等 Mineflayer 插件在参赛者自己的程序里运行，基于本地镜像（`connectBot()` 在程序里保存的 bot 状态副本）计算，算出的动作再发给游戏桥。
-- Pi 扩展从游戏桥的 `/v1/session` 读取会话状态。模型看不到时钟：时限由服务器上的规则执行，模型只在会话开始、结束时收到通知。
-- Minecraft 服务器只在内部网络，不对宿主机开放端口。
+- 原生模式中，每个角色由一个常驻进程持有；登录入口只放行本参赛者的角色名，每个角色同一时间只有一条连接。本机桥供 SDK 和默认脚本使用；`run.mjs` 可以把模块放到真实 bot 进程中运行。
+- 本机桥的动作检查不是原生模式的安全边界。规则由服务器数据包执行，公平约束与可选反作弊方案见架构决策。开赛前冻结尚待迁入数据包。
+- 桥接模式中，bot 在可信侧；参赛程序通过校验过的语义动作控制 bot，游戏桥直接经 RCON 读会话。原生模式由登录入口读取 RCON，本机桥读取入口的会话接口。
+- `packages/bridge-protocol` 只共享线上的编解码、控制名与事件流解析，不持有 bot、凭据或运行时状态。SDK、聊天转发、动作探针共用解析器，各自保留重连与错误处理策略。
+- 模型转发只转发到运营者配置的上游；限速由 Pi 扩展按花费执行。平台消息、任务和收件箱在两种运行时中沿用同一条送达路径。
+
+下文比赛流程中的可信侧游戏桥描述适用于 `runtime: "bridge"` 及现有静态 Compose 模板；原生模式的部署以 `provision` 生成物及上述架构文档为准。
 
 ### 谁能改什么
 
 | 部分    | 包含                                                                                                            | 参赛者能做什么                                                                                                |
 | ------- | --------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
-| 可信侧  | 游戏桥、模型转发、Minecraft 服务器、运营命令行；游戏桥记录的区块记忆                                            | 不能访问或修改，只能通过游戏桥和模型接入的公开接口使用。运营者负责配置                                        |
+| 可信侧  | 登录入口、模型转发、Minecraft 服务器、运营命令行；桥接模式另含游戏桥及其区块记忆                                            | 不能访问或修改，只能通过游戏桥和模型接入的公开接口使用。运营者负责配置                                        |
 | Pi 扩展 | `bash` 工具（启动任务、继续等待）；任务管理和任务文件；收件箱；平台消息；会话开始时启动默认脚本                 | 在容器里运行，Pi 启动时加载，比赛中不能换掉。它决定信息何时送到模型                                           |
 | 工具包  | `$ARENA_TOOLKIT_ROOT` 下的一切：SDK、观察库、默认脚本、截图与图像库、区块记忆查询客户端、示例、参赛说明和 Skill | 可以读、运行、复制、改写或不用。默认观察器和聊天转发也只是普通任务，可以 `arena-task cancel` 后换成自己的版本 |
 
@@ -150,7 +138,9 @@ flowchart LR
 | 位置     | 包                                          | 作用                                               |
 | -------- | ------------------------------------------- | -------------------------------------------------- |
 | 可信侧   | `packages/arena`                            | 运营命令行、RCON、服务器协议                       |
-| 可信侧   | `packages/mf-bridge`                        | 游戏桥、区块记忆记录                               |
+| 按运行时 | `packages/mf-bridge`                        | 本机桥或可信侧桥、区块记忆记录                               |
+| 可信侧   | `packages/login-gate`                       | 原生运行时的角色登录入口与只读会话接口 |
+| 共用协议 | `packages/bridge-protocol`                  | 无运行时依赖的编解码和事件流解析 |
 | 可信侧   | `packages/model-relay`                      | 模型转发：只转发到一个地址                         |
 | 参赛容器 | `packages/pi-extension`                     | Pi 扩展与启动器                                    |
 | 参赛容器 | `packages/tasks`、`packages/inbox`          | 任务管理；收件箱与 `InboxClient`                   |

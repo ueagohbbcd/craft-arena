@@ -7,29 +7,12 @@ import { isDeepStrictEqual } from "node:util";
 import { findBlocksInColumns } from "./find-blocks.mjs";
 import { installLocalReads } from "./local-reads.mjs";
 const require = createRequire(import.meta.url);
-const controls = [
-  "forward",
-  "back",
-  "left",
-  "right",
-  "jump",
-  "sprint",
-  "sneak",
-];
-const wireStringify = (value) =>
-  JSON.stringify(value, (_key, v) =>
-    typeof v === "bigint" ? { $arenaBigInt: v.toString() } : v,
-  );
-const parseWire = (text) =>
-  JSON.parse(text, (_key, value) =>
-    value &&
-    typeof value === "object" &&
-    Object.keys(value).length === 1 &&
-    typeof value.$arenaBigInt === "string" &&
-    /^-?[0-9]{1,80}$/.test(value.$arenaBigInt)
-      ? BigInt(value.$arenaBigInt)
-      : value,
-  );
+import {
+  wireStringify,
+  parseWire,
+  controls,
+} from "../bridge-protocol/index.mjs";
+import { sseData } from "../bridge-protocol/sse.mjs";
 export class Vector {
   constructor(x = 0, y = 0, z = 0) {
     Object.assign(this, { x, y, z });
@@ -1222,24 +1205,12 @@ export async function connectBot(options = {}) {
         });
         if (!response.ok)
           throw new Error(`Bridge events HTTP ${response.status}`);
-        const reader = response.body.getReader(),
-          decoder = new TextDecoder();
-        let buffer = "";
-        while (!bot.closed) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          let end;
-          while ((end = buffer.indexOf("\n\n")) >= 0) {
-            const frame = buffer.slice(0, end);
-            buffer = buffer.slice(end + 2);
-            if (frame.startsWith("data: ")) {
-              await bot.accept(parseWire(frame.slice(6)));
-              if (initial) {
-                initial = false;
-                resolve(bot);
-              }
-            }
+        for await (const data of sseData(response.body)) {
+          if (bot.closed) break;
+          await bot.accept(parseWire(data));
+          if (initial) {
+            initial = false;
+            resolve(bot);
           }
         }
       } catch (e) {

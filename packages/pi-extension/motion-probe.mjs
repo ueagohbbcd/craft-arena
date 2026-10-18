@@ -1,3 +1,5 @@
+import { sseData } from "../bridge-protocol/sse.mjs";
+
 /**
  * Follows the bridge's state stream while a bash wait runs, so the wait can
  * tell whether the character is doing anything. `key()` changes when the
@@ -30,21 +32,11 @@ export function createMotionProbe({ url, token, fetch = globalThis.fetch }) {
       headers: { authorization: `Bearer ${token}` },
       signal: abort.signal,
     });
-    if (!response.ok) return;
-    const reader = response.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = "";
-    for (;;) {
-      const { value, done } = await reader.read();
-      if (done) return;
-      buffer += decoder.decode(value, { stream: true });
-      let end;
-      while ((end = buffer.indexOf("\n\n")) >= 0) {
-        const frame = buffer.slice(0, end);
-        buffer = buffer.slice(end + 2);
-        if (frame.startsWith("data: ")) accept(frame.slice(6));
-      }
+    if (!response.ok) {
+      await response.body?.cancel();
+      return;
     }
+    for await (const data of sseData(response.body)) accept(data);
   })().catch(() => {}); // Without a stream, the wait judges by output alone.
   return {
     key: () => current,

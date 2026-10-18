@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { startBridge } from "../packages/mf-bridge/index.mjs";
 import { connectBot } from "../packages/bot-sdk/index.mjs";
-import { fakeBot } from "./bridge.test.mjs";
+import { fakeBot } from "./helpers/fake-bot.mjs";
 
 const token = "test-token-long-enough";
 const delay = (ms) => new Promise((r) => setTimeout(r, ms));

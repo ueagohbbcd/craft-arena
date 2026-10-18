@@ -18,6 +18,7 @@ RUN npm ci --ignore-scripts && node scripts/prune-node-modules.mjs node_modules 
 COPY --chown=node:node packages/pi-extension ./packages/pi-extension
 COPY --chown=node:node packages/tasks ./packages/tasks
 COPY --chown=node:node packages/inbox ./packages/inbox
+COPY --chown=node:node packages/bridge-protocol ./packages/bridge-protocol
 COPY --chown=node:node packages/bot-sdk ./packages/bot-sdk
 COPY --chown=node:node packages/observation ./packages/observation
 COPY --chown=node:node packages/default-scripts ./packages/default-scripts
