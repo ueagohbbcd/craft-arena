@@ -35,6 +35,19 @@ let patched = false;
 function patchGlobals() {
   if (patched) return;
   patched = true;
+  // A run reads its own task's variables (MC_INBOX_TASK_ID, ...) from
+  // process.env, so an InboxClient created in a run reports as that task.
+  const env = process.env;
+  process.env = new Proxy(env, {
+    get: (target, key) => {
+      const own = runs.getStore()?.env;
+      return own && Object.hasOwn(own, key) ? own[key] : target[key];
+    },
+    has: (target, key) =>
+      Boolean(
+        runs.getStore()?.env && Object.hasOwn(runs.getStore().env, key),
+      ) || key in target,
+  });
   for (const level of ["log", "info", "warn", "error", "debug"]) {
     const original = console[level].bind(console);
     console[level] = (...args) => {
@@ -104,6 +117,12 @@ export async function startRunner({
     const controller = new AbortController();
     const listeners = [];
     const state = {
+      env: Object.fromEntries(
+        Object.entries(request.env ?? {}).filter(
+          ([key, value]) =>
+            /^(?:MC_INBOX_|ARENA_TASK_)/.test(key) && typeof value === "string",
+        ),
+      ),
       finished: false,
       timers: [],
       write: (text) => send({ type: "out", text: `${text}\n` }),

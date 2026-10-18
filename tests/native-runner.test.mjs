@@ -152,3 +152,23 @@ test("bot hosts: one per character, with the session from the gate", async (t) =
   await new Promise((r) => setTimeout(r, 50));
   assert.deepEqual(started, ["arena_red1", "arena_red2", "arena_red1"]);
 });
+
+test("a run sees its own task's inbox identity in process.env", async (t) => {
+  const { run } = await setup(t);
+  const { runEnv } = await import("../packages/mf-bridge/run.mjs");
+  assert.deepEqual(
+    runEnv({ MC_INBOX_TASK_ID: "t1", ARENA_TASK_LOG_DIR: "/l", SECRET: "x" }),
+    { MC_INBOX_TASK_ID: "t1", ARENA_TASK_LOG_DIR: "/l" },
+  );
+  const before = process.env.MC_INBOX_TASK_ID;
+  process.env.MC_INBOX_TASK_ID = "outer";
+  t.after(() => {
+    if (before === undefined) delete process.env.MC_INBOX_TASK_ID;
+    else process.env.MC_INBOX_TASK_ID = before;
+  });
+  const result = await run(
+    `export default async () => process.env.MC_INBOX_TASK_ID;`,
+  );
+  // runModule sends this process's MC_INBOX_TASK_ID ("outer") as the run's.
+  assert.match(result.stdout, /"outer"/);
+});

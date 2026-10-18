@@ -2,6 +2,8 @@
 
 2026-10-17 定下的方向，大部分已实现，各项进度见 [ROADMAP.md](ROADMAP.md#目标架构10-17-定下的方向)。现状的设计见 [GAME-MODES.md](GAME-MODES.md) 和 [CONTEXT-DELIVERY.md](CONTEXT-DELIVERY.md)。
 
+10-18 改了 bot 放在哪：原生 Mineflayer 回到参赛容器里，可信侧只管身份（每个参赛者一个登录入口）和服务端。默认用原版端，公平靠提示词约束；反作弊端可选，开了也只安静记录。取舍和备选方案见 [ARENA-ARCHITECTURE-DECISION.md](ARENA-ARCHITECTURE-DECISION.md)。旧的"可信侧一个 bot 一个桥"保留为 `runtime: "bridge"`。
+
 多 bot 已定的方向如下。一个参赛者可以控制几个 bot：主 bot 默认开观察；副 bot 默认不开，由模型自己接上；副 bot 在第一次被连接时才登录。
 
 ## 一句话
@@ -23,16 +25,18 @@
           │  cli.mjs provision（可信侧，up 之前）
           ▼
 ┌─ 生成物 runtime/ ─────────────────────────────────────────┐
-│ compose.yaml       每个角色位一个参赛容器，每个 bot 一个桥  │
+│ compose.yaml       每个角色位一个参赛容器和一个登录入口    │
 │ provision/<agent>/ manifest.json + 被引用的文件            │
 │ arena:config       teams 由角色位推出                      │
 └──────────────────────────────────────────────────────────┘
           │  cli.mjs prepare / start / stop（RCON 调数据包）
           ▼
-Minecraft 服务端 + 数据包 ──RCON 读 arena:session──→ 桥（每 bot 一个）
-                                                     │ HTTP：快照、事件、动作、会话
-                                                     ▼
-参赛容器：启动器 → Pi（扩展：收件箱、任务、默认脚本）→ 参赛程序（SDK）
+Minecraft 服务端（原版端，或可选的反作弊端）+ 数据包
+   ▲ 游戏连接（原样转发）          │ RCON 读 arena:session
+登录入口 gate-<agent>（可信侧，每个参赛者一个）：只放行本角色位的 bot，每个 bot 一条连接；只读会话接口
+   ▲ 参赛者网络只能连到自己的入口
+参赛容器：启动器 → 每个 bot 一个常驻进程（原生 Mineflayer + 本机桥 + 模块运行）
+          → Pi（扩展：收件箱、任务、默认脚本）→ 参赛程序（SDK 连本机桥，或 run.mjs 跑进 bot 进程）
 ```
 
 ## 各层职责
@@ -83,15 +87,19 @@ Minecraft 服务端 + 数据包 ──RCON 读 arena:session──→ 桥（每 
 - 在这一步校验：路径越界、引用的文件不存在、同一 bot 被两个角色位使用等。
 - 容器数量和桥数量由地图决定，compose 不再写死 `red1`、`blue1`。
 
-### 5. 桥（每个 bot 一个）
+### 5. 登录入口和容器里的 bot（10-18 起默认）
 
-- 负责一个 bot 的连接、物理和游戏状态，并通过 RCON 读会话。
-- 不再挂载 `PROMPT.md`，也不发地图文件。
-- **暴露原则**：与原生 Mineflayer 一致，只拦两类：
-  - 任意发包（`_client`）；
-  - 登录、进服、断开连接（`quit`/`end`）。
-
-  事件和方法都按名字通用转发；只读信息全部放开；规则上的作弊交给服务端权限。副 bot 第一次连接时才登录。
+- **登录入口**（`packages/login-gate`，每个参赛者一个 `gate-<agent>` 服务，在后端网络和该参赛者的网络里）：
+  - 读登录包里的用户名，只放行本角色位的 bot，每个 bot 同时只有一条连接；放行后原样转发字节，不改包、不保留游戏状态。
+  - 参赛容器只连得到自己的入口，连不到服务端和别人的入口，所以冒用不了别人的角色。
+  - 同时提供只读的 `/v1/session?username=…`（RCON 读数据包的会话），容器里的 bot 从这里读会话。
+- **容器里的 bot**：启动器给每个 bot 起一个常驻进程（`packages/mf-bridge/cli.mjs`），里面是原生 Mineflayer，经入口登录；进程退出就重启。
+  - 同一进程在 127.0.0.1 上提供原来的桥接口，现有程序、默认脚本、`connectBot()` 不用改。桥上的检查只是方便，不再是安全边界。
+  - 需要完整同步接口的代码（Pathfinder 等插件、大量监听）写成模块，用 `run.mjs` 跑进 bot 进程：`export default async (bot, { signal, args, log }) => …`。运行结束时移除它加的监听和定时器；取消或出错时松开移动键、停 Pathfinder 和 PvP。
+  - 不能自己 `createBot`：入口只给每个 bot 一条连接，已经被常驻进程占着。
+- **公平**：默认原版端，原版只粗查移动。提示词（`participant/agents.native.d/15-fair-play.md`）写明能用什么（Mineflayer 公开接口、插件、收到的所有信息）、不能用什么（自己发包、改物理参数、`creative` 飞行、改源码），违规取消成绩。服务端录像（ServerReplay）留作事后核查。
+- **反作弊端（可选）**：`infra/minecraft-anticheat.json` 是默认端加 Grim（Fabric 版）。配置改成只记录：不回拉、不取消包或攻击、不踢人；提示打到控制台，每次标记写进 Grim 的历史库，赛后再看。
+- 旧方案 `runtime: "bridge"`：可信侧每个 bot 一个桥，通过 RCON 读会话；暴露原则同前（只拦任意发包和连接控制，其余通用转发）。
 
 ### 6. 参赛容器
 
@@ -124,7 +132,8 @@ Minecraft 服务端 + 数据包 ──RCON 读 arena:session──→ 桥（每 
 | 默认脚本             | 环境变量 `ARENA_DEFAULT_SCRIPTS`，只对一个 bot               | `/arena/config/default-scripts.json`，按 bot 配置 |
 | 往容器写东西         | 没有通用办法                                                 | 清单的 `files`                                    |
 | 常驻信息             | `--append-system-prompt PROMPT.md`                           | `agents.d/*.md`，逐个追加进系统提示               |
-| SDK 覆盖面           | 手写的允许名单，缺不少事件和字段                             | 通用转发 + 禁止名单                               |
+| SDK 覆盖面           | 手写的允许名单，缺不少事件和字段                             | 原生 bot（`run.mjs`）；本机桥通用转发             |
+| bot 在哪             | 可信侧，每个 bot 一个桥                                      | 参赛容器里，可信侧只有登录入口                    |
 | 卡住检测             | 只有 `navigate.mjs` 自带                                     | 库函数 + 等待提前返回 + 全局宽松检测              |
 
 ## 未定

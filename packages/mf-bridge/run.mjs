@@ -31,6 +31,14 @@ export function runSocket(bot, env = process.env) {
   return entry.runSocket;
 }
 
+/** What a run sees of this task's environment: its inbox identity and task files. */
+export const runEnv = (env) =>
+  Object.fromEntries(
+    Object.entries(env).filter(([key]) =>
+      /^(?:MC_INBOX_|ARENA_TASK_)/.test(key),
+    ),
+  );
+
 export function runModule({
   socketPath,
   file,
@@ -39,6 +47,7 @@ export function runModule({
   stdout = process.stdout,
   stderr = process.stderr,
   signals = process,
+  env = process.env,
 }) {
   return new Promise((done) => {
     const socket = net.connect(socketPath);
@@ -49,7 +58,9 @@ export function runModule({
     for (const name of ["SIGTERM", "SIGINT"]) signals.on?.(name, cancel);
     socket.setEncoding("utf8");
     socket.on("connect", () =>
-      socket.write(`${JSON.stringify({ type: "run", file, args, cwd })}\n`),
+      socket.write(
+        `${JSON.stringify({ type: "run", file, args, cwd, env: runEnv(env) })}\n`,
+      ),
     );
     socket.on("data", (chunk) => {
       buffer += chunk;

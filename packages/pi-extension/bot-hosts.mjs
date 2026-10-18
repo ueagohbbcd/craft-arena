@@ -43,9 +43,10 @@ export function hostEnv(env, { name, index, token, runDir }) {
         BRIDGE_SESSION_URL: `${env.ARENA_SESSION_URL}${env.ARENA_SESSION_URL.includes("?") ? "&" : "?"}username=${encodeURIComponent(name)}`,
       }
     : { BRIDGE_SESSION: "open" };
+  // The participant's own environment, so modules run in the bot process see
+  // what programs see (toolkit and reference roots, inbox settings).
   return {
-    PATH: env.PATH ?? "",
-    HOME: env.HOME ?? "",
+    ...env,
     MF_HOST: env.ARENA_MINECRAFT_HOST,
     MF_PORT: env.ARENA_MINECRAFT_PORT ?? "25565",
     MF_VERSION: env.MC_VERSION ?? "1.21.1",

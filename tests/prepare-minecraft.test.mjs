@@ -102,3 +102,80 @@ test("server preparation accepts each supported pinned digest", async (t) => {
     assert.deepEqual(await readFile(join(destination, "server.jar")), bytes);
   }
 });
+
+test("the anticheat profile is the default server plus Grim, configured to only record", async () => {
+  const read = async (path) =>
+    readFile(new URL(`../infra/${path}`, import.meta.url), "utf8");
+  const base = JSON.parse(await read("minecraft-download.json"));
+  const profile = JSON.parse(await read("minecraft-anticheat.json"));
+  validateServerDownload(profile);
+  assert.equal(profile.url, base.url);
+  assert.deepEqual(profile.fabric, base.fabric);
+  assert.deepEqual(profile.mods.slice(0, base.mods.length), base.mods);
+  assert.deepEqual(
+    profile.mods.slice(base.mods.length).map((mod) => mod.component),
+    ["grimac"],
+  );
+  const config = await read(
+    "server-profiles/anticheat/config/GrimAC/config.yml",
+  );
+  for (const line of [
+    /^ {4}immediate-setback-threshold: -1$/gm,
+    /^ {4}max-advantage: -1$/gm,
+  ])
+    assert.equal(config.match(line)?.length, 2);
+  assert.doesNotMatch(config, /^ {4}(?:setbackvl|cancelvl): (?!1000000$)/m);
+  assert.match(config, /^ {4}block-impossible-hits: false$/m);
+  assert.match(config, /^max-transaction-time: 86400$/m);
+  assert.match(config, /^config-version: 11$/m);
+  const punishments = await read(
+    "server-profiles/anticheat/config/GrimAC/punishments.yml",
+  );
+  for (const [, command] of punishments.matchAll(/^\s+- "\d+:\d+ (.*)"$/gm))
+    assert.match(command, /^\[(?:alert|log)\]$/);
+});
+
+test("profile server files are copied at every start", async (t) => {
+  const f = await fixture(t);
+  const bytes = Buffer.from("server");
+  await writeFile(join(f.directory, "grim.yml"), "quiet: true\n");
+  const manifestPath = join(f.directory, "download.json");
+  await writeFile(
+    manifestPath,
+    JSON.stringify({
+      minecraftVersion: "test",
+      url: "https://example.invalid/server.jar",
+      size: bytes.length,
+      sha256: createHash("sha256").update(bytes).digest("hex"),
+      serverFiles: [{ source: "grim.yml", target: "config/GrimAC/config.yml" }],
+    }),
+  );
+  const destination = join(f.directory, "server");
+  await prepareMinecraftServer({
+    destination,
+    manifestPath,
+    fetchImpl: async () => ({ ok: true, arrayBuffer: async () => bytes }),
+  });
+  assert.equal(
+    await readFile(
+      join(destination, "server-files/config/GrimAC/config.yml"),
+      "utf8",
+    ),
+    "quiet: true\n",
+  );
+  assert.match(
+    await readFile(join(destination, "run.sh"), "utf8"),
+    /cp -R \/opt\/minecraft\/server-files\/\. \.\//,
+  );
+  assert.throws(
+    () =>
+      validateServerDownload({
+        minecraftVersion: "test",
+        url: "https://example.invalid/server.jar",
+        size: 1,
+        sha256: "0".repeat(64),
+        serverFiles: [{ source: "x", target: "../escape" }],
+      }),
+    /relative target/,
+  );
+});

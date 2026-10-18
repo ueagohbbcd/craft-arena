@@ -291,7 +291,11 @@ async function launchPi({
     await applyProvisionFiles(env.ARENA_PROVISION_DIR, { workspace: cwd });
     config = await readParticipantConfig(env.ARENA_CONFIG_DIR, {
       env,
-      builtinAgentsDir: join(projectRoot, "participant", "agents.d"),
+      builtinAgentsDir: [
+        join(projectRoot, "participant", "agents.d"),
+        // The character runs in this container: in-process runs, fair play.
+        ...(hosts ? [join(projectRoot, "participant", "agents.native.d")] : []),
+      ],
     });
     guidanceArgs = await systemPromptArgs({
       cwd,

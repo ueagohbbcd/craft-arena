@@ -68,6 +68,17 @@ export function validateServerDownload(manifest) {
   }
   if (manifest.mods?.length && !manifest.fabric)
     throw new Error("Mods require Fabric");
+  for (const file of manifest.serverFiles ?? [])
+    if (
+      typeof file?.source !== "string" ||
+      typeof file.target !== "string" ||
+      !/^[A-Za-z0-9_.-]+(?:\/[A-Za-z0-9_.-]+)*$/.test(file.target) ||
+      file.target.split("/").includes("..") ||
+      file.source.split(/[\\/]/).includes("..")
+    )
+      throw new Error(
+        "serverFiles entries need a source next to the manifest and a relative target",
+      );
 }
 
 export function verifyDownload(bytes, artifact) {
@@ -115,11 +126,20 @@ export async function prepareMinecraftServer({
       await writeFile(join(stage, filename), bytes);
     };
     await download(manifest, "server.jar", serverJar);
+    // Profile files (mod configuration) are copied over the server directory
+    // at every start, so the profile, not a previous run, decides them.
+    await mkdir(join(stage, "server-files"));
+    for (const file of manifest.serverFiles ?? []) {
+      const target = join(stage, "server-files", file.target);
+      await mkdir(dirname(target), { recursive: true });
+      await copyFile(resolve(dirname(manifestPath), file.source), target);
+    }
     await mkdir(join(stage, "mods"));
     for (const mod of manifest.mods ?? [])
       await download(mod, `mods/${mod.filename}`);
     let install = '#!/bin/sh\nset -eu\ncd "$(dirname "$0")"\n';
-    let launch = "#!/bin/sh\nset -eu\nexec java -Xms512M -Xmx2G ";
+    let launch =
+      "#!/bin/sh\nset -eu\ncp -R /opt/minecraft/server-files/. ./\nexec java -Xms512M -Xmx2G ";
     if (manifest.fabric) {
       await download(
         manifest.fabric.installer,
@@ -157,6 +177,7 @@ export async function prepareMinecraftServer({
       for (const entry of [
         "server.jar",
         "mods",
+        "server-files",
         "install.sh",
         "run.sh",
         "download.json",

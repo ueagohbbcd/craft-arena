@@ -6,6 +6,8 @@ This page lists the API and where it differs from real Mineflayer. For upstream 
 
 ## Connect
 
+With the native runtime the character's bot runs in this container and `connectBot()` connects to its local bridge; code that needs the native Mineflayer bot itself runs inside the bot's process with `packages/mf-bridge/run.mjs` (see `participant/agents.native.d/12-native-bot.md`).
+
 ```js
 const { connectBot } = await import(
   `${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/index.mjs`
