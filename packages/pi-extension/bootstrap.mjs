@@ -30,6 +30,7 @@ import {
   profileAcceptsImages,
   readParticipantConfig,
 } from "./participant-config.mjs";
+import { startBotHosts } from "./bot-hosts.mjs";
 
 const extensionPath = fileURLToPath(new URL("./index.mjs", import.meta.url));
 const projectRoot = resolve(dirname(extensionPath), "../..");
@@ -267,12 +268,20 @@ async function launchPi({
   );
   const packageRoot = resolve(dirname(entry), "..");
   const resident = args.length === 0;
+  // Native runtime: this container runs its own characters' bots.
+  const hosts = env.ARENA_MINECRAFT_HOST
+    ? await startBotHosts({ env })
+    : undefined;
+  if (hosts) env = { ...env, ...hosts.env };
   const bridgeUrl = env.ARENA_BRIDGE_URL;
   const token = env.ARENA_BRIDGE_TOKEN;
   // With a bridge, the opening prompt waits until the session is running.
   const waitForMatch = resident && Boolean(bridgeUrl && token);
   const startTimeoutMs = positiveInteger(env.ARENA_START_TIMEOUT_MS, 600000);
-  const profile = await preparePiProfile({ env, cwd });
+  const profile = await preparePiProfile({ env, cwd }).catch((error) => {
+    hosts?.close();
+    throw error;
+  });
   const sessionDir =
     env.PI_CODING_AGENT_SESSION_DIR || join(cwd, ".pi", "sessions");
   // Copies of the trusted briefing for the model to re-read after compaction.
@@ -282,7 +291,11 @@ async function launchPi({
     await applyProvisionFiles(env.ARENA_PROVISION_DIR, { workspace: cwd });
     config = await readParticipantConfig(env.ARENA_CONFIG_DIR, {
       env,
-      builtinAgentsDir: join(projectRoot, "participant", "agents.d"),
+      builtinAgentsDir: [
+        join(projectRoot, "participant", "agents.d"),
+        // The character runs in this container: in-process runs, fair play.
+        ...(hosts ? [join(projectRoot, "participant", "agents.native.d")] : []),
+      ],
     });
     guidanceArgs = await systemPromptArgs({
       cwd,
@@ -300,6 +313,7 @@ async function launchPi({
       : undefined;
   } catch (error) {
     // The exit cleanup below is not reached yet; drop the generated profile.
+    hosts?.close();
     if (profile.generated)
       await rm(profile.agentDir, { recursive: true, force: true });
     throw error;
@@ -525,6 +539,7 @@ async function launchPi({
       );
     });
   } finally {
+    hosts?.close();
     recovery?.close();
     detachRpc?.();
     clearInterval(matchTimer);

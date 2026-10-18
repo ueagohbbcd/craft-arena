@@ -52,7 +52,10 @@ const twoBots = {
 };
 
 test("provision writes per-agent config, manifests, teams and Compose services", async (t) => {
-  const f = await fixture(t, twoBots);
+  const f = await fixture(t, twoBots, {
+    config: { sessionId: "s1" },
+    runtime: "bridge",
+  });
   let n = 0;
   const result = await provision({ ...f, token: () => `token-${++n}` });
   assert.deepEqual(result.teams, [
@@ -134,6 +137,52 @@ test("provision writes per-agent config, manifests, teams and Compose services",
     "agent-red1",
   ]);
   await assert.rejects(provision(f), /already exists/);
+});
+
+test("the native runtime gives each agent a login gate and no bridge", async (t) => {
+  const f = await fixture(t, twoBots);
+  await provision(f);
+  const match = JSON.parse(
+    await readFile(join(f.outDir, "match.json"), "utf8"),
+  );
+  assert.equal(match.runtime, undefined);
+  const red = JSON.parse(
+    await readFile(join(f.outDir, "agents/red1/manifest.json"), "utf8"),
+  );
+  assert.deepEqual(red.bots, [{ name: "arena_red1" }, { name: "arena_red2" }]);
+  assert.equal(await readFile(join(f.outDir, "agents.env"), "utf8"), "");
+  const compose = JSON.parse(
+    (await readFile(join(f.outDir, "compose.agents.yaml"), "utf8")).replace(
+      /^#.*\n/,
+      "",
+    ),
+  );
+  assert.deepEqual(Object.keys(compose.services).sort(), [
+    "gate-blue1",
+    "gate-red1",
+    "model-blue",
+    "model-red",
+    "participant-blue1",
+    "participant-red1",
+  ]);
+  const gate = compose.services["gate-red1"];
+  assert.equal(gate.environment.GATE_USERNAMES, "arena_red1,arena_red2");
+  assert.deepEqual(gate.networks, ["backend", "agent-red1"]);
+  const participant = compose.services["participant-red1"].environment;
+  assert.equal(participant.ARENA_MINECRAFT_HOST, "gate-red1");
+  assert.equal(
+    participant.ARENA_SESSION_URL,
+    "http://gate-red1:8080/v1/session",
+  );
+  assert.equal(participant.ARENA_BRIDGE_URL, undefined);
+  assert.deepEqual(compose.services["participant-red1"].networks, [
+    "agent-red1",
+  ]);
+});
+
+test("provision refuses an unknown runtime", async (t) => {
+  const f = await fixture(t, twoBots, { config: {}, runtime: "magic" });
+  await assert.rejects(provision(f), /runtime must be one of native, bridge/);
 });
 
 test("relays and models can be shared through the match file", async (t) => {
@@ -306,7 +355,10 @@ test("the launcher copies workspace files; once keeps an existing file", async (
 });
 
 test("connectBot's bridge lookup uses the manifest for a second bot", async (t) => {
-  const f = await fixture(t, twoBots);
+  const f = await fixture(t, twoBots, {
+    config: { sessionId: "s1" },
+    runtime: "bridge",
+  });
   await provision({ ...f, token: () => "tok" });
   const env = {
     ARENA_BOT: "arena_red1",

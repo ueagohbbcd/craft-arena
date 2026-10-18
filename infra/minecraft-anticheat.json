@@ -1,0 +1,127 @@
+{
+  "minecraftVersion": "1.21.1",
+  "url": "https://piston-data.mojang.com/v1/objects/59353fb40c36d304f2035d51e7d6e6baa98dc05c/server.jar",
+  "sha1": "59353fb40c36d304f2035d51e7d6e6baa98dc05c",
+  "size": 51627615,
+  "fabric": {
+    "loaderVersion": "0.19.5",
+    "installer": {
+      "url": "https://maven.fabricmc.net/net/fabricmc/fabric-installer/1.1.2/fabric-installer-1.1.2.jar",
+      "maven": "net.fabricmc:fabric-installer:1.1.2",
+      "version": "1.1.2",
+      "stable": true,
+      "sha256": "61e035bf7bf70153e127440ce34de47c9036f0a2d0c65d1529454bd35ceefe4f",
+      "component": "fabric-installer",
+      "filename": "fabric-installer-1.1.2.jar",
+      "size": 212123
+    },
+    "libraries": [
+      {
+        "path": "libraries/org/ow2/asm/asm/9.10.1/asm-9.10.1.jar",
+        "url": "https://maven.fabricmc.net/org/ow2/asm/asm/9.10.1/asm-9.10.1.jar",
+        "sha256": "ed825d10ab1399c8c0cb669e688cf0c8c82629b4c8399b58352b68e92ca10fcb"
+      },
+      {
+        "path": "libraries/org/ow2/asm/asm-analysis/9.10.1/asm-analysis-9.10.1.jar",
+        "url": "https://maven.fabricmc.net/org/ow2/asm/asm-analysis/9.10.1/asm-analysis-9.10.1.jar",
+        "sha256": "dede75a21306b65974ecd8f87114ff6970f09fb794157a4ca09ab25c888c2bfc"
+      },
+      {
+        "path": "libraries/org/ow2/asm/asm-commons/9.10.1/asm-commons-9.10.1.jar",
+        "url": "https://maven.fabricmc.net/org/ow2/asm/asm-commons/9.10.1/asm-commons-9.10.1.jar",
+        "sha256": "6d0abefb7cbf972ea16edb37ec14835372505063a45f976ab7ea889ed9497895"
+      },
+      {
+        "path": "libraries/org/ow2/asm/asm-tree/9.10.1/asm-tree-9.10.1.jar",
+        "url": "https://maven.fabricmc.net/org/ow2/asm/asm-tree/9.10.1/asm-tree-9.10.1.jar",
+        "sha256": "3dfb0d5b6a106cd40b5b250e39935fbf2f927f4477546a5369a3ac609cf0506b"
+      },
+      {
+        "path": "libraries/org/ow2/asm/asm-util/9.10.1/asm-util-9.10.1.jar",
+        "url": "https://maven.fabricmc.net/org/ow2/asm/asm-util/9.10.1/asm-util-9.10.1.jar",
+        "sha256": "1bb99d091fba2597dc6d51193e9bbcf0d8447e7ed96bd8f0198b18152f09655c"
+      },
+      {
+        "path": "libraries/net/fabricmc/sponge-mixin/0.17.4+mixin.0.8.7/sponge-mixin-0.17.4+mixin.0.8.7.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/sponge-mixin/0.17.4+mixin.0.8.7/sponge-mixin-0.17.4+mixin.0.8.7.jar",
+        "sha256": "1f0ae44db7295f8626f33b1dc0ad7f043d8954a8d6847247875fcc5dfcecc934"
+      },
+      {
+        "path": "libraries/net/fabricmc/fabric-loader/0.19.5/fabric-loader-0.19.5.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/fabric-loader/0.19.5/fabric-loader-0.19.5.jar",
+        "sha256": "93044e4dd46de5d8136701292f05e868da096d2c9fddb4793e4fdbcc63efc695"
+      },
+      {
+        "path": "libraries/net/fabricmc/intermediary/1.21.1/intermediary-1.21.1.jar",
+        "url": "https://maven.fabricmc.net/net/fabricmc/intermediary/1.21.1/intermediary-1.21.1.jar",
+        "sha256": "6059157dfb4a536ec151697004f74f6004b7d346b289c2f89849e0e585aa36fa"
+      }
+    ]
+  },
+  "mods": [
+    {
+      "component": "server-replay",
+      "project_id": "qCvSZ8ra",
+      "modrinth_version_id": "DsQNSbT9",
+      "version": "1.2.10+mc1.21.1",
+      "filename": "ServerReplay-1.2.10+mc1.21.1.jar",
+      "url": "https://cdn.modrinth.com/data/qCvSZ8ra/versions/DsQNSbT9/ServerReplay-1.2.10%2Bmc1.21.1.jar",
+      "sha512": "109f633a0a94aa33a33f6460bbec722867acbda8cda6af6a6ae76cdd503890866cf8bfe90fa4d4504cd52af528c15a64b72d32fb326850aa45b80fadef6b1e2f",
+      "sha256": "cf0cd3d1cb73fb7498f25189a65eece60339c5aef83879eb7ada6d8038844b2a",
+      "size": 8704624,
+      "release_url": "https://modrinth.com/mod/qCvSZ8ra/version/DsQNSbT9"
+    },
+    {
+      "component": "fabric-api",
+      "project_id": "P7dR8mSH",
+      "modrinth_version_id": "Mys3P7lK",
+      "version": "0.116.17+1.21.1",
+      "filename": "fabric-api-0.116.17+1.21.1.jar",
+      "url": "https://cdn.modrinth.com/data/P7dR8mSH/versions/Mys3P7lK/fabric-api-0.116.17%2B1.21.1.jar",
+      "sha512": "98c478217da19181f0e4df3ea6c2da6bdbda271c7544a4aea048513a49b444f1ff5b71dc0df6303017c48e8ff69b7bb6af6179bdf0d0e09ab3c1ee08411857a8",
+      "sha256": "79ac44b40780acbd884b34c50be1e39af682847e5f5cb3b1fddeeaa768dce800",
+      "size": 2452735,
+      "release_url": "https://modrinth.com/mod/P7dR8mSH/version/Mys3P7lK"
+    },
+    {
+      "component": "fabric-kotlin",
+      "project_id": "Ha28R6CL",
+      "modrinth_version_id": "SKW1BTL3",
+      "version": "1.14.2+kotlin.2.4.21",
+      "filename": "fabric-language-kotlin-1.14.2+kotlin.2.4.21.jar",
+      "url": "https://cdn.modrinth.com/data/Ha28R6CL/versions/SKW1BTL3/fabric-language-kotlin-1.14.2%2Bkotlin.2.4.21.jar",
+      "sha512": "7fb475c4a7e7bdf8d0aca4b5798a58a354c51443d5b1fbde3e8cf34dfbf7191ef4238b5f07d08ec9490ec180b371624523326c3ad45d4ed2b2be541de9407e5d",
+      "sha256": "fbdbf5286ab9d65fedb49e6e01c15e338ae303eb7b9d8c7423d0a9bcfe526ef9",
+      "size": 8142878,
+      "release_url": "https://modrinth.com/mod/Ha28R6CL/version/SKW1BTL3"
+    },
+    {
+      "component": "grimac",
+      "project_id": "LJNGWSvH",
+      "modrinth_version_id": "vrP44TZQ",
+      "version": "2.3.74-43850df",
+      "filename": "grimac-fabric-2.3.74-43850df.jar",
+      "url": "https://cdn.modrinth.com/data/LJNGWSvH/versions/vrP44TZQ/grimac-fabric-2.3.74-43850df.jar",
+      "sha512": "18b46bda5cb5954a7d2dd208ecba5df47e654adfb6a3434332114cca00b9a4f13b9c4d26a5ce333365b7d8292b0f6e8236d78e9599529d2d85563dcc55421e53",
+      "sha1": "3578cc76644af472de69ecdaee3cb10ef6f9b42e",
+      "size": 14990231,
+      "release_url": "https://modrinth.com/plugin/grimac/version/2.3.74-43850df"
+    }
+  ],
+  "source": {
+    "checkedAt": "2026-10-11T11:16:00Z",
+    "serverReplay": "https://github.com/senseiwells/ServerReplay/tree/35eb442045aaf9f1911fe61a0f2884144c882d38",
+    "fabric": "https://fabricmc.net/use/server/",
+    "grim": "https://github.com/GrimAnticheat/Grim/tree/43850df"
+  },
+  "serverFiles": [
+    {
+      "source": "server-profiles/anticheat/config/GrimAC/config.yml",
+      "target": "config/GrimAC/config.yml"
+    },
+    {
+      "source": "server-profiles/anticheat/config/GrimAC/punishments.yml",
+      "target": "config/GrimAC/punishments.yml"
+    }
+  ]
+}

@@ -27,7 +27,7 @@ $env:BLUE_MODEL_KEY = '蓝队上游的 key'
 | `-MapDir`          | `infra/maps/race-of-wool`       | 地图包：`map.json` 的角色位和要写进参赛容器的文件，见下文         |
 | `-AcceptEula`      | 必填                            | 表示已接受 Minecraft EULA                                         |
 | `-DeploymentDir`   | `runtime/deploy`                | 部署目录。必须不存在，脚本不会覆盖已有部署                        |
-| `-ServerDownload`  | `infra/minecraft-download.json` | 服务器下载清单                                                    |
+| `-ServerDownload`  | `infra/minecraft-download.json` | 服务器下载清单。`infra/minecraft-anticheat.json` 是加了 Grim 的反作弊端，只记录不干预，见 [infra/README.md](../README.md#服务端配置原版端和反作弊端) |
 | `-ServerJar`       | 无                              | 本地已校验的 Mojang 服务器 JAR，省去下载它；Fabric 和模组仍要下载 |
 | `-Datapacks`       | `infra/datapacks/race-of-wool`  | 复制进原始世界 `datapacks/` 的数据包目录，可传多个                |
 | `-RedModelUrl`     | `https://api.openai.com/v1`     | 红队模型的 OpenAI 兼容基地址                                      |

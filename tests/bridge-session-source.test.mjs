@@ -121,7 +121,7 @@ test("serverSessionReader builds the session from arena:session and arena:config
 test("cliOptions server mode requires its settings; host mode is gone", () => {
   assert.throws(
     () => cliOptions({ ...baseEnv, BRIDGE_SESSION: "host" }),
-    /open or server/,
+    /open, server or remote/,
   );
   assert.throws(
     () => cliOptions({ ...baseEnv, BRIDGE_SESSION: "server" }),

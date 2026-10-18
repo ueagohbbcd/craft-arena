@@ -175,6 +175,22 @@ Lifecycle and configuration:
 
 With persistence, use a new `runId` after every map reset, keep the directory out of participant containers, and let only one bridge write a scope. The server waits for `ready` before listening; if initialization fails, startup fails and cleans up. Individually corrupt columns are reported in `error` while the rest load. The adapter uses `mineflayer-world-memory` with `analysis: "lazy"` and fails at startup if the installed version does not support it. Memory grows with explored terrain; there is no block-count cap.
 
+## Inside the participant container (native runtime)
+
+Since 10-18 the default runtime runs this CLI inside the participant container, one process per character on `127.0.0.1`, started by the Pi extension (`packages/pi-extension/bot-hosts.mjs`). The bot logs in through the participant's login gate ([login-gate](../login-gate/README.md)) and reads the session with `BRIDGE_SESSION=remote`. The bridge here is no longer a trust boundary: it keeps `connectBot()`, the observer and default scripts working against a local bot.
+
+With `BRIDGE_RUN_SOCKET` set, the process also runs modules inside itself, against the real Mineflayer bot (`runner.mjs`):
+
+```js
+export default async function (bot, { signal, args, log }) { ... }
+```
+
+```sh
+node $ARENA_TOOLKIT_ROOT/packages/mf-bridge/run.mjs [--bot NAME] task.mjs [args...]
+```
+
+`run.mjs` finds the socket from `ARENA_RUN_SOCKET` (main character) or `ARENA_BOTS_FILE` (`--bot`), prints the module's output and exits 0 when it finished, 1 when it threw and 130 when it was cancelled (SIGTERM/SIGINT). When a run ends, the listeners it added to the bot and the timers it started are removed; when it is cancelled or throws, the bot also releases its movement keys and stops Pathfinder and PvP. Plugins it loads stay loaded. A run sees its own task's `MC_INBOX_*` and `ARENA_TASK_*` variables in `process.env`. All runs share the bot's process, so a synchronous loop stops the bot.
+
 ## Standalone CLI
 
 `node packages/mf-bridge/cli.mjs` creates a new bot and a bridge for it as its own process: one participant's bridge in a game run by server rules, or an open session such as a companion bot on an ordinary server. Never point it at a personal account session. `cliOptions(env)` in the same file builds the `startLiveBridge` options from the environment without connecting.
@@ -193,20 +209,23 @@ With persistence, use a new `runId` after every map reset, keep the directory ou
 | `BRIDGE_BLOCK_MEMORY`                                          | memory on unless `false`                                                                                    |
 | `MF_AUTH`                                                      | `offline`; `microsoft` logs in with a Microsoft account for online-mode servers                             |
 | `MF_PROFILES_DIR`                                              | Microsoft token cache directory (passed to Mineflayer as `profilesFolder`)                                  |
-| `BRIDGE_SESSION`                                               | unset: no session route (`/v1/session` returns `404`); `open` or `server`, see below                        |
+| `BRIDGE_SESSION`                                               | unset: no session route (`/v1/session` returns `404`); `open`, `server` or `remote`, see below              |
 | `BRIDGE_SESSION_ID`                                            | `open-<start time>` / `server-<start time>` when the server writes no `arena:config` `sessionId`            |
 | `BRIDGE_BRIEFING`                                              | none; `briefing.text` for `open` sessions, and for `server` sessions whose `arena:config` has no `briefing` |
 | `BRIDGE_PROMPT_FILE`                                           | none; file read once at start (at most 32 KiB) and served as `briefing.prompt`, the mode instructions       |
 | `BRIDGE_RCON_HOST`, `BRIDGE_RCON_PORT`, `BRIDGE_RCON_PASSWORD` | `server`: the Minecraft server's RCON (port `25575`)                                                        |
-| `BRIDGE_SESSION_POLL_MS`                                       | `250`; how often `server` sessions are read                                                                 |
+| `BRIDGE_SESSION_URL`                                           | `remote`: the gate's `/v1/session?username=<bot>`                                                           |
+| `BRIDGE_RUN_SOCKET`                                            | none; a Unix socket path where modules run inside this process (see below)                                  |
+| `BRIDGE_SESSION_POLL_MS`                                       | `250`; how often `server` and `remote` sessions are read                                                    |
 | `BRIDGE_WORLD_ID`, `BRIDGE_PARTICIPANT_ID`                     | block memory scope; default a random world ID and the bot's username                                        |
 
 Session modes:
 
-| `BRIDGE_SESSION` | unset: no session route (`/v1/session` returns `404`); `open` or `server`, see below |
-| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `open` | the bridge itself: always `running` | always | never; only the operator stops the bridge |
-| `server` | the server over RCON: `arena:session` (state, winner, scores, public data) and, if present, `arena:config` (session ID, teams, briefing), polled | while `arena:session` is `running` | the bot stays for the next round; the operator (the arena command line, or `function #arena:prepare` / `#arena:start` in game) starts rounds |
+| `BRIDGE_SESSION` | Session comes from                                                                                                                               | Actions allowed                    | When the round ends                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `open`           | the bridge itself: always `running`                                                                                                              | always                             | never; only the operator stops the bridge                                                                                                    |
+| `server`         | the server over RCON: `arena:session` (state, winner, scores, public data) and, if present, `arena:config` (session ID, teams, briefing), polled | while `arena:session` is `running` | the bot stays for the next round; the operator (the arena command line, or `function #arena:prepare` / `#arena:start` in game) starts rounds |
+| `remote`         | the participant's login gate (`BRIDGE_SESSION_URL`), which reads the server over RCON on the trusted side and serves the same object as `server` | while it is `running`              | as `server`                                                                                                                                  |
 
 The last good reading is served; failed reads keep it. Until the first read succeeds `/v1/session` returns `503` and actions are refused. A reading older than 3 s cannot vouch that the session still runs: actions are refused and the bot's movement keys, digging and item use are released once, while the bot stays connected, so a short RCON outage does not drop it. When a `server` round stops running (ended, or prepared again) the bridge releases what the bot holds the same way. The bridge and Pi follow the server's state however the rounds are run.
 

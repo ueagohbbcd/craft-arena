@@ -3,7 +3,7 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { startLiveBridge } from "./live.mjs";
 import { sessionObject } from "./session-object.mjs";
-import { serverSession } from "./session-source.mjs";
+import { remoteSession, serverSession } from "./session-source.mjs";
 
 export const MAX_SESSION_PROMPT_BYTES = 32 * 1024;
 
@@ -84,8 +84,8 @@ export function cliOptions(
     blockMemory: env.BRIDGE_BLOCK_MEMORY === "false" ? false : {},
   };
   const kind = env.BRIDGE_SESSION;
-  if (![undefined, "", "open", "server"].includes(kind))
-    throw new Error("BRIDGE_SESSION must be open or server when set");
+  if (![undefined, "", "open", "server", "remote"].includes(kind))
+    throw new Error("BRIDGE_SESSION must be open, server or remote when set");
   if (env.BRIDGE_WORLD_ID || env.BRIDGE_PARTICIPANT_ID)
     bridge.blockMemory = {
       ...(env.BRIDGE_WORLD_ID ? { worldId: env.BRIDGE_WORLD_ID } : {}),
@@ -139,6 +139,19 @@ export function cliOptions(
     bridge.authorizeAction = session.authorizeAction;
     return { minecraft, bridge, session: { ...session, kind, setUsername } };
   }
+  if (kind === "remote") {
+    const intervalMs = Number(env.BRIDGE_SESSION_POLL_MS ?? 250);
+    if (!Number.isSafeInteger(intervalMs) || intervalMs < 50)
+      throw new Error("BRIDGE_SESSION_POLL_MS must be an integer >= 50");
+    const session = remoteSession({
+      url: required("BRIDGE_SESSION_URL"),
+      intervalMs,
+      now,
+    });
+    bridge.getSessionState = session.getSessionState;
+    bridge.authorizeAction = session.authorizeAction;
+    return { minecraft, bridge, session: { ...session, kind, setUsername } };
+  }
   return { minecraft, bridge };
 }
 
@@ -156,6 +169,14 @@ if (
   service.bot.once?.("spawn", refreshUsername);
   await options.session?.start?.(service);
   console.log(`Capability bridge listening at ${service.url}`);
+  // Native runtime: modules can also run inside this process (run.mjs).
+  if (process.env.BRIDGE_RUN_SOCKET) {
+    const { startRunner } = await import("./runner.mjs");
+    await startRunner({
+      bot: service.bot,
+      socketPath: process.env.BRIDGE_RUN_SOCKET,
+    });
+  }
   service.bot.on("error", (error) =>
     console.error("Minecraft bot error:", error.message),
   );

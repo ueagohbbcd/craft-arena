@@ -12,7 +12,7 @@ COPY --chown=node:node package.json package-lock.json ./
 # arena server is 1.21.1.
 RUN npm ci --ignore-scripts && node scripts/prune-node-modules.mjs node_modules 1.21.1 && chown -R node:node /opt/arena
 # Only participant-side code and its documentation enter this image: no
-# trusted-side source (arena host, bridge, model relay), no
+# trusted-side source (arena commands, login gate, model relay), no
 # tests, no developer docs, no operator configuration. The list is checked by
 # tests/deployment.test.mjs.
 COPY --chown=node:node packages/pi-extension ./packages/pi-extension
@@ -22,6 +22,8 @@ COPY --chown=node:node packages/bot-sdk ./packages/bot-sdk
 COPY --chown=node:node packages/observation ./packages/observation
 COPY --chown=node:node packages/default-scripts ./packages/default-scripts
 COPY --chown=node:node packages/world-visual ./packages/world-visual
+# Native runtime: each character's bot runs here behind a local bridge.
+COPY --chown=node:node packages/mf-bridge ./packages/mf-bridge
 COPY --chown=node:node examples ./examples
 COPY --chown=node:node participant ./participant
 COPY --chown=node:node docs/CONTEXT-DELIVERY.md ./docs/CONTEXT-DELIVERY.md

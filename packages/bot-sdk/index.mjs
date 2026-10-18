@@ -1173,9 +1173,11 @@ export function bridgeFor(username, env = process.env) {
     return { url: env.ARENA_BRIDGE_URL, token: env.ARENA_BRIDGE_TOKEN };
   let manifest;
   try {
+    // The native runtime lists its local bridges; else the provision manifest.
     manifest = JSON.parse(
       readFileSync(
-        join(env.ARENA_PROVISION_DIR ?? "", "manifest.json"),
+        env.ARENA_BOTS_FILE ??
+          join(env.ARENA_PROVISION_DIR ?? "", "manifest.json"),
         "utf8",
       ),
     );

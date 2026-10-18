@@ -71,6 +71,20 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
    - 游戏内聊天默认开启（包括 `/tell`、`/teammsg` 这类普通命令）。要关掉，给游戏桥设 `BRIDGE_ALLOW_CHAT=false`。
    - 用 `node packages/arena/src/cli.mjs check infra/match.live.json` 检查格式。
 
+### 服务端配置：原版端和反作弊端
+
+默认的 [`minecraft-download.json`](minecraft-download.json) 是原版端：官方服务端加 Fabric，Fabric 只装了录像（ServerReplay）和它的依赖，不改游戏机制。
+
+[`minecraft-anticheat.json`](minecraft-anticheat.json) 是可选的反作弊端：同一套东西再加 Grim 2.3.74（Fabric 版）。它的配置在 [`server-profiles/anticheat/config/GrimAC/`](server-profiles/anticheat/config/GrimAC/)，每次服务器启动时复制到 `/data/config/GrimAC/`。配置改成安静监控：
+
+- 不回拉：`Simulation`、`Knockback` 的 `immediate-setback-threshold` 和 `max-advantage` 为 `-1`，其余检查的 `setbackvl`/`cancelvl` 设成 1000000。
+- 不拦截：不取消重复移动包，不拦"不可能的攻击"。
+- 不踢人：事务超时 86400 秒，刷包阈值 1000000；惩罚里只有 `[alert]`（打到服务器控制台）和 `[log]`（写进 Grim 的历史库，`/grim history <玩家>` 可查）。
+
+用法：准备服务器构建目录时传 `--manifest infra/minecraft-anticheat.json`（Windows 初始化脚本用 `-ServerDownload`），换端要重建服务器镜像，并从原始地图副本开局。Grim 和 Mineflayer 的兼容性还没在真实对局里验证过，先看日志里的误报再决定要不要启用拦截。
+
+参赛 bot 跑在参赛容器里（`runtime: "native"`，默认），原版端只粗查移动；公平靠提示词约束，服务器录像留作事后核查，见 [docs/TARGET-ARCHITECTURE.md](../docs/TARGET-ARCHITECTURE.md#5-登录入口和容器里的-bot10-18-起默认)。
+
 ### 玩法与判定
 
 规则、计分、胜负和时限都在服务器上的数据包或插件里，平台通过服务器协议 v1 交换 `arena:config` 和 `arena:session`，设计见 [docs/GAME-MODES.md](../docs/GAME-MODES.md)。羊毛竞速见 [datapacks/race-of-wool](datapacks/race-of-wool/README.md)，最小示例见 [datapacks/arena-example](datapacks/arena-example/README.md)。管理员也可以直接在游戏里执行 `function #arena:prepare`／`#arena:start`／`#arena:stop`，效果和命令行一样。

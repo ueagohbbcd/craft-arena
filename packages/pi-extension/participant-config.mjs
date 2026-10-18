@@ -72,8 +72,10 @@ function defaultScriptsFrom(text, env) {
  *   images/*              images sent with the opening message
  *   agents.d/*.md         appended to the system prompt in file-name order,
  *                         together with the image's own fragments
- *                         (builtinAgentsDir); a config file of the same name
- *                         replaces the built-in one
+ *                         (builtinAgentsDir: one directory or a list,
+ *                         later ones replacing earlier files of the same
+ *                         name); a config file of the same name replaces the
+ *                         built-in one
  *   skills/               an extra Pi skills directory
  *   default-scripts.json  default scripts, see defaultScriptsFrom
  */
@@ -84,7 +86,7 @@ export async function readParticipantConfig(
   const config = { systemPromptFiles: [], images: [] };
   const fragments = new Map();
   for (const dir of [
-    builtinAgentsDir,
+    ...[builtinAgentsDir].flat(),
     directory && join(directory, "agents.d"),
   ])
     if (dir)

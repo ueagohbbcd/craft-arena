@@ -95,6 +95,8 @@ A map package is a directory with `map.json`:
 | `files`       | `{source, target, mode}`. `source` is relative to the map directory. `target` is under `/arena/config/` (read-only in the container; the files the launcher and extension read, see the [Pi extension README](../pi-extension/README.md#config-directory)) or `/workspace/` (copied by the launcher before Pi starts; `mode: "once"` keeps a file that is already there). |
 | `defaults`    | `team`, `bots` and `files` for every agent. An agent's own value replaces the default; lists are not merged.                                                                                                                                                                                                                                                              |
 
+`runtime` in the match file picks where the bots run. `"native"` (default): each bot is a real Mineflayer bot inside its participant container, and each agent gets a login gate ([packages/login-gate](../login-gate/README.md)) that admits only that agent's bots and serves the session; `agents.env` is empty. `"bridge"`: the earlier layout, one trusted capability bridge per bot with a fresh token in `agents.env`.
+
 The match file is the usual one. `config.teams` can be left out (provision fills it in) or must equal what the map implies. An optional `agents` object binds agents to model relays: `{"red1": {"relay": "red", "model": "model.red.json"}}`. The relay defaults to the agent's team, else its id; the model descriptor defaults to `model.<relay>.json` in `MODEL_DIR` (default: next to the match file); a `model` the match file names is relative to the match file.
 
 `OUT_DIR` may exist, but none of the outputs may:
@@ -104,7 +106,7 @@ The match file is the usual one. `config.teams` can be left out (provision fills
 | `match.json`          | the match file with `config.teams`, without `agents`                                                                                                                                         |
 | `compose.agents.yaml` | `bridge-<bot>` (underscores become dashes) per bot, `model-<relay>` per relay (`<RELAY>_MODEL_URL`, `<RELAY>_MODEL_KEY`), `participant-<id>` per agent, one internal network per agent       |
 | `agents.env`          | `BRIDGE_TOKEN_<BOT>=<random>` per bot, for the deployment's `.env`                                                                                                                           |
-| `agents/<id>/`        | mounted read-only at `/arena/provision`: `manifest.json` (agent, team, bots with bridge URL and token, workspace files), `model.json`, `files/`; its `config/` is mounted at `/arena/config` |
+| `agents/<id>/`        | mounted read-only at `/arena/provision`: `manifest.json` (agent, team, bots, workspace files; with `runtime: "bridge"` each bot's bridge URL and token), `model.json`, `files/`; its `config/` is mounted at `/arena/config` |
 
 The participant gets `ARENA_BOT` (its main bot) and `ARENA_PROVISION_DIR`. `connectBot({ username })` finds another bot's bridge in the manifest.
 
