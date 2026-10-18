@@ -20,6 +20,7 @@ function callBot() {
   b.creative = {
     flyTo: async (...args) => b.calls.push(["flyTo", ...args]),
   };
+  b.game = { ...b.game, gameMode: "creative" };
   b._client = { write: () => b.calls.push(["write"]) };
   b.quit = () => b.calls.push(["quit"]);
   b.activateEntity = () => b.calls.push(["activateEntity"]);
@@ -69,6 +70,18 @@ test("call reaches bot and bot.creative methods, never denied ones", async () =>
     args: { method: "creative.flyTo", args: [{ $vec3: { x: 0, y: 5, z: 0 } }] },
   });
   assert.equal(b.calls.at(-1)[0], "flyTo");
+  b.game.gameMode = "survival";
+  await assert.rejects(
+    a.dispatch({
+      action: "call",
+      args: {
+        method: "creative.flyTo",
+        args: [{ $vec3: { x: 0, y: 5, z: 0 } }],
+      },
+    }),
+    /creative mode/,
+  );
+  b.game.gameMode = "creative";
 
   for (const [method, error] of [
     ["quit", /not allowed/],

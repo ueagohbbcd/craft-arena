@@ -39,16 +39,16 @@ $env:BLUE_MODEL_KEY = '蓝队上游的 key'
 
 脚本生成的部署目录（只有当前用户、SYSTEM 和管理员组能访问；`runtime/` 不进 Git）：
 
-| 路径                                                | 内容                                                                      |
-| --------------------------------------------------- | ------------------------------------------------------------------------- |
-| `compose.yaml`、`model.red.json`、`model.blue.json` | 从本目录复制。之后改部署目录里的副本                                      |
-| `match.source.json`                                 | 你给的比赛文件的副本                                                      |
-| `match.json`、`compose.agents.yaml`、`agents/`      | `cli.mjs provision` 由地图包和比赛文件生成，见下文                        |
-| `server/`                                           | 校验过的 Minecraft 服务器构建目录                                         |
-| `map-original/world`                                | 原始世界，`reset` 从这里恢复                                              |
-| `minecraft-data/`                                   | 服务器数据：世界副本、`eula.txt`、`server.properties`                     |
-| `results/`、`replay-config/`                        | 录像文件、录像模组配置                                                    |
-| `.env`                                              | 随机生成的 RCON 密码和每个 bot 的令牌、`ARENA_SOURCE_DIR`、模型地址和 key |
+| 路径                                           | 内容                                                                      |
+| ---------------------------------------------- | ------------------------------------------------------------------------- |
+| `compose.yaml`                                 | 从本目录复制。之后改部署目录里的副本                                      |
+| `match.source.json`                            | 你给的比赛文件的副本                                                      |
+| `match.json`、`compose.agents.yaml`、`agents/` | `cli.mjs provision` 由地图包和比赛文件生成，见下文                        |
+| `server/`                                      | 校验过的 Minecraft 服务器构建目录                                         |
+| `map-original/world`                           | 原始世界，`reset` 从这里恢复                                              |
+| `minecraft-data/`                              | 服务器数据：世界副本、`eula.txt`、`server.properties`                     |
+| `results/`、`replay-config/`                   | 录像文件、录像模组配置                                                    |
+| `.env`                                         | 随机生成的 RCON 密码和每个 bot 的令牌、`ARENA_SOURCE_DIR`、模型地址和 key |
 
 生成的 `server.properties` 为离线模式、开启 PvP、RCON 在 25575、视距 8、关闭命令方块。按地图需要检查后再启动。
 
@@ -60,7 +60,7 @@ $env:BLUE_MODEL_KEY = '蓝队上游的 key'
 - `agents/<角色位>/`：只读挂到参赛容器的 `/arena/provision`（清单 `manifest.json`、模型文件 `model.json`），其中 `config/` 挂到 `/arena/config`（例如 Race of Wool 的玩法说明 `agents.d/20-race-of-wool.md`，进系统提示）。
 - `match.json`：比赛文件加上由角色位推出的 `teams`。
 
-模型文件按转发名找：`model.red.json`、`model.blue.json`，在部署目录里改。想改地图包或比赛文件，就用新的部署目录重新初始化。
+初始化时模型文件按转发名从本目录的 `model.red.json`、`model.blue.json` 复制到各角色位的 `agents/<角色位>/model.json`；之后改模型就改 `agents/<角色位>/model.json`，部署目录里不再有按队的模型文件。想改地图包或比赛文件，就用新的部署目录重新初始化。
 
 Compose 项目名固定为 `craft-arena-local`，一台机器同一时间只运行一个部署。
 

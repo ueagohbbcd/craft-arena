@@ -71,6 +71,9 @@ try {
     Copy-Item -LiteralPath $match -Destination (Join-Path $stage 'match.source.json')
     & $node (Join-Path $repo 'packages/arena/src/cli.mjs') provision $map (Join-Path $stage 'match.source.json') $stage
     if ($LASTEXITCODE -ne 0) { throw 'Provisioning the map failed (see above).' }
+    # Each agent now has its own copy (agents/<id>/model.json); the templates
+    # would only mislead later edits.
+    foreach ($file in @('model.red.json','model.blue.json')) { Remove-Item -LiteralPath (Join-Path $stage $file) }
     $prepareArgs = @((Join-Path $repo 'scripts/prepare-minecraft-server.mjs'), (Join-Path $stage 'server'), '--manifest', $ServerDownload)
     if ($ServerJar) { $prepareArgs += @('--server-jar', $ServerJar) }
     & $node @prepareArgs
@@ -113,4 +116,4 @@ try {
         Remove-Item -LiteralPath $stage -Recurse -Force
     }
 }
-Write-Output "Initialized deployment at $destination. Review server.properties, match.json, agents/*/config, model.red.json / model.blue.json and the model settings in .env (RED_MODEL_URL, BLUE_MODEL_URL and optional RED_MODEL_KEY, BLUE_MODEL_KEY) before starting agents."
+Write-Output "Initialized deployment at $destination. Review server.properties, match.json, agents/*/config, agents/*/model.json and the model settings in .env (RED_MODEL_URL, BLUE_MODEL_URL and optional RED_MODEL_KEY, BLUE_MODEL_KEY) before starting agents."

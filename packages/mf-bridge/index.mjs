@@ -454,6 +454,10 @@ export function createAuthority(
             ? `Use the ${path.at(-1)} action for this method`
             : "Method not allowed",
         );
+      // Mineflayer's creative flight changes gravity locally without asking
+      // the server, so it is only for a bot the server put in creative mode.
+      if (path[0] === "creative" && bot.game?.gameMode !== "creative")
+        fail("creative methods need creative mode");
       const owner = path.length === 2 ? bot[path[0]] : bot;
       if (typeof owner?.[path.at(-1)] !== "function")
         fail(`No method ${a.method}`);
