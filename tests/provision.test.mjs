@@ -121,6 +121,10 @@ test("provision writes per-agent config, manifests, teams and Compose services",
   assert.ok(
     participant.volumes.includes("./agents/red1/config:/arena/config:ro"),
   );
+  assert.ok(participant.volumes.includes("team-red-git:/team-git"));
+  assert.ok(
+    "team-red-git" in compose.volumes && "red1-work" in compose.volumes,
+  );
   assert.deepEqual(compose.services["bridge-arena-red2"].networks, [
     "backend",
     "agent-red1",
@@ -220,6 +224,30 @@ test("provision refuses unsafe or inconsistent maps and match files", async (t) 
     },
   });
   await assert.rejects(provision(missing), /absent\.md not found/);
+});
+
+test("teammates share one Git volume and keep their own workspaces", async (t) => {
+  const f = await fixture(t, {
+    agents: {
+      a: { team: "red", bots: ["bot_a"] },
+      b: { team: "red", bots: ["bot_b"] },
+      c: { bots: ["bot_c"] },
+    },
+  });
+  await writeFile(join(f.root, "model.c.json"), "{}");
+  await provision(f);
+  const { services } = JSON.parse(
+    (await readFile(join(f.outDir, "compose.agents.yaml"), "utf8")).replace(
+      /^#.*\n/,
+      "",
+    ),
+  );
+  const git = (id) =>
+    services[`participant-${id}`].volumes.find((v) => v.endsWith(":/team-git"));
+  assert.equal(git("a"), "team-red-git:/team-git");
+  assert.equal(git("b"), "team-red-git:/team-git");
+  assert.equal(git("c"), "c-git:/team-git");
+  assert.ok(services["participant-a"].volumes.includes("a-work:/workspace"));
 });
 
 test("the launcher copies workspace files; once keeps an existing file", async (t) => {

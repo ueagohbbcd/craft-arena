@@ -7,7 +7,7 @@ description: How to write arena programs. Query and control program skeletons, r
 
 How tasks, waiting and reports work is in your system prompt. This skill covers writing a program that does its job and leaves the character in a clean state.
 
-Import the toolkit through `ARENA_TOOLKIT_ROOT` and call `connectBot()` with no arguments: it reads the bridge (the trusted service that runs your character in Minecraft) address and token from the environment. Each `connectBot()` call keeps its own copy of what the character has seen (the local mirror).
+Import the toolkit through `ARENA_TOOLKIT_ROOT` and call `connectBot()` with no arguments: it reads the bridge (the trusted service that runs your character in Minecraft) address and token from the environment. Each `connectBot()` call keeps its own copy of what the character has seen (the local mirror). If you have more than one character, `connectBot({ username: "name" })` connects to that one instead (names are under `bots` in `/arena/provision/manifest.json`).
 
 ## Query program
 

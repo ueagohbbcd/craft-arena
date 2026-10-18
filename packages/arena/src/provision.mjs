@@ -45,6 +45,12 @@ const RELAY = /^[a-z0-9][a-z0-9_-]{0,31}$/;
 const ROOTS = ["/arena/config/", "/workspace/"];
 
 const envName = (value) => value.toUpperCase().replace(/[^A-Z0-9]/g, "_");
+/** Teammates share one Git volume; an agent without a team has its own. */
+const gitVolume = (agent) =>
+  agent.team
+    ? `team-${String(agent.team).replace(/[^A-Za-z0-9_.-]/g, "-")}-git`
+    : `${agent.id}-git`;
+
 export const tokenVariable = (bot) => `BRIDGE_TOKEN_${envName(bot)}`;
 // Service names double as host names, which take no underscores.
 export const bridgeService = (bot) =>
@@ -236,7 +242,7 @@ export function agentsCompose(agents, { mapId, relays }) {
       networks: [`agent-${agent.id}`],
       volumes: [
         `${agent.id}-work:/workspace`,
-        `${agent.id}-git:/team-git`,
+        `${gitVolume(agent)}:/team-git`,
         `./agents/${agent.id}:/arena/provision:ro`,
         `./agents/${agent.id}/config:/arena/config:ro`,
       ],
@@ -244,7 +250,7 @@ export function agentsCompose(agents, { mapId, relays }) {
     };
     participantBuilt = true;
     volumes[`${agent.id}-work`] = {};
-    volumes[`${agent.id}-git`] = {};
+    volumes[gitVolume(agent)] = {};
   }
   return { services, networks, volumes };
 }
