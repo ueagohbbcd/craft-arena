@@ -176,6 +176,24 @@ async function modelProfile({ env, directory, cwd }) {
     keepRecentTokens: Math.floor(contextWindow / 4),
     ...model.compaction,
   };
+  if (maxTokens >= contextWindow)
+    throw new Error(
+      "ARENA_MODEL_CONFIG maxOutputTokens must be smaller than contextWindow",
+    );
+  if (
+    typeof compaction.enabled !== "boolean" ||
+    !positive(compaction.reserveTokens) ||
+    !Number.isSafeInteger(compaction.keepRecentTokens) ||
+    compaction.keepRecentTokens < 0 ||
+    compaction.reserveTokens + compaction.keepRecentTokens >= contextWindow
+  )
+    throw new Error(
+      "ARENA_MODEL_CONFIG compaction needs a boolean enabled, positive integer reserveTokens, nonnegative integer keepRecentTokens, and room for history within contextWindow",
+    );
+  if (compaction.enabled && compaction.reserveTokens < maxTokens)
+    throw new Error(
+      "ARENA_MODEL_CONFIG compaction.reserveTokens must cover maxOutputTokens",
+    );
   const agentDir = directory || (await mkdtemp(join(tmpdir(), "arena-pi-")));
   await mkdir(agentDir, { recursive: true, mode: 0o700 });
   const models = {
@@ -421,8 +439,15 @@ async function launchPi({
         retryDelayMs: positiveInteger(env.ARENA_RETRY_DELAY_MS, 2000),
         maxRetryDelayMs: positiveInteger(env.ARENA_RETRY_MAX_DELAY_MS, 60000),
       });
-      detachRpc = observeRpcOutput(child.stdout, (event) =>
-        recovery.receive(event),
+      detachRpc = observeRpcOutput(
+        child.stdout,
+        (event) => recovery.receive(event),
+        undefined,
+        (error) => {
+          process.stderr.write(`Arena RPC handler failed: ${error.message}\n`);
+          runtimeFailed = true;
+          shutdown();
+        },
       );
     }
     child.stdout.pipe(process.stdout, { end: false });

@@ -5,6 +5,8 @@ description: Getting around in the arena. The first movement with navigate.mjs, 
 
 # Getting around
 
+When calculating directions, `Vector` follows native `vec3`: `normalize()` mutates; `unit()` makes a normalized copy. Use `unit()` when preserving a position or direction.
+
 ## First movement
 
 Walk with `navigate.mjs`:

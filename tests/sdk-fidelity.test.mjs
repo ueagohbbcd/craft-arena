@@ -74,7 +74,9 @@ function methodNames(object) {
   return names;
 }
 
-test("facade method surface matches Mineflayer except for the documented gaps", async () => {
+// This is an API inventory smoke check, not evidence of behavioral parity.
+// Real method behavior belongs in sdk-*.test.mjs and live server checks.
+test("facade method inventory matches Mineflayer except for documented gaps (not behavior)", async () => {
   const real = methodNames(await realMineflayerBot());
   // Compare a configured facade, as connectBot returns it.
   const configured = new BotFacade({

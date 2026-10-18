@@ -13,43 +13,12 @@ import {
   controls,
 } from "../bridge-protocol/index.mjs";
 import { sseData } from "../bridge-protocol/sse.mjs";
-export class Vector {
+// Keep the facade's zero-argument constructor, but use Mineflayer's vector
+// implementation (notably normalize() mutates and unit() copies).
+const { Vec3 } = require("vec3");
+export class Vector extends Vec3 {
   constructor(x = 0, y = 0, z = 0) {
-    Object.assign(this, { x, y, z });
-  }
-  clone() {
-    return new this.constructor(this.x, this.y, this.z);
-  }
-  offset(x, y, z) {
-    return new this.constructor(this.x + x, this.y + y, this.z + z);
-  }
-  plus(v) {
-    return this.offset(v.x, v.y, v.z);
-  }
-  minus(v) {
-    return this.offset(-v.x, -v.y, -v.z);
-  }
-  scaled(n) {
-    return new this.constructor(this.x * n, this.y * n, this.z * n);
-  }
-  floored() {
-    return new this.constructor(
-      Math.floor(this.x),
-      Math.floor(this.y),
-      Math.floor(this.z),
-    );
-  }
-  distanceTo(v) {
-    return this.minus(v).norm();
-  }
-  norm() {
-    return Math.hypot(this.x, this.y, this.z);
-  }
-  normalize() {
-    return this.scaled(1 / (this.norm() || 1));
-  }
-  equals(v) {
-    return !!v && this.x === v.x && this.y === v.y && this.z === v.z;
+    super(x, y, z);
   }
 }
 const coords = (v) => ({ x: v.x, y: v.y, z: v.z });

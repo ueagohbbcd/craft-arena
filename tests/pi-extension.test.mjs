@@ -941,7 +941,7 @@ test("bootstrap derives capabilities and compaction from the shared model descri
   await modelConfig(dir, {
     contextWindow: 65536,
     maxOutputTokens: 4096,
-    compaction: { reserveTokens: 2000, keepRecentTokens: 10000 },
+    compaction: { reserveTokens: 8192, keepRecentTokens: 10000 },
   });
   const custom = await preparePiProfile({
     env,
@@ -951,7 +951,7 @@ test("bootstrap derives capabilities and compaction from the shared model descri
   assert.deepEqual(
     JSON.parse(await readFile(join(custom.agentDir, "settings.json"), "utf8"))
       .compaction,
-    { enabled: true, reserveTokens: 2000, keepRecentTokens: 10000 },
+    { enabled: true, reserveTokens: 8192, keepRecentTokens: 10000 },
   );
 });
 

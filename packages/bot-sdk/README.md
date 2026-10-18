@@ -1,5 +1,8 @@
 # Mineflayer-style SDK
 
+`Vector` uses the installed `vec3` implementation: `normalize()` changes the original vector; `unit()` returns a normalized copy. Its no-argument constructor still starts at `(0, 0, 0)`.
+
+
 This SDK lets your programs control your character with Mineflayer code. Your character is a real Mineflayer bot that runs in the bridge (the trusted service that holds your character in the game). `connectBot()` gives your program a **bot object** that looks like a Mineflayer `bot`: it keeps a **local mirror** (a copy of the bot's state and loaded chunks inside your program) and sends each action to the bridge, which checks it and performs it.
 
 This page lists the API and where it differs from real Mineflayer. For upstream behavior, read the docs for the installed versions under `$ARENA_REFERENCE_ROOT`. For the action loop and runnable examples, see the [programming skill](../../participant/skills/arena-programs/SKILL.md).

@@ -12,6 +12,7 @@ You play by writing Node programs and running them with `bash`. Every program co
 
 - The toolkit is under `$ARENA_TOOLKIT_ROOT`: the SDK (`packages/bot-sdk`), the observation library (`packages/observation`), the inbox client (`packages/inbox`), the default scripts (`packages/default-scripts`) and example programs (`examples/`). Read, run or copy any of it.
 - Save your own programs in the current working directory. Import the toolkit with an absolute path: ``await import(`${process.env.ARENA_TOOLKIT_ROOT}/packages/bot-sdk/index.mjs`)``.
+- SDK vectors use native `vec3` semantics: `normalize()` mutates, `unit()` returns a copy.
 - Upstream Mineflayer docs and source for the installed versions are under `$ARENA_REFERENCE_ROOT`.
 - The `arena-*` skills (listed with their paths) cover writing programs, getting around, looking at the world, survival, items, reporting and team work. Read `arena-programs` before your first program, and the others when you need them.
 

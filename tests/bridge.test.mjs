@@ -39,7 +39,11 @@ test("approved semantic actions validate and dispatch typed targets", async () =
   assert.equal(b.calls[1][1].name, "stone");
   const before = b.entity.position.clone();
   await a.dispatch({ action: "stop", args: {} });
-  assert.deepEqual(b.entity.position, before);
+  assert.deepEqual(
+    [b.entity.position.x, b.entity.position.y, b.entity.position.z],
+    [before.x, before.y, before.z],
+    "stopping must not change position",
+  );
 });
 test("HTTP auth, initial baseline, stable entity updates and reconnect reset", async (t) => {
   const b = fakeBot(),

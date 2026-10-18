@@ -608,3 +608,25 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
       );
     },
   );
+
+test("valid RPC consumer failures are observable, not swallowed as log noise", () => {
+  const stream = new PassThrough();
+  const failure = new Error("recovery handler broke");
+  const errors = [],
+    received = [];
+  const stop = observeRpcOutput(
+    stream,
+    (event) => {
+      if (event.type === "agent_start") throw failure;
+      received.push(event.type);
+    },
+    undefined,
+    (error) => errors.push(error),
+  );
+  stream.write(
+    'plain log\n{bad json}\n{"type":"agent_start"}\n{"type":"agent_settled"}\n',
+  );
+  assert.deepEqual(errors, [failure]);
+  assert.deepEqual(received, ["agent_settled"]);
+  stop();
+});

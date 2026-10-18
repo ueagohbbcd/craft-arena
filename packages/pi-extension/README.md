@@ -102,6 +102,8 @@ With an endpoint, the launcher turns on Pi's automatic compaction with values de
 | `reserveTokens`    | `min(contextWindow / 2, max(2 × maxOutputTokens, contextWindow / 4))` | `compaction.reserveTokens` in the descriptor |
 | `keepRecentTokens` | `contextWindow / 4`                                                   | `compaction.keepRecentTokens`                |
 
+The launcher rejects contradictory budgets before writing a profile: output must be smaller than the context; enabled compaction must reserve at least one maximum output; reserve plus kept history must leave room inside the context. It does not invent a fallback context size. A valid budget is not proof that a model is suitable for a complete match.
+
 Pi compacts when the context reaches `contextWindow − reserveTokens`. The summary request goes through the same `arena` provider as any other call. The Windows local models ([infra/windows-local](../../infra/windows-local/README.md)) use context 300000, output 32768, reserve 50000 and keep 20000, so compaction starts at 250000 tokens.
 
 After each compaction the extension sends one `arena-after-compaction` message before the next model request (as a steering message while Pi is working). It carries one full sample of the character from `examples/observe.mjs` (5 s limit; on failure it says why), a full `runtime.snapshot`, and the inbox reports that were waiting. A waiting `runtime.current` change, and a waiting `observation.current` change when the sample succeeded, are left out because the full state replaces them. Later observer and runtime reports are changes against that state.
@@ -180,3 +182,5 @@ ARENA_TEST_REAL_DEFAULT_WAIT=1 node --test --test-name-pattern='omitted bash' te
 ```
 
 Pi API references: [Pi repository](https://github.com/earendil-works/pi), [pinned npm package](https://www.npmjs.com/package/@earendil-works/pi-coding-agent/v/1.1.0).
+
+Valid RPC events that throw inside the recovery handler are reported as `Arena RPC handler failed` and close the launcher with failure status; they are not silently discarded as ordinary log noise.
