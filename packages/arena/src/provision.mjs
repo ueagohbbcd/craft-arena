@@ -27,7 +27,15 @@
  * model.<relay>.json next to the match file.
  */
 import { randomBytes } from "node:crypto";
-import { cp, mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  chown,
+  cp,
+  mkdir,
+  readFile,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import {
   basename,
   dirname,
@@ -145,10 +153,29 @@ export function teamsOf(agents) {
   return [...teams].map(([id, players]) => ({ id, players }));
 }
 
+/** The user participant containers run as. */
+const PARTICIPANT_UID = 1000;
+
+/**
+ * The manifest holds the agent's bridge tokens: private to its owner, and
+ * that owner must be the container user. As root, hand it over; as another
+ * user (who cannot chown), let it be read and rely on the deployment
+ * directory's own permissions. Windows has no POSIX owners.
+ */
+export async function shareWithParticipant(
+  file,
+  uid = process.getuid?.() ?? null,
+  ops = { chown, chmod },
+) {
+  if (uid === null || uid === PARTICIPANT_UID) return;
+  if (uid === 0) await ops.chown(file, PARTICIPANT_UID, PARTICIPANT_UID);
+  else await ops.chmod(file, 0o644);
+}
+
 /** The Compose services, networks and volumes for the agents (plain data). */
 export function agentsCompose(agents, { mapId, relays }) {
   const common = {
-    user: "1000:1000",
+    user: `${PARTICIPANT_UID}:${PARTICIPANT_UID}`,
     cap_drop: ["ALL"],
     security_opt: ["no-new-privileges:true"],
     init: true,
@@ -379,6 +406,7 @@ export async function provision({
       )}\n`,
       { mode: 0o600 },
     );
+    await shareWithParticipant(join(dir, "manifest.json"));
   }
   const { agents: _agents, ...rest } = match;
   await writeFile(

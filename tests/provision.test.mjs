@@ -3,7 +3,11 @@ import assert from "node:assert/strict";
 import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { provision, resolveAgents } from "../packages/arena/src/provision.mjs";
+import {
+  provision,
+  resolveAgents,
+  shareWithParticipant,
+} from "../packages/arena/src/provision.mjs";
 import { applyProvisionFiles } from "../packages/pi-extension/participant-config.mjs";
 import { bridgeFor } from "../packages/bot-sdk/index.mjs";
 
@@ -248,6 +252,20 @@ test("teammates share one Git volume and keep their own workspaces", async (t) =
   assert.equal(git("b"), "team-red-git:/team-git");
   assert.equal(git("c"), "c-git:/team-git");
   assert.ok(services["participant-a"].volumes.includes("a-work:/workspace"));
+});
+
+test("the manifest is handed to the participant user", async () => {
+  const calls = [];
+  const ops = {
+    chown: async (...args) => calls.push(["chown", ...args]),
+    chmod: async (...args) => calls.push(["chmod", ...args]),
+  };
+  for (const uid of [null, 1000, 0, 1001])
+    await shareWithParticipant("m.json", uid, ops);
+  assert.deepEqual(calls, [
+    ["chown", "m.json", 1000, 1000],
+    ["chmod", "m.json", 0o644],
+  ]);
 });
 
 test("the launcher copies workspace files; once keeps an existing file", async (t) => {
