@@ -16,4 +16,4 @@ This is a team match. Your team and the other teams race to complete the same se
 - Deaths do not end the match; you respawn and can keep going.
 - If a participant's character disconnects, the match ends as abandoned with no winner.
 - The map may have its own rules (lanes, where wool comes from, what not to destroy). They are in the briefing text; follow them.
-- Use only your game bridge and your model endpoint.
+- Use the native Mineflayer bot supplied by your participant runtime and your model endpoint.

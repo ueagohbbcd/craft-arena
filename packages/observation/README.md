@@ -101,7 +101,7 @@ The report covers all samples since the last delivered one. It is ready 30 secon
 | `dimensions[].bbox`                            | `[[minX, minY, minZ], [maxX, maxY, maxZ]]` of the cells actually reached; it may contain holes                                       |
 | `dimensions[].opaqueBoundaryArea`              | number of distinct opaque block faces facing the scanned space: roughly the visible wall and floor area. It is not precise geometry. |
 
-For exact positions, query blocks in a program or use [block memory](../bot-sdk/BLOCK-MEMORY.md).
+For exact positions, query blocks in a program or use [block memory](../bot-host/README.md).
 
 ## Nearby signs: `observation.nearby_signs`
 
@@ -145,7 +145,7 @@ Events only signal; they never stop or change your programs.
 | `repeat_chat`  | the same own chat message 3 times within 10 minutes                                                          | normal     |
 | `repeat_death` | 2 deaths within 16 blocks of each other within 10 minutes                                                    | **urgent** |
 
-On four recorded 30-minute matches these thresholds produced 1 to 3 reports per character: every repeated death at the start pool or a mob spot, and two long idle spells. The watchdog in your own programs (`packages/bot-sdk/watchdog.mjs`) is stricter and sees what the program is trying to do. To change the thresholds, copy the script and pass other values to `createTrendWatch`.
+On four recorded 30-minute matches these thresholds produced 1 to 3 reports per character: every repeated death at the start pool or a mob spot, and two long idle spells. The watchdog in your own programs (`packages/observation/watchdog.mjs`) is stricter and sees what the program is trying to do. To change the thresholds, copy the script and pass other values to `createTrendWatch`.
 
 ## One sample on request: `examples/observe.mjs`
 
@@ -194,28 +194,29 @@ Top-level `intervalMs` sets the state sampling period (default 1000 ms). `report
 ```js
 // my-observer.mjs
 const root = process.env.ARENA_TOOLKIT_ROOT;
-const { connectBot } = await import(`${root}/packages/bot-sdk/index.mjs`);
 const { InboxClient } = await import(`${root}/packages/inbox/index.mjs`);
 const { startObserver } = await import(
   `${root}/packages/observation/observer.mjs`
 );
 
-const bot = await connectBot();
-const observer = await startObserver({
-  bot,
-  inbox: new InboxClient(),
-  events: { urgentDamageLoss: 2 },
-});
-process.once("SIGTERM", () => {
+export default async function (bot, { signal }) {
+  const observer = await startObserver({
+    bot,
+    inbox: new InboxClient(),
+    events: { urgentDamageLoss: 2 },
+  });
+  if (signal.aborted) observer.close();
+  else
+    await new Promise((resolve) =>
+      signal.addEventListener("abort", resolve, { once: true }),
+    );
   observer.close();
-  bot.closeBridge();
-  process.exit(0);
-});
+}
 ```
 
 ## Reusable functions
 
-All are read-only. Import them from `$ARENA_TOOLKIT_ROOT/packages/observation/`. Each example assumes `const bot = await connectBot();`.
+All are read-only. Import them from `$ARENA_TOOLKIT_ROOT/packages/observation/`. Use these functions inside a native module, where `bot` is supplied by `packages/bot-host/run.mjs`.
 
 | Function                                                            | File           | Use                                                                           |
 | ------------------------------------------------------------------- | -------------- | ----------------------------------------------------------------------------- |
@@ -368,4 +369,4 @@ Environment variables:
 | `ARENA_CHAT_WAKE`         | `none`                                   | chat: `mention` posts chat that names the bot (whole word, any case) or whispers to it as urgent, so it wakes an idle model; `all` does so for all chat. The bot's own messages never wake |
 | `ARENA_CHAT_USERNAME`     | the session's `username`                 | chat: the bot's name for `mention`, used when the session does not give one                                                                                                                |
 
-`observer.json` can set `intervalMs` (state sampling period, default 1000) and `recentBlocks` (`enabled` true, `radius` 6, `intervalMs` 1000, `maxReads` 4096, `positionLimit` 3, `minReportMs` 30000) besides `radar` and `events`. Default scripts start only when `ARENA_BRIDGE_URL` and `ARENA_BRIDGE_TOKEN` are both set. How reports reach the model is described in [docs/CONTEXT-DELIVERY.md](../../docs/CONTEXT-DELIVERY.md); test coverage is in [docs/VALIDATION.md](../../docs/VALIDATION.md).
+`observer.json` can set `intervalMs` (state sampling period, default 1000) and `recentBlocks` (`enabled` true, `radius` 6, `intervalMs` 1000, `maxReads` 4096, `positionLimit` 3, `minReportMs` 30000) besides `radar` and `events`. Default scripts start when the native host exposes `ARENA_RUN_SOCKET`. How reports reach the model is described in [docs/CONTEXT-DELIVERY.md](../../docs/CONTEXT-DELIVERY.md); test coverage is in [docs/VALIDATION.md](../../docs/VALIDATION.md).

@@ -37,9 +37,6 @@ function fakeBot() {
   bot.health = 20;
   bot.closed = false;
   bot.getSessionState = async () => ({ state: "running" });
-  bot.closeBridge = () => {
-    bot.closed = true;
-  };
   return bot;
 }
 function fakeSample(bot, { now = Date.now, connectionStatus, local } = {}) {
@@ -277,12 +274,12 @@ test("default observer reports state changes only after the previous report was 
   batch = inbox.drain();
   assert.deepEqual(batch.messages[0].data.changes, { self: { health: 9 } });
 
-  bot.emit("bridgeDisconnected");
+  bot.emit("end", "Server closed");
   await until(() => report(inbox));
-  assert.equal(report(inbox).changes.connection.status, "unavailable");
+  assert.equal(report(inbox).changes.connection.status, "disconnected");
   observer.close();
   assert.equal(bot.listenerCount("damage"), 0);
-  assert.equal(bot.listenerCount("bridgeDisconnected"), 0);
+  assert.equal(bot.listenerCount("end"), 0);
 });
 
 test("observer events stay urgent: they release a wait without stopping the program", async (t) => {
@@ -309,25 +306,23 @@ test("observer events stay urgent: they release a wait without stopping the prog
   assert.equal(completed.stdout, "still-running");
 });
 
-test("observer script retries an unavailable bridge and closes its connection", async () => {
+test("native observer reports bot disconnect and removes its listeners on close", async () => {
   const inbox = new Inbox({ sessionId: "observer-retry" });
   const bot = fakeBot();
-  let calls = 0;
   const running = await runObserver({
-    connect: async () => {
-      if (++calls < 3) throw new Error("bridge offline");
-      return bot;
-    },
+    bot,
     inbox: localInboxClient(inbox),
-    retryMs: 5,
     env: { ARENA_OBSERVER_CONFIG: await noScanConfig() },
     watch: fakeWatch,
     sample: fakeSample,
   });
-  assert.equal(calls, 3);
   await until(() => report(inbox));
+  bot.emit("end", "Server closed");
+  await until(
+    () => report(inbox)?.changes?.connection?.status === "disconnected",
+  );
   running.close();
-  assert.equal(bot.closed, true);
+  assert.equal(bot.listenerCount("end"), 0);
 });
 
 test("default scripts are configurable by name and refuse unknown names", () => {

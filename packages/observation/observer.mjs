@@ -141,9 +141,7 @@ export async function startObserver({
     bot.on(name, fn);
     listeners.push([name, fn]);
   };
-  // Losing the observation transport does not prove the Minecraft bot left.
-  listen("bridgeDisconnected", () => (status = "unavailable"));
-  listen("bridgeReset", () => (status = "connected"));
+  listen("spawn", () => (status = "connected"));
   listen("end", () => (status = "disconnected"));
   listen("kicked", () => (status = "disconnected"));
 

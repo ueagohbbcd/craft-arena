@@ -1,25 +1,12 @@
-/**
- * Native runtime: each of this participant's characters runs as a real
- * Mineflayer bot inside the container, one resident process per character
- * (packages/mf-bridge/cli.mjs on 127.0.0.1). It logs in through the
- * participant's login gate (ARENA_MINECRAFT_HOST) and reads the session from
- * the gate (ARENA_SESSION_URL). Programs keep using connectBot() against that
- * local bridge, or run a module inside the bot's own process (bot-host run).
- *
- * A host that exits (the bot left the game, or the process died) is started
- * again after `restartMs`; Minecraft sees a reconnect.
- */
+/** Start one native Mineflayer process for each participant character. */
 import { spawn } from "node:child_process";
-import { randomBytes } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const bridgeCli = fileURLToPath(
-  new URL("../mf-bridge/cli.mjs", import.meta.url),
-);
+const hostCli = fileURLToPath(new URL("../bot-host/cli.mjs", import.meta.url));
 
-/** This participant's characters: the provision manifest, else ARENA_BOT. */
 export async function botNames(env) {
   if (env.ARENA_PROVISION_DIR)
     try {
@@ -35,45 +22,24 @@ export async function botNames(env) {
   throw new Error("ARENA_MINECRAFT_HOST is set but no character is named");
 }
 
-/** Environment of one host process (pure, for tests). */
-export function hostEnv(env, { name, index, token, runDir }) {
-  const session = env.ARENA_SESSION_URL
-    ? {
-        BRIDGE_SESSION: "remote",
-        BRIDGE_SESSION_URL: `${env.ARENA_SESSION_URL}${env.ARENA_SESSION_URL.includes("?") ? "&" : "?"}username=${encodeURIComponent(name)}`,
-      }
-    : { BRIDGE_SESSION: "open" };
-  // The participant's own environment, so modules run in the bot process see
-  // what programs see (toolkit and reference roots, inbox settings).
+export function hostEnv(env, { name, runSocket, index, runDir }) {
   return {
     ...env,
-    MF_HOST: env.ARENA_MINECRAFT_HOST,
-    MF_PORT: env.ARENA_MINECRAFT_PORT ?? "25565",
-    MF_VERSION: env.MC_VERSION ?? "1.21.1",
     MF_USERNAME: name,
-    BRIDGE_HOST: "127.0.0.1",
-    BRIDGE_PORT: String(Number(env.ARENA_BRIDGE_BASE_PORT ?? 8100) + index),
-    BRIDGE_TOKEN: token,
-    BRIDGE_RUN_SOCKET: join(runDir, `${name}.sock`),
-    ...(env.ARENA_WORLD_ID ? { BRIDGE_WORLD_ID: env.ARENA_WORLD_ID } : {}),
-    ...(env.ARENA_PARTICIPANT_ID
-      ? { BRIDGE_PARTICIPANT_ID: env.ARENA_PARTICIPANT_ID }
-      : {}),
-    ...session,
+    ARENA_RUN_SOCKET: runSocket,
+    ARENA_BOT_INDEX: String(index),
+    ARENA_WORLD_MEMORY_DIR:
+      env.ARENA_WORLD_MEMORY_DIR ?? join(runDir, "world-memory", name),
   };
 }
 
-/**
- * Start one host per character. Returns { env, close() }: `env` adds
- * ARENA_BRIDGE_URL/TOKEN (main character), ARENA_BOTS_FILE (all of them) and
- * ARENA_RUN_SOCKET (main character's module runner) for the participant.
- */
+/** Start a real bot host per character and restart it if its process exits. */
 export async function startBotHosts({
   env = process.env,
   runDir = join(env.TMPDIR || "/tmp", "arena-bots"),
   restartMs = 2000,
   spawnHost = (hostEnvironment) =>
-    spawn(process.execPath, [bridgeCli], {
+    spawn(process.execPath, [hostCli], {
       env: hostEnvironment,
       stdio: ["ignore", "inherit", "inherit"],
     }),
@@ -81,43 +47,49 @@ export async function startBotHosts({
 } = {}) {
   const names = await botNames(env);
   await mkdir(runDir, { recursive: true, mode: 0o700 });
-  const hosts = names.map((name, index) => {
-    const token = randomBytes(24).toString("hex");
-    const environment = hostEnv(env, { name, index, token, runDir });
-    return {
+  const bots = names.map((name, index) => ({
+    name,
+    runSocket: join(runDir, `${name}.sock`),
+    environment: hostEnv(env, {
       name,
-      token,
-      url: `http://127.0.0.1:${environment.BRIDGE_PORT}`,
-      socket: environment.BRIDGE_RUN_SOCKET,
-      environment,
-    };
-  });
+      index,
+      runSocket: join(runDir, `${name}.sock`),
+      runDir,
+    }),
+  }));
   const botsFile = join(runDir, "bots.json");
-  await writeFile(
-    botsFile,
-    `${JSON.stringify(
-      {
-        bots: hosts.map(({ name, url, token, socket }) => ({
-          name,
-          url,
-          token,
-          runSocket: socket,
-        })),
-      },
-      null,
-      2,
-    )}\n`,
-    { mode: 0o600 },
-  );
+  let persistChain = Promise.resolve();
+  const persist = () => {
+    persistChain = persistChain.then(() =>
+      writeFile(
+        botsFile,
+        `${JSON.stringify({ bots: bots.map(({ name, runSocket, pid, generation }) => ({ name, runSocket, ...(pid ? { pid, generation } : {}) })) }, null, 2)}\n`,
+        { mode: 0o600 },
+      ),
+    );
+    return persistChain;
+  };
+  await persist();
   let closed = false;
   const children = new Map();
   const timers = new Set();
   const start = (host) => {
     if (closed) return;
+    host.generation = randomUUID();
+    host.environment.ARENA_BOT_HOST_GENERATION = host.generation;
     const child = spawnHost(host.environment);
+    host.pid = child.pid;
     children.set(host.name, child);
+    void persist().catch((error) =>
+      log(`Bot host manifest update failed: ${error.message}`),
+    );
     child.once("exit", (code, signal) => {
       children.delete(host.name);
+      delete host.pid;
+      delete host.generation;
+      void persist().catch((error) =>
+        log(`Bot host manifest update failed: ${error.message}`),
+      );
       if (closed) return;
       log(
         `Bot host ${host.name} exited (${signal ?? code}); restarting in ${restartMs} ms`,
@@ -132,16 +104,15 @@ export async function startBotHosts({
       log(`Bot host ${host.name}: ${error.message}`),
     );
   };
-  for (const host of hosts) start(host);
-  const [main] = hosts;
+  for (const host of bots) start(host);
+  await persistChain;
+  const [main] = bots;
   return {
-    hosts,
+    bots,
     env: {
       ARENA_BOT: main.name,
-      ARENA_BRIDGE_URL: main.url,
-      ARENA_BRIDGE_TOKEN: main.token,
       ARENA_BOTS_FILE: botsFile,
-      ARENA_RUN_SOCKET: main.socket,
+      ARENA_RUN_SOCKET: main.runSocket,
     },
     close() {
       closed = true;

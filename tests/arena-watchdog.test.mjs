@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { setTimeout as delay } from "node:timers/promises";
 import { Inbox, InboxClient } from "../packages/inbox/index.mjs";
-import { watchdog } from "../packages/bot-sdk/watchdog.mjs";
+import { watchdog } from "../packages/observation/watchdog.mjs";
 import { socketInbox } from "./helpers/inbox-socket.mjs";
 
 function fakeBot() {

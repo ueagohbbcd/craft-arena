@@ -3,7 +3,7 @@ import { parseStorageReply, serializeSnbt } from "./snbt.mjs";
 /**
  * Server protocol v1 (docs/GAME-MODES.md): the platform talks to the rules
  * datapack or plugin only through these RCON commands. Shared by the
- * operator CLI (cli.mjs), bridges in server mode and
+ * operator CLI (cli.mjs), participant bot hosts and
  * scripts/verify-server-protocol.mjs.
  */
 const PROTOCOL_VERSION = 1;
@@ -50,7 +50,7 @@ const id = (x) => typeof x === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(x);
 /**
  * Errors in an `arena:config` value (empty when valid): `sessionId`, optional
  * `runId`, `kind` (`match` or `open`), `teams` [{id, players}], optional
- * positive `durationMs`, and an optional `briefing` text the bridges serve.
+ * positive `durationMs`, and an optional `briefing` text the login gate serves.
  */
 export function validateServerConfig(value) {
   const errors = [];
@@ -116,7 +116,7 @@ export async function writeServerConfig(rcon, config) {
     await rcon.command(`data remove storage arena:config ${key}`);
   await rcon.command(`data merge storage arena:config ${serializeSnbt(value)}`);
   // Vanilla RCON shares one output buffer between clients, so the merge
-  // reply may carry a bridge's text; read the storage back instead.
+  // reply may carry other RCON clients' text; read the storage back instead.
   const written = JSON.parse(JSON.stringify(value));
   const stored = (await readConfig(rcon)) ?? {};
   const wrong = [
@@ -139,7 +139,7 @@ function same(a, b) {
 }
 
 /**
- * Vanilla RCON shares one output buffer between clients: while bridges read
+ * Vanilla RCON shares one output buffer between clients: while bot hosts read
  * the session storage, a command's own reply can come back empty or as their
  * storage text. Such a reply says nothing about the command, so `expect`
  * does not fail on it.

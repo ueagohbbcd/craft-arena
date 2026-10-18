@@ -175,8 +175,7 @@ test("Pi hooks coalesce at one top-level return and preserve existing result con
 test("the full runtime file keeps program state the compact report omits", async (t) => {
   const h = await harness(t, {
     env: {
-      ARENA_BRIDGE_URL: "",
-      ARENA_BRIDGE_TOKEN: "",
+      ARENA_SESSION_URL: "",
     },
   });
   const value = { phase: "reported phase", payload: "x".repeat(24000) };
@@ -200,7 +199,7 @@ test("the full runtime file keeps program state the compact report omits", async
 
 test("after compaction the model gets waiting reports, a full runtime snapshot and the character state before its next request", async (t) => {
   const h = await harness(t, {
-    env: { ARENA_BRIDGE_URL: "", ARENA_BRIDGE_TOKEN: "" },
+    env: { ARENA_SESSION_URL: "" },
   });
   // Establish a delivered runtime baseline, as an earlier turn would.
   await h.handlers.get("before_agent_start")({}, h.ctx);
@@ -213,7 +212,10 @@ test("after compaction the model gets waiting reports, a full runtime snapshot a
   assert.deepEqual(options, { deliverAs: "steer" });
   assert.equal(message.details.runtime.type, "runtime.snapshot");
   assert.equal(message.details.runtime.changes.tasks.length, 2);
-  assert.equal(message.details.character.unavailable, "no bridge configured");
+  assert.equal(
+    message.details.character.unavailable,
+    "native bot host unavailable",
+  );
   const keys = message.details.batch.messages.map((m) => m.key);
   assert(!keys.includes("runtime.current"), "the snapshot replaces it");
   assert(
@@ -490,7 +492,9 @@ test(
         timeout: 15000,
         env: {
           ...process.env,
-          ARENA_MODEL_CONFIG: await modelConfig(dir),
+          ARENA_MODEL_CONFIG: await modelConfig(dir, {
+            cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 },
+          }),
           OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
           OPENAI_API_KEY: "scoped-fixture-token",
         },
@@ -554,8 +558,11 @@ test("session state reaches the model once per change, without a clock", async (
       res.end();
       return;
     }
-    assert.equal(req.url, "/v1/session");
-    assert.equal(req.headers.authorization, "Bearer clock-fixture-token");
+    assert.equal(new URL(req.url, "http://localhost").pathname, "/v1/session");
+    assert.equal(
+      new URL(req.url, "http://localhost").searchParams.get("username"),
+      "clock-fixture",
+    );
     reads++;
     res.setHeader("content-type", "application/json");
     res.end(
@@ -578,8 +585,8 @@ test("session state reaches the model once per change, without a clock", async (
   });
   const h = await harness(t, {
     env: {
-      ARENA_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`,
-      ARENA_BRIDGE_TOKEN: "clock-fixture-token",
+      ARENA_SESSION_URL: `http://127.0.0.1:${server.address().port}`,
+      ARENA_BOT: "clock-fixture",
       // A host stub, not a game: no default observer/chat scripts.
       ARENA_DEFAULT_SCRIPTS: "",
     },
@@ -623,8 +630,11 @@ test(
         res.write('data: {"type":"connected"}\n\n');
         return;
       }
-      if (req.url === "/v1/session") {
-        assert.equal(req.headers.authorization, "Bearer host-resident-fixture");
+      if (req.url.startsWith("/v1/session")) {
+        assert.equal(
+          new URL(req.url, "http://localhost").searchParams.get("username"),
+          "host-resident-fixture",
+        );
         res.setHeader("content-type", "application/json");
         res.end(
           JSON.stringify({
@@ -687,11 +697,13 @@ test(
     });
     const env = {
       ...process.env,
-      ARENA_MODEL_CONFIG: await modelConfig(dir),
+      ARENA_MODEL_CONFIG: await modelConfig(dir, {
+        cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 },
+      }),
       OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
       OPENAI_API_KEY: "resident-scoped-fixture-token",
-      ARENA_BRIDGE_URL: `http://127.0.0.1:${server.address().port}`,
-      ARENA_BRIDGE_TOKEN: "host-resident-fixture",
+      ARENA_SESSION_URL: `http://127.0.0.1:${server.address().port}`,
+      ARENA_BOT: "host-resident-fixture",
       // A host stub, not a game: no default observer/chat scripts.
       ARENA_DEFAULT_SCRIPTS: "",
       ARENA_IDLE_REMINDER_MS: "30",
@@ -794,7 +806,6 @@ test(
     let stderr = "";
     const server = http.createServer(async (req, res) => {
       if (req.method === "GET") {
-        assert.equal(req.headers.authorization, "Bearer bridge-fixture-token");
         res.setHeader("content-type", "application/json");
         res.end(
           JSON.stringify({
@@ -852,8 +863,8 @@ test(
           ARENA_MODEL_CONFIG: await modelConfig(dir),
           OPENAI_BASE_URL: `${url}/v1`,
           OPENAI_API_KEY: "model-scoped-token",
-          ARENA_BRIDGE_URL: url,
-          ARENA_BRIDGE_TOKEN: "bridge-fixture-token",
+          ARENA_SESSION_URL: url,
+          ARENA_BOT: "blue-one",
           // A host stub, not a game: no default observer/chat scripts.
           ARENA_DEFAULT_SCRIPTS: "",
           ARENA_START_TIMEOUT_MS: "10000",
@@ -970,8 +981,8 @@ function residentHost(t) {
   );
   return {
     env: {
-      ARENA_BRIDGE_URL: "http://host.invalid",
-      ARENA_BRIDGE_TOKEN: "host-fixture-token",
+      ARENA_SESSION_URL: "http://host.invalid",
+      ARENA_BOT: "fixture-bot",
       // A host stub, not a game: no default observer/chat scripts.
       ARENA_DEFAULT_SCRIPTS: "",
       ARENA_IDLE_REMINDER_MS: "30",

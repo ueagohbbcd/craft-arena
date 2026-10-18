@@ -14,7 +14,7 @@ services:
     build: ./server
     image: craft-arena-minecraft:local
     mem_limit: ${MC_MEMORY_LIMIT:-3g}
-    # Bridges connect only once the server accepts players (cold start).
+    # Login gates connect after the server accepts players (cold start).
     healthcheck:
       test: [CMD, bash, -c, 'echo > /dev/tcp/127.0.0.1/25565']
       interval: 5s
@@ -27,8 +27,8 @@ services:
       - ./results:/results
       - ./replay-config:/data/config/ServerReplay
     stop_grace_period: 180s
-  # Bridges, model relays and participant containers are generated per map
-  # by `cli.mjs provision` into compose.agents.yaml (one bridge per bot, one
+  # Login gates, model relays and participant containers are generated per map
+  # by `cli.mjs provision` into compose.agents.yaml (one login gate per agent, one
   # participant per agent); scripts/windows-arena.ps1 passes both files.
   # Operator commands for the rules datapack (packages/arena/src/cli.mjs);
   # scripts/windows-arena.ps1 runs it for up, start and stop.

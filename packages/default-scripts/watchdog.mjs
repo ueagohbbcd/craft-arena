@@ -7,17 +7,8 @@
 // repeating the same chat message. Each finding is reported once until the
 // situation changes. Stop it with arena-task cancel <taskId>, or copy it into
 // your working directory and change the thresholds passed to createTrendWatch.
-import { setTimeout as delay } from "node:timers/promises";
-import { pathToFileURL } from "node:url";
-const toolkit = (path) =>
-  process.env.ARENA_TOOLKIT_ROOT
-    ? pathToFileURL(`${process.env.ARENA_TOOLKIT_ROOT}/${path}`).href
-    : new URL(`../../${path}`, import.meta.url).href;
-const { connectBot } = await import(toolkit("packages/bot-sdk/index.mjs"));
-const { InboxClient } = await import(toolkit("packages/inbox/index.mjs"));
-const { createTrendWatch } = await import(
-  toolkit("packages/observation/trend-watch.mjs")
-);
+import { InboxClient } from "../inbox/index.mjs";
+import { createTrendWatch } from "../observation/trend-watch.mjs";
 
 const MOVES = ["forward", "back", "left", "right"];
 const inventoryKey = (bot) =>
@@ -49,7 +40,9 @@ export function startTrendWatchdog({
       watch.sample({
         t: now(),
         position: entity?.position,
-        moving: MOVES.some((control) => bot.controlState?.[control]),
+        moving: Boolean(
+          bot.entity?.velocity && bot.entity.velocity.norm() > 0.02,
+        ),
         collided: Boolean(entity?.isCollidedHorizontally),
         inventory: inventoryKey(bot),
       }),
@@ -76,24 +69,15 @@ export function startTrendWatchdog({
   };
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  let bot;
-  while (!bot) {
-    try {
-      bot = await connectBot();
-    } catch (error) {
-      console.error(`watchdog: bridge unavailable: ${error?.message ?? error}`);
-      await delay(1000);
-    }
-  }
+export default async function watchdogProgram(bot, { signal }) {
   const running = startTrendWatchdog({ bot, inbox: new InboxClient() });
-  for (const signal of ["SIGTERM", "SIGINT"])
-    process.once(signal, () => {
-      running.close();
-      bot.closeBridge();
-      process.exit(0);
-    });
+  if (!signal) return running;
+  if (signal.aborted) {
+    running.close();
+    return;
+  }
+  await new Promise((resolve) =>
+    signal.addEventListener("abort", resolve, { once: true }),
+  );
+  running.close();
 }

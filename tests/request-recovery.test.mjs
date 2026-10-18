@@ -324,10 +324,10 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
         stderr = "";
       const requests = [];
       const server = http.createServer(async (req, res) => {
-        if (req.url === "/v1/session") {
+        if (req.url.startsWith("/v1/session")) {
           assert.equal(
-            req.headers.authorization,
-            "Bearer trusted-host-fixture",
+            new URL(req.url, "http://localhost").searchParams.get("username"),
+            "recovery-fixture",
           );
           res.setHeader("content-type", "application/json");
           res.end(
@@ -474,8 +474,8 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
             ARENA_MODEL_CONFIG: join(dir, "model.json"),
             OPENAI_BASE_URL: `${base}/v1`,
             OPENAI_API_KEY: "model-fixture",
-            ARENA_BRIDGE_URL: base,
-            ARENA_BRIDGE_TOKEN: "trusted-host-fixture",
+            ARENA_SESSION_URL: base,
+            ARENA_BOT: "recovery-fixture",
             ARENA_PROMPT: "Complete the local fixture objective.",
             ARENA_IDLE_REMINDER_MS: "120",
             ARENA_RETRY_DELAY_MS: "200",

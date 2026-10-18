@@ -16,33 +16,25 @@ services:
     networks: [backend]
     volumes: [world:/data]
     # Map/server version and EULA acceptance are operator responsibilities.
-  bridge-red1:
+  gate-red1:
     <<: *restricted
     build: {context: '..', dockerfile: infra/Dockerfile.trusted}
-    command: [node, packages/mf-bridge/cli.mjs]
+    command: [node, packages/login-gate/cli.mjs]
     environment:
-      MF_HOST: minecraft
-      MF_PORT: '25565'
-      MF_USERNAME: arena_red1
-      MF_VERSION: ${MC_VERSION:?Select exact server protocol version}
-      BRIDGE_HOST: 0.0.0.0
-      BRIDGE_PORT: '8080'
-      BRIDGE_ALLOW_CHAT: 'true'
-      BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN:?Provide unique operator token}
+      GATE_USERNAMES: arena_red1
+      GATE_UPSTREAM_HOST: minecraft
+      GATE_RCON_HOST: minecraft
+      GATE_RCON_PASSWORD: ${MC_RCON_PASSWORD:?Provide operator RCON credential}
     networks: [backend, red1]
-  bridge-blue1:
+  gate-blue1:
     <<: *restricted
     build: {context: '..', dockerfile: infra/Dockerfile.trusted}
-    command: [node, packages/mf-bridge/cli.mjs]
+    command: [node, packages/login-gate/cli.mjs]
     environment:
-      MF_HOST: minecraft
-      MF_PORT: '25565'
-      MF_USERNAME: arena_blue1
-      MF_VERSION: ${MC_VERSION:?Select exact server protocol version}
-      BRIDGE_HOST: 0.0.0.0
-      BRIDGE_PORT: '8080'
-      BRIDGE_ALLOW_CHAT: 'true'
-      BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN:?Provide unique operator token}
+      GATE_USERNAMES: arena_blue1
+      GATE_UPSTREAM_HOST: minecraft
+      GATE_RCON_HOST: minecraft
+      GATE_RCON_PASSWORD: ${MC_RCON_PASSWORD:?Provide operator RCON credential}
     networks: [backend, blue1]
   # The participants' only route to a model: forwards to one base URL (an
   # official API or a service on the host) and adds the key there. To let
@@ -60,8 +52,12 @@ services:
     <<: *restricted
     build: {context: '..', dockerfile: infra/Dockerfile.participant}
     environment:
-      ARENA_BRIDGE_URL: http://bridge-red1:8080
-      ARENA_BRIDGE_TOKEN: ${RED1_BRIDGE_TOKEN}
+      ARENA_MINECRAFT_HOST: gate-red1
+      ARENA_SESSION_URL: http://gate-red1:8080/v1/session
+      MC_VERSION: ${MC_VERSION:?Select exact server protocol version}
+      ARENA_BOT: arena_red1
+      ARENA_WORLD_ID: ${ARENA_WORLD_ID:-arena-world}
+      ARENA_PARTICIPANT_ID: red1
       OPENAI_BASE_URL: http://model-relay:8080
       ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.example.json
@@ -75,8 +71,12 @@ services:
     <<: *restricted
     build: {context: '..', dockerfile: infra/Dockerfile.participant}
     environment:
-      ARENA_BRIDGE_URL: http://bridge-blue1:8080
-      ARENA_BRIDGE_TOKEN: ${BLUE1_BRIDGE_TOKEN}
+      ARENA_MINECRAFT_HOST: gate-blue1
+      ARENA_SESSION_URL: http://gate-blue1:8080/v1/session
+      MC_VERSION: ${MC_VERSION:?Select exact server protocol version}
+      ARENA_BOT: arena_blue1
+      ARENA_WORLD_ID: ${ARENA_WORLD_ID:-arena-world}
+      ARENA_PARTICIPANT_ID: blue1
       OPENAI_BASE_URL: http://model-relay:8080
       ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
       ARENA_MODEL_CONFIG: /config/model.example.json

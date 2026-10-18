@@ -146,7 +146,7 @@ export function serializeSnbt(value) {
  * command, permission error, malformed SNBT).
  *
  * Vanilla RCON collects every client's command output in one buffer, so with
- * several clients connected (bridges polling, the operator CLI) a reply can
+ * several clients connected (bot hosts polling, the operator CLI) a reply can
  * carry another command's text before or after this one. Only the
  * `Storage <id> has the following contents: {...}` part is read.
  */

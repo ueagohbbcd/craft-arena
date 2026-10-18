@@ -43,10 +43,40 @@ function patchGlobals() {
       const own = runs.getStore()?.env;
       return own && Object.hasOwn(own, key) ? own[key] : target[key];
     },
+    set: (target, key, value) => {
+      const own = runs.getStore()?.env;
+      if (!own) return Reflect.set(target, key, value);
+      if (value === undefined) delete own[key];
+      else own[key] = String(value);
+      return true;
+    },
+    deleteProperty: (target, key) => {
+      const own = runs.getStore()?.env;
+      if (own && Object.hasOwn(own, key)) delete own[key];
+      else Reflect.deleteProperty(target, key);
+      return true;
+    },
     has: (target, key) =>
       Boolean(
         runs.getStore()?.env && Object.hasOwn(runs.getStore().env, key),
       ) || key in target,
+    ownKeys: (target) => [
+      ...new Set([
+        ...Reflect.ownKeys(target),
+        ...Reflect.ownKeys(runs.getStore()?.env ?? {}),
+      ]),
+    ],
+    getOwnPropertyDescriptor: (target, key) => {
+      const own = runs.getStore()?.env;
+      if (own && Object.hasOwn(own, key))
+        return {
+          configurable: true,
+          enumerable: true,
+          writable: true,
+          value: own[key],
+        };
+      return Reflect.getOwnPropertyDescriptor(target, key);
+    },
   });
   for (const level of ["log", "info", "warn", "error", "debug"]) {
     const original = console[level].bind(console);
@@ -59,6 +89,7 @@ function patchGlobals() {
   for (const [name, clear] of [
     ["setTimeout", "clearTimeout"],
     ["setInterval", "clearInterval"],
+    ["setImmediate", "clearImmediate"],
   ]) {
     const original = globalThis[name];
     globalThis[name] = function (...args) {
@@ -71,13 +102,14 @@ function patchGlobals() {
 
 /** The bot as one run sees it: listeners it adds are recorded for removal. */
 function runBot(bot, listeners) {
-  return new Proxy(bot, {
+  let view;
+  view = new Proxy(bot, {
     get(target, key) {
       if (LISTEN.includes(key))
         return (event, fn) => {
           listeners.push([event, fn]);
           target[key](event, fn);
-          return target;
+          return view;
         };
       // A plugin outlives the run that loads it: its timers are not the run's.
       if (key === "loadPlugin" || key === "loadPlugins")
@@ -85,6 +117,7 @@ function runBot(bot, listeners) {
       return Reflect.get(target, key, target);
     },
   });
+  return view;
 }
 
 function stopMoving(bot) {
@@ -106,17 +139,22 @@ function stopMoving(bot) {
 export async function startRunner({
   bot,
   socketPath,
+  listen,
+  readSession = async () => undefined,
+  cancellationGraceMs = 5000,
+  onUnresponsive = () => process.exit(75),
   importModule = (file) =>
     import(`${pathToFileURL(file).href}?run=${Date.now()}`),
 }) {
   patchGlobals();
-  await rm(socketPath, { force: true });
+  if (socketPath) await rm(socketPath, { force: true });
   const active = new Set();
 
   const run = async (client, request) => {
     const controller = new AbortController();
     const listeners = [];
     const state = {
+      id: request.id,
       env: Object.fromEntries(
         Object.entries(request.env ?? {}).filter(
           ([key, value]) =>
@@ -131,11 +169,21 @@ export async function startRunner({
       if (!client.destroyed) client.write(`${JSON.stringify(message)}\n`);
     };
     let cancelled = false;
+    let cancelTimer;
     const cancel = () => {
       if (state.finished || cancelled) return;
       cancelled = true;
       controller.abort(new Error("Run cancelled"));
+      // Never abandon a live module and pretend it has stopped using the bot.
+      // A module that ignores AbortSignal takes down this host after a grace
+      // period; the supervisor restarts it with a fresh Mineflayer process.
+      cancelTimer = setTimeout(
+        () => onUnresponsive(state),
+        cancellationGraceMs,
+      );
+      cancelTimer.unref?.();
     };
+    state.cancel = cancel;
     client.on("close", cancel);
     client.on("data", (chunk) => {
       if (String(chunk).includes('"cancel"')) cancel();
@@ -166,6 +214,7 @@ export async function startRunner({
         error: String(error?.stack ?? error?.message ?? error),
       };
     } finally {
+      clearTimeout(cancelTimer);
       state.finished = true;
       active.delete(state);
       for (const [event, fn] of listeners) bot.removeListener(event, fn);
@@ -186,15 +235,65 @@ export async function startRunner({
       let request;
       try {
         request = JSON.parse(buffer.slice(0, end));
-        if (request?.type !== "run" || typeof request.file !== "string")
-          throw new Error("Expected {type:'run', file}");
+        if (!request || typeof request.type !== "string")
+          throw new Error("Expected a run, cancel, status or session request");
+        if (request.type === "run" && typeof request.file !== "string")
+          throw new Error("Run request needs a file");
       } catch (error) {
         client.end(
           `${JSON.stringify({ type: "done", ok: false, error: error.message })}\n`,
         );
         return;
       }
-      void run(client, request);
+      if (request.type === "run") void run(client, request);
+      else if (request.type === "cancel") {
+        const state = [...active].find((entry) => entry.id === request.id);
+        if (!state)
+          client.end(
+            `${JSON.stringify({ type: "cancelled", found: false })}\n`,
+          );
+        else {
+          state.cancel();
+          client.end(`${JSON.stringify({ type: "cancelled", found: true })}\n`);
+        }
+      } else if (request.type === "status") {
+        const entity = bot.entity;
+        const inventory = (bot.inventory?.slots ?? [])
+          .map((item) => (item ? `${item.type}:${item.count}` : ""))
+          .join(",");
+        client.end(
+          `${JSON.stringify({
+            type: "status",
+            active: [...active].map(({ id }) => id ?? null),
+            bot: {
+              position: entity?.position
+                ? {
+                    x: entity.position.x,
+                    y: entity.position.y,
+                    z: entity.position.z,
+                  }
+                : null,
+              health: Number.isFinite(bot.health) ? bot.health : null,
+              food: Number.isFinite(bot.food) ? bot.food : null,
+              inventory,
+            },
+          })}\n`,
+        );
+      } else if (request.type === "session")
+        void Promise.resolve(readSession()).then(
+          (session) =>
+            client.end(
+              `${JSON.stringify({ type: "session", session: session ?? null })}\n`,
+            ),
+          (error) =>
+            client.end(
+              `${JSON.stringify({ type: "error", error: String(error?.message ?? error) })}\n`,
+            ),
+        );
+      else
+        client.end(
+          `${JSON.stringify({ type: "error", error: "Unknown request type" })}\n`,
+        );
     };
     client.setEncoding("utf8");
     client.on("data", onData);
@@ -202,11 +301,15 @@ export async function startRunner({
   });
   await new Promise((done, fail) => {
     server.once("error", fail);
-    server.listen(socketPath, done);
+    server.listen(listen ?? socketPath, done);
   });
   return {
     active: () => active.size,
-    close: () => new Promise((done) => server.close(() => done())),
+    address: () => server.address(),
+    close: () => {
+      for (const state of active) state.cancel?.();
+      return new Promise((done) => server.close(() => done()));
+    },
   };
 }
 

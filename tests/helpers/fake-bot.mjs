@@ -1,5 +1,6 @@
 import { EventEmitter } from "node:events";
-import { Vector } from "../../packages/bot-sdk/index.mjs";
+import { Vec3 } from "vec3";
+const Vector = Vec3;
 
 export function fakeBot() {
   const bot = new EventEmitter();

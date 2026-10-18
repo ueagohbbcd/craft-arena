@@ -1,6 +1,6 @@
 # Inbox: reporting from your programs
 
-Your programs send messages to the model through `InboxClient`. The default observer, default chat and the SDK's combat report use the same client. Messages wait in the inbox (a queue inside the Pi extension) and reach the model at the next request boundary.
+Your programs send messages to the model through `InboxClient`. The default observer, default chat, default watchdog and participant scripts use the same client. Messages wait in the inbox (a queue inside the Pi extension) and reach the model at the next request boundary. A program that wants to report its combat decision or result sends those reports explicitly; see [fight-target.mjs](../../examples/fight-target.mjs).
 
 Starting, waiting for and cancelling programs belongs to [packages/tasks](../tasks/README.md), not to this package.
 

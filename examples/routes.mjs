@@ -19,8 +19,6 @@
  * not loaded, from block memory, like reach-map.mjs.
  */
 import { readFile } from "node:fs/promises";
-import { pathToFileURL } from "node:url";
-import { connectBot } from "../packages/bot-sdk/index.mjs";
 import {
   parseWaypoints,
   routeConfigs,
@@ -85,8 +83,11 @@ export function configsFor(blocks) {
     .map((c) => (c.name === "place" ? { ...c, settings: { blocks } } : c));
 }
 
-async function main() {
-  const options = parseRoutesArgs(process.argv.slice(2));
+export default async function routesProgram(
+  bot,
+  { args = [], log = console.log },
+) {
+  const options = parseRoutesArgs(args);
   let points = [];
   try {
     points = parseWaypoints(JSON.parse(await readFile(options.file, "utf8")));
@@ -95,45 +96,37 @@ async function main() {
   }
   if (options.only)
     points = points.filter((p) => options.only.includes(p.name));
-  const bot = await connectBot();
-  try {
-    if (options.here) {
-      if (points.some((p) => p.name === "here"))
-        throw new Error("--here adds a place named here; rename yours");
-      // Unfloored, so a start on a slab moves up into the air cell like Pathfinder's.
-      const { x, y, z } = bot.entity.position;
-      points.unshift({ name: "here", x, y, z });
-    }
-    if (options.from && !points.some((p) => p.name === options.from))
-      throw new Error(`no waypoint named ${options.from}`);
-    const area = searchArea(points);
-    const reader = await worldReader(bot, area);
-    // Searches stay inside the area that was read, live or remembered.
-    const blockAt = (p) =>
-      p.x < area.minX || p.x > area.maxX || p.z < area.minZ || p.z > area.maxZ
-        ? null
-        : reader.blockAt(p);
-    const base = {};
-    if (options.allowParkour === false) base.allowParkour = false;
-    if (options.maxDropDown !== undefined)
-      base.maxDropDown = options.maxDropDown;
-    const table = routeTable({
-      blockAt,
-      registry: bot.registry,
-      minY: bot.game?.minY ?? -64,
-      points,
-      configs: configsFor(options.blocks),
-      fromName: options.from ?? null,
-      timeoutMs: options.timeoutMs,
-      budgetMs: options.budgetMs,
-      base,
-    });
-    console.log(
-      `${table.text}\nSearched x ${area.minX}..${area.maxX}, z ${area.minZ}..${area.maxZ} (16 blocks around the places); a route that leaves this area shows as none.\nBlocks: ${reader.note}.`,
-    );
-  } finally {
-    bot.closeBridge();
+  if (options.here) {
+    if (points.some((p) => p.name === "here"))
+      throw new Error("--here adds a place named here; rename yours");
+    // Unfloored, so a start on a slab moves up into the air cell like Pathfinder's.
+    const { x, y, z } = bot.entity.position;
+    points.unshift({ name: "here", x, y, z });
   }
+  if (options.from && !points.some((p) => p.name === options.from))
+    throw new Error(`no waypoint named ${options.from}`);
+  const area = searchArea(points);
+  const reader = await worldReader(bot, area);
+  // Searches stay inside the area that was read, live or remembered.
+  const blockAt = (p) =>
+    p.x < area.minX || p.x > area.maxX || p.z < area.minZ || p.z > area.maxZ
+      ? null
+      : reader.blockAt(p);
+  const base = {};
+  if (options.allowParkour === false) base.allowParkour = false;
+  if (options.maxDropDown !== undefined) base.maxDropDown = options.maxDropDown;
+  const table = routeTable({
+    blockAt,
+    registry: bot.registry,
+    minY: bot.game?.minY ?? -64,
+    points,
+    configs: configsFor(options.blocks),
+    fromName: options.from ?? null,
+    timeoutMs: options.timeoutMs,
+    budgetMs: options.budgetMs,
+    base,
+  });
+  log(
+    `${table.text}\nSearched x ${area.minX}..${area.maxX}, z ${area.minZ}..${area.maxZ} (16 blocks around the places); a route that leaves this area shows as none.\nBlocks: ${reader.note}.`,
+  );
 }
-
-if (import.meta.url === pathToFileURL(process.argv[1]).href) await main();

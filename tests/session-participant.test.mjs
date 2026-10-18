@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import http from "node:http";
-import { setTimeout as delay } from "node:timers/promises";
 import {
   validSession,
   createSessionReader,
@@ -12,9 +11,6 @@ import {
   chatWakes,
   startChatForwarder,
 } from "../packages/default-scripts/chat.mjs";
-import { Inbox, localInboxClient } from "../packages/inbox/index.mjs";
-
-const token = "session-participant-token";
 
 async function serve(t, handler) {
   const requests = [];
@@ -35,14 +31,6 @@ const json = (res, status, body) => {
   res.end(JSON.stringify(body));
 };
 
-async function until(fn, timeout = 2000) {
-  for (let i = 0; i < timeout / 10; i++) {
-    if (fn()) return;
-    await delay(10);
-  }
-  assert.fail("Timed out");
-}
-
 test("validSession requires a state string and finite now", () => {
   assert.equal(validSession({ state: "running", now: 1 }), true);
   for (const bad of [
@@ -61,10 +49,10 @@ test("validSession requires a state string and finite now", () => {
     assert.equal(validSession(bad), false, JSON.stringify(bad));
 });
 
-test("createSessionReader prefers /v1/session and sends the bearer token", async (t) => {
+test("createSessionReader reads the specified character from the login gate", async (t) => {
   const { url, requests } = await serve(t, (req, res) => {
-    assert.equal(req.headers.authorization, `Bearer ${token}`);
-    if (req.url === "/v1/session")
+    assert.equal(req.headers.authorization, undefined);
+    if (req.url === "/v1/session?username=arena_red1")
       return json(res, 200, {
         ok: true,
         result: {
@@ -76,22 +64,28 @@ test("createSessionReader prefers /v1/session and sends the bearer token", async
       });
     json(res, 500, { ok: false });
   });
-  const read = createSessionReader({ url: `${url}/`, token, timeoutMs: 2000 });
+  const read = createSessionReader({
+    url: `${url}/v1/session?username=arena_red1`,
+    timeoutMs: 2000,
+  });
   const snapshot = await read();
   assert.equal(snapshot.kind, "open");
   assert.equal(snapshot.sessionId, "s1");
-  assert.deepEqual(requests, ["/v1/session"]);
+  assert.deepEqual(requests, ["/v1/session?username=arena_red1"]);
 });
 
-test("createSessionReader does not fall back to a legacy route", async (t) => {
+test("createSessionReader does not fall back to an unscoped session route", async (t) => {
   const { url, requests } = await serve(t, (req, res) =>
     json(res, 404, { ok: false }),
   );
   assert.equal(
-    await createSessionReader({ url, token, timeoutMs: 2000 })(),
+    await createSessionReader({
+      url: `${url}/v1/session?username=arena_red1`,
+      timeoutMs: 2000,
+    })(),
     undefined,
   );
-  assert.deepEqual(requests, ["/v1/session"]);
+  assert.deepEqual(requests, ["/v1/session?username=arena_red1"]);
 });
 
 test("createSessionReader returns undefined for invalid bodies and errors", async (t) => {
@@ -116,17 +110,16 @@ test("createSessionReader returns undefined for invalid bodies and errors", asyn
     }
     json(res, 200, bodies[index++]);
   });
-  const read = createSessionReader({ url, token, timeoutMs: 2000 });
+  const read = createSessionReader({
+    url: `${url}/v1/session?username=arena_red1`,
+    timeoutMs: 2000,
+  });
   for (let i = 0; i < bodies.length; i++)
     assert.equal(await read(true), undefined, `body ${i}`);
   assert.equal(await read(true), undefined, "malformed JSON");
   status = 500;
   assert.equal(await read(true), undefined, "server error");
-  assert.equal(
-    await createSessionReader({ url: "", token })(),
-    undefined,
-    "no url",
-  );
+  assert.equal(await createSessionReader({ url: "" })(), undefined, "no url");
 });
 
 test("sessionData carries state and winner, never a clock", () => {
@@ -268,97 +261,12 @@ test("chatWakes never wakes for the bot's own messages or outgoing whispers", ()
   }
 });
 
-test("startChatForwarder posts matching chat as urgent and others as normal", async (t) => {
-  const lines = [
-    "<Steve> hi Bot",
-    "<Steve> hello",
-    "<Bot> hello Bot",
-    "Steve whispers to you: psst",
-    "<Botanist> hi",
-  ];
-  const { url, requests } = await serve(t, (req, res) => {
-    assert.equal(req.headers.authorization, `Bearer ${token}`);
-    if (req.url === "/v1/session")
-      return json(res, 200, {
-        ok: true,
-        result: {
-          state: "running",
-          now: 1,
-          participantId: "p1",
-          participants: [{ id: "p1", username: "Bot" }],
-        },
-      });
-    if (req.url !== "/v1/chat") return json(res, 404, {});
-    res.writeHead(200, { "content-type": "text/event-stream" });
-    res.write('data: {"type":"connected"}\n\n');
-    for (const text of lines)
-      res.write(
-        `data: ${JSON.stringify({ type: "event", data: { name: "messagestr", args: [text, "chat"] } })}\n\n`,
-      );
-  });
-  const inbox = new Inbox({ sessionId: "wake" });
-  const chat = startChatForwarder({
-    url,
-    token,
-    inbox: localInboxClient(inbox),
-    wake: "mention",
-    // The session's username wins over this one.
-    username: "Someone",
-  });
-  t.after(() => chat.close());
-  await until(() => inbox.items.length === lines.length);
-  assert.deepEqual(requests.slice(0, 2), ["/v1/session", "/v1/chat"]);
-  const batch = inbox.drain();
-  assert.deepEqual(
-    batch.messages.map((m) => [m.data.text, m.priority]),
-    [
-      ["<Steve> hi Bot", "urgent"],
-      ["<Steve> hello", "normal"],
-      ["<Bot> hello Bot", "normal"],
-      ["Steve whispers to you: psst", "urgent"],
-      ["<Botanist> hi", "normal"],
-    ],
-  );
-  await chat.close();
-});
-
-test("startChatForwarder keeps the configured username without a session route", async (t) => {
-  const { url, requests } = await serve(t, (req, res) => {
-    if (req.url !== "/v1/chat") return json(res, 404, {});
-    res.writeHead(200, { "content-type": "text/event-stream" });
-    for (const text of ["<Steve> hi Bot", "<Steve> hi Someone"])
-      res.write(
-        `data: ${JSON.stringify({ type: "event", data: { name: "messagestr", args: [text, "chat"] } })}\n\n`,
-      );
-  });
-  const inbox = new Inbox({ sessionId: "legacy" });
-  const chat = startChatForwarder({
-    url,
-    token,
-    inbox: localInboxClient(inbox),
-    wake: "mention",
-    username: "Someone",
-  });
-  t.after(() => chat.close());
-  await until(() => inbox.items.length === 2);
-  assert.deepEqual(requests.slice(0, 2), ["/v1/session", "/v1/chat"]);
-  assert.deepEqual(
-    inbox.drain().messages.map((m) => [m.data.text, m.priority]),
-    [
-      ["<Steve> hi Bot", "normal"],
-      ["<Steve> hi Someone", "urgent"],
-    ],
-  );
-  await chat.close();
-});
-
 test("startChatForwarder rejects an unknown wake mode", () => {
   assert.throws(
     () =>
       startChatForwarder({
-        url: "http://127.0.0.1:1",
-        token,
-        inbox: localInboxClient(new Inbox({ sessionId: "x" })),
+        bot: {},
+        inbox: {},
         wake: "loud",
       }),
     /ARENA_CHAT_WAKE/,

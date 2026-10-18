@@ -28,16 +28,7 @@ function environment(section) {
   );
 }
 
-// Names from the shared session contract (docs/GAME-MODES.md).
-const CONTRACT = new Set([
-  "BRIDGE_SESSION",
-  "BRIDGE_SESSION_ID",
-  "BRIDGE_BRIEFING",
-  "BRIDGE_PROMPT_FILE",
-  "MF_AUTH",
-  "MF_PROFILES_DIR",
-  "ARENA_CHAT_WAKE",
-]);
+const CONTRACT = new Set(["ARENA_CHAT_WAKE"]);
 
 async function sourceText(path) {
   const out = [];
@@ -51,11 +42,11 @@ async function sourceText(path) {
   return out.join("\n");
 }
 
-test("companion compose runs an open bridge, a model relay and an isolated participant", async () => {
+test("companion compose runs a native bot host behind a login gate and an isolated participant", async () => {
   const text = await read("compose.yaml");
   const services = sections(text);
   assert.deepEqual(Object.keys(services).sort(), [
-    "bridge",
+    "gate",
     "model-relay",
     "participant",
   ]);
@@ -67,18 +58,25 @@ test("companion compose runs an open bridge, a model relay and an isolated parti
   assert.match(text, /no-new-privileges:true/);
   assert.match(text, /^  companion: \{ ?internal: true ?\}$/m);
 
-  const bridge = environment(services.bridge);
-  assert.match(services.bridge, /packages\/mf-bridge\/cli\.mjs/);
-  assert.equal(bridge.BRIDGE_SESSION, "open");
-  assert.equal(bridge.BRIDGE_PROMPT_FILE, "/config/PROMPT.md");
-  assert.match(services.bridge, /PROMPT\.md}?:\/config\/PROMPT\.md:ro/);
-  assert.match(bridge.MF_AUTH, /^\$\{MF_AUTH:-offline\}$/);
-  assert.match(bridge.MF_HOST, /^\$\{MC_HOST:\?/, "external server from env");
-  assert.match(services.bridge, /networks: \[companion, minecraft-egress\]/);
+  const gate = environment(services.gate);
+  assert.match(services.gate, /packages\/login-gate\/cli\.mjs/);
+  assert.match(gate.GATE_USERNAMES, /^\$\{MC_USERNAME:\?/);
+  assert.match(
+    gate.GATE_UPSTREAM_HOST,
+    /^\$\{MC_HOST:\?/,
+    "external server from env",
+  );
+  assert.match(services.gate, /networks: \[companion, minecraft-egress\]/);
 
   const participant = environment(services.participant);
   assert.match(services.participant, /Dockerfile\.participant/);
-  assert.equal(participant.ARENA_BRIDGE_URL, "http://bridge:8080");
+  assert.equal(participant.ARENA_MINECRAFT_HOST, "gate");
+  assert.equal(
+    participant.ARENA_BOT,
+    "${MC_USERNAME:?Provide the bot account name}",
+  );
+  assert.equal(participant.ARENA_BRIDGE_URL, undefined);
+  assert.equal(participant.ARENA_BRIDGE_TOKEN, undefined);
   assert.match(participant.ARENA_CHAT_WAKE, /mention/);
   assert.equal(participant.OPENAI_BASE_URL, "http://model-relay:8080");
   assert.equal(
@@ -87,13 +85,12 @@ test("companion compose runs an open bridge, a model relay and an isolated parti
     "the key stays in the relay",
   );
   assert.match(services.participant, /^    networks: \[companion\]$/m);
-  // ARENA_BRIDGE_TOKEN is the participant's own token; the bridge's
-  // BRIDGE_TOKEN variable, the upstream key and the prompt mount stay outside.
+  // The model key and the upstream key stay outside the participant.
   assert.doesNotMatch(
     services.participant,
-    /MODEL_UPSTREAM|^      BRIDGE_TOKEN:|PROMPT\.md|mf-profiles/m,
+    /MODEL_UPSTREAM|^      BRIDGE_TOKEN:/,
   );
-  // Microsoft device login can hold the bridge back for a long time.
+  // Microsoft device login can hold the native bot host back for a long time.
   assert(Number(participant.ARENA_START_TIMEOUT_MS) >= 3600000);
 
   const relay = environment(services["model-relay"]);
@@ -104,14 +101,14 @@ test("companion compose runs an open bridge, a model relay and an isolated parti
     services["model-relay"],
     /networks: \[companion, model-egress\]/,
   );
-  assert.doesNotMatch(services.bridge, /MODEL_UPSTREAM/);
+  assert.doesNotMatch(services.gate, /MODEL_UPSTREAM/);
 });
 
-test("every bridge and participant variable is defined by the code or the contract", async () => {
+test("every gate and participant variable is defined by the code or the contract", async () => {
   const services = sections(await read("compose.yaml"));
   const code = {
-    bridge: await sourceText(
-      fileURLToPath(new URL("../packages/mf-bridge/", import.meta.url)),
+    gate: await sourceText(
+      fileURLToPath(new URL("../packages/login-gate/", import.meta.url)),
     ),
     participant: [
       await sourceText(fileURLToPath(new URL("../packages/", import.meta.url))),

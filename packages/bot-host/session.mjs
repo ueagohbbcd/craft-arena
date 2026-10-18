@@ -1,7 +1,7 @@
 /**
- * The object a bridge serves at GET /v1/session, whatever produced it (an
- * open session or the server). One builder keeps the shape
- * the Pi extension, outside readers and the SDK read identical.
+ * Normalized read-only session data from the login gate for a match, or an
+ * open local session. One builder keeps the shape identical for the Pi
+ * extension, participant modules and outside readers.
  */
 export function sessionObject({
   kind = "match",

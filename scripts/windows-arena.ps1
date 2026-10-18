@@ -52,9 +52,9 @@ switch ($Action) {
     if ($session) { $session | ConvertTo-Json -Depth 10 }
   }
   'build' {
-    # The first bridge and participant carry the image builds.
+    # The first login gate and participant carry the image builds.
     $services = @(& $docker @compose config --services)
-    Invoke-Compose @('build','minecraft',@($services | Where-Object { $_ -like 'bridge-*' })[0],(Get-ParticipantServices)[0])
+    Invoke-Compose @('build','minecraft',@($services | Where-Object { $_ -like 'gate-*' })[0],(Get-ParticipantServices)[0])
   }
   'logs' { Invoke-Compose @('logs','--tail','80') }
   'up' {
@@ -66,8 +66,8 @@ switch ($Action) {
       Start-Sleep -Seconds 1
     }
     if (-not $ready) { throw 'Minecraft RCON readiness timed out.' }
-    $bridges = @(& $docker @compose config --services | Where-Object { $_ -like 'bridge-*' })
-    Invoke-Compose (@('up','-d') + $bridges)
+    $gates = @(& $docker @compose config --services | Where-Object { $_ -like 'gate-*' })
+    Invoke-Compose (@('up','-d') + $gates)
     # #arena:prepare expects every player online.
     $players = @((Get-Content -LiteralPath "$deployment/match.json" -Raw | ConvertFrom-Json).config.teams | ForEach-Object { $_.players })
     $online = $false
@@ -76,7 +76,7 @@ switch ($Action) {
       if (-not @($players | Where-Object { $list -notmatch "\b$_\b" }).Count) { $online=$true; break }
       Start-Sleep -Seconds 1
     }
-    if (-not $online) { throw 'Bots did not join the server; inspect bridge logs.' }
+    if (-not $online) { throw 'Bots did not join the server; inspect login-gate logs.' }
     $null = Invoke-Arena 'prepare' '/config/match.json'
     foreach ($participant in (Get-ParticipantServices)) {
       Invoke-Compose @('run','--rm','--no-deps',$participant,'sh','-c','test -d /team-git/project.git || git init --bare /team-git/project.git')
@@ -103,10 +103,10 @@ switch ($Action) {
     New-Item -ItemType Directory -Path $archive | Out-Null
     if (Test-Path -LiteralPath $world) { Move-Item -LiteralPath $world -Destination (Join-Path $archive 'world') }
     Copy-Item -LiteralPath $original -Destination $world -Recurse
-    # Remove containers, not volumes: fresh bridges and relays, retained code and run archives.
+    # Remove containers, not volumes: fresh login gates and relays, retained code and run archives.
     $services = & $docker @compose config --services
     if ($LASTEXITCODE -ne 0) { throw 'Cannot discover Compose services.' }
-    Invoke-Compose (@('rm','-f') + @($services | Where-Object { $_ -like 'participant-*' -or $_ -like 'model-*' -or $_ -like 'bridge-*' }))
+    Invoke-Compose (@('rm','-f') + @($services | Where-Object { $_ -like 'participant-*' -or $_ -like 'model-*' -or $_ -like 'gate-*' }))
     Write-Output "World reset; the previous world is in $archive. Participant sessions and match-artifacts moved to .arena-history/$archiveId in each work volume. Code and team Git are retained. Run up next."
   }
 }

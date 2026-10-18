@@ -1,20 +1,7 @@
 #!/usr/bin/env node
-// Default chat listener. The runtime starts this ordinary script at session
-// start; it forwards in-game chat to the inbox. Stop it with arena-task cancel <taskId>, or
-// run your own copy to filter or summarize chat differently.
-// ARENA_CHAT_WAKE=mention|all posts matching chat as urgent, which wakes an
-// idle model; the default (none) never wakes it.
-import { setTimeout as delay } from "node:timers/promises";
-import { pathToFileURL } from "node:url";
-// Resolve the toolkit from ARENA_TOOLKIT_ROOT so a copy saved in your working
-// directory still runs; fall back to this file's own location.
-const toolkit = (path) =>
-  process.env.ARENA_TOOLKIT_ROOT
-    ? pathToFileURL(`${process.env.ARENA_TOOLKIT_ROOT}/${path}`).href
-    : new URL(`../../${path}`, import.meta.url).href;
-const { InboxClient } = await import(toolkit("packages/inbox/index.mjs"));
-
-const { sseData } = await import(toolkit("packages/bridge-protocol/sse.mjs"));
+// Forwards native Mineflayer chat events through the normal InboxClient.
+import { once } from "node:events";
+import { InboxClient } from "../inbox/index.mjs";
 
 const escape = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -43,129 +30,51 @@ export function chatWakes(text, { mode = "none", username } = {}) {
   return new RegExp(`(?<![\\w])${name}(?![\\w])`, "i").test(text);
 }
 
-/** Username of this bot from the session, or undefined when unavailable. */
-async function sessionUsername(url, token, signal) {
-  const response = await fetch(`${url.replace(/\/$/, "")}/v1/session`, {
-    headers: { authorization: `Bearer ${token}` },
-    signal: AbortSignal.any([signal, AbortSignal.timeout(2000)]),
-  });
-  if (!response.ok) {
-    await response.body?.cancel();
-    return undefined;
-  }
-  const { result } = await response.json();
-  if (typeof result?.username === "string" && result.username)
-    return result.username;
-  const self = Array.isArray(result?.participants)
-    ? result.participants.find((p) => p?.id === result.participantId)
-    : undefined;
-  return typeof self?.username === "string" ? self.username : undefined;
-}
-
-/** Chat only: no world mirror or action calls; wakes the model only when asked. */
+/** Forward chat without changing its untrusted status. */
 export function startChatForwarder({
-  url = process.env.ARENA_BRIDGE_URL,
-  token = process.env.ARENA_BRIDGE_TOKEN,
+  bot,
   inbox,
-  retryMs = 1000,
+  signal,
   wake = process.env.ARENA_CHAT_WAKE || "none",
-  username = process.env.ARENA_CHAT_USERNAME || undefined,
 }) {
   if (!["none", "mention", "all"].includes(wake))
     throw new Error("ARENA_CHAT_WAKE must be none, mention or all");
-  const controller = new AbortController();
-  const { signal } = controller;
-  // The session names this bot; the env value is used until (or unless) it answers.
-  let sessionName;
-  let sessionRead = false;
-  const learnUsername = async () => {
-    if (wake === "none" || sessionRead) return;
-    try {
-      sessionName = await sessionUsername(url, token, signal);
-      sessionRead = true;
-    } catch {
-      /* Retried on the next reconnect. */
-    }
-  };
-  function accept(payload) {
-    let event;
-    try {
-      event = JSON.parse(payload);
-    } catch {
-      return;
-    }
-    if (
-      signal.aborted ||
-      event.type !== "event" ||
-      event.data?.name !== "messagestr"
-    )
-      return;
-    const args = event.data.args;
-    if (!Array.isArray(args) || typeof args[0] !== "string") return;
-    if (args[1] === "game_info") return;
-    const metadata = args[5] ?? {};
-    const urgent = chatWakes(args[0], {
-      mode: wake,
-      username: sessionName ?? username,
-    });
-    inbox
+  const forward = (username, message) => {
+    const text = String(message ?? "");
+    const urgent = chatWakes(text, { mode: wake, username: bot.username });
+    void inbox
       .post(
         {
           type: "game.chat",
           source: "minecraft",
           trusted: false,
-          text: args[0],
-          position: args[1] ?? null,
-          senderUUID: args[3] ?? null,
-          verified: args[4] ?? null,
-          observedAt: metadata.observedAt ?? Date.now(),
-          truncated: metadata.truncated === true,
+          text,
+          sender: username ?? null,
+          observedAt: Date.now(),
         },
         urgent ? { priority: "urgent" } : {},
       )
-      .catch(() => {
-        /* The inbox may be closing; chat is not replayed. */
-      });
-  }
-  const done = (async () => {
-    while (!signal.aborted) {
-      try {
-        await learnUsername();
-        const response = await fetch(`${url.replace(/\/$/, "")}/v1/chat`, {
-          headers: { authorization: `Bearer ${token}` },
-          signal,
-        });
-        if (!response.ok || !response.body) {
-          await response.body?.cancel();
-          throw new Error("Chat stream unavailable");
-        }
-        for await (const data of sseData(response.body)) accept(data);
-      } catch {
-        // A disconnected bridge may return; no historical messages are replayed.
-      }
-      if (!signal.aborted) {
-        try {
-          await delay(retryMs, undefined, { signal });
-        } catch {
-          break;
-        }
-      }
-    }
-  })();
+      .catch(() => {});
+  };
+  bot.on("chat", forward);
+  bot.on("whisper", forward);
+  const done = signal
+    ? once(signal, "abort").then(() => {})
+    : new Promise(() => {});
   return {
+    done,
     async close() {
-      controller.abort();
-      await done;
+      bot.off("chat", forward);
+      bot.off("whisper", forward);
     },
   };
 }
 
-if (
-  process.argv[1] &&
-  import.meta.url === pathToFileURL(process.argv[1]).href
-) {
-  // The inbox marks this as a program message; the data stays marked untrusted.
-  const chat = startChatForwarder({ inbox: new InboxClient() });
-  for (const signal of ["SIGTERM", "SIGINT"])
-    process.once(signal, () => chat.close().then(() => process.exit(0)));
+export default async function chatScript(bot, { signal }) {
+  const chat = startChatForwarder({ bot, inbox: new InboxClient(), signal });
+  try {
+    await chat.done;
+  } finally {
+    await chat.close();
+  }
 }

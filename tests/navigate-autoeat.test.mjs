@@ -149,7 +149,7 @@ test("pause waits for native PathStopped, landing and block work; food report re
   assert.equal(f.bot.listenerCount("health"), 0);
   assert.equal(f.bot.listenerCount("path_stop"), 0);
 });
-for (const interruption of ["abort", "death", "bridgeReset", "end"])
+for (const interruption of ["abort", "death", "end"])
   test(`${interruption} during native consume releases use and never resumes on late completion`, async () => {
     const f = fixture(),
       controller = new AbortController();
@@ -241,93 +241,4 @@ test("reporting failure stays visible in final result without retrying or disrup
   assert.equal(r.status, "completed");
   assert.equal(r.food.reportErrors, 1);
   assert.equal(sends, 1);
-});
-
-test("installed Pathfinder stop defers to a real planned node and resumes the same native goal", async () => {
-  const { BotFacade } = await import("../packages/bot-sdk/index.mjs");
-  const { loadSelectedPlugins } =
-    await import("../packages/bot-sdk/plugins.mjs");
-  const bot = new BotFacade({ url: "http://unused", token: "test" });
-  await bot.configure("1.21.1");
-  Object.assign(bot, {
-    food: 10,
-    health: 20,
-    game: {},
-    jumpTicks: 0,
-    jumpQueued: false,
-  });
-  bot.entity = bot._entity({
-    id: 1,
-    position: { x: 0.5, y: 1, z: 0.5 },
-    velocity: { x: 0, y: 0, z: 0 },
-    height: 1.8,
-    width: 0.6,
-    yaw: 0,
-    pitch: 0,
-    onGround: true,
-    effects: {},
-    attributes: {},
-    equipment: [],
-  });
-  for (let x = -3; x <= 12; x++)
-    for (let y = -1; y <= 4; y++)
-      for (let z = -3; z <= 3; z++) {
-        const block = bot.Block.fromStateId(
-          bot.registry.blocksByName[y < 1 ? "stone" : "air"].defaultState,
-          0,
-        );
-        block.position = new bot.Vec3(x, y, z);
-        bot.blocks.set(`${x},${y},${z}`, block);
-      }
-  const Item = require("prismarine-item")(bot.registry),
-    bread = bot.registry.itemsByName.bread.id;
-  bot.inventory = require("prismarine-windows")(bot.registry).createWindow(
-    0,
-    "minecraft:inventory",
-    "Inventory",
-  );
-  bot.inventory.updateSlot(36, new Item(bread, 3));
-  const actions = [],
-    reports = [];
-  bot.action = async (name) => {
-    actions.push(name);
-    if (name === "consume") {
-      bot.food = 16;
-      bot.inventory.updateSlot(36, new Item(bread, 2));
-    }
-    return null;
-  };
-  const { Movements, goals } = loadSelectedPlugins(bot, { pvp: false });
-  const moves = new Movements(bot);
-  moves.canDig = false;
-  bot.pathfinder.setMovements(moves);
-  const goal = new goals.GoalBlock(10, 1, 0);
-  let next;
-  bot.on("path_update", (r) => {
-    next = r.path[0];
-  });
-  const task = navigateWithAutoeat(
-    bot,
-    { post: async (r) => reports.push(structuredClone(r)) },
-    goal,
-  );
-  bot.emit("physicsTick");
-  assert.ok(next, "real plugin planned the next node");
-  assert.equal(
-    actions.includes("consume"),
-    false,
-    "stop request did not synchronously release the hand",
-  );
-  bot.entity.position = new bot.Vec3(next.x, next.y, next.z);
-  bot.emit("physicsTick");
-  await until(() => reports.length === 1);
-  assert.equal(reports[0].resume.status, "resumed");
-  assert.equal(bot.pathfinder.goal, goal);
-  // Supply final observed position; this tests native event sequencing, not physics.
-  bot.entity.position = new bot.Vec3(10.5, 1, 0.5);
-  bot.emit("physicsTick");
-  const result = await task;
-  assert.equal(result.status, "completed");
-  assert.equal(result.food.observedChange, 1);
-  bot.closeBridge();
 });

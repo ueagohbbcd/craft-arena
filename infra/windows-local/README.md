@@ -56,7 +56,7 @@ $env:BLUE_MODEL_KEY = '蓝队上游的 key'
 
 参赛者和 bot 的数量由地图包的 `map.json` 决定，不再写死在 Compose 文件里。初始化时 [`cli.mjs provision`](../../packages/arena/README.md#provision) 生成：
 
-- `compose.agents.yaml`：每个 bot 一个游戏桥（`bridge-arena-red1` 等），每个模型转发名一个模型转发（默认按队：`model-red`、`model-blue`），每个角色位一个参赛容器（`participant-red1` 等）。`windows-arena.ps1` 同时传 `compose.yaml` 和它。
+- `compose.agents.yaml`：每个参赛者一个登录门（`gate-arena-red` 等），每个模型转发名一个模型转发（默认按队：`model-red`、`model-blue`），每个角色位一个参赛容器（`participant-red1` 等）。`windows-arena.ps1` 同时传 `compose.yaml` 和它。
 - `agents/<角色位>/`：只读挂到参赛容器的 `/arena/provision`（清单 `manifest.json`、模型文件 `model.json`），其中 `config/` 挂到 `/arena/config`（例如 Race of Wool 的玩法说明 `agents.d/20-race-of-wool.md`，进系统提示）。
 - `match.json`：比赛文件加上由角色位推出的 `teams`。
 
@@ -77,12 +77,12 @@ Compose 项目名固定为 `craft-arena-local`，一台机器同一时间只运�
 
 | 动作     | 做什么                                                                                                                                                                    |
 | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `build`  | 构建 Minecraft 镜像、可信侧镜像（游戏桥、模型转发和 `arena` 命令行共用）和参赛镜像                                                                                        |
-| `up`     | 启动 Minecraft → 等 RCON 可用 → 启动游戏桥并等两个 bot 上线 → `arena prepare` → 为每队初始化 `/team-git/project.git` → 启动模型转发和参赛容器。参赛者加载好工具后等待开赛 |
+| `build`  | 构建 Minecraft 镜像、可信侧镜像（登录门、模型转发和 `arena` 命令行共用）和参赛镜像                                                                                        |
+| `up`     | 启动 Minecraft → 等 RCON 可用 → 启动登录门和参赛容器并等两个 bot 上线 → `arena prepare` → 为每队初始化 `/team-git/project.git` → 启动模型转发和参赛容器。参赛者加载好工具后等待开赛 |
 | `start`  | 确认会话状态为 `waiting`，然后 `arena start`                                                                                                                              |
 | `status` | `docker compose ps -a`，以及 `arena:session`（状态、胜者、分数）                                                                                                          |
 | `logs`   | 各服务最后 80 行日志                                                                                                                                                      |
-| `stop`   | 会话还在 `running` 时先 `arena stop`（数据包记下分数并结束），再停游戏桥、模型转发和参赛容器，最后停 Minecraft                                                            |
+| `stop`   | 会话还在 `running` 时先 `arena stop`（数据包记下分数并结束），再停登录门、模型转发和参赛容器，最后停 Minecraft                                                            |
 | `reset`  | 执行 `stop`，然后归档并恢复，见下文                                                                                                                                       |
 
 `arena` 是部署里 `tools` 配置组的一次性容器，运行 [packages/arena/src/cli.mjs](../../packages/arena/README.md)，读部署目录的 `match.json`。比赛由数据包在目标完成或时间到时结束，`status` 显示结果；需要存档时自己保存这份输出。
@@ -91,7 +91,7 @@ Compose 项目名固定为 `craft-arena-local`，一台机器同一时间只运�
 
 - 把当前世界移到部署目录的 `history/<时间-编号>/`，再从 `map-original/world` 恢复世界。
 - 每个参赛者工作卷里的 `.pi/sessions` 和 `match-artifacts` 移到 `.arena-history/<时间-编号>/`。参赛者的其他文件（包括上一场的代码）和队伍 Git 保留。清空工作区还在[路线图](../../docs/ROADMAP.md)上。
-- 删除游戏桥、模型转发和参赛容器（不删卷）。
+- 删除登录门、模型转发和参赛容器（不删卷）。
 
 之后运行 `up`。换地图时用新的部署目录，或在停止状态下同时替换 `map-original/world` 和 `match.json`。
 

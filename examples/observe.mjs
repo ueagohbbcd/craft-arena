@@ -6,8 +6,6 @@
  * Uses the same public session facts (teams, goal items) and observer
  * configuration as the default observer. Programs can import `observe`.
  */
-import { pathToFileURL } from "node:url";
-import { connectBot } from "../packages/bot-sdk/index.mjs";
 import { observe } from "../packages/observation/observe.mjs";
 import { observationOptionsFromSession } from "../packages/observation/session-options.mjs";
 import { readObserverOptions } from "../packages/observation/observer-config.mjs";
@@ -31,24 +29,13 @@ export function observeArgs(args) {
   return options;
 }
 
-async function main() {
-  const options = observeArgs(process.argv.slice(2));
-  const bot = await connectBot();
-  try {
-    const session = await bot.getSessionState().catch(() => undefined);
-    const result = await observe(bot, {
-      ...observationOptionsFromSession(session),
-      ...(await readObserverOptions(process.cwd())),
-      ...options,
-    });
-    console.log(
-      JSON.stringify(result, (_key, value) =>
-        typeof value === "bigint" ? value.toString() : value,
-      ),
-    );
-  } finally {
-    bot.closeBridge();
-  }
+export default async function observeProgram(bot, { args = [] }) {
+  const options = observeArgs(args);
+  const session = await bot.getSessionState?.().catch(() => undefined);
+  const result = await observe(bot, {
+    ...observationOptionsFromSession(session),
+    ...(await readObserverOptions(process.cwd())),
+    ...options,
+  });
+  return result;
 }
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href)
-  await main();

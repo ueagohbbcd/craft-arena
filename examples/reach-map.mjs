@@ -17,11 +17,7 @@
  * and the output says how many and how old. Read-only: it never moves the
  * character, so it can run beside a controller.
  */
-import { pathToFileURL } from "node:url";
-import {
-  connectBot,
-  createBlockMemoryClient,
-} from "../packages/bot-sdk/index.mjs";
+import { Vec3 } from "vec3";
 import { reachDefaults, reachMap } from "../packages/observation/reach.mjs";
 
 export function parseReachArgs(args) {
@@ -70,19 +66,18 @@ export function parseReachArgs(args) {
 }
 
 /**
- * A blockAt over the live mirror, falling back to block memory for columns
- * the live copy does not have. Returns the reader and where blocks came from.
+ * Read live chunks first, then native world memory for unloaded columns.
  */
 export async function worldReader(
   bot,
   { minX, maxX, minZ, maxZ },
-  memory = createBlockMemoryClient(),
+  memory = bot.arenaMemory,
 ) {
   const missing = [];
   for (let cx = Math.floor(minX / 16); cx <= Math.floor(maxX / 16); cx++)
     for (let cz = Math.floor(minZ / 16); cz <= Math.floor(maxZ / 16); cz++) {
       const probe = bot.blockAt(
-        new bot.Vec3(cx * 16, bot.entity.position.y, cz * 16),
+        new Vec3(cx * 16, bot.entity.position.y, cz * 16),
       );
       if (!probe) missing.push({ x: cx, z: cz });
     }
@@ -90,47 +85,46 @@ export async function worldReader(
     note = "all columns live";
   if (missing.length) {
     try {
-      view = await memory.prefetch({
-        dimension: bot.game.dimension,
-        columns: missing,
-      });
-      const ages = view
-        .columns()
-        .filter((c) => c.observedAt)
-        .map((c) => Math.round((Date.now() - c.observedAt) / 1000));
+      await memory.ready;
+      const dim = bot.game?.dimension ?? "overworld";
+      const ages = missing
+        .map(
+          ({ x, z }) => memory.chunkInfo({ x, z, dimension: dim })?.observedAt,
+        )
+        .filter(Number.isFinite)
+        .map((at) => Math.round((Date.now() - at) / 1000));
       note = `${missing.length} columns not loaded; read from block memory${ages.length ? `, last seen up to ${Math.max(...ages)} s ago` : ", never seen"}`;
     } catch (error) {
       note = `${missing.length} columns not loaded and block memory failed (${error.message}); they show as ?`;
     }
   }
+  const dimension = bot.game?.dimension ?? "overworld";
   const blockAt = (p) =>
-    bot.blockAt(new bot.Vec3(p.x, p.y, p.z)) ?? view?.blockAt(p) ?? null;
+    bot.blockAt(new Vec3(p.x, p.y, p.z)) ??
+    memory.block({ x: p.x, y: p.y, z: p.z, dimension }) ??
+    null;
   return { blockAt, note };
 }
 
-async function main() {
-  const options = parseReachArgs(process.argv.slice(2));
+export default async function reachMapProgram(
+  bot,
+  { args = [], log = console.log },
+) {
+  const options = parseReachArgs(args);
   const radius = options.radius ?? reachDefaults.radius;
-  const bot = await connectBot();
-  try {
-    const from = options.origin ?? bot.entity.position;
-    const { blockAt, note } = await worldReader(bot, {
-      minX: Math.floor(from.x) - radius,
-      maxX: Math.floor(from.x) + radius,
-      minZ: Math.floor(from.z) - radius,
-      maxZ: Math.floor(from.z) + radius,
-    });
-    const map = reachMap({
-      ...options,
-      blockAt,
-      registry: bot.registry,
-      minY: bot.game?.minY ?? -64,
-      origin: from,
-    });
-    console.log(`${map.text}\nBlocks: ${note}.`);
-  } finally {
-    bot.closeBridge();
-  }
+  const from = options.origin ?? bot.entity.position;
+  const { blockAt, note } = await worldReader(bot, {
+    minX: Math.floor(from.x) - radius,
+    maxX: Math.floor(from.x) + radius,
+    minZ: Math.floor(from.z) - radius,
+    maxZ: Math.floor(from.z) + radius,
+  });
+  const map = reachMap({
+    ...options,
+    blockAt,
+    registry: bot.registry,
+    minY: bot.game?.minY ?? -64,
+    origin: from,
+  });
+  log(`${map.text}\nBlocks: ${note}.`);
 }
-
-if (import.meta.url === pathToFileURL(process.argv[1]).href) await main();
