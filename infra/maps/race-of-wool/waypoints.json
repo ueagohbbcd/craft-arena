@@ -1,0 +1,37 @@
+[
+  {
+    "name": "lobby-spawn",
+    "x": 344,
+    "y": 72,
+    "z": -41,
+    "note": "World spawn and shared lobby platform; feet at y72 on the solid platform."
+  },
+  {
+    "name": "red-start-box",
+    "x": 317,
+    "y": 72,
+    "z": -25,
+    "note": "Red start box: the red team's #arena:start teleport lands at (317.5, 72, -24.5)."
+  },
+  {
+    "name": "red-gate",
+    "x": 317,
+    "y": 72,
+    "z": -27,
+    "note": "Red gate: inside the red start box next to the stone button at (317, 72, -28). The button opens the floor and drops you into the red water channel."
+  },
+  {
+    "name": "blue-start-box",
+    "x": 317,
+    "y": 72,
+    "z": -57,
+    "note": "Blue start box: the blue team's #arena:start teleport lands at (317.5, 72, -56.5)."
+  },
+  {
+    "name": "blue-gate",
+    "x": 317,
+    "y": 72,
+    "z": -55,
+    "note": "Blue gate: inside the blue start box next to the stone button at (317, 72, -53). The button opens the floor and drops you into the blue water channel."
+  }
+]

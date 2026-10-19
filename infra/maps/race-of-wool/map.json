@@ -4,6 +4,11 @@
       {
         "source": "agents.d/20-race-of-wool.md",
         "target": "/arena/config/agents.d/20-race-of-wool.md"
+      },
+      {
+        "source": "waypoints.json",
+        "target": "/workspace/waypoints.json",
+        "mode": "once"
       }
     ]
   },
