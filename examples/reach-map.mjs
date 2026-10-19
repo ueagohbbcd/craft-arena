@@ -12,10 +12,9 @@
  * --radius 12 (at most 25×25, cut down to what is reachable). Larger maps are
  * hard to read; draw another one with --from instead.
  *
- * Blocks come from your program's live copy of the world; columns that are
- * not loaded are read from block memory (what the character saw earlier),
- * and the output says how many and how old. Read-only: it never moves the
- * character, so it can run beside a controller.
+ * Blocks come from the live world. Only if optional memory is enabled may
+ * previously seen but unloaded columns supply historical (stale) blocks.
+ * Without memory, missing columns remain unknown. Never moves the bot.
  */
 import { Vec3 } from "vec3";
 import { reachDefaults, reachMap } from "../packages/observation/reach.mjs";
@@ -66,7 +65,8 @@ export function parseReachArgs(args) {
 }
 
 /**
- * Read live chunks first, then native world memory for unloaded columns.
+ * Prefer the live Mineflayer world. Only unloaded columns can fall back
+ * to optional, potentially stale memory. Missing history stays unknown.
  */
 export async function worldReader(
   bot,
@@ -74,35 +74,48 @@ export async function worldReader(
   memory = bot.arenaMemory,
 ) {
   const missing = [];
+  const key = (x, z) => `${x},${z}`;
   for (let cx = Math.floor(minX / 16); cx <= Math.floor(maxX / 16); cx++)
     for (let cz = Math.floor(minZ / 16); cz <= Math.floor(maxZ / 16); cz++) {
-      const probe = bot.blockAt(
-        new Vec3(cx * 16, bot.entity.position.y, cz * 16),
-      );
-      if (!probe) missing.push({ x: cx, z: cz });
+      const loaded =
+        typeof bot.world?.getColumn === "function"
+          ? Boolean(bot.world.getColumn(cx, cz))
+          : Boolean(
+              bot.blockAt(new Vec3(cx * 16, bot.entity.position.y, cz * 16)),
+            );
+      if (!loaded) missing.push({ x: cx, z: cz });
     }
-  let view = null,
-    note = "all columns live";
-  if (missing.length) {
+
+  const remembered = new Set();
+  let note = "all columns live";
+  let history = memory;
+  const dimension = bot.game?.dimension ?? "overworld";
+  if (missing.length && !history)
+    note = `${missing.length} columns not loaded; memory disabled (unknown)`;
+  else if (missing.length) {
     try {
-      await memory.ready;
-      const dim = bot.game?.dimension ?? "overworld";
-      const ages = missing
-        .map(
-          ({ x, z }) => memory.chunkInfo({ x, z, dimension: dim })?.observedAt,
-        )
-        .filter(Number.isFinite)
-        .map((at) => Math.round((Date.now() - at) / 1000));
-      note = `${missing.length} columns not loaded; read from block memory${ages.length ? `, last seen up to ${Math.max(...ages)} s ago` : ", never seen"}`;
+      await history.ready;
+      const ages = [];
+      for (const { x, z } of missing) {
+        const info = history.chunkInfo({ x, z, dimension });
+        if (info?.loaded !== false) continue;
+        remembered.add(key(x, z));
+        if (Number.isFinite(info.observedAt))
+          ages.push(Math.round((Date.now() - info.observedAt) / 1000));
+      }
+      note = `${missing.length} columns not loaded; ${remembered.size} available in historical memory${ages.length ? `, oldest observation ${Math.max(...ages)} s ago` : ""}`;
     } catch (error) {
-      note = `${missing.length} columns not loaded and block memory failed (${error.message}); they show as ?`;
+      history = null;
+      note = `${missing.length} columns not loaded; memory failed (${error.message}), unknown`;
     }
   }
-  const dimension = bot.game?.dimension ?? "overworld";
-  const blockAt = (p) =>
-    bot.blockAt(new Vec3(p.x, p.y, p.z)) ??
-    memory.block({ x: p.x, y: p.y, z: p.z, dimension }) ??
-    null;
+  const blockAt = (p) => {
+    const live = bot.blockAt(new Vec3(p.x, p.y, p.z));
+    if (live != null) return live;
+    if (!history || !remembered.has(key(Math.floor(p.x / 16), Math.floor(p.z / 16))))
+      return null;
+    return history.block({ x: p.x, y: p.y, z: p.z, dimension }) ?? null;
+  };
   return { blockAt, note };
 }
 
