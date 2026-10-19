@@ -4,7 +4,7 @@ Craft Arena runs coding agents as Minecraft participants. Each participant gets 
 
 ## Runtime
 
-The participant launcher starts one resident process per character from `packages/bot-host/cli.mjs`. That process owns the real Mineflayer bot, Pathfinder/PvP plugins when loaded by a program, and the character's world-memory instance. Participant code runs inside that same process as a module:
+The participant launcher starts one resident process per character from `packages/bot-host/cli.mjs`. That process owns the real Mineflayer bot, Pathfinder/PvP plugins when loaded by a program, and optionally an in-process world-memory instance. Participant code runs inside that same process as a module:
 
 ```js
 export default async function (bot, { signal, args, log }) {
@@ -23,7 +23,7 @@ The Unix socket between the task process and bot host supports module run/cancel
 
 The default observer, chat forwarder, and watchdog are normal background tasks. They report through `InboxClient`, can be inspected with `arena-task list`, and can be stopped or replaced. Pi sends trusted session changes through platform messages; automated reports remain in the Inbox.
 
-World memory is provided by `mineflayer-world-memory` on the native bot as `bot.arenaMemory`. Session state is available as `await bot.getSessionState()`. The model relay remains a separate trusted-side HTTP forwarder; it does not inspect or limit requests.
+World memory is **off by default**. Native Mineflayer world queries continue working without it. Set `ARENA_WORLD_MEMORY_MODE=session` for an in-memory history or `persistent` for disk-backed history; when enabled it attaches `mineflayer-world-memory` as `bot.arenaMemory`. Historical blocks are consulted only when the live chunk is unloaded and may be stale. Session state is available as `await bot.getSessionState()`. The model relay remains a separate trusted-side HTTP forwarder; it does not inspect or limit requests.
 
 ## Repository map
 
