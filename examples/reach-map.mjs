@@ -112,7 +112,10 @@ export async function worldReader(
   const blockAt = (p) => {
     const live = bot.blockAt(new Vec3(p.x, p.y, p.z));
     if (live != null) return live;
-    if (!history || !remembered.has(key(Math.floor(p.x / 16), Math.floor(p.z / 16))))
+    if (
+      !history ||
+      !remembered.has(key(Math.floor(p.x / 16), Math.floor(p.z / 16)))
+    )
       return null;
     return history.block({ x: p.x, y: p.y, z: p.z, dimension }) ?? null;
   };
