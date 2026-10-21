@@ -1,5 +1,6 @@
 /** Query current blocks first; optionally fall back to unloaded historical chunks. */
 import { Vec3 } from "vec3";
+import { readWorldBlock } from "mineflayer-world-memory/reader.mjs";
 
 export default async function queryBlockMemory(
   bot,
@@ -15,23 +16,18 @@ export default async function queryBlockMemory(
 
   const dimension = bot.game?.dimension ?? "overworld";
   const memory = bot.arenaMemory;
-  const live = bot.blockAt(new Vec3(position.x, position.y, position.z));
-  let block = live;
-  let chunkInfo = null;
-  let status = live ? "current" : "unknown";
-  if (!live && memory) {
-    await memory.ready;
-    chunkInfo = memory.chunkInfo({
-      x: Math.floor(position.x / 16),
-      z: Math.floor(position.z / 16),
-      dimension,
-    });
-    // Do not revive stale data in a column that is currently loaded.
-    if (chunkInfo?.loaded === false) {
-      block = memory.block({ ...position, dimension });
-      if (block) status = "historical";
-    }
-  }
+  if (memory) await memory.ready;
+  const read = readWorldBlock(bot, { ...position, dimension }, memory);
+  const block = read.block;
+  const status = read.source === "live" ? "current" : read.source;
+  const chunkInfo =
+    read.source === "live" || !memory
+      ? null
+      : memory.chunkInfo({
+          x: Math.floor(position.x / 16),
+          z: Math.floor(position.z / 16),
+          dimension,
+        });
 
   const nearby = name
     ? bot.findBlocks({

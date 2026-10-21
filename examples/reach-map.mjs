@@ -17,6 +17,7 @@
  * Without memory, missing columns remain unknown. Never moves the bot.
  */
 import { Vec3 } from "vec3";
+import { readWorldBlock } from "mineflayer-world-memory/reader.mjs";
 import { reachDefaults, reachMap } from "../packages/observation/reach.mjs";
 
 export function parseReachArgs(args) {
@@ -109,16 +110,17 @@ export async function worldReader(
       note = `${missing.length} columns not loaded; memory failed (${error.message}), unknown`;
     }
   }
-  const blockAt = (p) => {
-    const live = bot.blockAt(new Vec3(p.x, p.y, p.z));
-    if (live != null) return live;
-    if (
-      !history ||
-      !remembered.has(key(Math.floor(p.x / 16), Math.floor(p.z / 16)))
-    )
-      return null;
-    return history.block({ x: p.x, y: p.y, z: p.z, dimension }) ?? null;
-  };
+  const blockAt = (p) =>
+    readWorldBlock(
+      bot,
+      {
+        x: Math.floor(p.x),
+        y: Math.floor(p.y),
+        z: Math.floor(p.z),
+        dimension,
+      },
+      history,
+    ).block;
   return { blockAt, note };
 }
 
