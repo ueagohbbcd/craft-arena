@@ -27,5 +27,5 @@ The runtime starts [chat.mjs](../../../packages/default-scripts/chat.mjs) at ses
 
 ## Platform messages
 
-- **Session start and end.** The `session` section of the `Arena platform message` gives `kind`, `sessionId`, `state` and, in a match, `winner`. It is sent when one of them changes and arrives with your next request. A program can call `await bot.getSessionState()` for the same state. There is no clock: the rules on the server end the match, and a time limit, if any, is in the briefing.
+- **Session start and end.** The `session` section of the `Arena platform message` gives `kind`, `sessionId`, `state` and, in a match, `winner`. It is sent when one of them changes and arrives with your next request. A program can call `await bot.getSessionState()` for the same state. The rules on the server end the match.
 - **Slow model requests.** Long context, long replies, a busy model service or a spending limit all add time. When the operator set a spending limit and you went over it, a `modelRate` section in the next `Arena platform message` says how long requests waited and how long the next one will wait. The game and your programs keep running while you wait, so keep useful programs running, and keep each request's new context short.
