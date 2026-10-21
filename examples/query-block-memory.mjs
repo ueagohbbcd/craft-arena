@@ -1,5 +1,6 @@
-/** Query native Mineflayer world memory, including recently unloaded chunks. */
+/** Query current blocks first; optionally fall back to unloaded historical chunks. */
 import { Vec3 } from "vec3";
+
 export default async function queryBlockMemory(
   bot,
   { args = [], log = console.log },
@@ -11,17 +12,27 @@ export default async function queryBlockMemory(
     ![position.x, position.y, position.z].every(Number.isSafeInteger)
   )
     throw new Error("Usage: query-block-memory.mjs X Y Z [BLOCK_NAME]");
+
   const dimension = bot.game?.dimension ?? "overworld";
   const memory = bot.arenaMemory;
-  await memory.ready;
-  const [block, chunkInfo] = await Promise.all([
-    memory.block({ ...position, dimension }),
-    memory.chunkInfo({
+  const live = bot.blockAt(new Vec3(position.x, position.y, position.z));
+  let block = live;
+  let chunkInfo = null;
+  let status = live ? "current" : "unknown";
+  if (!live && memory) {
+    await memory.ready;
+    chunkInfo = memory.chunkInfo({
       x: Math.floor(position.x / 16),
       z: Math.floor(position.z / 16),
       dimension,
-    }),
-  ]);
+    });
+    // Do not revive stale data in a column that is currently loaded.
+    if (chunkInfo?.loaded === false) {
+      block = memory.block({ ...position, dimension });
+      if (block) status = "historical";
+    }
+  }
+
   const nearby = name
     ? bot.findBlocks({
         matching: (item) => item.name === name,
@@ -34,16 +45,13 @@ export default async function queryBlockMemory(
     JSON.stringify({
       query: position,
       dimension,
-      status: block
-        ? chunkInfo?.loaded
-          ? "current"
-          : "historical"
-        : "unknown",
+      status,
       known: Boolean(block),
       block: block?.name ?? null,
       chunk: chunkInfo,
+      memoryEnabled: Boolean(memory),
       currentMatches: nearby.map((p) => ({ x: p.x, y: p.y, z: p.z })),
-      note: "Search results include currently loaded chunks; historical memory was queried only at the requested coordinate.",
+      note: "Live blocks take priority. Historical blocks are used only for unloaded columns; unknown is not air.",
     }),
   );
 }

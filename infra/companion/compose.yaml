@@ -46,6 +46,7 @@ services:
     environment:
       ARENA_MINECRAFT_HOST: gate
       ARENA_BOT: ${MC_USERNAME:?Provide the bot account name}
+      ARENA_WORLD_MEMORY_MODE: ${ARENA_WORLD_MEMORY_MODE:-off}
       MC_VERSION: ${MC_VERSION:?Select exact server protocol version}
       MF_AUTH: ${MF_AUTH:-offline}
       MF_PROFILES_DIR: /profiles

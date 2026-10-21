@@ -260,6 +260,7 @@ export function agentsCompose(agents, { mapId, relays }) {
         ARENA_WORLD_ID: mapId,
         ARENA_PARTICIPANT_ID: agent.id,
         ARENA_BOT: main,
+        ARENA_WORLD_MEMORY_MODE: "${ARENA_WORLD_MEMORY_MODE:-off}",
         ARENA_PROVISION_DIR: "/arena/provision",
         OPENAI_BASE_URL: `http://model-${agent.relay}:8080`,
         ARENA_COST_PER_HOUR: "${MODEL_COST_PER_HOUR:-}",

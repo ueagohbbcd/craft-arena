@@ -100,6 +100,14 @@ test("provision writes per-agent config, manifests, teams and Compose services",
   ]);
   const participant = compose.services["participant-red1"];
   assert.equal(participant.environment.ARENA_BOT, "arena_red1");
+  for (const [name, service] of Object.entries(compose.services)) {
+    if (!name.startsWith("participant-")) continue;
+    assert.equal(
+      service.environment.ARENA_WORLD_MEMORY_MODE,
+      "${ARENA_WORLD_MEMORY_MODE:-off}",
+    );
+    assert.equal(service.environment.ARENA_WORLD_MEMORY_DIR, undefined);
+  }
   assert.equal(
     participant.environment.OPENAI_BASE_URL,
     "http://model-red:8080",

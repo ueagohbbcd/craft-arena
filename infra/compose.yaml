@@ -56,6 +56,7 @@ services:
       ARENA_SESSION_URL: http://gate-red1:8080/v1/session
       MC_VERSION: ${MC_VERSION:?Select exact server protocol version}
       ARENA_BOT: arena_red1
+      ARENA_WORLD_MEMORY_MODE: ${ARENA_WORLD_MEMORY_MODE:-off}
       ARENA_WORLD_ID: ${ARENA_WORLD_ID:-arena-world}
       ARENA_PARTICIPANT_ID: red1
       OPENAI_BASE_URL: http://model-relay:8080
@@ -75,6 +76,7 @@ services:
       ARENA_SESSION_URL: http://gate-blue1:8080/v1/session
       MC_VERSION: ${MC_VERSION:?Select exact server protocol version}
       ARENA_BOT: arena_blue1
+      ARENA_WORLD_MEMORY_MODE: ${ARENA_WORLD_MEMORY_MODE:-off}
       ARENA_WORLD_ID: ${ARENA_WORLD_ID:-arena-world}
       ARENA_PARTICIPANT_ID: blue1
       OPENAI_BASE_URL: http://model-relay:8080

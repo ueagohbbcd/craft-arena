@@ -35,6 +35,8 @@
 
 本仓库提供运营命令行、模型转发、部署，以及容器里的原生 bot 运行时、Pi 扩展、任务管理和收件箱。`mineflayer-world-memory` 是可从角色进程调用的通用 Minecraft agent 工具包，包含区块记忆、观察能力与看门狗；Mineflayer bot API 不经远程镜像暴露。
 
+2026-10-19 调整：Arena 默认关闭历史区块缓存；实时 Mineflayer 方块优先，历史仅在区块卸载后回退。`ARENA_WORLD_MEMORY_MODE=session|persistent` 才启用，默认 `off`。现阶段不扩展自研存储引擎；今后评估已有 Prismarine provider 的可替代性。
+
 本仓库对工具包的代码依赖只有库。skill 不直接引用，只复制要用的几个过来按比赛规则改写；参赛容器里只装本仓库挑选的东西，因为模型能读到 `node_modules`。依赖继续用 GitHub 下载链接，不发 npm。
 
 | 状态 | 事项                                                                                                                                                              |

@@ -28,8 +28,11 @@ export function hostEnv(env, { name, runSocket, index, runDir }) {
     MF_USERNAME: name,
     ARENA_RUN_SOCKET: runSocket,
     ARENA_BOT_INDEX: String(index),
-    ARENA_WORLD_MEMORY_DIR:
-      env.ARENA_WORLD_MEMORY_DIR ?? join(runDir, "world-memory", name),
+    // Do not create a history cache by default. Persist only when opted in.
+    ...(env.ARENA_WORLD_MEMORY_MODE === "persistent" &&
+    !env.ARENA_WORLD_MEMORY_DIR
+      ? { ARENA_WORLD_MEMORY_DIR: join(runDir, "world-memory", name) }
+      : {}),
   };
 }
 

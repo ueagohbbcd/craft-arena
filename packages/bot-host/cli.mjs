@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-import { mkdir } from "node:fs/promises";
 import { createCompatibleBot } from "./minecraft-compat.mjs";
-import { createWorldMemory } from "mineflayer-world-memory";
-import { join, resolve } from "node:path";
+import { attachWorldMemory } from "./world-memory.mjs";
+import { resolve } from "node:path";
 import { startRunner } from "./runner.mjs";
 import { sessionObject } from "./session.mjs";
 
@@ -81,21 +80,7 @@ const stop = async (code = 0) => {
 
 bot.once("spawn", async () => {
   try {
-    memory = createWorldMemory(bot, {
-      analysis: "lazy",
-      directory: process.env.ARENA_WORLD_MEMORY_DIR,
-      worldId: JSON.stringify({
-        worldId: process.env.ARENA_WORLD_ID ?? "default",
-        runId: process.env.ARENA_RUN_ID ?? "default",
-        participantId: process.env.ARENA_PARTICIPANT_ID ?? username,
-      }),
-    });
-    if (!memory.ready || typeof memory.chunkInfo !== "function")
-      throw new Error(
-        "Installed world-memory package lacks lazy native memory support",
-      );
-    await memory.ready;
-    bot.arenaMemory = memory;
+    memory = await attachWorldMemory(bot, process.env);
     if (sessionUrl) {
       try {
         session = await readSession();

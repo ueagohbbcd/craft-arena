@@ -78,7 +78,7 @@ Both renderers take this object (`snapshotFromBot(bot, {bounds})` reads it direc
 
 - A block listed as air is known air. **A cell missing from `blocks` is unknown.**
 - `stateId` must come from the same Minecraft version. Do not guess one. Without it, the version's default state is used and counted in `defaultedStates`. A `stateId` that does not match `name` is rejected.
-- `snapshotFromExplored(bot, {bounds, maxAgeMs})` from `mineflayer-world-memory` builds a snapshot from blocks the native bot remembers seeing. Each keeps its observation time, and one that is no longer loaded or has changed is marked stale (amber stripes in the top-down picture).
+- `snapshotFromExplored(bot, {bounds, maxAgeMs})` from `mineflayer-world-memory` builds a snapshot from an explicit observation cache (`bot.knownBlocks` or `bot.knownBlocksIn`). The native bot host does not provide one, so for native bots use live `snapshotFromBot` instead. Each keeps its observation time, and one that is no longer loaded or has changed is marked stale (amber stripes in the top-down picture).
 
 ## Limits
 
