@@ -236,8 +236,50 @@ test(
       system,
     );
     assert.match(system, /route-fixture/);
+    assert.match(system, /skills\/arena-programs\/SKILL\.md/);
+    // No manifest, so no teammates: the team skill stays out.
+    assert.doesNotMatch(system, /skills-team/);
     assert.match(body, /FIRST-MESSAGE-FIXTURE/);
     assert.match(body, new RegExp(png.toString("base64").slice(0, 40)));
+  },
+);
+
+test(
+  "the launcher offers the team skill only when the manifest lists teammates",
+  { timeout: 20000 },
+  async (t) => {
+    const dir = await tempDir(t, "arena-config-e2e-");
+    const workspace = join(dir, "workspace");
+    await mkdir(workspace);
+    await fill(join(dir, "provision"), {
+      "manifest.json": JSON.stringify({ files: [], teammates: ["red2"] }),
+    });
+    const provider = await fakeProvider(t);
+    const env = await launcherEnv(dir, provider);
+    env.ARENA_PROVISION_DIR = join(dir, "provision");
+    const child = spawn(process.execPath, [bootstrap], {
+      cwd: workspace,
+      env,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    t.after(() => {
+      if (child.exitCode === null) child.kill("SIGKILL");
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (data) => (stdout += data));
+    child.stderr.on("data", (data) => (stderr += data));
+    const until = Date.now() + 15000;
+    while (!stdout.includes("config fixture done")) {
+      if (Date.now() > until || child.exitCode !== null)
+        throw new Error(`No reply: ${stderr}\n${stdout.slice(-1000)}`);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    }
+    const exited = once(child, "exit");
+    child.kill("SIGTERM");
+    await exited;
+    const system = JSON.stringify(provider.requests[0].messages[0]);
+    assert.match(system, /skills-team\/arena-team\/SKILL\.md/);
   },
 );
 

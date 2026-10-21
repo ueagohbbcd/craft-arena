@@ -1,6 +1,6 @@
 ---
 name: arena-programs
-description: Write and run modules directly against the native Mineflayer bot, use tasks and cancellation, report through the inbox, and handle waits and shared character controls.
+description: "How to write and run modules against your character's native Mineflayer bot: module shape, tasks, waiting and cancelling, sharing movement and the main hand, reporting to yourself through the inbox, platform messages, and looking up Mineflayer, Pathfinder and PvP calls in the bundled docs. Read it before your first program, and again when a program misbehaves or you need a call you have not used yet."
 ---
 
 # Writing programs
@@ -72,8 +72,32 @@ The task interface handles only `run`, `cancel`, `status` and `session` requests
 
 ## Report to the model
 
-Use `InboxClient` from `packages/inbox` to send progress, replaceable status, or a request for an early judgment. The inbox is separate from trusted platform messages about the session, public data and notices. An urgent inbox report may end a `bash` wait early, but the module keeps running; inspect its status, keep waiting, or cancel it.
+An urgent inbox report may end a `bash` wait early, but the module keeps running; inspect its status, keep waiting, or cancel it. The inbox is separate from trusted platform messages about the session, public data and notices (below).
 
-Block memory stores only chunks the character has received. Query it from a module; historical results describe the world when observed and may be stale. `unknown` means the character has not received that location.
+Load the client with ``const { InboxClient } = await import(`${process.env.ARENA_TOOLKIT_ROOT}/packages/inbox/index.mjs`)`` and create one with `new InboxClient()`. What each method is for:
 
-See `arena-navigation`, `arena-items`, `arena-survival`, `arena-surroundings`, `arena-reporting` and `arena-team` for focused examples and guidance.
+- `post(data)`: an event you want to see, such as a step finished. Arrives with your next tool result
+- `upsert(key, data)`: progress; a newer report with the same key replaces the older one if you have not seen it yet
+- `setStatus(key, data, {ttlMs})`: the program's current value, shown as `programStatus` in the runtime report until it is replaced, cleared with `null`, or expires
+- `requestJudgment(data)`: an urgent report. It ends your current wait or wakes you, and the program keeps running
+- `delivery(id, {timeoutMs})`: waits (30 s by default) until a message has left the queue. Resolves with `outcome`: `delivered`, `replaced`, `expired`, `overflow` or `removed`, or `pending` if it is still queued when the wait ends
+
+A send resolves to `{accepted: true, id}` once the message is queued, and rejects with an error if it is refused (for example, too large). Queued does not mean you have read it. Every report should say whether the program is continuing or has stopped. You do not need to report that a program exited, because the runtime does that. More in the [inbox README](../../../packages/inbox/README.md).
+
+## Platform messages
+
+- **Session start and end.** The `session` section of the `Arena platform message` gives `kind`, `sessionId`, `state` and, in a match, `winner`. It is sent when one of them changes and arrives with your next request. A program can call `await bot.getSessionState()` for the same state. The rules on the server end the match.
+- **Slow model requests.** Long context, long replies, a busy model service or a spending limit all add time. When the operator set a spending limit and you went over it, a `modelRate` section in the next `Arena platform message` says how long requests waited and how long the next one will wait. The game and your programs keep running while you wait, so keep useful programs running, and keep each request's new context short.
+
+## Looking up a Mineflayer call
+
+Docs and source for the installed versions are under `$ARENA_REFERENCE_ROOT`: `mineflayer/docs/api.md` (every method, event and property), `mineflayer/docs/FAQ.md`, `mineflayer-pathfinder/readme.md` and `mineflayer-pvp/README.md`. `api.md` is thousands of lines long: search for the heading, then read only that section with `read` and `offset`/`limit`.
+
+```sh
+rg -n "^#### bot.dig" "$ARENA_REFERENCE_ROOT/mineflayer/docs/api.md"
+rg -n "canDig|allowParkour" "$ARENA_REFERENCE_ROOT/mineflayer-pathfinder/readme.md"
+```
+
+When a call behaves differently from its documentation, read its source in the same directory.
+
+See `arena-navigation`, `arena-items`, `arena-survival` and `arena-surroundings` for focused examples and guidance.

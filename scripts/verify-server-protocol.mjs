@@ -475,7 +475,12 @@ async function live(rcon, dir, map) {
       () => "datapack did not declare a winner after native placement",
     );
     assert.equal((await arenaCli("status")).winner, "red");
-    assert.equal((await session()).winner, "red");
+    // The gate polls RCON every 250 ms, so its copy can lag the CLI's read.
+    await waitFor(
+      async () => (await session()).winner === "red",
+      5000,
+      () => "login gate session did not report the winner",
+    );
     log(
       "ok live: login gate + native bot hosts, socket module run, datapack verdict",
     );

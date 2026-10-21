@@ -16,7 +16,7 @@ const briefingKeys = [
 export function briefingFields(host) {
   return Object.fromEntries(
     briefingKeys
-      .filter((key) => host[key] !== undefined)
+      .filter((key) => host[key] !== undefined && host[key] !== null)
       .map((key) => [key, host[key]]),
   );
 }

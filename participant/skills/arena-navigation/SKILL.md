@@ -1,6 +1,6 @@
 ---
 name: arena-navigation
-description: Getting around in the arena. The first movement with navigate.mjs, what to do after NoPath or a stall, the reach map (where Pathfinder can take you and back), terrain profiles, stopping Pathfinder safely, and keeping waypoints with a route table between them.
+description: "Moving the character: navigate.mjs for a trip, the reach map and terrain profile to see where Pathfinder can take you and back, stopping Pathfinder safely, and waypoints with a route table between them. Use before a long trip, and whenever a trip reports NoPath or the character stops making progress."
 ---
 
 # Getting around
