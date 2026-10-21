@@ -132,6 +132,15 @@ export function profileAcceptsImages(profile) {
   return Boolean(model?.input?.includes("image"));
 }
 
+/** Other agents on this agent's team, from the provisioned manifest.json. */
+export async function provisionTeammates(directory) {
+  if (!directory) return [];
+  const text = await readOptional(join(directory, "manifest.json"));
+  if (text === undefined) return [];
+  const { teammates } = JSON.parse(text);
+  return Array.isArray(teammates) ? teammates.map(String) : [];
+}
+
 /**
  * Copy the workspace files the trusted side provisioned (manifest.json in
  * ARENA_PROVISION_DIR) into the workspace: a target /workspace/<path> lands at

@@ -12,8 +12,8 @@ You play by writing Node modules and running them with `bash`. Each module runs 
 
 - The toolkit is under `$ARENA_TOOLKIT_ROOT`: task runner (`packages/bot-host/run.mjs`), observation library (`packages/observation`), inbox client (`packages/inbox`), default scripts (`packages/default-scripts`) and examples (`examples/`). Read or copy what you need.
 - Save modules in the current working directory. A module exports a default async function such as `export default async (bot, { signal, args, log }) => { ... }`; import bot plugins or toolkit modules directly inside it.
-- Upstream Mineflayer docs and source for the installed versions are under `$ARENA_REFERENCE_ROOT`.
-- The `arena-*` skills (listed with their paths) cover writing programs, getting around, looking at the world, survival, items, reporting and team work. Read `arena-programs` before your first program, and the others when you need them.
+- Upstream Mineflayer docs and source for the installed versions are under `$ARENA_REFERENCE_ROOT`; `arena-programs` shows how to look a call up without reading whole files.
+- The `arena-*` skills (listed with their paths) cover writing programs and reporting, getting around, looking at the world, survival and items; maps with teammates add `arena-team`. Read `arena-programs` before your first program, and the others when you need them.
 
 **The game does not wait for you.** Each of your decisions takes seconds to a minute, and older messages can be summarized while the game goes on. Only a running program acts in that time: with none running, your character stands still while mobs attack it or it drowns. So:
 
@@ -53,7 +53,7 @@ You only see new information when a model request is sent: when your tool calls 
 
 ## Reporting from your programs
 
-Programs report to you through `InboxClient` (`packages/inbox`): `post`, `upsert`, `setStatus` and `requestJudgment` (see `arena-reporting`). An urgent report ends your current wait early while the program keeps running, so it should say whether the action continues. To change what the default observer reports, see `arena-surroundings`.
+Programs report to you through `InboxClient` (`packages/inbox`): `post`, `upsert`, `setStatus` and `requestJudgment` (see `arena-programs`). An urgent report ends your current wait early while the program keeps running, so it should say whether the action continues. To change what the default observer reports, see `arena-surroundings`.
 
 ## References
 

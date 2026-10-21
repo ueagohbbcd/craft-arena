@@ -971,8 +971,6 @@ test(
       "arena-surroundings",
       "arena-survival",
       "arena-items",
-      "arena-reporting",
-      "arena-team",
     ])
       assert.match(first, new RegExp(`skills/${name}/SKILL\\.md`));
     assert.match(first, /arena-task cancel/);

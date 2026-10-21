@@ -28,6 +28,7 @@ import {
 import {
   applyProvisionFiles,
   profileAcceptsImages,
+  provisionTeammates,
   readParticipantConfig,
 } from "./participant-config.mjs";
 import { startBotHosts } from "./bot-hosts.mjs";
@@ -306,9 +307,10 @@ async function launchPi({
     env.PI_CODING_AGENT_SESSION_DIR || join(cwd, ".pi", "sessions");
   // Copies of the trusted briefing for the model to re-read after compaction.
   const ownSessionFilesDir = resident && !env.ARENA_SESSION_DIR;
-  let guidanceArgs, sessionFiles, config;
+  let guidanceArgs, sessionFiles, config, teammates;
   try {
     await applyProvisionFiles(env.ARENA_PROVISION_DIR, { workspace: cwd });
+    teammates = await provisionTeammates(env.ARENA_PROVISION_DIR);
     config = await readParticipantConfig(env.ARENA_CONFIG_DIR, {
       env,
       builtinAgentsDir: [
@@ -350,6 +352,10 @@ async function launchPi({
     ...guidanceArgs,
     "--skill",
     join(projectRoot, "participant/skills"),
+    // Team work only matters with teammates; a team of one does not see it.
+    ...(teammates.length
+      ? ["--skill", join(projectRoot, "participant/skills-team")]
+      : []),
     ...(config.skillsDir ? ["--skill", config.skillsDir] : []),
     ...profile.extensions.flatMap((path) => ["-e", path]),
     ...args,

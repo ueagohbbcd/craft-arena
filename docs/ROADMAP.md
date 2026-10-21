@@ -109,22 +109,23 @@
 
 ## 代码整理（简化审查中暂缓的项）
 
-| 状态 | 事项                                                                                                                                                                                                                                 |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| ✅   | 模型配置测试通过真实 Pi ModelRuntime/SettingsManager 读取生成物；拒绝输出与上下文、压缩保留量互相矛盾的配置，删除接受不足预留量的判据                                                                                                |
-| ✅   | RPC 消费异常不再静默吞掉；默认 Vector 复用 vec3，修正 normalize 原地修改语义，增加能击穿旧实现的行为测试                                                                                                                             |
-| ✅   | 原生模块运行器生命周期：取消时先发 AbortSignal 并释放移动，短暂宽限后由监督进程终止不响应的 bot host；测试覆盖取消、监听与定时器清理                                                                                                 |
-| ✅   | 架构文档与参赛提示统一为单一原生运行路径；任务 RPC 限为 `run`、`cancel`、`status`、`session`                                                                                                                                         |
-| ⬜   | 环境变量整数解析有约 6 份实现，校验规则不一致，提取一个共用函数                                                                                                                                                                      |
-| ⬜   | 工具包做成可按名字导入的包（`package.json` exports 加启动时的软链接），参赛者程序、示例和默认脚本都改用静态导入                                                                                                                      |
-| ⬜   | `bash` 增加 `background` 参数：模型自己运行的观察器副本也能标成后台任务，不挡空闲提醒                                                                                                                                                |
-| ✅   | 工具收缩到 Pi 的 `read`／`edit`／`write` 加本项目的 `bash`：`bash` 带 `taskId` 续等，取代 `task_wait`；任务输出和状态写到任务目录，`arena-task` 命令取代 `task_cancel`；`examples/observe.mjs` 和 `runtime.json` 取代 `observe` 工具 |
-| ✅   | 参赛说明搬到 `participant/`：每局必用的知识进追加的系统提示 `PROMPT.md`；Skill 改名 `minecraft-arena`，只留程序写法和示例入口                                                                                                        |
-| ✅   | Skill 拆成 7 个（`participant/skills/arena-*`：程序、导航、观察、生存、物品、报告、组队），FAQ 和 TEAM.md 并进对应 skill；启动器传整个目录                                                                                           |
-| ✅   | 观察报告里列出的实体位置取一位小数（查询保持原精度）                                                                                                                                                                                 |
-| ⬜   | 送达回执改为整个会话一条流，替代每条消息各自长轮询                                                                                                                                                                                   |
-| ✅   | 启动器改用 `createSessionReader`；放宽了它对 `durationMs` 的校验                                                                                                                                                                     |
-| ✅   | 删除旧别名：`publishCurrent`、CLI 的 `current`、`perception.json`                                                                                                                                                                    |
+| 状态 | 事项                                                                                                                                                                                                                                                                     |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ✅   | 模型配置测试通过真实 Pi ModelRuntime/SettingsManager 读取生成物；拒绝输出与上下文、压缩保留量互相矛盾的配置，删除接受不足预留量的判据                                                                                                                                    |
+| ✅   | RPC 消费异常不再静默吞掉；默认 Vector 复用 vec3，修正 normalize 原地修改语义，增加能击穿旧实现的行为测试                                                                                                                                                                 |
+| ✅   | 原生模块运行器生命周期：取消时先发 AbortSignal 并释放移动，短暂宽限后由监督进程终止不响应的 bot host；测试覆盖取消、监听与定时器清理                                                                                                                                     |
+| ✅   | 架构文档与参赛提示统一为单一原生运行路径；任务 RPC 限为 `run`、`cancel`、`status`、`session`                                                                                                                                                                             |
+| ⬜   | 环境变量整数解析有约 6 份实现，校验规则不一致，提取一个共用函数                                                                                                                                                                                                          |
+| ⬜   | 工具包做成可按名字导入的包（`package.json` exports 加启动时的软链接），参赛者程序、示例和默认脚本都改用静态导入                                                                                                                                                          |
+| ⬜   | `bash` 增加 `background` 参数：模型自己运行的观察器副本也能标成后台任务，不挡空闲提醒                                                                                                                                                                                    |
+| ✅   | 工具收缩到 Pi 的 `read`／`edit`／`write` 加本项目的 `bash`：`bash` 带 `taskId` 续等，取代 `task_wait`；任务输出和状态写到任务目录，`arena-task` 命令取代 `task_cancel`；`examples/observe.mjs` 和 `runtime.json` 取代 `observe` 工具                                     |
+| ✅   | 参赛说明搬到 `participant/`：每局必用的知识进追加的系统提示 `PROMPT.md`；Skill 改名 `minecraft-arena`，只留程序写法和示例入口                                                                                                                                            |
+| ✅   | Skill 拆成 7 个（`participant/skills/arena-*`：程序、导航、观察、生存、物品、报告、组队），FAQ 和 TEAM.md 并进对应 skill；启动器传整个目录                                                                                                                               |
+| ✅   | Skill 描述改成"做什么 + Use when"；报告并进 `arena-programs`（程序报告、平台消息）、`arena-survival`（战斗报告）、`arena-surroundings`（游戏聊天）；`arena-team` 移到 `participant/skills-team`，只有清单里有队友时才挂；`arena-programs` 加按需查 Mineflayer 文档的方法 |
+| ✅   | 观察报告里列出的实体位置取一位小数（查询保持原精度）                                                                                                                                                                                                                     |
+| ⬜   | 送达回执改为整个会话一条流，替代每条消息各自长轮询                                                                                                                                                                                                                       |
+| ✅   | 启动器改用 `createSessionReader`；放宽了它对 `durationMs` 的校验                                                                                                                                                                                                         |
+| ✅   | 删除旧别名：`publishCurrent`、CLI 的 `current`、`perception.json`                                                                                                                                                                                                        |
 
 ## 待实战验证
 

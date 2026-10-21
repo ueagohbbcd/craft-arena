@@ -393,6 +393,12 @@ export async function provision({
         {
           agent: agent.id,
           ...(agent.team ? { team: agent.team } : {}),
+          teammates: agents
+            .filter(
+              (other) =>
+                agent.team && other.team === agent.team && other !== agent,
+            )
+            .map((other) => other.id),
           bots: agent.bots.map((bot) => ({ name: bot })),
           files: workspace,
         },

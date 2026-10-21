@@ -1,6 +1,6 @@
 ---
 name: arena-items
-description: Digging, placing, equipping, crafting and containers in the arena. The calls to use, checking that a placement is clear, looking into a chest before taking items, and keeping the right item in the shared main hand.
+description: "Digging, placing, equipping, crafting and containers: the Mineflayer calls, checking that a placement is clear, looking into a chest before taking items, and keeping the right item in the shared main hand. Use before you dig, build, craft, or take items from a chest or furnace."
 ---
 
 # Items, blocks and containers

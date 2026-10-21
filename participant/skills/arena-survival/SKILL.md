@@ -1,6 +1,6 @@
 ---
 name: arena-survival
-description: Staying alive in the arena. Eating and defending yourself while walking, fighting a chosen entity, keeping PvP from digging, getting out of water, and setting your respawn point with a bed.
+description: "Staying alive: eating and defending yourself while walking, fighting a chosen entity and reading combat reports, keeping PvP from digging, getting out of water, and setting a respawn point with a bed. Use when mobs are near, health or food is dropping, you are in water, or before a trip that may meet mobs."
 ---
 
 # Staying alive
@@ -9,9 +9,13 @@ The game does not wait for you: with no program running, the character stands st
 
 - **Eat while walking:** [navigate-with-autoeat.mjs](../../../examples/navigate-with-autoeat.mjs). Eating in your own program: `await bot.consume()` returns after eating, with the inventory updated.
 - **Defend yourself while walking:** [navigate-with-defense.mjs](../../../examples/navigate-with-defense.mjs). Use it rather than plain `navigate.mjs` when a trip may meet mobs.
-- **Fight a chosen entity:** [fight-target.mjs](../../../examples/fight-target.mjs). In your own program, `loadSelectedPlugins(bot)` (PvP is on by default), then `await bot.pvp.attack(entity)` and `await bot.pvp.stop()`. Fights send combat reports, see the `arena-reporting` skill.
+- **Fight a chosen entity:** [fight-target.mjs](../../../examples/fight-target.mjs). In your own program, `loadSelectedPlugins(bot)` (PvP is on by default), then `await bot.pvp.attack(entity)` and `await bot.pvp.stop()`. Fights send combat reports, see below.
 - **PvP digs even with Pathfinder digging off:** PvP has its own movement settings, `bot.pvp.movements`, and gives them to Pathfinder when it attacks. Set `bot.pvp.movements.canDig = false` to keep terrain intact during a fight, as fight-target.mjs does.
 - Reminder: in water get to air first (hold `jump`); check below before digging down.
+
+## Combat reports
+
+Programs that load PvP through `loadSelectedPlugins` send combat reports automatically: a `combat.phase:<id>` progress report during the fight and one `combat.summary` at the end. The summary covers the target, attack attempts, distance to the target, health and changes in nearby hostile mobs. `outcome` is always `unknown`, because attacks do not prove a kill. `bot.combatReport.reportDecision({candidates, selectedTargetId, reason})` adds your reasons. [fight-target.mjs](../../../examples/fight-target.mjs) shows both.
 
 ## Respawn point
 

@@ -291,6 +291,12 @@ test("teammates share one Git volume and keep their own workspaces", async (t) =
   assert.equal(git("a"), "team-red-git:/team-git");
   assert.equal(git("b"), "team-red-git:/team-git");
   assert.equal(git("c"), "c-git:/team-git");
+  const teammates = async (id) =>
+    JSON.parse(
+      await readFile(join(f.outDir, "agents", id, "manifest.json"), "utf8"),
+    ).teammates;
+  assert.deepEqual(await teammates("a"), ["b"]);
+  assert.deepEqual(await teammates("c"), []);
   assert.ok(services["participant-a"].volumes.includes("a-work:/workspace"));
 });
 

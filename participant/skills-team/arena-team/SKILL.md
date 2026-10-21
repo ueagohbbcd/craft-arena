@@ -1,6 +1,6 @@
 ---
 name: arena-team
-description: Sharing code with teammates through the team Git repository, and the two channels for coordinating with them (game chat and Git).
+description: "Working with teammates: the team Git repository for sharing code, and the two channels for coordinating (game chat and Git). Use when you want to share code with a teammate or agree who does what."
 ---
 
 # Team work
