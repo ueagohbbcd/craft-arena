@@ -1,7 +1,8 @@
 #!/usr/bin/env node
-// Removes Minecraft data the arena never loads from an installed node_modules:
+// Removes what the arena never loads from an installed node_modules:
 // Bedrock data (minecraft-data loads it lazily; only bedrock/common is read at
-// startup) and prismarine-viewer textures and block states for other versions.
+// startup) and prismarine-viewer textures and block states for other versions,
+// and the toolkit's own skill.
 // Saves about 600 MB in the participant image.
 //
 // Usage: node scripts/prune-node-modules.mjs [node_modules] [version]
@@ -30,3 +31,10 @@ keepOnly(
   (name) => name === version || name === `${version}.png`,
 );
 keepOnly(join(viewer, "blocksStates"), (name) => name === `${version}.json`);
+
+// The toolkit tarball carries its own general-purpose skill. Participants get
+// the arena's skills instead, and models can read node_modules.
+rmSync(join(root, "mineflayer-world-memory/skills"), {
+  recursive: true,
+  force: true,
+});
