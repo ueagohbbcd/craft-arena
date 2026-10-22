@@ -14,7 +14,7 @@ const match = {
   config: {
     sessionId: "fixture",
     kind: "match",
-    durationMs: 60000,
+    rules: { durationMs: 60000 },
     briefing: "Place your wool.",
     teams: [
       { id: "red", players: ["arena_red1"] },
@@ -42,10 +42,10 @@ test("prepare writes arena:config, runs the prepare commands, then #arena:prepar
     runId: "run-1",
   });
   assert.deepEqual(s.commands, [
-    "data remove storage arena:config durationMs",
+    "data remove storage arena:config rules",
     "data remove storage arena:config briefing",
     "data remove storage arena:config runId",
-    'data merge storage arena:config {version:1,kind:"match",teams:[{id:"red",players:["arena_red1"]},{id:"blue",players:["arena_blue1"]}],runId:"run-1",sessionId:"fixture",durationMs:60000,briefing:"Place your wool."}',
+    'data merge storage arena:config {version:1,kind:"match",teams:[{id:"red",players:["arena_red1"]},{id:"blue",players:["arena_blue1"]}],runId:"run-1",sessionId:"fixture",rules:{durationMs:60000},briefing:"Place your wool."}',
     "data get storage arena:config",
     "gamerule doMobSpawning false",
     "function #arena:prepare",
@@ -143,6 +143,7 @@ test("match files and arena:config values are checked", () => {
     sessionId: "bad id",
     kind: "race",
     durationMs: 0,
+    rules: [],
     briefing: 1,
     teams: [
       { id: "draw", players: [] },
@@ -153,7 +154,8 @@ test("match files and arena:config values are checked", () => {
   for (const pattern of [
     /sessionId/,
     /kind/,
-    /durationMs/,
+    /unknown key durationMs/,
+    /rules must be an object/,
     /briefing/,
     /draw/,
     /red players/,

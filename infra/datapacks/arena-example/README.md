@@ -9,10 +9,10 @@
 1. 准备前，运营者（[`packages/arena` 命令行](../../../packages/arena/README.md)）把会话配置写进命令存储 `arena:config`：
 
    ```
-   {version:1, sessionId:"...", kind:"match", durationMs:1800000, teams:[{id:"red", players:["arena_red1"]}, {id:"blue", players:["arena_blue1"]}]}
+   {version:1, sessionId:"...", kind:"match", teams:[{id:"red", players:["arena_red1"]}, {id:"blue", players:["arena_blue1"]}]}
    ```
 
-   `open` 会话或没有时限时不写 `durationMs`。写入时先 `data remove` 上一场可能留下的可选键（`durationMs`、`briefing`、`runId`），再 `data merge storage arena:config {...}`。时限由数据包自己执行；这个示例不计时。
+   地图自己的参数放在可选的 `rules` 里，平台不解析。写入时先 `data remove` 上一场可能留下的可选键（`rules`、`briefing`、`runId`），再 `data merge storage arena:config {...}`。时限由数据包自己执行；这个示例不计时。
 
 2. 依次执行 `function #arena:prepare`、`function #arena:start`，需要提前结束时执行 `function #arena:stop`。
 3. 可信侧登录入口通过 RCON 读取 `arena:session`，解析返回的 SNBT，并向参赛者提供只读会话状态：

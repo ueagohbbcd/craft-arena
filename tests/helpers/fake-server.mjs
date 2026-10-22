@@ -36,8 +36,8 @@ export function fakeServer({ commands = [] } = {}) {
           : storageReply("arena:session", s.session);
       if (c === "data get storage arena:config")
         return storageReply("arena:config", s.config);
-      if (c === "data remove storage arena:config durationMs")
-        return "Found no elements matching durationMs";
+      if (c === "data remove storage arena:config rules")
+        return "Found no elements matching rules";
       if (c.startsWith("data merge storage arena:config ")) {
         // Remove-then-merge replaces the whole compound in practice.
         s.config = c.slice("data merge storage arena:config ".length);

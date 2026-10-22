@@ -12,7 +12,7 @@
  *     the reply for a missing function tag;
  *   - race-of-wool: monument reset and force-loading, scores following placed
  *     and removed blocks, a win, a same-tick draw, #arena:stop, the time
- *     limit from arena:config.durationMs, and no limit without it; starts
+ *     limit from arena:config.rules.durationMs, and no limit without it; starts
  *     with the listed players offline;
  *   - live (unless --skip-live): a login gate and native bot-host processes,
  *     with module execution through a bot socket and a datapack verdict.
@@ -148,7 +148,7 @@ const writeConfig = writeServerConfig;
 const twoTeams = {
   sessionId: "verify",
   kind: "match",
-  durationMs: 60000,
+  rules: { durationMs: 60000 },
   teams: [
     { id: "red", players: ["arena_red1"] },
     { id: "blue", players: ["arena_blue1"] },
@@ -258,7 +258,7 @@ async function raceOfWool(rcon) {
   log("ok race-of-wool: #arena:stop records held objectives");
 
   // One second (20 ticks) limit: the datapack ends the match as a draw.
-  await ready({ ...twoTeams, durationMs: 1000 });
+  await ready({ ...twoTeams, rules: { durationMs: 1000 } });
   await rcon.command("function #arena:start");
   await place(goals("red")[0]);
   await waitFor(
@@ -270,15 +270,15 @@ async function raceOfWool(rcon) {
   assert.equal(s.winner, "draw");
   assert.equal(s.message, "time limit reached");
   assert.equal(s.scores.red, 1);
-  // Without durationMs there is no limit.
-  const { durationMs, ...unlimited } = twoTeams;
+  // Without rules.durationMs there is no limit.
+  const { rules, ...unlimited } = twoTeams;
   await ready(unlimited);
   await rcon.command("function #arena:start");
   await delay(1500);
   assert.equal((await readSession(rcon)).state, "running");
   await rcon.command("function #arena:stop");
   log(
-    "ok race-of-wool: durationMs ends the match as a draw; none means no limit",
+    "ok race-of-wool: rules.durationMs ends the match as a draw; none means no limit",
   );
   return map;
 }
@@ -351,7 +351,7 @@ async function live(rcon, dir, map) {
     ),
   );
   match.config.sessionId = "verify-live";
-  match.config.durationMs = 120000;
+  match.config.rules = { ...match.config.rules, durationMs: 120000 };
   match.commands.start = [
     ...(match.commands.start ?? []),
     ...red.map((g) => ({

@@ -8,7 +8,8 @@ import { parseStorageReply, serializeSnbt } from "./snbt.mjs";
  */
 const PROTOCOL_VERSION = 1;
 // Optional arena:config keys, removed before each write so none is left over.
-const OPTIONAL_KEYS = ["durationMs", "briefing", "runId"];
+const OPTIONAL_KEYS = ["rules", "briefing", "runId"];
+const CONFIG_KEYS = new Set(["sessionId", "kind", "teams", ...OPTIONAL_KEYS]);
 
 /** Validated `arena:session` contents, or an error for a malformed one. */
 export function readServerSession(reply) {
@@ -49,8 +50,9 @@ const id = (x) => typeof x === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(x);
 
 /**
  * Errors in an `arena:config` value (empty when valid): `sessionId`, optional
- * `runId`, `kind` (`match` or `open`), `teams` [{id, players}], optional
- * positive `durationMs`, and an optional `briefing` text the login gate serves.
+ * `runId`, `kind` (`match` or `open`), `teams` [{id, players}], an optional
+ * `briefing` text the login gate serves, and an optional `rules` compound that
+ * is passed to the map's datapack untouched (the platform never reads it).
  */
 export function validateServerConfig(value) {
   const errors = [];
@@ -62,11 +64,16 @@ export function validateServerConfig(value) {
     errors.push("runId must match [A-Za-z0-9_-]{1,64}");
   if (!["match", "open"].includes(value.kind ?? "match"))
     errors.push("kind must be match or open");
+  for (const key of Object.keys(value))
+    if (!CONFIG_KEYS.has(key))
+      errors.push(`unknown key ${key}: map parameters go in rules`);
   if (
-    value.durationMs !== undefined &&
-    (!Number.isSafeInteger(value.durationMs) || value.durationMs <= 0)
+    value.rules !== undefined &&
+    (!value.rules ||
+      typeof value.rules !== "object" ||
+      Array.isArray(value.rules))
   )
-    errors.push("durationMs must be a positive integer");
+    errors.push("rules must be an object");
   if (value.briefing !== undefined && typeof value.briefing !== "string")
     errors.push("briefing must be a string");
   const teams = value.teams ?? [];

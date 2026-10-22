@@ -17,16 +17,16 @@
 - `backend`、`red1`、`blue1` 都是 `internal: true`，没有外网路由。只有 `model-egress` 能出网，只有模型转发接在上面。
 - 不映射任何宿主机端口。Minecraft 只在 `backend` 上，参赛容器到不了。
 - 所有服务以 UID 1000 运行，去掉全部 capability，`no-new-privileges`，并有 CPU／内存／进程数上限（见[资源上限](#资源上限)）。
-- 参赛容器拿不到上游 key、Docker socket、宿主机网络和其他参赛者的令牌。
+- 参赛容器拿不到上游 key、Docker socket 和宿主机网络；登录门只放行本参赛者自己的角色名。
 - 每队一个工作卷（`red-work`）和一个队伍 Git 卷（`red-git`），对方队伍挂不到。
 
 [`compose.yaml`](compose.yaml) 只用于单独调试各组件，见[最后一节](#单组件调试composeyaml)。
 
-运营者自己负责：地图和比赛文件、Minecraft EULA、RCON 密码、所有令牌、模型和它的接入方式、花费上限，以及比赛开始和结束。平台不再有比赛主控：时限和判定在数据包里，开赛、结束、录像、存结果这类编排由运营者自己的脚本调用 `arena` 命令行完成。
+运营者自己负责：地图和比赛文件、Minecraft EULA、RCON 密码、模型和它的接入方式、花费上限，以及比赛开始和结束。平台不再有比赛主控：时限和判定在数据包里，开赛、结束、录像、存结果这类编排由运营者自己的脚本调用 `arena` 命令行完成。
 
 ## 准备 Minecraft 服务器镜像与地图
 
-以下命令在仓库根目录的 Bash 中执行。先复制 `infra/operator.env.example` 为 `.env`，填好其中的令牌、RCON 密码和模型地址；Compose 在构建时也会检查这些变量。后文的 `C` 是同一条 Compose 命令的简写：
+以下命令在仓库根目录的 Bash 中执行。先复制 `infra/operator.env.example` 为 `.env`，填好其中的 RCON 密码和模型地址；Compose 在构建时也会检查这些变量。后文的 `C` 是同一条 Compose 命令的简写：
 
 ```sh
 cp infra/operator.env.example .env
@@ -63,7 +63,7 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
    ```
 
 4. 复制 [`match.live.template.json`](match.live.template.json) 为 `infra/match.live.json`，填好 `OPERATOR_...` 占位值。格式见 [packages/arena/README.md](../packages/arena/README.md#match-file)：
-   - `config` 写进 `arena:config`：会话 ID、队伍和玩家名、`durationMs`（数据包按它结束比赛）、给参赛者的 `briefing`（会话简报交给模型）。
+   - `config` 写进 `arena:config`：会话 ID、队伍和玩家名、地图规则参数 `rules`（平台原样转交，例如羊毛竞速的时限 `rules.durationMs`）、给参赛者的 `briefing`（会话简报交给模型）。
    - `commands.prepare` / `start` / `stop`：每个阶段额外执行的 RCON 命令和期望回应，例如传送、设出生点、gamerule。
    - 玩家名必须和 Compose 登录门的 `GATE_USERNAMES` 一致。
    - 纪念碑坐标是否公开由数据包决定（`map.mcfunction` 里的 `publishGoals`）。不要把秘密写进 `briefing`。
@@ -83,11 +83,11 @@ C() { docker compose --env-file .env -f infra/compose.live.yaml "$@"; }
 
 用法：准备服务器构建目录时传 `--manifest infra/minecraft-anticheat.json`（Windows 初始化脚本用 `-ServerDownload`），换端要重建服务器镜像，并从原始地图副本开局。Grim 和 Mineflayer 的兼容性还没在真实对局里验证过，先看日志里的误报再决定要不要启用拦截。
 
-参赛 bot 跑在参赛容器里（native runtime），原版端只粗查移动；公平靠提示词约束，服务器录像留作事后核查，见 [docs/TARGET-ARCHITECTURE.md](../docs/TARGET-ARCHITECTURE.md#5-登录入口和容器里的-bot10-18-起默认)。
+参赛 bot 跑在参赛容器里（native runtime），原版端只粗查移动；公平靠提示词约束，服务器录像留作事后核查，见 [docs/TARGET-ARCHITECTURE.md](../docs/TARGET-ARCHITECTURE.md)。
 
 ### 玩法与判定
 
-规则、计分、胜负和时限都在服务器上的数据包或插件里，平台通过服务器协议 v1 交换 `arena:config` 和 `arena:session`，设计见 [docs/GAME-MODES.md](../docs/GAME-MODES.md)。羊毛竞速见 [datapacks/race-of-wool](datapacks/race-of-wool/README.md)，最小示例见 [datapacks/arena-example](datapacks/arena-example/README.md)。管理员也可以直接在游戏里执行 `function #arena:prepare`／`#arena:start`／`#arena:stop`，效果和命令行一样。
+规则、计分、胜负和时限都在服务器上的数据包或插件里，平台通过服务器协议 v1 交换 `arena:config` 和 `arena:session`，设计见 [docs/GAME-MODES.md](../docs/GAME-MODES.md)。羊毛竞速见 [datapacks/race-of-wool](datapacks/race-of-wool/README.md)，最小示例见 [datapacks/arena-example](datapacks/arena-example/README.md)。管理员也可以直接在游戏里执行 `function #arena:start`／`#arena:stop`。`#arena:prepare` 读的是 `arena:config`，只在命令行 `prepare` 写好它之后才有用；命令行的 `prepare` 还会生成新的 `runId`。
 
 不比赛、只想让模型在普通服务器上陪玩时，原生 bot host 在未设置会话 URL 时提供一个 `open` 会话，部署模板见 [companion/README.md](companion/README.md)。
 
@@ -200,7 +200,7 @@ C stop minecraft
 ### 下一场之前
 
 - 登录门和参赛容器可以留着：bot 一直在线，下一次 `A prepare` 开始新的一轮。
-- 冷启动时，登录门等 Minecraft 的健康检查通过（端口 25565 能连上）才启动。
+- 冷启动时，登录门等 Minecraft 的健康检查通过（端口 25565 能连上）才启动；RCON 还没就绪或服务器之后重启时，会话接口先返回 503，连上后自动恢复。
 - 按需要恢复地图。通用部署没有重置脚本；Windows 的 `reset` 做了什么见 [windows-local/README.md](windows-local/README.md)。
 - 参赛者工作区里上一场的代码会保留下来。新开局时清空工作区还在[路线图](../docs/ROADMAP.md)上。
 
@@ -209,7 +209,7 @@ C stop minecraft
 服务器镜像带 ServerReplay 模组，按参赛者分别录下发给这个玩家的数据包和区块，格式是 ReplayMod 的 `.mcpr`。它不录这个玩家没加载过的区域。平台不再自动录像；要录就通过命令行发模组的命令，例如开赛后 `A command replay start players arena_red1`，结束后 `A command replay stop all`。模组配置在 `replay-config` 卷（`/data/config/ServerReplay`），文件写到配置里的目录。
 
 - 观看：在 Minecraft 1.21.1 Fabric 客户端安装 [ReplayMod](https://www.replaymod.com/download/)，把文件放进 `replay_recordings` 目录，用 Replay Viewer 打开。
-- 录像会暴露其他玩家、视线外的地形、聊天和背包。比赛期间保密，公开前审查。只有 Minecraft 挂载结果目录，参赛容器看不到。
+- 录像会暴露其他玩家、视线外的地形、聊天和背包。比赛期间保密，公开前审查。录像只在 Minecraft 的卷里，参赛容器看不到。
 - 没有自动清理。注意磁盘空间，在服务停止时按自己的策略归档或删除旧录像。
 
 ## 开赛前检查
@@ -220,7 +220,7 @@ C stop minecraft
 - [ ] 一个参赛容器无法通过对方的登录门认证，且无法访问另一队的服务和卷。
 - [ ] 一队的容器挂不到另一队的工作卷和 Git 卷。
 - [ ] 资源上限生效（`docker stats`），且对两队相同。
-- [ ] UID 1000 能写 `/results`。新建的卷由镜像设好权限；已有的卷保留原来的权限，需要自己检查。
+- [ ] UID 1000 能写世界卷和录像目录。新建的卷由镜像设好权限；已有的卷保留原来的权限，需要自己检查。
 - [ ] 参赛 bot 不是 OP；`server.properties` 关闭了命令方块。
 - [ ] 在这张地图上跑一遍准备、开赛、目标判定、时间到、结束和重置。
 - [ ] 换上真实模型 key 前，先跑一次冒烟比赛。

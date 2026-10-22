@@ -1,10 +1,8 @@
 FROM node:24-bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends unzip && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/arena
 COPY --chown=node:node package.json package-lock.json ./
 RUN npm ci --omit=dev --ignore-scripts
 COPY --chown=node:node . .
-RUN mkdir -p /results /control /replay-config && chown node:node /results /control /replay-config
 USER node
 CMD ["node", "packages/model-relay/cli.mjs"]
 

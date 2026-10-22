@@ -7,7 +7,7 @@
 - 每队有一座纪念碑，每个目标（objective）对应纪念碑上的一个位置和一种方块。
 - 每个游戏刻（tick）检查所有目标位置：方块符合就算持有，被拆掉就不再算。
 - 一队同时持有全部目标即获胜；同一刻有多队完成，判平局。
-- `arena:config.durationMs` 是时限：开赛时换算成游戏刻（每刻 50 ms）倒数，到 0 时判平局并结束，`message` 为 `time limit reached`。没有 `durationMs` 就不限时。
+- `arena:config.rules.durationMs` 是时限（毫秒，写在比赛文件的 `config.rules` 里，平台原样转交）：开赛时换算成游戏刻（每刻 50 ms）倒数，到 0 时判平局并结束，`message` 为 `time limit reached`。没有它就不限时。
 - `arena:session.scores` 是每队当前持有的目标数，结束时原样保留。
 - 只看方块，不看方块是怎么来的。地图自己的规则（赛道、羊毛只能从箱子拿等）写进比赛文件的 `config.briefing`。
 
