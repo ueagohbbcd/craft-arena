@@ -1,4 +1,4 @@
-# Macro: {winner}. The server announces the end; the host reads winner on its next poll.
+# Macro: {winner}. The server announces the end; login gates read winner on their next poll.
 execute unless data storage arena:session {state:"running"} run return 0
 $data modify storage arena:session winner set value "$(winner)"
 data modify storage arena:session state set value "ended"

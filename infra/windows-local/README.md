@@ -48,7 +48,7 @@ $env:BLUE_MODEL_KEY = '蓝队上游的 key'
 | `map-original/world`                           | 原始世界，`reset` 从这里恢复                                              |
 | `minecraft-data/`                              | 服务器数据：世界副本、`eula.txt`、`server.properties`                     |
 | `results/`、`replay-config/`                   | 录像文件、录像模组配置                                                    |
-| `.env`                                         | 随机生成的 RCON 密码和每个 bot 的令牌、`ARENA_SOURCE_DIR`、模型地址和 key |
+| `.env`                                         | 随机生成的 RCON 密码、`ARENA_SOURCE_DIR`、模型地址和 key |
 
 生成的 `server.properties` 为离线模式、开启 PvP、RCON 在 25575、视距 8、关闭命令方块。按地图需要检查后再启动。
 
@@ -121,8 +121,9 @@ Compose 项目名固定为 `craft-arena-local`，一台机器同一时间只运�
 
 ## 升级已有部署
 
-脚本从不覆盖已有部署目录。升级时在停止状态下手动更新，保留 `.env` 里的密码和令牌：
+脚本从不覆盖已有部署目录。升级时在停止状态下手动更新，保留 `.env` 里的密码：
 
+- **比赛文件里有 `config.durationMs` 的部署**：把它移进 `config.rules`，写成 `"rules": { "durationMs": … }`。现在 `config` 里出现不认识的键会报错，时限由数据包从 `rules.durationMs` 读取。
 - **带预算网关和系统代理中转的部署**（改用模型转发之前创建）：先用旧脚本 `stop`，确认 `proxy-process.json` 记录的中转进程已退出。从本目录复制 `compose.yaml`、`model.red.json`、`model.blue.json` 到部署目录；删除 `budget.red.json`、`budget.blue.json`、`.proxy.env`、`proxy-secret`、`proxy-process.json`、`proxy-relay*.log`。在 `.env` 里删掉 `RED1_MODEL_TOKEN`、`BLUE1_MODEL_TOKEN`、`RED1_STATUS_TOKEN`、`BLUE1_STATUS_TOKEN`，把 `RED_UPSTREAM_API_KEY` 改名为 `RED_MODEL_KEY`、`DEEPSEEK_API_KEY` 改名为 `BLUE_MODEL_KEY`，上游不是默认地址时加上 `RED_MODEL_URL`／`BLUE_MODEL_URL`。旧网关容器用 `docker rm -f craft-arena-local-budget-red-1 craft-arena-local-budget-blue-1` 删除。这些步骤按文件改动整理，没有实际演练过。
 - **2026-10-13 之前创建的部署**：先删除旧文件 `budget.json`、`budget.deepseek.json`、`codex.json`、`deepseek.json`、`model.codex.json`、`model.deepseek.json` 和 `auth/` 目录，以及 `.env` 里的 `CODEX_ADAPTER_TOKEN`、`DEEPSEEK_ADAPTER_TOKEN`，旧的适配器容器用 `docker rm -f craft-arena-local-codex-adapter-1` 删除；再按上一条升级。
 - **更早的部署**：把保存的原始世界目录改名为 `map-original/world`，`reset` 才能用。

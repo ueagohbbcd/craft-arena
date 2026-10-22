@@ -49,7 +49,7 @@ export default async function (bot, { signal, args, log }) {
 | Mineflayer 连接、对象、事件、插件与模块运行 | 参赛容器中的角色进程                        |
 | 启动、等待、取消、任务日志与状态            | `packages/tasks`、`bash`、`arena-task`      |
 | 程序到模型的消息与回执                      | `packages/inbox`、`InboxClient`             |
-| 会话判定、计时与公开结果                    | Minecraft 数据包及可信侧 RCON 主控          |
+| 会话判定、计时与公开结果                    | Minecraft 数据包（操作员用 `packages/arena` CLI 经 RCON 准备和开始）          |
 | 登录角色约束                                | `packages/login-gate`                       |
 | Pi 生命周期、默认任务与平台消息             | `packages/pi-extension`                     |
 | 模型 API 请求转发                           | `packages/model-relay`                      |

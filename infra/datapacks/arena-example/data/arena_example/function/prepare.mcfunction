@@ -1,4 +1,4 @@
-# #arena:prepare. The host has written arena:config and the bots are online.
+# #arena:prepare. The operator CLI has written arena:config and the bots are online.
 # Reset the score objective. The example only scores the fixed teams red and blue.
 scoreboard objectives remove arena_points
 scoreboard objectives add arena_points dummy "Arena points"
@@ -16,7 +16,7 @@ team modify red color red
 team add blue "Blue"
 team modify blue color blue
 
-# Session state the host polls with `data get storage arena:session`.
+# Session state the login gates poll with `data get storage arena:session`.
 # `data modify` needs a path, so replace the whole storage by removing the
 # nested compounds a previous session left and merging the fresh value.
 data remove storage arena:session scores

@@ -122,7 +122,7 @@ The CLI prints the JSON result and exits with 1 on failure. It has no options fo
 
 ## Raw HTTP
 
-Any language can talk to the inbox. By default it listens on a Unix socket (`MC_INBOX_SOCKET`):
+Any language can talk to the inbox. It listens on a Unix socket (`MC_INBOX_SOCKET`):
 
 ```sh
 curl --unix-socket "$MC_INBOX_SOCKET" -H 'Content-Type: application/json' \

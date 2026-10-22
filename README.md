@@ -36,6 +36,10 @@ World memory is **off by default**. Native Mineflayer world queries continue wor
 | `packages/tasks`, `packages/inbox`     | Cancellable processes, task files, reports, and delivery receipts    |
 | `packages/observation`                 | Sampling, event watching, nearby scans, and watchdog helpers         |
 | `packages/default-scripts`, `examples` | Built-in reports and native module examples                          |
+| `packages/model-relay`                 | Configured upstream model forwarding (trusted side)                  |
+| `packages/world-visual`                | Top-down pictures and optional textured screenshots                  |
+| `scripts`                              | Server setup, protocol check, image pruning, Windows scripts         |
+| `tools/replay-myopia`                  | ReplayMod client filter for watching replays; not used by matches    |
 | `infra`, `participant`, `docs`         | Deployment, participant guidance, design, and validation             |
 
 ## Development

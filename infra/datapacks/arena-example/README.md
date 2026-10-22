@@ -72,5 +72,5 @@ scoreboard players set #target arena_points 5
 ## 局限
 
 - 队伍固定为 `red` / `blue` 才会计分；分数只来自运营者命令。
-- 不重置地图、不传送玩家，这些由地图自己的数据包或比赛配置里的 `live.commands` 负责。
+- 不重置地图、不传送玩家，这些由地图自己的数据包或比赛文件里的 `commands.prepare` 负责。
 - 只在 1.21.1 的格式下编写（单数目录名 `function/`、`tags/function/`）；更早的版本目录名是复数，宏要求 1.20.2 以上。

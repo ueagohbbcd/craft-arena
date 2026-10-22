@@ -47,7 +47,7 @@ A final result is delivered once. If no wait is active when the process exits, t
 
 ## Cancel and shutdown
 
-`cancel(id)` sends SIGTERM to the process group and SIGKILL 500 ms later. It returns `{status: "cancelling"}`, or `completed` if the task already exited. Confirm the exit with `wait` before starting a replacement.
+`cancel(id)` sends SIGTERM to the process group and SIGKILL `killGraceMs` later (default 500 ms; the Pi extension uses 2500 ms, `ARENA_TASK_KILL_GRACE_MS`). It returns `{status: "cancelling"}`, or `completed` if the task already exited. Confirm the exit with `wait` before starting a replacement.
 
 `close()` refuses new tasks, cancels every running task and waits up to 3.5 s for them. The Pi extension calls it when the session ends or is replaced. Running tasks are not recovered after a restart.
 
@@ -65,7 +65,7 @@ Results carry `logDir`. Each process gets `ARENA_TASK_LOG_DIR` (its own director
 ```sh
 arena-task list              # one JSON line per task, newest first
 arena-task status <taskId>   # that task's status.json
-arena-task cancel <taskId>   # SIGTERM to the process group, SIGKILL after 500 ms, then the status (completed once the exit is recorded, within 3 s)
+arena-task cancel <taskId>   # SIGTERM to the process group, SIGKILL after the kill grace, then the status (completed once the exit is recorded, within 3 s after that)
 ```
 
 The files are a copy for the model and its programs; delivery does not depend on them. A write failure stops logging for that task and is noted as `logError`; if the task directory cannot be created at all, the Pi extension runs without task files and says so in the runtime report (`taskFiles`). When the Pi extension starts, tasks still marked `running` by an earlier, gone manager are marked `lost`, and `arena-task cancel` does not signal them: their process group ID may belong to another process by then.
