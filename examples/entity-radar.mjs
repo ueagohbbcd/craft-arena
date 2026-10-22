@@ -97,7 +97,7 @@ export default async function entityRadarProgram(
 ) {
   if (args.length > 2)
     throw new Error(
-      "Usage: node examples/entity-radar.mjs [radius=32] [intervalMs=1000]",
+      `Usage: node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/entity-radar.mjs" [radius=32] [intervalMs=1000]`,
     );
   const radius = Number(args[0] ?? 32),
     intervalMs = Number(args[1] ?? 1000);

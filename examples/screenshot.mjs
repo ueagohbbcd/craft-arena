@@ -1,6 +1,6 @@
 // Take one picture of the loaded world and print where it was saved.
 // Run when a decision depends on shape: a doorway, a wall, stacked levels.
-// Usage: node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views [2|4]] [minX minY minZ maxX maxY maxZ]
+// Usage: node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views [2|4]] [minX minY minZ maxX maxY maxZ]
 // Without coordinates it frames the area around your feet. --views stitches
 // several angles into one image (4 corners, or 2 opposite ones) so what one
 // view hides another shows. Read the printed JSON, then read imagePath with
@@ -39,7 +39,7 @@ export function parseScreenshotArgs(args) {
     (args.length !== 6 || args.some((v) => !Number.isInteger(Number(v))))
   )
     throw new Error(
-      "Usage: node examples/screenshot.mjs [--views [2|4]] [minX minY minZ maxX maxY maxZ]",
+      `Usage: node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views [2|4]] [minX minY minZ maxX maxY maxZ]`,
     );
   return { views, box: args.map(Number) };
 }

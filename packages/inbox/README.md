@@ -54,7 +54,7 @@ The constructor reads `MC_INBOX_SOCKET`, `MC_INBOX_SESSION` and `MC_INBOX_TASK_I
 
 ## When messages reach the model
 
-New information reaches the model only at a request boundary: when a tool call returns, when a turn ends, or when a message starts a new turn. [docs/CONTEXT-DELIVERY.md](../../docs/CONTEXT-DELIVERY.md) describes all sources and timings.
+New information reaches the model only at a request boundary: when a tool call returns, when a turn ends, or when a message starts a new turn.
 
 | Message                   | When the model sees it                                                                                                                 |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |

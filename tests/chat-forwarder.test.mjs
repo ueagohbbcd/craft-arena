@@ -46,7 +46,7 @@ test("native Mineflayer chat and whispers are forwarded as untrusted inbox messa
   assert.equal(bot.listenerCount("whisper"), 0);
 });
 
-test("mention wake rules handle bot names, whispers, self messages, and regex characters", async () => {
+test("mention wake rules: names, whispers, own lines and regex characters", async () => {
   const bot = nativeBot("arena.red");
   const inbox = inboxRecorder();
   const subscription = startChatForwarder({
@@ -55,18 +55,50 @@ test("mention wake rules handle bot names, whispers, self messages, and regex ch
     wake: "mention",
   });
 
+  // Mineflayer passes the sender and the body without the "<name>" prefix.
   bot.emit("chat", "player", "hello arena.red!");
   bot.emit("chat", "player", "hello arenaXred");
-  bot.emit("whisper", "player", "arena.red, private message");
-  bot.emit("chat", "arena.red", "<arena.red> arena.red says hello");
-  bot.emit("chat", "player", "You whisper to someone: arena.red");
+  bot.emit("whisper", "player", "private message");
+  bot.emit("chat", "arena.red", "arena.red says hello");
+  bot.emit("whisper", "arena.red", "to myself");
   await Promise.resolve();
 
   assert.deepEqual(
-    inbox.messages.map(({ options }) => options?.priority ?? "normal"),
-    ["urgent", "normal", "urgent", "normal", "normal"],
+    inbox.messages.map(({ message, options }) => [
+      message.channel,
+      message.text,
+      options?.priority ?? "normal",
+    ]),
+    [
+      ["chat", "hello arena.red!", "urgent"],
+      ["chat", "hello arenaXred", "normal"],
+      ["whisper", "private message", "urgent"],
+    ],
   );
   await subscription.close();
+});
+
+test("system lines are forwarded without waking; action-bar lines are not", async () => {
+  const bot = nativeBot("arena.red");
+  const inbox = inboxRecorder();
+  const subscription = startChatForwarder({ bot, inbox, wake: "all" });
+
+  bot.emit("messagestr", "Respawn point set", "system");
+  bot.emit("messagestr", "You may not rest now", "game_info");
+  bot.emit("messagestr", "<player> hi", "chat");
+  await Promise.resolve();
+
+  assert.deepEqual(
+    inbox.messages.map(({ message, options }) => [
+      message.channel,
+      message.text,
+      message.sender,
+      options?.priority ?? "normal",
+    ]),
+    [["system", "Respawn point set", null, "normal"]],
+  );
+  await subscription.close();
+  assert.equal(bot.listenerCount("messagestr"), 0);
 });
 
 test("aborting the native chat subscription removes its Mineflayer listeners", async () => {

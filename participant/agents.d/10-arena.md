@@ -61,4 +61,3 @@ All paths are under `$ARENA_TOOLKIT_ROOT`:
 
 - `packages/observation/README.md`: what the default observer reports and how to change it.
 - `packages/inbox/README.md`: reporting from your programs.
-- `docs/CONTEXT-DELIVERY.md`: when each kind of information reaches you.

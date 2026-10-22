@@ -29,7 +29,7 @@
 | ✅   | 观察器和聊天监听改为默认脚本（`packages/default-scripts/`），Pi 扩展里的观察运行时删除                                                                                                             |
 | ✅   | 删除仓库自带的 OAuth 转 API 适配器；模型统一走 OpenAI 兼容接口                                                                                                                                     |
 | ✅   | 文档按读者重写，统一术语                                                                                                                                                                           |
-| ✅   | 参赛镜像只装参赛侧代码：`Dockerfile.participant` 逐个列出参赛侧包、`examples/`、`docs/CONTEXT-DELIVERY.md`；`tests/deployment.test.mjs` 检查清单，并检查参赛侧代码不引用可信侧包。仓库目录不必再拆 |
+| ✅   | 参赛镜像只装参赛侧代码：`Dockerfile.participant` 逐个列出参赛侧包和 `examples/`（开发文档不进镜像）；`tests/deployment.test.mjs` 检查清单，并检查参赛侧代码不引用可信侧包。仓库目录不必再拆 |
 
 ## 仓库分工（10‑16 定下的方向）
 

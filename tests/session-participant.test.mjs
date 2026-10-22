@@ -237,29 +237,8 @@ test("chatWakes mentions are whole-word and case-insensitive", () => {
   );
 });
 
-test("chatWakes wakes for whispers to the bot in mention mode", () => {
-  const m = { mode: "mention", username: "Bot" };
-  assert.equal(chatWakes("Steve whispers to you: meet me", m), true);
-  assert.equal(chatWakes("[Steve -> me] meet me", m), true);
-  assert.equal(chatWakes("[Steve -> Bot] meet me", m), true);
-  assert.equal(chatWakes("[Steve -> Alex] meet me", m), false);
-});
-
-test("chatWakes never wakes for the bot's own messages or outgoing whispers", () => {
-  for (const mode of ["mention", "all"]) {
-    const m = { mode, username: "Bot" };
-    assert.equal(chatWakes("<Bot> hello Bot", m), false, mode);
-    assert.equal(chatWakes("<bot> hello", m), false, mode);
-    assert.equal(chatWakes("[Bot -> Steve] hi", m), false, mode);
-    assert.equal(chatWakes("You whisper to Steve: hi Bot", m), false, mode);
-    // Without a known username, outgoing whispers still never wake.
-    assert.equal(
-      chatWakes("You whisper to Steve: hi", { mode }),
-      false,
-      `${mode} without username`,
-    );
-  }
-});
+// Whispers and the bot's own lines are decided by sender in startChatForwarder
+// (tests/chat-forwarder.test.mjs): Mineflayer passes the body without "<name>".
 
 test("startChatForwarder rejects an unknown wake mode", () => {
   assert.throws(

@@ -20,10 +20,9 @@ Walk with `navigate.mjs`:
 
 [navigate.mjs](../../../examples/navigate.mjs) uses Pathfinder with its default movement settings, which include digging. Add `--no-dig` to keep the terrain intact.
 
-- It counts as arrived only at your X and Z, with Y within one block. Then it posts `route.arrived` and exits with code 0.
-- On failure it prints a `route.failed` JSON line to stderr and exits with code 1. The `note` field says whether the destination was outside loaded terrain.
-- While it walks, it keeps a replaceable `route` progress report.
-- If the character moves less than one block in 30 seconds, or the trip takes longer than 120 seconds, it sends one urgent `route.review` report and keeps walking. The report includes a terrain summary and asks whether to keep waiting or cancel.
+- It counts as arrived within one block of X Y Z (Pathfinder's `GoalNear` with range 1). Then it posts `route.arrived`, prints `{"status":"arrived",…}` and exits with code 0.
+- On failure (no path, or Pathfinder stopped short) it posts a `route.failed` report with the error, the goal and your position, and exits with code 1 with the error on stderr.
+- Once the trip has lasted 120 seconds and the character has also moved less than one block in the last 30 seconds, it sends one urgent `route.review` report and keeps walking. The report includes a terrain summary and the current path status; cancel the task if you want to stop.
 - `arena-task cancel <taskId>` stops it cleanly: it clears the goal, releases the controls and exits.
 
 When a trip may meet mobs, use [navigate-with-defense.mjs](../../../examples/navigate-with-defense.mjs) instead (see the `arena-survival` skill).

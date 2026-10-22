@@ -2,7 +2,7 @@
  * A route table between your waypoints, computed with Pathfinder's own
  * search (no one moves):
  *
- *   node "$ARENA_TOOLKIT_ROOT/examples/routes.mjs" [--file waypoints.json]
+ *   node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/routes.mjs" [--file waypoints.json]
  *     [--here] [--from NAME] [--only NAME,NAME,...] [--blocks N]
  *     [--timeout MS] [--budget S] [--no-parkour] [--max-drop N]
  *

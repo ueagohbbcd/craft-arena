@@ -1,8 +1,8 @@
 /**
  * The ground along a straight line, as one line of text:
  *
- *   node "$ARENA_TOOLKIT_ROOT/examples/profile.mjs" X Z            toward a point
- *   node "$ARENA_TOOLKIT_ROOT/examples/profile.mjs" north [STEPS]  in a direction (default 32)
+ *   node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/profile.mjs" X Z            toward a point
+ *   node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/profile.mjs" north [STEPS]  in a direction (default 32)
  *
  * For example "flat 12 → up 3 over 3 → water 15 → wall +9 at (...)". It
  * follows the walkable surface from your feet and says where the line meets

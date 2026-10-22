@@ -1,7 +1,7 @@
 /**
  * One state sample, printed as JSON:
  *
- *   node "$ARENA_TOOLKIT_ROOT/examples/observe.mjs" [--full-entities] [--full-local] [--full-items]
+ *   node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/observe.mjs" [--full-entities] [--full-local] [--full-items]
  *
  * Uses the same public session facts (teams, goal items) and observer
  * configuration as the default observer. Programs can import `observe`.

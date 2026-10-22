@@ -26,7 +26,6 @@ COPY --chown=node:node packages/world-visual ./packages/world-visual
 COPY --chown=node:node packages/bot-host ./packages/bot-host
 COPY --chown=node:node examples ./examples
 COPY --chown=node:node participant ./participant
-COPY --chown=node:node docs/CONTEXT-DELIVERY.md ./docs/CONTEXT-DELIVERY.md
 COPY --chown=node:node scripts/archive-participant-state.mjs ./scripts/archive-participant-state.mjs
 RUN mkdir -p /workspace /team-git /arena/session && chown node:node /workspace /team-git /arena/session
 # The launcher writes briefing copies to ARENA_SESSION_DIR; operators may mount

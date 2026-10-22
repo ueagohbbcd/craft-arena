@@ -227,7 +227,7 @@ C stop minecraft
 
 Docker 的 `internal: true` 去掉了普通的外网路由，但不能证明完全隔离（宿主机上的服务、IPv6、配置错误、后加的网络）。不要为了让参赛者用 Git 而给参赛容器接一个能出网的网络：队伍 Git 只用卷。确实需要外部访问时，用宿主机控制的白名单代理，并与模型凭据分开。
 
-运营配置（模型 key、地图设置）留在 `infra/` 或独立的部署目录里，不要放进参赛者能看到的目录。参赛镜像只复制参赛侧的包、`examples/` 和 `docs/CONTEXT-DELIVERY.md`。私有运营配置不随镜像复制；模型描述文件是挂给参赛容器的公开配置，里面没有 key。已做过的验收记录见 [docs/VALIDATION.md](../docs/VALIDATION.md)。
+运营配置（模型 key、地图设置）留在 `infra/` 或独立的部署目录里，不要放进参赛者能看到的目录。参赛镜像只复制参赛侧的包和 `examples/`，不带 `docs/`。私有运营配置不随镜像复制；模型描述文件是挂给参赛容器的公开配置，里面没有 key。已做过的验收记录见 [docs/VALIDATION.md](../docs/VALIDATION.md)。
 
 ## 单组件调试：compose.yaml
 
