@@ -1,3 +1,4 @@
+import { Vec3 } from "vec3";
 import { createRecentBlockAccumulator } from "./recent-blocks.mjs";
 import {
   observedHeadCell,
@@ -128,7 +129,11 @@ export function startNearbyScan({
       return;
     }
     const observedAt = now();
-    if (!Number.isFinite(bot.sampledAt) || observedAt - bot.sampledAt > 5000) {
+    // A native Mineflayer bot reads its live world; only a mirrored bot has sampledAt.
+    const sampledAt = Number.isFinite(bot.sampledAt)
+      ? bot.sampledAt
+      : observedAt;
+    if (observedAt - sampledAt > 5000) {
       samplingStatus = "stale";
       return;
     }
@@ -137,14 +142,14 @@ export function startNearbyScan({
       samplingStatus = "head_or_blocks_unavailable";
       return;
     }
-    const source = JSON.stringify([bot.epoch, bot.sequence, bot.sampledAt]);
+    const source = JSON.stringify([bot.epoch, bot.sequence, sampledAt]);
     if (source === lastSource) {
       samplingStatus = "unchanged_source";
       return;
     }
     try {
       const result = scan({
-        blockAt: (p) => bot.blockAt(p),
+        blockAt: (p) => bot.blockAt(new Vec3(p.x, p.y, p.z)),
         origin: head.position,
         radius: settings.radius,
         maxReads: settings.maxReads,
@@ -153,7 +158,7 @@ export function startNearbyScan({
         typeof bot.game?.dimension === "string" ? bot.game.dimension : null;
       accumulator.record({
         observedAt,
-        sourceSampledAt: bot.sampledAt,
+        sourceSampledAt: sampledAt,
         epoch: typeof bot.epoch === "string" ? bot.epoch : null,
         dimension,
         blocks: result.blocks,
@@ -167,7 +172,7 @@ export function startNearbyScan({
       lastSource = source;
       lastSample = {
         observedAt,
-        sourceSampledAt: bot.sampledAt,
+        sourceSampledAt: sampledAt,
         dimension,
         head,
         bounds: result.bounds,
@@ -185,7 +190,7 @@ export function startNearbyScan({
       samplingError = null;
       nearbySigns = {
         observedAt,
-        sourceSampledAt: bot.sampledAt,
+        sourceSampledAt: sampledAt,
         dimension,
         unknownCells: result.counts.unknown,
         signs: (result.signs ?? [])

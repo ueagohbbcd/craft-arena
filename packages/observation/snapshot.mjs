@@ -1,5 +1,6 @@
 /** One on-demand state sample (sampleObservation) and its helpers. Read-only: no actions, goals or task policy. */
 import { createHash } from "node:crypto";
+import { Vec3 } from "vec3";
 import { entityRadar, chunkEntities } from "./entity-radar.mjs";
 import { aroundSummary } from "./reach.mjs";
 export { entityRadar } from "./entity-radar.mjs";
@@ -528,10 +529,8 @@ function classify(block) {
 }
 function readBlock(bot, position) {
   if (!position || typeof bot?.blockAt !== "function") return null;
-  const argument = bot.Vec3
-    ? new bot.Vec3(position.x, position.y, position.z)
-    : { ...position };
-  return safe(() => bot.blockAt(argument));
+  // Native Mineflayer's blockAt needs a Vec3 (it calls floored()).
+  return safe(() => bot.blockAt(new Vec3(position.x, position.y, position.z)));
 }
 function blockSummary(block, position) {
   return {

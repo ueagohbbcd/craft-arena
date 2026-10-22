@@ -149,7 +149,7 @@ On four recorded 30-minute matches these thresholds produced 1 to 3 reports per 
 
 ## One sample on request: `examples/observe.mjs`
 
-`node "$ARENA_TOOLKIT_ROOT/examples/observe.mjs"` prints one full sample now, as JSON `{state, metadata}`. It uses its own bridge connection, not the observer's, so it works even when the observer is stopped. It applies the public session facts (teams, goal items) and `observer.json`, like the default observer. A program can call `observe(bot, options)` from `observe.mjs` directly.
+`node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/observe.mjs"` prints one full sample now, as JSON `{state, metadata}`. It samples the character's bot directly, so it works even when the observer is stopped. It applies the public session facts (teams, goal items) and `observer.json`, like the default observer. A program can call `observe(bot, options)` from `observe.mjs` directly.
 
 | Switch (option)                    | Effect                                                                                   |
 | ---------------------------------- | ---------------------------------------------------------------------------------------- |
@@ -168,7 +168,7 @@ On four recorded 30-minute matches these thresholds produced 1 to 3 reports per 
 
 A sample does not include recent blocks or nearby signs; those live inside the observer process. A program can get them from its own observer with `startObserver(...).sample()`.
 
-For a picture, run `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ]`. See [packages/world-visual/README.md](../world-visual/README.md).
+For a picture, run `node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ]`. See [packages/world-visual/README.md](../world-visual/README.md).
 
 ## Change or replace the observer
 

@@ -13,7 +13,7 @@ Walk with `navigate.mjs`:
 
 ```json
 {
-  "command": "node \"$ARENA_TOOLKIT_ROOT/examples/navigate.mjs\" X Y Z",
+  "command": "node \"$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs\" \"$ARENA_TOOLKIT_ROOT/examples/navigate.mjs\" X Y Z",
   "wait_seconds": 30
 }
 ```
@@ -30,7 +30,7 @@ When a trip may meet mobs, use [navigate-with-defense.mjs](../../../examples/nav
 
 ## After NoPath or a stall
 
-Look before you try again: `node "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" --target X Y Z` shows where Pathfinder can take you and back, and the drawn cell closest to the target. Walk there first, then look again from there. Goals far away are often outside loaded terrain. A picture (see the `arena-surroundings` skill) helps when the shape matters.
+Look before you try again: `node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" --target X Y Z` shows where Pathfinder can take you and back, and the drawn cell closest to the target. Walk there first, then look again from there. Goals far away are often outside loaded terrain. A picture (see the `arena-surroundings` skill) helps when the shape matters.
 
 ## Reach map
 
@@ -76,8 +76,8 @@ Once you know how a place is laid out, write down a few representative footholds
 [routes.mjs](../../../examples/routes.mjs) searches between every pair with Pathfinder (nobody moves) and prints one line per pair:
 
 ```sh
-node "$ARENA_TOOLKIT_ROOT/examples/routes.mjs"                 # all pairs in waypoints.json
-node "$ARENA_TOOLKIT_ROOT/examples/routes.mjs" --here --from here  # from where you stand to each place
+node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/routes.mjs"                 # all pairs in waypoints.json
+node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/routes.mjs" --here --from here  # from where you stand to each place
 ```
 
 ```
