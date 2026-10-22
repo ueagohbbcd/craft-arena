@@ -38,7 +38,7 @@ The observer samples once a second and compares each sample with what you last r
 
 | Section              | Contents                                                                                                                                                                                                                                                                                                                  |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `connection`         | `status` (`fresh`, `stale`, `connecting`, `unavailable`, `disconnected`, `unknown`), `dimension`, `epoch` (always null for a native bot)                                                                                                                                                               |
+| `connection`         | `status` (`fresh`, `stale`, `connecting`, `unavailable`, `disconnected`, `unknown`), `dimension`, `epoch` (always null for a native bot)                                                                                                                                                                                  |
 | `self`               | position and velocity (1 decimal), `yaw`/`pitch` (2 decimals), health, food, oxygen, effects, dimension, `controlFlags`, `media` (water, lava, web), `support` (on ground, block below), `collision`                                                                                                                      |
 | `inventory`          | main inventory and hotbar: items grouped by type and exact component variant, counts, slots, `totalItems`, `emptySlots`                                                                                                                                                                                                   |
 | `equipment`          | armor slots and offhand                                                                                                                                                                                                                                                                                                   |
@@ -255,15 +255,15 @@ Grid characters: digits are feet height, `4` = the start's, one block per digit,
 
 `examples/reach-map.mjs` and `examples/profile.mjs` print them for your character and fill unloaded columns from block memory.
 
-Routes between named places come from [routes.mjs](routes.mjs), with Pathfinder's own search (`AStar` over the same `Movements`), so nothing moves:
+A place graph (links between named places, for looking up, not for moving) comes from [place-graph.mjs](place-graph.mjs), with Pathfinder's own search (`AStar` over the same `Movements`), so nothing moves:
 
-| Function                                                                                                       | Returns                                                                                                                                                               |
-| -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `findRoute({blockAt, registry, from, to, timeoutMs = 1000, ...switches})`                                      | `{status, steps, dug, placed, end, short}`: `ok`, `none` or `timeout`; arrival is the target's X and Z with feet within one block of its Y, as navigate.mjs counts it |
-| `routeTable({blockAt, registry, points, configs = routeConfigs, fromName, timeoutMs, budgetMs = 20000, base})` | `{pairs, text}`: every ordered pair under each config (`walk`, `gates`, `place` 16 blocks, `dig`), one line per pair, the other configs only where they beat walking  |
-| `parseWaypoints(json)`                                                                                         | `[{name, x, y, z, note?}]` from an array or a `{name: [x, y, z]}` object                                                                                              |
+| Function                                                                                                      | Returns                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `findLink({blockAt, registry, from, to, timeoutMs = 1000, ...switches})`                                      | `{status, steps, dug, placed, end, short}`: `ok`, `none` or `timeout`; arrival is within one block of the target, like `GoalNear` range 1 in navigate.mjs            |
+| `placeGraph({blockAt, registry, points, configs = linkConfigs, fromName, timeoutMs, budgetMs = 20000, base})` | `{pairs, text}`: every ordered pair under each config (`walk`, `gates`, `place` 16 blocks, `dig`), one line per pair, the other configs only where they beat walking |
+| `parseWaypoints(json)`                                                                                        | `[{name, x, y, z, note?}]` from an array or a `{name: [x, y, z]}` object                                                                                             |
 
-`examples/routes.mjs` reads `waypoints.json` and prints the table for your character.
+`examples/place-graph.mjs` reads `waypoints.json` and prints the graph for your character.
 
 ```js
 const { players, drops } = entityRadar(bot, { radius: 24 });

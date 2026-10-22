@@ -8,7 +8,7 @@ description: "Seeing the world around you: full state on request, pictures of te
 The default observer already reports changes to your state, inventory, nearby entities, blocks and signs. Use these when you need more than it sends.
 
 - **Full current state:** `node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/observe.mjs"` prints JSON (`--full-entities`, `--full-local`, `--full-items` expand parts).
-- **Where you can walk:** [reach-map.mjs](../../../examples/reach-map.mjs) and [profile.mjs](../../../examples/profile.mjs), see the `arena-navigation` skill.
+- **Where you can walk:** [reach-map.mjs](../../../examples/reach-map.mjs) and [profile.mjs](../../../examples/profile.mjs), and which of your places connect, see the `arena-places` skill.
 - **Local terrain and connectivity as numbers:** [summarize-terrain.mjs](../../../examples/summarize-terrain.mjs).
 - **Entities near you:** `examples/observe.mjs --full-entities`, or [entity-radar.mjs](../../../examples/entity-radar.mjs).
 - **Blocks in chunks that are no longer loaded:** only when the operator enabled world history (`bot.arenaMemory` exists; off by default). `readWorldBlock(bot, position, bot.arenaMemory)` from `mineflayer-world-memory/reader.mjs` returns live blocks first and history only for unloaded chunks; a `historical` block is how it looked at `observedAt`, and `unknown` is not air. [query-block-memory.mjs](../../../examples/query-block-memory.mjs) shows the call.

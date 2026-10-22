@@ -1,8 +1,9 @@
 /**
- * A route table between your waypoints, computed with Pathfinder's own
- * search (no one moves):
+ * A place graph: which of your waypoints connect and how, found with
+ * Pathfinder's own search. For looking up only: nothing moves. To go
+ * somewhere, use Pathfinder (see the arena-navigation skill).
  *
- *   node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/routes.mjs" [--file waypoints.json]
+ *   node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/place-graph.mjs" [--file waypoints.json]
  *     [--here] [--from NAME] [--only NAME,NAME,...] [--blocks N]
  *     [--timeout MS] [--budget S] [--no-parkour] [--max-drop N]
  *
@@ -10,9 +11,9 @@
  * of `{name, x, y, z, note}`, or an object mapping names to `[x, y, z]`.
  * `--here` adds your position as `here`; `--from NAME` searches only from
  * that place. Each pair is searched walking, opening gates, placing up to
- * `--blocks` (16) blocks and digging; the table lists the others only where
+ * `--blocks` (16) blocks and digging; the graph lists the others only where
  * they do better than walking. Each search stops after `--timeout` (1000 ms)
- * and the whole table after `--budget` (20 s). Routes are searched only
+ * and the whole graph after `--budget` (20 s). Links are searched only
  * within 16 blocks of the places' bounding box (at most 512 blocks a side).
  *
  * Blocks come from your program's live copy of the world and, for columns
@@ -21,12 +22,12 @@
 import { readFile } from "node:fs/promises";
 import {
   parseWaypoints,
-  routeConfigs,
-  routeTable,
-} from "../packages/observation/routes.mjs";
+  linkConfigs,
+  placeGraph,
+} from "../packages/observation/place-graph.mjs";
 import { worldReader } from "./reach-map.mjs";
 
-export function parseRoutesArgs(args) {
+export function parsePlaceGraphArgs(args) {
   const options = { file: "waypoints.json", blocks: 16 };
   const integer = (i, name) => {
     const v = Number(args[i]);
@@ -54,7 +55,7 @@ export function parseRoutesArgs(args) {
 }
 
 /**
- * The box the routes are searched in: the places plus 16 blocks each way,
+ * The box the links are searched in: the places plus 16 blocks each way,
  * at most 512 blocks on a side so the world read stays bounded.
  */
 export function searchArea(points, margin = 16, maxSide = 512) {
@@ -78,16 +79,16 @@ export function searchArea(points, margin = 16, maxSide = 512) {
 
 /** The configs to try, with `blocks` for the place config (0 drops it). */
 export function configsFor(blocks) {
-  return routeConfigs
+  return linkConfigs
     .filter((c) => c.name !== "place" || blocks > 0)
     .map((c) => (c.name === "place" ? { ...c, settings: { blocks } } : c));
 }
 
-export default async function routesProgram(
+export default async function placeGraphProgram(
   bot,
   { args = [], log = console.log },
 ) {
-  const options = parseRoutesArgs(args);
+  const options = parsePlaceGraphArgs(args);
   let points = [];
   try {
     points = parseWaypoints(JSON.parse(await readFile(options.file, "utf8")));
@@ -115,7 +116,7 @@ export default async function routesProgram(
   const base = {};
   if (options.allowParkour === false) base.allowParkour = false;
   if (options.maxDropDown !== undefined) base.maxDropDown = options.maxDropDown;
-  const table = routeTable({
+  const table = placeGraph({
     blockAt,
     registry: bot.registry,
     minY: bot.game?.minY ?? -64,
@@ -127,6 +128,6 @@ export default async function routesProgram(
     base,
   });
   log(
-    `${table.text}\nSearched x ${area.minX}..${area.maxX}, z ${area.minZ}..${area.maxZ} (16 blocks around the places); a route that leaves this area shows as none.\nBlocks: ${reader.note}.`,
+    `${table.text}\nSearched x ${area.minX}..${area.maxX}, z ${area.minZ}..${area.maxZ} (16 blocks around the places); a link that leaves this area shows as none.\nBlocks: ${reader.note}.`,
   );
 }

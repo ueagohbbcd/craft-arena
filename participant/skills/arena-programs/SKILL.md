@@ -100,4 +100,4 @@ rg -n "canDig|allowParkour" "$ARENA_REFERENCE_ROOT/mineflayer-pathfinder/readme.
 
 When a call behaves differently from its documentation, read its source in the same directory.
 
-See `arena-navigation`, `arena-items`, `arena-survival` and `arena-surroundings` for focused examples and guidance.
+See `arena-navigation`, `arena-places`, `arena-items`, `arena-survival` and `arena-surroundings` for focused examples and guidance.

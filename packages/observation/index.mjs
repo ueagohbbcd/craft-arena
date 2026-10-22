@@ -14,8 +14,8 @@ export {
   cellKind,
 } from "./reach.mjs";
 export {
-  findRoute,
-  routeTable,
-  routeConfigs,
+  findLink,
+  placeGraph,
+  linkConfigs,
   parseWaypoints,
-} from "./routes.mjs";
+} from "./place-graph.mjs";

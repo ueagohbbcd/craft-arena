@@ -10,16 +10,16 @@ import {
 } from "../packages/observation/reach.mjs";
 import { parseReachArgs } from "../examples/reach-map.mjs";
 import {
-  findRoute,
-  routeTable,
-  routeConfigs,
+  findLink,
+  placeGraph,
+  linkConfigs,
   parseWaypoints,
-} from "../packages/observation/routes.mjs";
+} from "../packages/observation/place-graph.mjs";
 import {
-  parseRoutesArgs,
+  parsePlaceGraphArgs,
   configsFor,
   searchArea,
-} from "../examples/routes.mjs";
+} from "../examples/place-graph.mjs";
 import { parseProfileArgs } from "../examples/profile.mjs";
 
 const require = createRequire(import.meta.url);
@@ -339,7 +339,7 @@ test("reach-map and profile arguments", () => {
   assert.throws(() => parseProfileArgs(["up"]), /Give X Z/);
 });
 
-test("route table connects places by walking and says what else a one-way pit needs", () => {
+test("place graph connects places by walking and says what else a one-way pit needs", () => {
   const blockAt = house();
   const points = parseWaypoints({
     yard: [0, 64, 0],
@@ -352,17 +352,17 @@ test("route table connects places by walking and says what else a one-way pit ne
     z: 0,
     note: "upper floor",
   });
-  const walk = routeTable({
+  const walk = placeGraph({
     blockAt,
     registry,
     points,
-    configs: routeConfigs.slice(0, 1),
+    configs: linkConfigs.slice(0, 1),
   });
   assert.match(walk.text, /^yard → upstairs: walk \d+$/m);
   assert.match(walk.text, /^upstairs → yard: walk \d+$/m);
   assert.equal(walk.pairs[0].results.walk.status, "ok");
 
-  const out = findRoute({
+  const out = findLink({
     blockAt,
     registry,
     from: { x: -7, y: 61, z: 0 },
@@ -370,7 +370,7 @@ test("route table connects places by walking and says what else a one-way pit ne
   });
   assert.equal(out.status, "none");
   assert.ok(out.short > 0);
-  const placed = findRoute({
+  const placed = findLink({
     blockAt,
     registry,
     from: { x: -7, y: 61, z: 0 },
@@ -380,7 +380,7 @@ test("route table connects places by walking and says what else a one-way pit ne
   assert.equal(placed.status, "ok");
   assert.ok(placed.placed > 0);
 
-  const pit = routeTable({
+  const pit = placeGraph({
     blockAt,
     registry,
     points: [
@@ -396,9 +396,9 @@ test("route table connects places by walking and says what else a one-way pit ne
   );
 });
 
-test("routes arguments", () => {
+test("place graph arguments", () => {
   assert.deepEqual(
-    parseRoutesArgs(["--here", "--from", "here", "--blocks", "0"]),
+    parsePlaceGraphArgs(["--here", "--from", "here", "--blocks", "0"]),
     {
       file: "waypoints.json",
       blocks: 0,
@@ -411,8 +411,8 @@ test("routes arguments", () => {
     ["walk", "gates", "dig"],
   );
   assert.deepEqual(configsFor(8)[2].settings, { blocks: 8 });
-  assert.throws(() => parseRoutesArgs(["--fly"]), /Unknown argument/);
-  assert.throws(() => parseRoutesArgs(["--timeout", "0"]), /at least 1 ms/);
+  assert.throws(() => parsePlaceGraphArgs(["--fly"]), /Unknown argument/);
+  assert.throws(() => parsePlaceGraphArgs(["--timeout", "0"]), /at least 1 ms/);
   assert.deepEqual(
     searchArea([
       { x: 0.5, z: -3 },
@@ -430,7 +430,7 @@ test("routes arguments", () => {
   );
   assert.throws(
     () =>
-      findRoute({
+      findLink({
         blockAt: house(),
         registry,
         from: { x: 0, y: 64, z: 0 },
@@ -445,12 +445,12 @@ test("routes arguments", () => {
     { name: "door", x: 5, y: 68, z: 0 },
   ]);
   assert.throws(
-    () => routeTable({ blockAt: house(), registry, points: twice }),
+    () => placeGraph({ blockAt: house(), registry, points: twice }),
     /unique/,
   );
 });
 
-test("opening a gate does not let a route place blocks", () => {
+test("opening a gate does not let a link place blocks", () => {
   // Floor at y=63 for z <= 2, a fence across z=0 with a gate at x=0, and a
   // two-block gap of void at z 3..4 before the far floor at z >= 5.
   const { put, blockAt } = sparse();
@@ -475,7 +475,7 @@ test("opening a gate does not let a route place blocks", () => {
     powered: "false",
   });
   const trip = (settings) =>
-    findRoute({
+    findLink({
       blockAt,
       registry,
       from: { x: 0, y: 64, z: -3 },
@@ -488,7 +488,7 @@ test("opening a gate does not let a route place blocks", () => {
   assert.equal(built.status, "ok");
   assert.equal(built.placed, 2);
   assert.equal(
-    findRoute({
+    findLink({
       blockAt,
       registry,
       from: { x: 0, y: 64, z: -3 },
@@ -501,7 +501,7 @@ test("opening a gate does not let a route place blocks", () => {
 
 test("a route table never runs past its budget", () => {
   const started = Date.now();
-  const table = routeTable({
+  const table = placeGraph({
     blockAt: house(),
     registry,
     points: [
