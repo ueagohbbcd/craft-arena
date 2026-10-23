@@ -1,14 +1,15 @@
 // Take a picture of the loaded world and print where it was saved.
 // Run when a decision depends on shape: a doorway, a wall, stacked levels.
-// Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views VIEWS] [--edge solid|open|game] [BOX [BOX...]]
+// Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [BOX [VIEW...] [EDGE]]...
 // A BOX is minX minY minZ maxX maxY maxZ; without one it frames the area
-// around your feet. Each box is one row of the image, seen from the same
-// VIEWS (2 by default: se,nw; or 1, 4, or names se sw nw ne top east west
-// south north). Only blocks inside a box are drawn, so a second, smaller
-// box shows the inside of the first. EDGE says how faces where a box cuts
-// through blocks are drawn: all (solid), none (open) or as in the game.
-// The picture shows you, your waypoints and the entities in each box; give
-// its pixels to pick.mjs for coordinates.
+// around your feet. Only blocks inside a box are drawn, so a second, smaller
+// box shows the inside of the first. After a box come the views it is seen
+// from (se sw nw ne top east west south north; default se nw) and one EDGE,
+// how faces where it cuts through blocks are drawn: all (solid, default),
+// none (open) or as in the game. To see a box with another edge, give it
+// again. The pictures go in reading order, box after box: 1, 2 side by side,
+// or 4 in two rows. The picture shows you, your waypoints and the entities
+// in each box; give its pixels to pick.mjs for coordinates.
 // Sizes and layout come from screenshot.json (readSettings).
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -16,7 +17,7 @@ import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
 import { capturePrismarineViews } from "../packages/world-visual/prismarine.mjs";
 import { isAir, projectPoint } from "../packages/world-visual/camera.mjs";
 
-const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views VIEWS] [--edge solid|open|game] [minX minY minZ maxX maxY maxZ]...`;
+const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ [VIEW...] [solid|open|game]]...`;
 const KEEP_SHOTS = 20;
 
 /** A nearby box: mostly above and around the player, clipped to the dimension. */
@@ -42,27 +43,46 @@ const boxOf = (v) => {
   };
 };
 
-/** `{views, boxes, edge}` from the command line: views or null, zero or more boxes, "solid" by default. */
+const edges = ["solid", "open", "game"];
+
+/**
+ * The boxes on the command line, `[{bounds, views, edge}]`. Each box is six
+ * numbers followed by its views (names such as `se nw` or `se,nw,top`; null
+ * takes the settings' default) and at most one edge (`solid`, `open` or
+ * `game`; default solid). Words before any box are for the box around your
+ * feet (bounds null), which is then the only one.
+ */
 export function parseScreenshotArgs(args) {
-  args = [...args];
-  let views = null,
-    edge = "solid";
-  while (args[0]?.startsWith("--")) {
-    const flag = args.shift();
-    if (flag === "--views") {
-      if (!args[0]) throw new Error(usage);
-      views = parseViews(args.shift());
-    } else if (flag === "--edge") {
-      edge = args.shift();
-      if (!["solid", "open", "game"].includes(edge))
-        throw new Error(`--edge takes solid, open or game. ${usage}`);
-    } else throw new Error(`Unknown option ${flag}. ${usage}`);
-  }
-  if (args.length % 6) throw new Error(usage);
   const boxes = [];
-  for (let i = 0; i < args.length; i += 6)
-    boxes.push(boxOf(args.slice(i, i + 6)));
-  return { views, boxes, edge };
+  let around = null;
+  for (let i = 0; i < args.length;) {
+    if (Number.isFinite(Number(args[i]))) {
+      if (around)
+        throw new Error(
+          `Views and edge go after their box; words before every box are for the box around you, which then is the only one. ${usage}`,
+        );
+      boxes.push({
+        bounds: boxOf(args.slice(i, i + 6)),
+        views: null,
+        edge: null,
+      });
+      i += 6;
+      continue;
+    }
+    const box =
+      boxes.at(-1) ?? (around ??= { bounds: null, views: null, edge: null });
+    const word = args[i++];
+    if (edges.includes(word)) {
+      if (box.edge)
+        throw new Error(
+          `One edge per box: to compare edges, give the box again. ${usage}`,
+        );
+      box.edge = word;
+    } else box.views = [...(box.views ?? []), ...parseViews(word, false)];
+  }
+  if (around) boxes.push(around);
+  for (const box of boxes) box.edge ??= "solid";
+  return boxes;
 }
 
 const viewNames = {
@@ -78,13 +98,14 @@ const viewNames = {
 };
 const viewCounts = { 1: ["se"], 2: ["se", "nw"], 4: ["se", "sw", "nw", "ne"] };
 
-/** View names from `1`, `2`, `4` or a list such as `se,nw,top`. */
-export function parseViews(value) {
-  const names = viewCounts[value] ?? String(value).split(",").filter(Boolean);
+/** View names from a list such as `se,nw,top`, or (`counts`) `1`, `2` or `4`. */
+export function parseViews(value, counts = true) {
+  const names =
+    (counts && viewCounts[value]) || String(value).split(",").filter(Boolean);
   for (const n of names)
     if (!viewNames[n])
       throw new Error(
-        `Unknown view ${n}: use 1, 2, 4 or names from ${Object.keys(viewNames).join(", ")}`,
+        `Unknown view or edge ${n}: views are ${Object.keys(viewNames).join(", ")}; edges are ${edges.join(", ")}. ${usage}`,
       );
   if (!names.length) throw new Error(usage);
   return names;
@@ -199,7 +220,7 @@ export async function readSettings(file = "screenshot.json") {
 export function viewLayout(settings, count) {
   if (![1, 2, 4].includes(count))
     throw new Error(
-      `One image holds 1, 2 or 4 pictures (boxes × views), not ${count}`,
+      `One image holds 1, 2 or 4 pictures (every box's views together), not ${count}`,
     );
   const columns = count === 4 ? 2 : count;
   let { width, height } = settings.view;
@@ -331,33 +352,54 @@ export default async function screenshotProgram(
   bot,
   { args = [], log = console.log },
 ) {
-  const { views: chosen, boxes, edge } = parseScreenshotArgs(args);
+  const boxes = parseScreenshotArgs(args);
   const settings = await readSettings();
-  const views = chosen ?? parseViews(settings.views);
+  const views = parseViews(settings.views);
   const waypoints = (await readWaypoints()).filter((w) =>
     [w.x, w.y, w.z].every(Number.isFinite),
   );
-  if (!boxes.length) boxes.push(observationBounds(bot));
+  if (!boxes.length) boxes.push({ bounds: null, views: null, edge: "solid" });
   const scenes = [];
-  for (const box of boxes)
-    scenes.push(await sceneOf(bot, box, waypoints, edge));
+  for (const box of boxes) {
+    const scene = await sceneOf(
+      bot,
+      box.bounds ?? observationBounds(bot),
+      waypoints,
+      box.edge,
+    );
+    scenes.push({ ...scene, views: box.views ?? views, edge: box.edge });
+  }
 
   const name = await nextShotName();
-  const total = views.length * scenes.length;
-  // Two boxes of two views: one row per box.
+  // The pictures in reading order: each box's views, box after box.
+  const total = scenes.reduce((n, scene) => n + scene.views.length, 0);
   const layout = viewLayout(settings, total);
-  const columns = layout.columns;
+  // One letter per distinct box: the same box given again keeps its letter.
+  const letters = [
+    ...new Set(scenes.map((scene) => JSON.stringify(scene.bounds))),
+  ];
+  const boxName = (scene) =>
+    letters.length > 1
+      ? boxLabel(letters.indexOf(JSON.stringify(scene.bounds)))
+      : undefined;
+  const label = (scene) =>
+    [boxName(scene), scene.edge === "solid" ? "" : `(${scene.edge} edge)`]
+      .filter(Boolean)
+      .join(" ") || undefined;
   const { imagePath, metadata } = await capturePrismarineViews(null, {
     outputPath: resolve(`${name}.png`),
     width: layout.width,
     height: layout.height,
-    columns,
+    columns: layout.columns,
     cropToContent: settings.crop !== false,
-    scenes: scenes.map((scene, i) => ({
+    scenes: scenes.map((scene) => ({
       snapshot: scene.render,
-      clip: edge === "solid" ? undefined : { ...scene.bounds, faces: edge },
-      label: scenes.length > 1 ? boxLabel(i) : undefined,
-      directions: views.map((v) => viewNames[v]),
+      clip:
+        scene.edge === "solid"
+          ? undefined
+          : { ...scene.bounds, faces: scene.edge },
+      label: label(scene),
+      directions: scene.views.map((v) => viewNames[v]),
       fitBounds: scene.fit,
       entities: scene.entities,
       annotate: (view) => annotations(view, scene.marks),
@@ -369,11 +411,12 @@ export default async function screenshotProgram(
     JSON.stringify({
       scenes: scenes.map((scene) => ({
         bounds: scene.bounds,
+        edge: scene.edge,
         blocks: scene.snapshot.blocks
           .filter((b) => !isAir(b.name))
           .map((b) => [b.x, b.y, b.z, b.name]),
         unknown: scene.unknown,
-        // The layer just outside the box, for --edge game.
+        // The layer just outside the box, for the game edge.
         outside: scene.render.blocks
           .filter((b) => !inBox(b, scene.bounds))
           .map((b) => [b.x, b.y, b.z, b.name]),
@@ -386,7 +429,6 @@ export default async function screenshotProgram(
           height: e.height,
         })),
       })),
-      edge,
     }),
   );
   await writeFile(
@@ -404,9 +446,11 @@ export default async function screenshotProgram(
     JSON.stringify({
       imagePath,
       size: [metadata.width, metadata.height],
-      boxes: scenes.map((s, i) => ({
-        ...(scenes.length > 1 ? { box: boxLabel(i) } : {}),
+      boxes: scenes.map((s) => ({
+        ...(boxName(s) ? { box: boxName(s) } : {}),
         bounds: s.bounds,
+        views: s.views,
+        edge: s.edge,
         framed: s.fit,
         knownFraction: s.knownFraction,
       })),

@@ -39,7 +39,7 @@ async function loadShot(image) {
   const metadata = JSON.parse(await readFile(`${base(image)}.json`, "utf8"));
   const cells = JSON.parse(await readFile(`${base(image)}.cells.json`, "utf8"));
   const scenes = cells.scenes.map(
-    ({ bounds, blocks, unknown, entities, outside = [] }) => {
+    ({ bounds, blocks, unknown, entities, outside = [], edge }) => {
       const solid = new Map(
         blocks.map(([x, y, z, name]) => [`${x},${y},${z}`, name]),
       );
@@ -60,7 +60,14 @@ async function loadShot(image) {
           ? "outside the box"
           : (solid.get(`${x},${y},${z}`) ??
             (unseen.has(`${x},${y},${z}`) ? "unknown" : "air"));
-      return { bounds, entities, nameAt, inside, outer };
+      return {
+        bounds,
+        entities,
+        nameAt,
+        inside,
+        outer,
+        edge: edge ?? cells.edge ?? "solid",
+      };
     },
   );
   // Around a hit, look in every box of the shot: a small box B sits inside A.
@@ -74,7 +81,6 @@ async function loadShot(image) {
     metadata,
     scenes,
     nameAnywhere,
-    edge: cells.edge ?? "solid",
   };
 }
 
@@ -117,7 +123,7 @@ export default async function pick(bot, { args = [] }) {
   const picks = [];
   for (const p of points) {
     if (!shots.has(p.image)) shots.set(p.image, await loadShot(p.image));
-    const { metadata, scenes, nameAnywhere, edge } = shots.get(p.image);
+    const { metadata, scenes, nameAnywhere } = shots.get(p.image);
     const view = metadata.views.find(
       ({ viewport: v }) =>
         p.x >= v.x && p.x < v.x + v.width && p.y >= v.y && p.y < v.y + v.height,
@@ -135,7 +141,8 @@ export default async function pick(bot, { args = [] }) {
       crop.y + ((p.y - vp.y + 0.5) * crop.h) / vp.height,
     );
     rays.push({ ...ray, view: `${p.image}#${view.label}` });
-    const { bounds, entities, nameAt, inside, outer } = scenes[view.scene ?? 0];
+    const { bounds, entities, nameAt, inside, outer, edge } =
+      scenes[view.scene ?? 0];
     // The ray follows the picture's rule for faces on the box edge: always
     // drawn (solid), never drawn (open), or drawn where the block outside does not hide them
     // ("game": walk one layer further out, hits only inside the box).
@@ -197,9 +204,20 @@ export default async function pick(bot, { args = [] }) {
     if (entity) result.entity = { name: entity.name, at: entity.at };
     picks.push(result);
   }
+  // Rays that look almost the same way (one view of the same box with two
+  // edges) meet nowhere useful.
+  const apart = rays.some((a) =>
+    rays.some(
+      (b) =>
+        a.direction.x * b.direction.x +
+          a.direction.y * b.direction.y +
+          a.direction.z * b.direction.z <
+        Math.cos((10 * Math.PI) / 180),
+    ),
+  );
   const views = new Set(rays.map((r) => r.view));
   let meet;
-  if (views.size >= 2) {
+  if (views.size >= 2 && apart) {
     const m = nearestPointToRays(rays);
     if (m) {
       const cell = {

@@ -127,45 +127,30 @@ test("rays that miss each other still meet at their nearest point", () => {
 });
 
 test("screenshot and pick arguments", () => {
-  const o = parseScreenshotArgs([
-    "--views",
-    "se,top",
-    "1",
-    "2",
-    "3",
-    "0",
-    "0",
-    "0",
-    "1",
-    "2",
-    "3",
-    "4",
-    "5",
-    "6",
-  ]);
-  assert.deepEqual(o.views, ["se", "top"]);
-  assert.deepEqual(o.boxes, [
-    { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 2, z: 3 } },
-    { min: { x: 1, y: 2, z: 3 }, max: { x: 4, y: 5, z: 6 } },
-  ]);
-  assert.deepEqual(parseScreenshotArgs([]), {
-    views: null,
-    boxes: [],
-    edge: "solid",
-  });
-  assert.equal(
-    parseScreenshotArgs(["--edge", "open", "--views", "top"]).edge,
-    "open",
+  const a = { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 2, z: 3 } };
+  const b = { min: { x: 1, y: 2, z: 3 }, max: { x: 4, y: 5, z: 6 } };
+  // Views and an edge after each box; the same box again for another edge.
+  assert.deepEqual(
+    parseScreenshotArgs(
+      "1 2 3 0 0 0 se top 1 2 3 4 5 6 open 0 0 0 1 2 3 se,nw game".split(" "),
+    ),
+    [
+      { bounds: a, views: ["se", "top"], edge: "solid" },
+      { bounds: b, views: null, edge: "open" },
+      { bounds: a, views: ["se", "nw"], edge: "game" },
+    ],
   );
-  assert.throws(() => parseScreenshotArgs(["--cut", "1"]));
-  assert.deepEqual(parseScreenshotArgs(["--views", "4"]).views, [
-    "se",
-    "sw",
-    "nw",
-    "ne",
+  assert.deepEqual(parseScreenshotArgs([]), []);
+  // Words before any box are for the box around you.
+  assert.deepEqual(parseScreenshotArgs(["top", "open"]), [
+    { bounds: null, views: ["top"], edge: "open" },
   ]);
-  assert.throws(() => parseScreenshotArgs(["--views", "3"]));
-  assert.throws(() => parseScreenshotArgs(["--views", "side"]));
+  assert.throws(() =>
+    parseScreenshotArgs(["top", "1", "2", "3", "4", "5", "6"]),
+  );
+  assert.throws(() => parseScreenshotArgs("0 0 0 1 1 1 open game".split(" ")));
+  assert.throws(() => parseScreenshotArgs("0 0 0 1 1 1 side".split(" ")));
+  assert.throws(() => parseScreenshotArgs(["--views", "se"]));
   assert.throws(() => parseScreenshotArgs(["1", "2", "3"]));
   assert.deepEqual(
     parsePickArgs(["a.png", "1", "2", "3", "4", "b.png", "5", "6"]),

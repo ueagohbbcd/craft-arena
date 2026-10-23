@@ -24,17 +24,19 @@ The default `chat` module forwards other players' chat and whispers, and server 
 When a decision depends on shape, such as a doorway, a wall or stacked levels, take a picture of the box you care about:
 
 ```sh
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                                  # around you
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ    # box A
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" A_BOX B_BOX                      # A, and inside it the smaller B
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --views top minX minY minZ maxX maxY maxZ
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --edge open minX minY minZ maxX maxY maxZ   # tunnels in the rock
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                                   # around you
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ     # one box, two corner views
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" A_BOX B_BOX                       # A, and inside it the smaller B
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ top
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" BOX se nw BOX se nw open          # the same box, two edges
 ```
 
-- **Choose the box.** Only blocks inside it are drawn, and the camera frames them, not empty sky. Without a box it covers 25×25 blocks around you, from 8 below to 16 above your feet. A box around just the building or passage you are deciding about gives a closer picture.
-- **Seeing inside.** Give a second, smaller box B: it is drawn in its own row from the same views, without whatever lies outside it. A box B one block inside A's walls and below its roof shows the rooms; a box B whose top is at the height of a floor or a tunnel shows its layout.
-- **The box edge.** `--edge` says how faces on the edge of a box are drawn where it cuts through blocks. `solid` (default) draws every cut face, so the box looks like a solid cut: use it when you placed the box just behind a wall you already know. `open` draws none, as if your eye were inside the rock: underground, only the walls of tunnels and caves remain, which shows where they go without knowing it first. `game` draws an edge face only where the block just outside the box is not opaque, as the game would: the outside of a building is drawn where it meets air, and a face against rock or other solid blocks is not. Edge faces are one block thick at most, so where the box ends just at the surface of a structure they can look like thin sheets.
-- **Views.** Two from opposite corners above (`se,nw`) by default. `--views` takes `1`, `2`, `4` or names separated by commas: `se`, `sw`, `nw`, `ne`, `top` (straight down, north up), `east`, `west`, `south`, `north` (level, from that side). One image holds 1, 2 or 4 pictures (boxes × views). For a structure, look from the corners first; for a large area, `top` works well.
+A box is six integers. After it come the views it is seen from and its edge; a box without them gets `se nw` and `solid`. One image holds 1, 2 or 4 pictures in reading order (all the boxes' views together): one, two side by side, or four in two rows.
+
+- **The box.** Only blocks inside it are drawn, and the camera frames them, not empty sky. Without a box it covers 25×25 blocks around you, from 8 below to 16 above your feet; views and an edge given with no box are for that one.
+- **Seeing inside.** A second, smaller box B inside A is drawn without whatever lies outside it.
+- **Views:** `se`, `sw`, `nw`, `ne` (from that corner, above), `top` (straight down, north up), `east`, `west`, `south`, `north` (level, from that side). Give several, separated by spaces or commas. For a structure, look from the corners first; for a large area, `top` works well.
+- **Edge:** one of three, for how faces are drawn where the box cuts through blocks. `solid` draws every cut face, so the box looks like a solid cut. `open` draws none, as if your eye were inside the rock: underground, only the walls of tunnels and caves remain. `game` draws an edge face only where the block just outside the box is not opaque, as the game would: the outside of a building is drawn where it meets air, a face against rock is not. Edge faces have no thickness, so where a box ends just at the surface of a structure they look like thin sheets. To see a box with another edge, give the box again.
 - **Drawn on top:** `you`, your waypoints from `waypoints.json` and the names of mobs. Players and mobs themselves are drawn too.
 
 It prints JSON with `imagePath`, the image `size` and, for each box, its `bounds` and `knownFraction`. Open `imagePath` with `read`. Blank areas are blocks the character has not received, not air; `knownFraction` says how much of the box is known.

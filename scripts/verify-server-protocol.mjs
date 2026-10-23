@@ -146,7 +146,7 @@ function startServer(dir, jar) {
       reject(new Error(`Server exited (${code}):\n${output.slice(-2000)}`)),
     );
   });
-  return { child, ready };
+  return { child, ready, output: () => output };
 }
 
 const writeConfig = writeServerConfig;
@@ -528,6 +528,10 @@ try {
   log("All server protocol checks passed.");
 } catch (e) {
   console.error(e);
+  // The server's own log says who left the game and why.
+  console.error(
+    `Server log (last 60 lines):\n${server.output().split("\n").slice(-60).join("\n")}`,
+  );
   process.exitCode = 1;
 } finally {
   try {
