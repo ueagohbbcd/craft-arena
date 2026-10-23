@@ -49,20 +49,20 @@ Each picture costs a few seconds and tokens. For exact checks, `blockAt` and `fi
 
 ## Notes on places
 
-Next to `waypoints.json`, keep `regions.json` for buildings and areas worth looking at again: a box, what to leave out to see inside, and a note.
+Once you understand a building or a stretch of terrain, write it down in `regions.json` next to `waypoints.json`: its box and what you learned. The note is the point: floors and their heights, entrances, ladders and stairs, what is blocked or one-way, where the resources are. Pictures and checks are expensive; a note keeps what they told you, so your later plans can start from it.
 
 ```json
 [
   {
     "name": "keep",
     "box": [10, 60, -40, 30, 80, -20],
-    "cut": [[10, 70, -40, 30, 80, -20]],
-    "note": "3 floors, ladder in the NE corner, roof cut to see floor 3"
+    "note": "3 floors (feet y 61, 66, 71); door at 20 61 -20 facing south; ladder in the NE corner reaches floor 2 only; floor 3 by stairs from the west wall",
+    "cut": [[10, 70, -40, 30, 80, -20]]
   }
 ]
 ```
 
-`screenshot.mjs --region keep` takes its box and cut (more `--cut`/`--hide` add to them). Write what you learned into `note`; the region's note is printed with the picture.
+Update a note when something changes (a ladder broken, a wall dug through). `screenshot.mjs --region keep` uses the region's box, and its `cut`/`hide` if you saved one, and prints its note with the picture.
 
 ## Change the default observer
 
