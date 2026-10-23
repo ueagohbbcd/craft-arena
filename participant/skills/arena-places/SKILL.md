@@ -22,7 +22,7 @@ These tools only look: they run Pathfinder's search over the blocks your charact
 
 ## Waypoints and the place graph
 
-Once you know how a place is laid out, write down a few representative footholds in `waypoints.json` in your working directory: one per floor of a building, a doorway, a bridge end, a resource spot. Use the feet position (the air cell you stand in), and add more places worth coming back to as you find them:
+Once you know how a place is laid out, write down a few representative footholds in `waypoints.json` in your working directory: one per floor of a building, a doorway, a bridge end, a resource spot. Use the feet position (the air cell you stand in), and add more places worth coming back to as you find them. To find one from a picture, click it with `pick.mjs` and take the `front` cell of a `top` face that is `standable` (see `arena-surroundings`); screenshots draw your waypoints, and `regions.json` keeps the boxes of buildings with notes:
 
 ```json
 [

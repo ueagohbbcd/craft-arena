@@ -10,6 +10,32 @@ import {
   viewDirectionSigns,
 } from "mineflayer-world-memory/live.mjs";
 const require = createRequire(import.meta.url);
+/**
+ * Unit vector from the target toward the camera: a corner such as "+x+z"
+ * (looking down at about 35°), "top" (straight down, north up) or a side
+ * "+x", "-x", "+z", "-z" (level, from that side).
+ */
+export function viewUnit(viewDirection, bounds, alignLongAxis = false) {
+  if (viewDirection === "top") return { x: 0, y: 1, z: 0 };
+  const side = /^([+-])([xz])$/.exec(viewDirection);
+  if (side) {
+    const u = { x: 0, y: 0, z: 0 };
+    u[side[2]] = side[1] === "+" ? 1 : -1;
+    return u;
+  }
+  const signs = viewDirectionSigns(viewDirection);
+  const sx = bounds.max.x - bounds.min.x + 1,
+    sz = bounds.max.z - bounds.min.z + 1;
+  // Viewing predominantly across the short axis keeps a long course horizontal.
+  const azimuth = alignLongAxis ? Math.atan2(sz, sx) : Math.PI / 4;
+  const horizontal = Math.sqrt(2 / 3);
+  return {
+    x: signs.x * Math.sin(azimuth) * horizontal,
+    y: 1 / Math.sqrt(3),
+    z: signs.z * Math.cos(azimuth) * horizontal,
+  };
+}
+
 /** Fit all selection corners to the viewer's 75-degree perspective without changing scale ratios. */
 export function fittedCamera(
   bounds,
@@ -20,27 +46,18 @@ export function fittedCamera(
     alignLongAxis = false,
   } = {},
 ) {
-  const signs = viewDirectionSigns(viewDirection);
   const target = Object.fromEntries(
     ["x", "y", "z"].map((a) => [a, (bounds.min[a] + bounds.max[a] + 1) / 2]),
   );
-  const sx = bounds.max.x - bounds.min.x + 1,
-    sz = bounds.max.z - bounds.min.z + 1;
-  // Viewing predominantly across the short axis keeps a long course horizontal.
-  const azimuth = alignLongAxis ? Math.atan2(sz, sx) : Math.PI / 4;
-  const horizontal = Math.sqrt(2 / 3),
-    elevation = 1 / Math.sqrt(3);
-  const unit = {
-    x: signs.x * Math.sin(azimuth) * horizontal,
-    y: elevation,
-    z: signs.z * Math.cos(azimuth) * horizontal,
-  };
-  const right = { x: unit.z / horizontal, y: 0, z: -unit.x / horizontal };
-  const up = {
-    x: (-unit.x * elevation) / horizontal,
-    y: horizontal,
-    z: (-unit.z * elevation) / horizontal,
-  };
+  const unit = viewUnit(viewDirection, bounds, alignLongAxis);
+  const h = Math.hypot(unit.x, unit.z);
+  // Straight down: screen right is east and screen up is north.
+  const right = h
+    ? { x: unit.z / h, y: 0, z: -unit.x / h }
+    : { x: 1, y: 0, z: 0 };
+  const up = h
+    ? { x: (-unit.x * unit.y) / h, y: h, z: (-unit.z * unit.y) / h }
+    : { x: 0, y: 0, z: -1 };
   const dot = (p, v) => p.x * v.x + p.y * v.y + p.z * v.z;
   const tanY = Math.tan((75 * Math.PI) / 360) * 0.9,
     tanX = (tanY * width) / height;
@@ -63,7 +80,7 @@ export function fittedCamera(
   return {
     position,
     target,
-    yaw: Math.atan2(unit.x, unit.z),
+    yaw: h ? Math.atan2(unit.x, unit.z) : 0,
     pitch: -Math.asin(unit.y),
     distance,
     fov: 75,
@@ -93,6 +110,8 @@ export async function servePrismarineSnapshot(
     width = 768,
     height = 512,
     alignLongAxis = false,
+    fitBounds,
+    entities = [],
   } = {},
 ) {
   const norm = normalizeSnapshot(snapshot);
@@ -164,22 +183,27 @@ export async function servePrismarineSnapshot(
     entry.column.setSkyLight(new Vec3(b.x - cx * 16, b.y, b.z - cz * 16), 15);
   }
   const { bounds, size } = norm;
+  // The camera frames fitBounds (what is worth seeing) inside the selection.
+  const fit = fitBounds ?? bounds;
   const target = {
-    x: (bounds.min.x + bounds.max.x + 1) / 2,
-    y: (bounds.min.y + bounds.max.y + 1) / 2,
-    z: (bounds.min.z + bounds.max.z + 1) / 2,
+    x: (fit.min.x + fit.max.x + 1) / 2,
+    y: (fit.min.y + fit.max.y + 1) / 2,
+    z: (fit.min.z + fit.max.z + 1) / 2,
   };
-  const fitted = fittedCamera(bounds, {
+  const fitted = fittedCamera(fit, {
     viewDirection,
     width,
     height,
     alignLongAxis,
   });
-  center ??= fitted.position;
-  const dx = target.x - center.x,
-    dz = target.z - center.z;
-  const yaw = Math.atan2(-dx, -dz),
+  let yaw = fitted.yaw,
+    pitch = fitted.pitch;
+  if (center) {
+    const dx = target.x - center.x,
+      dz = target.z - center.z;
+    yaw = Math.atan2(-dx, -dz);
     pitch = Math.atan2(target.y - (center.y + 1.6), Math.hypot(dx, dz));
+  } else center = fitted.position;
   if (!["x", "y", "z"].every((a) => Number.isFinite(center[a])))
     throw new TypeError("center requires finite x,y,z");
   const metadata = {
@@ -198,7 +222,8 @@ export async function servePrismarineSnapshot(
     totalVoxels: size.x * size.y * size.z,
     knownFraction: norm.voxels.size / (size.x * size.y * size.z),
     defaultedStates,
-    camera: { position: center, yaw, pitch, target },
+    camera: { position: center, yaw, pitch, target, fov: 75 },
+    entities: entities.length,
     textures: "Prismarine viewer version-specific Minecraft models/textures",
     notes: [
       "Only supplied known cells are rendered. Unobserved cells and cells outside the selection are omitted, not evidence of air. Consult the minimap for explicit coverage.",
@@ -215,6 +240,7 @@ export async function servePrismarineSnapshot(
     socket.emit("version", renderVersion);
     for (const c of chunks.values())
       socket.emit("loadChunk", { x: c.x, z: c.z, chunk: c.column.toJson() });
+    for (const e of entities) socket.emit("entity", e);
     socket.emit("position", { pos: center, addMesh: false, yaw, pitch });
   });
   await new Promise((resolve, reject) => {
@@ -227,7 +253,7 @@ export async function servePrismarineSnapshot(
     metadata,
     chunks: chunks.size,
     setViewDirection(direction, dimensions = {}) {
-      metadata.camera = fittedCamera(bounds, {
+      metadata.camera = fittedCamera(fit, {
         viewDirection: direction,
         width,
         height,
@@ -253,6 +279,8 @@ export async function capturePrismarineSnapshot(
     center,
     captureSession,
     alignLongAxis = false,
+    fitBounds,
+    entities,
   } = {},
 ) {
   if (!outputPath) throw new TypeError("outputPath is required");
@@ -274,6 +302,8 @@ export async function capturePrismarineSnapshot(
       alignLongAxis,
       width,
       height,
+      fitBounds,
+      entities,
     }));
   if (captureSession) captureSession.server = server;
   let browser;
@@ -422,11 +452,25 @@ export const viewCorners = Object.freeze({
   "+x-z": "north-east",
 });
 
+/** "from …" labels for every view direction. */
+export const viewLabels = Object.freeze({
+  ...Object.fromEntries(
+    Object.entries(viewCorners).map(([d, corner]) => [d, `from ${corner}`]),
+  ),
+  top: "from above (north up)",
+  "+x": "from east",
+  "-x": "from west",
+  "+z": "from south",
+  "-z": "from north",
+});
+
 /**
  * Several views of one snapshot stitched into one PNG, two per row, each
- * labelled with the corner the camera looks from. Reuses one viewer and
- * browser for all views. Returns `{imagePath, metadata}`; the metadata lists
- * each view's camera.
+ * labelled with the corner the camera looks from (one direction gives one
+ * picture), `columns` per row (2). Reuses one viewer and browser for all
+ * views. `annotate(view)` may return marks and labels in that view's pixels
+ * (`{x, y, label, color, dot}`). Returns `{imagePath, metadata}`; the metadata
+ * lists each view's camera and where it sits in the image (`viewport`).
  */
 export async function capturePrismarineViews(
   snapshot,
@@ -435,12 +479,14 @@ export async function capturePrismarineViews(
     directions = Object.keys(viewCorners),
     width = 480,
     height = 360,
+    annotate,
+    columns: requestedColumns,
     ...options
   } = {},
 ) {
   if (!outputPath) throw new TypeError("outputPath is required");
   if (!directions.length) throw new RangeError("give at least one direction");
-  const columns = Math.min(2, directions.length);
+  const columns = Math.min(requestedColumns ?? 2, directions.length);
   const rows = Math.ceil(directions.length / columns);
   validateImageDimensions(width * columns, height * rows);
   const session = {};
@@ -459,10 +505,21 @@ export async function capturePrismarineViews(
           captureSession: session,
         },
       );
-      views.push({
+      const view = {
         viewDirection,
-        label: `from ${viewCorners[viewDirection] ?? viewDirection}`,
+        label: viewLabels[viewDirection] ?? `from ${viewDirection}`,
+        camera: metadata.camera,
+        viewport: {
+          x: (i % columns) * width,
+          y: Math.floor(i / columns) * height,
+          width,
+          height,
+        },
+      };
+      views.push({
+        ...view,
         png: (await readFile(imagePath)).toString("base64"),
+        marks: annotate?.(view) ?? [],
         metadata,
       });
     }
@@ -472,22 +529,54 @@ export async function capturePrismarineViews(
         canvas.width = width * columns;
         canvas.height = height * rows;
         const ctx = canvas.getContext("2d");
-        for (const [i, v] of views.entries()) {
+        const tag = (
+          text,
+          x,
+          y,
+          { color = "#fff", bg = "rgba(0,0,0,0.65)", size = 13 } = {},
+        ) => {
+          ctx.font = `bold ${size}px sans-serif`;
+          const w = ctx.measureText(text).width;
+          ctx.fillStyle = bg;
+          ctx.fillRect(x, y, w + 8, size + 6);
+          ctx.fillStyle = color;
+          ctx.fillText(text, x + 4, y + size + 1);
+        };
+        for (const v of views) {
           const image = new Image();
           image.src = "data:image/png;base64," + v.png;
           await image.decode();
-          const x = (i % columns) * width,
-            y = Math.floor(i / columns) * height;
+          const { x, y } = v.viewport;
           ctx.drawImage(image, x, y, width, height);
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x, y, width, height);
+          ctx.clip();
+          for (const m of v.marks) {
+            const px = x + m.x,
+              py = y + m.y;
+            if (m.dot !== false) {
+              ctx.beginPath();
+              ctx.arc(px, py, m.dot === "small" ? 2.5 : 5, 0, Math.PI * 2);
+              ctx.fillStyle = m.color ?? "#e33";
+              ctx.fill();
+              ctx.lineWidth = 1.5;
+              ctx.strokeStyle = "#fff";
+              ctx.stroke();
+            }
+            if (m.label)
+              tag(m.label, px + 6, py - 9, {
+                size: m.size ?? 13,
+                color: m.textColor ?? "#fff",
+                bg: m.bg ?? "rgba(0,0,0,0.65)",
+              });
+          }
+          ctx.restore();
           ctx.strokeStyle = "#000";
           ctx.lineWidth = 2;
           ctx.strokeRect(x + 1, y + 1, width - 2, height - 2);
-          ctx.font = "bold 18px sans-serif";
-          const w = ctx.measureText(v.label).width;
-          ctx.fillStyle = "rgba(0,0,0,0.65)";
-          ctx.fillRect(x + 6, y + 6, w + 12, 26);
-          ctx.fillStyle = "#fff";
-          ctx.fillText(v.label, x + 12, y + 25);
+          if (views.length > 1)
+            tag(v.label, x + 6, y + height - 30, { size: 16 });
         }
         return canvas.toDataURL("image/png").split(",")[1];
       },
@@ -500,13 +589,17 @@ export async function capturePrismarineViews(
       ...shared,
       width: width * columns,
       height: height * rows,
-      capture: "actual Chromium canvas screenshots, stitched",
+      capture:
+        views.length > 1
+          ? "actual Chromium canvas screenshots, stitched"
+          : "actual Chromium canvas screenshot",
       views: views.map((v, i) => ({
         label: v.label,
         viewDirection: v.viewDirection,
         column: i % columns,
         row: Math.floor(i / columns),
-        camera: v.metadata.camera,
+        viewport: v.viewport,
+        camera: v.camera,
       })),
     };
     await writeFile(

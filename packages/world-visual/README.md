@@ -7,27 +7,37 @@ There is no built-in image tool, and `examples/observe.mjs` prints text only. If
 ## Take a screenshot
 
 ```sh
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                       # around your feet
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20   # minX minY minZ maxX maxY maxZ
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                          # around your feet, two corner views
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20      # minX minY minZ maxX maxY maxZ
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --views top,side         # straight down, and the best level side view
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --cut 5 64 -3 12 70 -3   # leave out a wall to see inside
+mf run "$ARENA_TOOLKIT_ROOT/examples/pick.mjs" out/shot-3.png 410 285          # the block under that pixel
 ```
 
-|             |                                                                                                                                       |
-| ----------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Default box | 12 blocks each way horizontally, 8 below to 16 above your feet, clipped to the dimension's height                                     |
-| Custom box  | Six integer coordinates, inclusive                                                                                                    |
-| Writes      | `out/world.snapshot.json` (the input), `out/world.png` (768 x 512) and `out/world.json` (metadata), relative to the current directory |
-| Prints      | One JSON line: `imagePath`, `bounds`, `knownFraction` (share of cells in the box that were loaded), `notes`                           |
+|              |                                                                                                                                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Default box  | 12 blocks each way horizontally, 8 below to 16 above your feet, clipped to the dimension's height                                                                                                                                    |
+| Framing      | The camera fits the blocks that touch air inside the box (and you), not the whole box, so empty sky above does not shrink the picture                                                                                                |
+| Views        | `--views` takes `1`, `2` (default: `se,nw`), `4` or names: corners `se sw nw ne`, `top` (north up), sides `east west south north`, or `side` (the side whose level view shows the most distinct block faces)                         |
+| Leaving out  | `--hide NAME,NAME` (block names) and `--cut minX minY minZ maxX maxY maxZ` (repeatable). Left-out blocks are not drawn and `pick.mjs` looks through them                                                                             |
+| Regions      | `--region NAME` takes `box`, `hide`, `cut` and `note` from `regions.json` in the working directory: `[{"name": "keep", "box": [6 ints], "cut": [[6 ints]], "note": "..."}]`                                                          |
+| Drawn on top | `you`, the waypoints from `waypoints.json` inside the box, and entity names; entities themselves are drawn by the viewer (1.16 models, a magenta box for unknown ones). No rulers or coordinate ticks                                |
+| Size         | `screenshot.json` in the working directory: `views` (default views), `view` (`{width, height}` of one view, 768×512), `layout` (`auto`, `row`, `column`, `grid`), `maxPixels` (1,200,000; the image shrinks to fit, `null` keeps it) |
+| Writes       | `out/shot-N.png`, `out/shot-N.json` (metadata with each view's `camera` and `viewport`) and `out/shot-N.cells.json` (what `pick.mjs` rays through); the newest 20 are kept                                                           |
+| Prints       | One JSON line: `imagePath`, `bounds`, `framed`, `size`, `knownFraction` (share of the box that was loaded), `views`, and what was left out                                                                                           |
 
-Then open `imagePath` with the `read` tool. The module reads the live bot state and renders a local snapshot; the host connection remains available to other modules. It takes a few seconds because it starts a headless Chromium.
+`pick.mjs IMAGE X Y [X Y]... [IMAGE2 X Y]...` takes pixels of the whole image. For each it casts the camera's ray through the saved cells and returns the first block it hits (`name`, `x y z`, `face`), the cell in front of that face (`standable` for a top face with two air cells) and an entity the ray hits first. Pixels from two or more different views also give `meet`: the point nearest to all the rays, which may be in the air, with `spread` (how far apart the rays pass). Pure geometry lives in [camera.mjs](camera.mjs): `projectPoint`, `pixelRay`, `raycastCells` and `nearestPointToRays` match the viewer's camera (eye 1.6 above `camera.position`, Euler `pitch, yaw, 0, 'ZYX'`, 75° vertical fov).
 
-To render in your own program, take a snapshot and pass it to `capturePrismarineSnapshot`:
+The module reads the live bot state and renders a local snapshot; the host connection remains available to other modules. It takes several seconds because it starts a headless Chromium (`CHROMIUM_PATH`, `/usr/bin/chromium` by default). Modules it imports, such as `prismarine.mjs`, are cached by the character process: restart the character after changing them.
+
+To render in your own program, take a snapshot and pass it to `capturePrismarineViews`:
 
 ```js
 const root = process.env.ARENA_TOOLKIT_ROOT;
 const { snapshotFromBot } = await import(
   `${root}/node_modules/mineflayer-world-memory/live.mjs`
 );
-const { capturePrismarineSnapshot } = await import(
+const { capturePrismarineViews } = await import(
   `${root}/packages/world-visual/prismarine.mjs`
 );
 
@@ -35,21 +45,22 @@ export default async function (bot) {
   const snapshot = snapshotFromBot(bot, {
     bounds: { min: { x: -10, y: 60, z: -10 }, max: { x: 10, y: 75, z: 10 } },
   });
-  return await capturePrismarineSnapshot(snapshot, {
+  return await capturePrismarineViews(snapshot, {
     outputPath: "out/area.png",
+    directions: ["+x+z", "top"],
+    width: 768,
+    height: 512,
   });
 }
 ```
 
-`mf run examples/screenshot.mjs --views [2|4] [box]` writes `out/views.png` instead: the box seen from four corners (or two opposite ones), 480×360 each, stitched two per row and labelled with the corner each looks from. In a program, `capturePrismarineViews(snapshot, {outputPath, directions, width, height})` does the same with one viewer and one browser; its metadata lists each view's `label`, `column`, `row` and `camera`.
-
-`capturePrismarineSnapshot(snapshot, options)` also takes `width`, `height`, `viewDirection` (`"+x+z"` by default, `"-x+z"`, `"-x-z"` or `"+x-z"`: the corner the camera looks from), `center` (camera position) and `timeoutMs` (30000). [examples/render-fixture.mjs](../../examples/render-fixture.mjs) renders a synthetic world with no game connection.
+`capturePrismarineViews(snapshot, options)` takes `directions` (`"+x+z"`, `"-x+z"`, `"-x-z"`, `"+x-z"`, `"top"`, `"+x"`, `"-x"`, `"+z"`, `"-z"`: where the camera looks from), `width` and `height` of one view, `columns`, `fitBounds` (what the camera frames), `entities` (viewer entity objects) and `annotate(view)` (marks in that view's pixels). Its metadata lists each view's `label`, `viewport` and `camera`. `capturePrismarineSnapshot` renders one view and takes `viewDirection`, `center` (camera position) and `timeoutMs` (30000). [examples/render-fixture.mjs](../../examples/render-fixture.mjs) renders a synthetic world with no game connection.
 
 ## Read the image
 
 **Only loaded cells are drawn.** Empty-looking space in a textured view can be unknown, not air: the character never received it. Do not plan a path through space you have not confirmed.
 
-The screenshot is one textured view from above at an angle (Minecraft models and textures). Its metadata gives `knownFraction`, `bounds`, `camera` and `defaultedStates` (blocks drawn in their default orientation because the snapshot had no state id).
+Each view is textured (Minecraft models and textures); light is full everywhere. Its metadata gives `knownFraction`, `bounds`, `camera` and `defaultedStates` (blocks drawn in their default orientation because the snapshot had no state id).
 
 For a map-like view, `renderMinimap(snapshot, {width, height})` from `mineflayer-world-memory/live.mjs` draws a top-down picture (no Chromium needed) that marks what is known:
 
