@@ -1,13 +1,13 @@
 // Take a picture of the loaded world and print where it was saved.
 // Run when a decision depends on shape: a doorway, a wall, stacked levels.
-// Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [BOX [VIEW...] [EDGE]]...
+// Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [BOX [VIEW...] [EDGE] [grid]]...
 // A BOX is minX minY minZ maxX maxY maxZ; without one it frames the area
 // around your feet. Only blocks inside a box are drawn, so a second, smaller
 // box shows the inside of the first. After a box come the views it is seen
 // from (se sw nw ne top east west south north; default se nw) and one EDGE,
 // how faces where it cuts through blocks are drawn: all (solid, default),
-// none (open) or as in the game. To see a box with another edge, give it
-// again. The pictures go in reading order, box after box: 1, 2 side by side,
+// none (open) or as in the game. `grid` draws block edges on its block
+// faces. To see a box with another edge, give it again. The pictures go in reading order, box after box: 1, 2 side by side,
 // or 4 in two rows. The picture shows you, your waypoints and the entities
 // in each box; give its pixels to pick.mjs for coordinates.
 // Sizes and layout come from screenshot.json (readSettings).
@@ -17,7 +17,7 @@ import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
 import { capturePrismarineViews } from "../packages/world-visual/prismarine.mjs";
 import { isAir, projectPoint } from "../packages/world-visual/camera.mjs";
 
-const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ [VIEW...] [solid|open|game]]...`;
+const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ [VIEW...] [solid|open|game] [grid]]...`;
 const KEEP_SHOTS = 20;
 
 /** A nearby box: mostly above and around the player, clipped to the dimension. */
@@ -46,10 +46,10 @@ const boxOf = (v) => {
 const edges = ["solid", "open", "game"];
 
 /**
- * The boxes on the command line, `[{bounds, views, edge}]`. Each box is six
+ * The boxes on the command line, `[{bounds, views, edge, grid}]`. Each box is six
  * numbers followed by its views (names such as `se nw` or `se,nw,top`; null
  * takes the settings' default) and at most one edge (`solid`, `open` or
- * `game`; default solid). Words before any box are for the box around your
+ * `game`; default solid), and `grid` to draw block edges. Words before any box are for the box around your
  * feet (bounds null), which is then the only one.
  */
 export function parseScreenshotArgs(args) {
@@ -65,12 +65,14 @@ export function parseScreenshotArgs(args) {
         bounds: boxOf(args.slice(i, i + 6)),
         views: null,
         edge: null,
+        grid: false,
       });
       i += 6;
       continue;
     }
     const box =
-      boxes.at(-1) ?? (around ??= { bounds: null, views: null, edge: null });
+      boxes.at(-1) ??
+      (around ??= { bounds: null, views: null, edge: null, grid: false });
     const word = args[i++];
     if (edges.includes(word)) {
       if (box.edge)
@@ -78,7 +80,8 @@ export function parseScreenshotArgs(args) {
           `One edge per box: to compare edges, give the box again. ${usage}`,
         );
       box.edge = word;
-    } else box.views = [...(box.views ?? []), ...parseViews(word, false)];
+    } else if (word === "grid") box.grid = true;
+    else box.views = [...(box.views ?? []), ...parseViews(word, false)];
   }
   if (around) boxes.push(around);
   for (const box of boxes) box.edge ??= "solid";
@@ -358,7 +361,8 @@ export default async function screenshotProgram(
   const waypoints = (await readWaypoints()).filter((w) =>
     [w.x, w.y, w.z].every(Number.isFinite),
   );
-  if (!boxes.length) boxes.push({ bounds: null, views: null, edge: "solid" });
+  if (!boxes.length)
+    boxes.push({ bounds: null, views: null, edge: "solid", grid: false });
   const scenes = [];
   for (const box of boxes) {
     const scene = await sceneOf(
@@ -367,7 +371,12 @@ export default async function screenshotProgram(
       waypoints,
       box.edge,
     );
-    scenes.push({ ...scene, views: box.views ?? views, edge: box.edge });
+    scenes.push({
+      ...scene,
+      views: box.views ?? views,
+      edge: box.edge,
+      grid: box.grid,
+    });
   }
 
   const name = await nextShotName();
@@ -382,10 +391,17 @@ export default async function screenshotProgram(
     letters.length > 1
       ? boxLabel(letters.indexOf(JSON.stringify(scene.bounds)))
       : undefined;
-  const label = (scene) =>
-    [boxName(scene), scene.edge === "solid" ? "" : `(${scene.edge} edge)`]
-      .filter(Boolean)
-      .join(" ") || undefined;
+  const label = (scene) => {
+    const notes = [
+      scene.edge === "solid" ? "" : `${scene.edge} edge`,
+      scene.grid ? "grid" : "",
+    ].filter(Boolean);
+    return (
+      [boxName(scene), notes.length ? `(${notes.join(", ")})` : ""]
+        .filter(Boolean)
+        .join(" ") || undefined
+    );
+  };
   const { imagePath, metadata } = await capturePrismarineViews(null, {
     outputPath: resolve(`${name}.png`),
     width: layout.width,
@@ -399,6 +415,7 @@ export default async function screenshotProgram(
           ? undefined
           : { ...scene.bounds, faces: scene.edge },
       label: label(scene),
+      grid: scene.grid,
       directions: scene.views.map((v) => viewNames[v]),
       fitBounds: scene.fit,
       entities: scene.entities,
@@ -451,6 +468,7 @@ export default async function screenshotProgram(
         bounds: s.bounds,
         views: s.views,
         edge: s.edge,
+        ...(s.grid ? { grid: true } : {}),
         framed: s.fit,
         knownFraction: s.knownFraction,
       })),

@@ -149,6 +149,46 @@ test(
   },
 );
 
+test(
+  "grid darkens block edges on the faces, also with a clipped box",
+  { skip: !render },
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "visual-grid-"));
+    try {
+      const world = fixtureWorld();
+      const clip = { ...world.bounds, faces: "open" };
+      const shot = async (grid) => {
+        const { imagePath } = await capturePrismarineViews(null, {
+          outputPath: join(dir, `${grid}.png`),
+          width: 200,
+          height: 150,
+          cropToContent: false,
+          scenes: [{ snapshot: world, directions: ["+x+z"], clip, grid }],
+        });
+        const { loadImage, createCanvas } = require("canvas");
+        const image = await loadImage(imagePath);
+        const c = createCanvas(image.width, image.height);
+        c.getContext("2d").drawImage(image, 0, 0);
+        return c.getContext("2d").getImageData(0, 0, 200, 150).data;
+      };
+      const [plain, grid] = [await shot(false), await shot(true)];
+      // Only pixels get darker, and a good share of the drawn ones do.
+      let darker = 0,
+        lighter = 0;
+      for (let i = 0; i < plain.length; i += 4) {
+        const d = grid[i] + grid[i + 1] + grid[i + 2];
+        const p = plain[i] + plain[i + 1] + plain[i + 2];
+        if (d < p - 30) darker++;
+        if (d > p + 30) lighter++;
+      }
+      assert.ok(darker > 1000, `darker ${darker}`);
+      assert.equal(lighter, 0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);
+
 test("one view is checked against the pixel budget before rendering", async () => {
   await assert.rejects(
     capturePrismarineSnapshot(fixtureWorld(), {
