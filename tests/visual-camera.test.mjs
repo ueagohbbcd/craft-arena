@@ -8,7 +8,6 @@ import {
 } from "../packages/world-visual/camera.mjs";
 import { fittedCamera } from "../packages/world-visual/prismarine.mjs";
 import {
-  bestSide,
   parseScreenshotArgs,
   viewLayout,
   defaultSettings,
@@ -99,24 +98,10 @@ test("rays that miss each other still meet at their nearest point", () => {
   );
 });
 
-test("the side view goes where a wall hides the least", () => {
-  const wall = [];
-  for (let y = 0; y <= 4; y++)
-    for (let z = 2; z <= 8; z++) wall.push(`8,${y},${z}`);
-  const onlyWall = new Set(wall);
-  assert.match(bestSide(onlyWall, box, box), /^[+-]x$/);
-  // A chest west of the wall: only the west side sees both.
-  const withChest = new Set([...wall, "3,0,5"]);
-  assert.equal(bestSide(withChest, box, box), "-x");
-});
-
 test("screenshot and pick arguments", () => {
   const o = parseScreenshotArgs([
     "--views",
-    "se,top,side",
-    "--hide",
-    "glass",
-    "--cut",
+    "se,top",
     "1",
     "2",
     "3",
@@ -130,15 +115,12 @@ test("screenshot and pick arguments", () => {
     "5",
     "6",
   ]);
-  assert.deepEqual(o.views, ["se", "top", "side"]);
-  assert.deepEqual(o.hide, ["glass"]);
-  assert.deepEqual(o.cuts, [
+  assert.deepEqual(o.views, ["se", "top"]);
+  assert.deepEqual(o.boxes, [
     { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 2, z: 3 } },
+    { min: { x: 1, y: 2, z: 3 }, max: { x: 4, y: 5, z: 6 } },
   ]);
-  assert.deepEqual(o.box, {
-    min: { x: 1, y: 2, z: 3 },
-    max: { x: 4, y: 5, z: 6 },
-  });
+  assert.deepEqual(parseScreenshotArgs([]), { views: null, boxes: [] });
   assert.deepEqual(parseScreenshotArgs(["--views", "4"]).views, [
     "se",
     "sw",
@@ -146,7 +128,8 @@ test("screenshot and pick arguments", () => {
     "ne",
   ]);
   assert.throws(() => parseScreenshotArgs(["--views", "3"]));
-  assert.throws(() => parseScreenshotArgs(["--views", "up"]));
+  assert.throws(() => parseScreenshotArgs(["--views", "side"]));
+  assert.throws(() => parseScreenshotArgs(["1", "2", "3"]));
   assert.deepEqual(
     parsePickArgs(["a.png", "1", "2", "3", "4", "b.png", "5", "6"]),
     [
@@ -158,21 +141,24 @@ test("screenshot and pick arguments", () => {
   assert.throws(() => parsePickArgs(["1", "2"]));
 });
 
-test("views shrink together to fit the pixel budget", () => {
+test("one image holds 1, 2 or 4 pictures, shrunk to the pixel budget", () => {
+  assert.deepEqual(viewLayout(defaultSettings, 1), {
+    width: 768,
+    height: 512,
+    columns: 1,
+  });
   assert.deepEqual(viewLayout(defaultSettings, 2), {
     width: 768,
     height: 512,
     columns: 2,
   });
-  const four = viewLayout({ ...defaultSettings, layout: "grid" }, 4);
+  const four = viewLayout(defaultSettings, 4);
   assert.equal(four.columns, 2);
   assert.ok(four.width * four.height * 4 <= defaultSettings.maxPixels);
-  assert.deepEqual(
+  assert.equal(
     viewLayout({ ...defaultSettings, maxPixels: null }, 4).width,
     768,
   );
-  assert.equal(
-    viewLayout({ ...defaultSettings, layout: "column" }, 2).columns,
-    1,
-  );
+  assert.throws(() => viewLayout(defaultSettings, 3));
+  assert.throws(() => viewLayout(defaultSettings, 8));
 });

@@ -7,26 +7,25 @@ There is no built-in image tool, and `examples/observe.mjs` prints text only. If
 ## Take a screenshot
 
 ```sh
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                          # around your feet, two corner views
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20      # minX minY minZ maxX maxY maxZ
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --views top,side         # straight down, and the best level side view
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --cut 5 64 -3 12 70 -3   # leave out a wall to see inside
-mf run "$ARENA_TOOLKIT_ROOT/examples/pick.mjs" out/shot-3.png 410 285          # the block under that pixel
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                                  # around your feet, two corner views
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20              # minX minY minZ maxX maxY maxZ
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20 -19 60 -19 19 70 19   # box A, then the smaller box B: a 2×2 image
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --views top -40 60 -40 40 80 40
+mf run "$ARENA_TOOLKIT_ROOT/examples/pick.mjs" out/shot-3.png 410 285                 # the block under that pixel
 ```
 
-|              |                                                                                                                                                                                                                                      |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Default box  | 12 blocks each way horizontally, 8 below to 16 above your feet, clipped to the dimension's height                                                                                                                                    |
-| Framing      | The camera fits the blocks that touch air inside the box (and you), not the whole box, so empty sky above does not shrink the picture                                                                                                |
-| Views        | `--views` takes `1`, `2` (default: `se,nw`), `4` or names: corners `se sw nw ne`, `top` (north up), sides `east west south north`, or `side` (the side whose level view shows the most distinct block faces)                         |
-| Leaving out  | `--hide NAME,NAME` (block names) and `--cut minX minY minZ maxX maxY maxZ` (repeatable). Left-out blocks are not drawn and `pick.mjs` looks through them                                                                             |
-| Regions      | `--region NAME` takes `box`, `hide`, `cut` and `note` from `regions.json` in the working directory: `[{"name": "keep", "box": [6 ints], "cut": [[6 ints]], "note": "..."}]`                                                          |
-| Drawn on top | `you`, the waypoints from `waypoints.json` inside the box, and entity names; entities themselves are drawn by the viewer (1.16 models, a magenta box for unknown ones). No rulers or coordinate ticks                                |
-| Size         | `screenshot.json` in the working directory: `views` (default views), `view` (`{width, height}` of one view, 768×512), `layout` (`auto`, `row`, `column`, `grid`), `maxPixels` (1,200,000; the image shrinks to fit, `null` keeps it) |
-| Writes       | `out/shot-N.png`, `out/shot-N.json` (metadata with each view's `camera` and `viewport`) and `out/shot-N.cells.json` (what `pick.mjs` rays through); the newest 20 are kept                                                           |
-| Prints       | One JSON line: `imagePath`, `bounds`, `framed`, `size`, `knownFraction` (share of the box that was loaded), `views`, and what was left out                                                                                           |
+|              |                                                                                                                                                                                              |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Default box  | 12 blocks each way horizontally, 8 below to 16 above your feet, clipped to the dimension's height                                                                                            |
+| Boxes        | Six-integer boxes (boxes × views must be 1, 2 or 4); each is one row of the image seen from the same views. Only blocks inside a box are drawn, so a smaller box B is a cutaway of A         |
+| Framing      | The camera fits the blocks that touch air inside the box (and you), not the whole box                                                                                                        |
+| Views        | `--views` takes `1`, `2` (default `se,nw`), `4` or names: corners `se sw nw ne`, `top` (north up), sides `east west south north`. One image holds 1, 2 or 4 pictures (1×1, 1×2, 2×2)         |
+| Drawn on top | `you`, the waypoints from `waypoints.json` inside the box, and entity names; entities themselves are drawn by the viewer (1.16 models, a magenta box for unknown ones)                       |
+| Size         | `screenshot.json` in the working directory: `views` (default views), `view` (`{width, height}` of one picture, 768×512), `maxPixels` (1,200,000; the image shrinks to fit, `null` keeps it)  |
+| Writes       | `out/shot-N.png`, `out/shot-N.json` (metadata with each view's `scene`, `camera` and `viewport`) and `out/shot-N.cells.json` (what `pick.mjs` rays through, per box); the newest 20 are kept |
+| Prints       | One JSON line: `imagePath`, `size`, `boxes` (`bounds`, `framed`, `knownFraction` for each) and `views`                                                                                       |
 
-`pick.mjs IMAGE X Y [X Y]... [IMAGE2 X Y]...` takes pixels of the whole image. For each it casts the camera's ray through the saved cells and returns the first block it hits (`name`, `x y z`, `face`), the cell in front of that face (`standable` for a top face with two air cells) and an entity the ray hits first. Pixels from two or more different views also give `meet`: the point nearest to all the rays, which may be in the air, with `spread` (how far apart the rays pass). Pure geometry lives in [camera.mjs](camera.mjs): `projectPoint`, `pixelRay`, `raycastCells` and `nearestPointToRays` match the viewer's camera (eye 1.6 above `camera.position`, Euler `pitch, yaw, 0, 'ZYX'`, 75° vertical fov).
+`pick.mjs IMAGE X Y [X Y]... [IMAGE2 X Y]...` takes pixels of the whole image. For each it casts the camera's ray through the saved cells of that view's box and returns the first block it hits (`name`, `x y z`, `face`), the cell in front of that face (`standable` for a top face with two air cells) and an entity the ray hits first. Pixels from two or more different views also give `meet`: the point nearest to all the rays, which may be in the air, with `spread` (how far apart the rays pass). Pure geometry lives in [camera.mjs](camera.mjs): `projectPoint`, `pixelRay`, `raycastCells` and `nearestPointToRays` match the viewer's camera (eye 1.6 above `camera.position`, Euler `pitch, yaw, 0, 'ZYX'`, 75° vertical fov).
 
 The module reads the live bot state and renders a local snapshot; the host connection remains available to other modules. It takes several seconds because it starts a headless Chromium (`CHROMIUM_PATH`, `/usr/bin/chromium` by default). Modules it imports, such as `prismarine.mjs`, are cached by the character process: restart the character after changing them.
 
@@ -54,7 +53,7 @@ export default async function (bot) {
 }
 ```
 
-`capturePrismarineViews(snapshot, options)` takes `directions` (`"+x+z"`, `"-x+z"`, `"-x-z"`, `"+x-z"`, `"top"`, `"+x"`, `"-x"`, `"+z"`, `"-z"`: where the camera looks from), `width` and `height` of one view, `columns`, `fitBounds` (what the camera frames), `entities` (viewer entity objects) and `annotate(view)` (marks in that view's pixels). Its metadata lists each view's `label`, `viewport` and `camera`. `capturePrismarineSnapshot` renders one view and takes `viewDirection`, `center` (camera position) and `timeoutMs` (30000). [examples/render-fixture.mjs](../../examples/render-fixture.mjs) renders a synthetic world with no game connection.
+`capturePrismarineViews(snapshot, options)` takes `directions` (`"+x+z"`, `"-x+z"`, `"-x-z"`, `"+x-z"`, `"top"`, `"+x"`, `"-x"`, `"+z"`, `"-z"`: where the camera looks from), `width` and `height` of one view, `columns`, `fitBounds` (what the camera frames), `entities` (viewer entity objects), `annotate(view)` (marks in that view's pixels) and `scenes` (several snapshots in one image: `[{snapshot, directions, fitBounds, entities, annotate, label}]`). Its metadata lists each view's `label`, `viewport` and `camera`. `capturePrismarineSnapshot` renders one view and takes `viewDirection`, `center` (camera position) and `timeoutMs` (30000). [examples/render-fixture.mjs](../../examples/render-fixture.mjs) renders a synthetic world with no game connection.
 
 ## Read the image
 

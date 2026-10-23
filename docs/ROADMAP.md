@@ -140,7 +140,7 @@
 - ⬜ Windows 部署的 PowerShell 脚本，包括改用模型转发和删除比赛主控之后的初始化和操作流程（这里没有 Windows，未运行）。
 - ⬜ 默认观察器在真实服务器上做一次可复现的检查，覆盖默认脚本和 `onLost` 重发（旧的 `validate-observation-live.mjs` 已在 #26 删除）。
 - ✅ 右键床设重生点：白天也能设；回执 `Respawn point set` 的位置是 `system`，按普通 `game.chat` 进收件箱（不紧急）；同时动作栏的“只能在夜间睡觉”不转发（CI `verify:server` 实测）。
-- ⬜ 路点和地点连通图（`examples/place-graph.mjs`，只查阅不移动）、截图（`screenshot.mjs`：自选框、剖开、顶视图和侧视图）和点选取坐标（`pick.mjs`）在真实比赛里模型会不会用、用了有没有帮助；图像尺寸默认值（`screenshot.json`）要按参赛模型实际的图像 token 计费来定。
+- ⬜ 路点和地点连通图（`examples/place-graph.mjs`，只查阅不移动）、截图（`screenshot.mjs`：自选框、小框当剖面、顶视图）和点选取坐标（`pick.mjs`）在真实比赛里模型会不会用、用了有没有帮助；图像尺寸默认值（`screenshot.json`）要按参赛模型实际的图像 token 计费来定。
 - ✅ 服务器协议 v1 和两个数据包在真实的 1.21.1 服务器上跑过（2026-10-14 手工，之后 CI 每次推送跑 `npm run verify:server`）。
 - ⬜ 陪玩模板：`MF_AUTH=microsoft` 设备登录、正版服务器、聊天唤醒（没有实际运行过）。
 

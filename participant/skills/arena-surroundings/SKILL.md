@@ -1,6 +1,6 @@
 ---
 name: arena-surroundings
-description: "Seeing the world around you: full state on request, pictures of a box you choose (corner, top and side views, walls cut away) and coordinates picked from them, notes on regions, nearby entities, signs, game chat, a lookout that ends when something appears, and changing what the default observer reports. Use when a decision depends on what is around you or on the shape of a place, or when you need something the default observer does not report."
+description: "Seeing the world around you: full state on request, pictures of boxes you choose (a smaller box shows the inside) and coordinates picked from them, notes on places, nearby entities, signs, game chat, a lookout that ends when something appears, and changing what the default observer reports. Use when a decision depends on what is around you or on the shape of a place, or when you need something the default observer does not report."
 ---
 
 # Looking at the world
@@ -24,26 +24,27 @@ The default `chat` module forwards other players' chat and whispers, and server 
 When a decision depends on shape, such as a doorway, a wall or stacked levels, take a picture of the box you care about:
 
 ```sh
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                                   # around you, from two opposite corners
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ     # your own box
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --views top,side minX minY minZ maxX maxY maxZ
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                                  # around you
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ    # box A
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" A_BOX B_BOX                      # A, and inside it the smaller B
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --views top minX minY minZ maxX maxY maxZ
 ```
 
-- **Choose the box.** Without one it covers 25×25 blocks around you, from 8 below to 16 above your feet. A box around just the building or the passage you are deciding about gives a closer picture. The camera frames the blocks in the box, not empty sky.
-- **Views.** By default two pictures from opposite corners above, side by side, each labelled. `--views` takes names separated by commas: `se`, `sw`, `nw`, `ne` (corners), `top` (straight down, north up), `east`, `west`, `south`, `north` (level, from that side), or `side` (the level side that shows the most); `--views 4` gives all four corners.
-- **See inside.** `--hide glass,oak_planks` leaves out blocks by name and `--cut minX minY minZ maxX maxY maxZ` leaves out a box (a wall, a roof; repeat it for more). Left-out blocks are not drawn.
-- **What is drawn on top:** `you`, your waypoints from `waypoints.json` and the names of mobs. Players and mobs themselves are drawn too.
+- **Choose the box.** Only blocks inside it are drawn, and the camera frames them, not empty sky. Without a box it covers 25×25 blocks around you, from 8 below to 16 above your feet. A box around just the building or passage you are deciding about gives a closer picture.
+- **Seeing inside.** Give a second, smaller box B: it is drawn in its own row from the same views, without whatever lies outside it. A box B one block inside A's walls and below its roof shows the rooms; a box B up to one floor's ceiling shows that floor.
+- **Views.** Two from opposite corners above (`se,nw`) by default. `--views` takes `1`, `2`, `4` or names separated by commas: `se`, `sw`, `nw`, `ne`, `top` (straight down, north up), `east`, `west`, `south`, `north` (level, from that side). One image holds 1, 2 or 4 pictures (boxes × views). For a structure, look from the corners first; for a large area, `top` works well.
+- **Drawn on top:** `you`, your waypoints from `waypoints.json` and the names of mobs. Players and mobs themselves are drawn too.
 
-It prints JSON with `imagePath`, the image `size`, `bounds`, `knownFraction` and what was left out. Open `imagePath` with `read`. Blank areas are blocks the character has not received, not air; `knownFraction` says how much of the box is known.
+It prints JSON with `imagePath`, the image `size` and, for each box, its `bounds` and `knownFraction`. Open `imagePath` with `read`. Blank areas are blocks the character has not received, not air; `knownFraction` says how much of the box is known.
 
-**Coordinates from the picture.** Estimate the pixel of what you mean (x from the left, y from the top, of the whole image, using `size`) and pass it to `pick.mjs`:
+**Coordinates from the picture.** Estimate the pixel of what you mean (x from the left, y from the top of the whole image, using `size`) and pass it to `pick.mjs`:
 
 ```sh
 mf run "$ARENA_TOOLKIT_ROOT/examples/pick.mjs" IMAGE 410 285            # what is under that pixel
-mf run "$ARENA_TOOLKIT_ROOT/examples/pick.mjs" IMAGE 272 180 694 144    # the same thing in both views: where they meet
+mf run "$ARENA_TOOLKIT_ROOT/examples/pick.mjs" IMAGE 272 180 694 144    # the same thing in two views: where they meet
 ```
 
-For each pixel it returns the block the picture shows there (`name`, `x y z`, the `face` you see), the cell in front of that face (for a `top` face, `standable` says whether you can stand there: use it as a waypoint) and an entity in front of it. Check `name`: if it is not what you meant, pick again a little to the side. Pixels of the same thing in two views also give `meet`, the point nearest to both rays, which can be in the air (the middle of a room, a gap to fly through); a `spread` over about 1 means the two pixels show different things.
+For each pixel it returns the block the picture shows there (`name`, `x y z`, the `face` you see), the cell in front of that face (for a `top` face, `standable` says whether you can stand there: use it as a waypoint) and an entity in front of it. Check `name`: if it is not what you meant, pick again a little to the side. Pixels of the same thing in two views also give `meet`, the point nearest to both rays, which can be in the air (the middle of a room, a gap to cross); a `spread` over about 1 means the two pixels show different things.
 
 Each picture costs a few seconds and tokens. For exact checks, `blockAt` and `findBlocks` in a program are cheaper.
 
@@ -56,13 +57,12 @@ Once you understand a building or a stretch of terrain, write it down in `region
   {
     "name": "keep",
     "box": [10, 60, -40, 30, 80, -20],
-    "note": "3 floors (feet y 61, 66, 71); door at 20 61 -20 facing south; ladder in the NE corner reaches floor 2 only; floor 3 by stairs from the west wall",
-    "cut": [[10, 70, -40, 30, 80, -20]]
+    "note": "3 floors (feet y 61, 66, 71); door at 20 61 -20 facing south; ladder in the NE corner reaches floor 2 only; floor 3 by stairs from the west wall"
   }
 ]
 ```
 
-Update a note when something changes (a ladder broken, a wall dug through). `screenshot.mjs --region keep` uses the region's box, and its `cut`/`hide` if you saved one, and prints its note with the picture.
+Update a note when something changes (a ladder broken, a wall dug through).
 
 ## Change the default observer
 

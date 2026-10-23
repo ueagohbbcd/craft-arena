@@ -469,8 +469,11 @@ export const viewLabels = Object.freeze({
  * labelled with the corner the camera looks from (one direction gives one
  * picture), `columns` per row (2). Reuses one viewer and browser for all
  * views. `annotate(view)` may return marks and labels in that view's pixels
- * (`{x, y, label, color, dot}`). Returns `{imagePath, metadata}`; the metadata
- * lists each view's camera and where it sits in the image (`viewport`).
+ * (`{x, y, label, color, dot}`). `scenes` instead renders several
+ * snapshots into one image, one after another: `[{snapshot, directions,
+ * fitBounds, entities, annotate, label}]` (the top-level snapshot is then
+ * unused). Returns `{imagePath, metadata}`; the metadata lists each view's
+ * scene, camera and where it sits in the image (`viewport`).
  */
 export async function capturePrismarineViews(
   snapshot,
@@ -481,33 +484,55 @@ export async function capturePrismarineViews(
     height = 360,
     annotate,
     columns: requestedColumns,
+    scenes,
+    fitBounds,
+    entities,
     ...options
   } = {},
 ) {
   if (!outputPath) throw new TypeError("outputPath is required");
-  if (!directions.length) throw new RangeError("give at least one direction");
-  const columns = Math.min(requestedColumns ?? 2, directions.length);
-  const rows = Math.ceil(directions.length / columns);
+  scenes ??= [{ snapshot, directions, fitBounds, entities, annotate }];
+  const shots = scenes.flatMap((scene, s) =>
+    (scene.directions ?? directions).map((viewDirection) => ({
+      scene,
+      s,
+      viewDirection,
+    })),
+  );
+  if (!shots.length) throw new RangeError("give at least one direction");
+  const columns = Math.min(requestedColumns ?? 2, shots.length);
+  const rows = Math.ceil(shots.length / columns);
   validateImageDimensions(width * columns, height * rows);
   const session = {};
   const dir = await mkdtemp(join(tmpdir(), "arena-views-"));
   try {
     const views = [];
-    for (const [i, viewDirection] of directions.entries()) {
+    for (const [i, { scene, s, viewDirection }] of shots.entries()) {
+      if (i && shots[i - 1].s !== s) {
+        // A new snapshot needs its own viewer server and page; keep the browser.
+        await session.page?.close();
+        await session.server?.close();
+        delete session.page;
+        delete session.server;
+        delete session.errors;
+      }
       const { imagePath, metadata } = await capturePrismarineSnapshot(
-        snapshot,
+        scene.snapshot,
         {
           ...options,
           outputPath: join(dir, `view-${i}.png`),
           width,
           height,
           viewDirection,
+          fitBounds: scene.fitBounds,
+          entities: scene.entities,
           captureSession: session,
         },
       );
       const view = {
+        scene: s,
         viewDirection,
-        label: viewLabels[viewDirection] ?? `from ${viewDirection}`,
+        label: `${scene.label ? scene.label + " " : ""}${viewLabels[viewDirection] ?? `from ${viewDirection}`}`,
         camera: metadata.camera,
         viewport: {
           x: (i % columns) * width,
@@ -519,7 +544,7 @@ export async function capturePrismarineViews(
       views.push({
         ...view,
         png: (await readFile(imagePath)).toString("base64"),
-        marks: annotate?.(view) ?? [],
+        marks: scene.annotate?.(view) ?? [],
         metadata,
       });
     }
@@ -594,6 +619,7 @@ export async function capturePrismarineViews(
           ? "actual Chromium canvas screenshots, stitched"
           : "actual Chromium canvas screenshot",
       views: views.map((v, i) => ({
+        scene: v.scene,
         label: v.label,
         viewDirection: v.viewDirection,
         column: i % columns,

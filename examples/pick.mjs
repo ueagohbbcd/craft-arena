@@ -1,8 +1,8 @@
 // Turn pixels of a screenshot into world coordinates.
 // Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/pick.mjs" IMAGE X Y [X Y]... [IMAGE2 X Y]...
-// X Y is a pixel of the whole image, read from its rulers. For each pixel it
+// X Y is a pixel of the whole image (from the left and the top). For each pixel it
 // casts the ray the camera saw along and returns the first block it hits
-// (as the picture showed it, so hidden and cut blocks are skipped), the face
+// (only blocks inside that view's box, as the picture drew them), the face
 // it hit, and the cell in front of that face. Pixels from two or more
 // different views (one stitched image, or several images of the same place)
 // also give `meet`: the point nearest to all their rays, which may be air.
@@ -38,14 +38,30 @@ const base = (image) => image.replace(/\.(png|json|cells\.json)$/, "");
 async function loadShot(image) {
   const metadata = JSON.parse(await readFile(`${base(image)}.json`, "utf8"));
   const cells = JSON.parse(await readFile(`${base(image)}.cells.json`, "utf8"));
-  const solid = new Map(
-    cells.blocks.map(([x, y, z, name]) => [`${x},${y},${z}`, name]),
-  );
-  const unknown = new Set(cells.unknown.map((c) => c.join(",")));
-  const nameAt = (x, y, z) =>
-    solid.get(`${x},${y},${z}`) ??
-    (unknown.has(`${x},${y},${z}`) ? "unknown" : "air");
-  return { metadata, cells, nameAt };
+  const scenes = cells.scenes.map(({ bounds, blocks, unknown, entities }) => {
+    const solid = new Map(
+      blocks.map(([x, y, z, name]) => [`${x},${y},${z}`, name]),
+    );
+    const unseen = new Set(unknown.map((c) => c.join(",")));
+    const inside = (x, y, z) =>
+      x >= bounds.min.x &&
+      x <= bounds.max.x &&
+      y >= bounds.min.y &&
+      y <= bounds.max.y &&
+      z >= bounds.min.z &&
+      z <= bounds.max.z;
+    const nameAt = (x, y, z) =>
+      !inside(x, y, z)
+        ? "outside the box"
+        : (solid.get(`${x},${y},${z}`) ??
+          (unseen.has(`${x},${y},${z}`) ? "unknown" : "air"));
+    return { bounds, entities, nameAt, inside };
+  });
+  // Around a hit, look in every box of the shot: a small box B sits inside A.
+  const nameAnywhere = (x, y, z) =>
+    scenes.find((sc) => sc.inside(x, y, z))?.nameAt(x, y, z) ??
+    "outside every box";
+  return { metadata, scenes, nameAnywhere };
 }
 
 /** Distance along a ray to an entity's box, or null. */
@@ -82,7 +98,7 @@ export default async function pick(bot, { args = [] }) {
   const picks = [];
   for (const p of points) {
     if (!shots.has(p.image)) shots.set(p.image, await loadShot(p.image));
-    const { metadata, cells, nameAt } = shots.get(p.image);
+    const { metadata, scenes, nameAnywhere } = shots.get(p.image);
     const view = metadata.views.find(
       ({ viewport: v }) =>
         p.x >= v.x && p.x < v.x + v.width && p.y >= v.y && p.y < v.y + v.height,
@@ -96,7 +112,8 @@ export default async function pick(bot, { args = [] }) {
       p.y - view.viewport.y + 0.5,
     );
     rays.push({ ...ray, view: `${p.image}#${view.label}` });
-    const hit = raycastCells(ray, cells.bounds, (x, y, z) => {
+    const { bounds, entities, nameAt } = scenes[view.scene ?? 0];
+    const hit = raycastCells(ray, bounds, (x, y, z) => {
       const name = nameAt(x, y, z);
       return name === "unknown" ? null : !isAir(name);
     });
@@ -109,16 +126,22 @@ export default async function pick(bot, { args = [] }) {
         z: z + hit.normal.z,
       };
       result.block = { name: nameAt(x, y, z), x, y, z, face: hit.face };
-      result.front = { x: f.x, y: f.y, z: f.z, name: nameAt(f.x, f.y, f.z) };
+      result.front = {
+        x: f.x,
+        y: f.y,
+        z: f.z,
+        name: nameAnywhere(f.x, f.y, f.z),
+      };
       // Standing in the front cell: it and the cell above are air, with ground below.
       if (hit.face === "top")
         result.front.standable =
-          isAir(nameAt(f.x, f.y, f.z)) && isAir(nameAt(f.x, f.y + 1, f.z));
+          isAir(nameAnywhere(f.x, f.y, f.z)) &&
+          isAir(nameAnywhere(f.x, f.y + 1, f.z));
     } else result.block = null;
     if (hit.crossedUnknown)
       result.note = "the ray crossed cells nobody has seen before this";
     let entity = null;
-    for (const e of cells.entities ?? []) {
+    for (const e of entities ?? []) {
       const w = (e.width ?? 0.6) / 2;
       const t = rayHitsBox(
         ray,
@@ -145,7 +168,11 @@ export default async function pick(bot, { args = [] }) {
         y: Math.floor(m.point.y),
         z: Math.floor(m.point.z),
       };
-      const [{ nameAt }] = shots.values();
+      // Name the cell from the first box that holds it.
+      const scene = [...shots.values()]
+        .flatMap((shot) => shot.scenes)
+        .find((sc) => sc.inside(cell.x, cell.y, cell.z));
+      const nameAt = scene?.nameAt ?? (() => "outside every box");
       meet = {
         point: round(m.point),
         cell: { ...cell, name: nameAt(cell.x, cell.y, cell.z) },

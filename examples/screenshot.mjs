@@ -1,31 +1,20 @@
 // Take a picture of the loaded world and print where it was saved.
 // Run when a decision depends on shape: a doorway, a wall, stacked levels.
-// Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views 1|2|4|se,nw,top,side]
-//          [--region NAME] [--hide NAME,NAME] [--cut minX minY minZ maxX maxY maxZ]...
-//          [minX minY minZ maxX maxY maxZ]
-// Without a box it frames the area around your feet. --views stitches
-// several angles into one image (4 corners, or 2 opposite ones). --hide
-// leaves out blocks by name and --cut leaves out a box (a wall, a roof), so
-// you can see inside. --region takes the box, and any hide/cut, from
-// regions.json in the working directory. The picture shows you, your
-// waypoints and the entities in the box; give its pixels to pick.mjs for
-// coordinates. Sizes and layout come from screenshot.json (readSettings).
-// Read the printed JSON, then read imagePath with the read tool.
+// Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views VIEWS] [BOX [BOX...]]
+// A BOX is minX minY minZ maxX maxY maxZ; without one it frames the area
+// around your feet. Each box is one row of the image, seen from the same
+// VIEWS (2 by default: se,nw; or 1, 4, or names se sw nw ne top east west
+// south north). Only blocks inside a box are drawn, so a second, smaller
+// box shows the inside of the first. The picture shows you, your waypoints
+// and the entities in each box; give its pixels to pick.mjs for coordinates.
+// Sizes and layout come from screenshot.json (readSettings).
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
-import {
-  capturePrismarineViews,
-  fittedCamera,
-} from "../packages/world-visual/prismarine.mjs";
-import {
-  isAir,
-  pixelRay,
-  projectPoint,
-  raycastCells,
-} from "../packages/world-visual/camera.mjs";
+import { capturePrismarineViews } from "../packages/world-visual/prismarine.mjs";
+import { isAir, projectPoint } from "../packages/world-visual/camera.mjs";
 
-const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views 1|2|4|se,nw,top,side] [--region NAME] [--hide NAME,NAME] [--cut minX minY minZ maxX maxY maxZ]... [minX minY minZ maxX maxY maxZ]`;
+const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views VIEWS] [minX minY minZ maxX maxY maxZ]...`;
 const KEEP_SHOTS = 20;
 
 /** A nearby box: mostly above and around the player, clipped to the dimension. */
@@ -51,31 +40,20 @@ const boxOf = (v) => {
   };
 };
 
-/** `{views, box, hide, cuts, region}` from the command line. */
+/** `{views, boxes}` from the command line: views or null, and zero or more boxes. */
 export function parseScreenshotArgs(args) {
-  const out = { views: null, box: null, hide: [], cuts: [], region: null };
   args = [...args];
-  while (args[0]?.startsWith("--")) {
-    const flag = args.shift();
-    if (flag === "--views") {
-      if (
-        !args[0] ||
-        args[0].startsWith("--") ||
-        (/^-?\d+$/.test(args[0]) && !["1", "2", "4"].includes(args[0]))
-      )
-        throw new Error(usage);
-      out.views = parseViews(args.shift());
-    } else if (flag === "--hide") {
-      if (!args[0]) throw new Error(usage);
-      out.hide.push(...args.shift().split(",").filter(Boolean));
-    } else if (flag === "--cut") out.cuts.push(boxOf(args.splice(0, 6)));
-    else if (flag === "--region") {
-      if (!args[0]) throw new Error(usage);
-      out.region = args.shift();
-    } else throw new Error(`Unknown option ${flag}. ${usage}`);
+  let views = null;
+  if (args[0] === "--views") {
+    args.shift();
+    if (!args[0]) throw new Error(usage);
+    views = parseViews(args.shift());
   }
-  if (args.length) out.box = boxOf(args);
-  return out;
+  if (args.length % 6) throw new Error(usage);
+  const boxes = [];
+  for (let i = 0; i < args.length; i += 6)
+    boxes.push(boxOf(args.slice(i, i + 6)));
+  return { views, boxes };
 }
 
 const viewNames = {
@@ -88,11 +66,10 @@ const viewNames = {
   west: "-x",
   south: "+z",
   north: "-z",
-  side: "side",
 };
 const viewCounts = { 1: ["se"], 2: ["se", "nw"], 4: ["se", "sw", "nw", "ne"] };
 
-/** View names from `2`, `4` or a list such as `se,nw,top,side`. */
+/** View names from `1`, `2`, `4` or a list such as `se,nw,top`. */
 export function parseViews(value) {
   const names = viewCounts[value] ?? String(value).split(",").filter(Boolean);
   for (const n of names)
@@ -106,29 +83,6 @@ export function parseViews(value) {
 
 const inBox = (p, b) =>
   ["x", "y", "z"].every((a) => p[a] >= b.min[a] && p[a] <= b.max[a]);
-
-/** The region named in regions.json: `{name, box: [6 ints], hide?, cut?: [[6 ints]], note?}`. */
-async function readRegion(name) {
-  let regions;
-  try {
-    regions = JSON.parse(await readFile("regions.json", "utf8"));
-  } catch (error) {
-    throw new Error(`--region needs regions.json in ${process.cwd()}`, {
-      cause: error,
-    });
-  }
-  const region = regions.find?.((r) => r.name === name);
-  if (!region)
-    throw new Error(
-      `No region "${name}" in regions.json (have: ${regions.map?.((r) => r.name).join(", ")})`,
-    );
-  return {
-    box: boxOf(region.box ?? []),
-    hide: region.hide ?? [],
-    cuts: (region.cut ?? []).map(boxOf),
-    note: region.note,
-  };
-}
 
 async function readWaypoints() {
   try {
@@ -196,15 +150,12 @@ export function annotations(view, marks) {
 export const defaultSettings = Object.freeze({
   views: ["se", "nw"],
   view: { width: 768, height: 512 },
-  layout: "auto",
   maxPixels: 1_200_000,
 });
 
 /**
  * Settings from screenshot.json in the working directory over the defaults:
- * `views` (view names, or 1, 2 or 4), `view` (one view's pixels), `layout` (`auto`,
- * `row`, `column` or `grid` for how several views are stitched; `auto` puts
- * two side by side and more in a grid) and `maxPixels`
+ * `views` (view names, or 1, 2 or 4), `view` (one view's pixels) and `maxPixels`
  * (the whole image is scaled down to fit; `null` keeps every view's size).
  */
 export async function readSettings(file = "screenshot.json") {
@@ -222,17 +173,17 @@ export async function readSettings(file = "screenshot.json") {
   };
 }
 
-/** Each view's size and the columns for `count` views under the settings. */
+/**
+ * Each view's size and the columns for `count` pictures: 1 alone, 2 side by
+ * side, or 4 in two rows. Other counts are refused: more pictures in one
+ * image only makes each smaller.
+ */
 export function viewLayout(settings, count) {
-  const columns =
-    count === 1
-      ? 1
-      : settings.layout === "column"
-        ? 1
-        : settings.layout === "row" ||
-            (settings.layout === "auto" && count <= 2)
-          ? count
-          : Math.ceil(Math.sqrt(count));
+  if (![1, 2, 4].includes(count))
+    throw new Error(
+      `One image holds 1, 2 or 4 pictures (boxes × views), not ${count}`,
+    );
+  const columns = count === 4 ? 2 : count;
   let { width, height } = settings.view;
   const total = width * height * count;
   if (settings.maxPixels && total > settings.maxPixels) {
@@ -241,42 +192,6 @@ export function viewLayout(settings, count) {
     height = Math.floor(height * s);
   }
   return { width, height, columns };
-}
-
-/**
- * The side ("+x", "-x", "+z" or "-z") whose level view shows the most
- * distinct block surfaces, counted with rays through a grid of pixels.
- * Faces on the selection's own boundary (where the box cuts the terrain)
- * do not count.
- */
-export function bestSide(solid, bounds, fit, { width = 96, height = 64 } = {}) {
-  const inside = (p) =>
-    ["x", "y", "z"].every(
-      (a) => p[a] >= bounds.min[a] && p[a] <= bounds.max[a],
-    );
-  let best = null;
-  for (const side of ["+x", "-x", "+z", "-z"]) {
-    const camera = fittedCamera(fit, { viewDirection: side, width, height });
-    const seen = new Set();
-    for (let py = 0; py < height; py++)
-      for (let px = 0; px < width; px++) {
-        const hit = raycastCells(
-          pixelRay(camera, width, height, px + 0.5, py + 0.5),
-          bounds,
-          (x, y, z) => solid.has(`${x},${y},${z}`),
-        );
-        if (!hit.cell) continue;
-        const front = {
-          x: hit.cell.x + hit.normal.x,
-          y: hit.cell.y + hit.normal.y,
-          z: hit.cell.z + hit.normal.z,
-        };
-        if (inside(front))
-          seen.add(`${hit.cell.x},${hit.cell.y},${hit.cell.z},${hit.face}`);
-      }
-    if (!best || seen.size > best.count) best = { side, count: seen.size };
-  }
-  return best.side;
 }
 
 /** Cells of the box the character has not received, as [x, y, z]. */
@@ -303,45 +218,20 @@ async function nextShotName() {
   return `out/shot-${(shots.at(-1) ?? 0) + 1}`;
 }
 
-// Read-only: runs beside the program that controls the character.
-export const control = false;
-
-export default async function screenshotProgram(
-  bot,
-  { args = [], log = console.log },
-) {
-  const options = parseScreenshotArgs(args);
-  const settings = await readSettings();
-  const views = options.views ?? parseViews(settings.views);
-  let region = null;
-  if (options.region) region = await readRegion(options.region);
-  const bounds = options.box ?? region?.box ?? observationBounds(bot);
-  const hide = new Set([...(region?.hide ?? []), ...options.hide]);
-  const cuts = [...(region?.cuts ?? []), ...options.cuts];
+/** The snapshot of one box and what goes on top of it. */
+async function sceneOf(bot, bounds, waypoints) {
   const snapshot = snapshotFromBot(bot, { bounds });
   const unknown = unknownCells(snapshot.blocks, bounds);
-  const volume =
-    (bounds.max.x - bounds.min.x + 1) *
-    (bounds.max.y - bounds.min.y + 1) *
-    (bounds.max.z - bounds.min.z + 1);
-  const hidden = (b) =>
-    hide.has(b.name.replace(/^minecraft:/, "")) ||
-    cuts.some((c) => inBox(b, c));
-  snapshot.blocks = snapshot.blocks.filter((b) => !hidden(b));
-
   const self = bot.entity.position;
-  const waypoints = (await readWaypoints()).filter(
-    (w) => [w.x, w.y, w.z].every(Number.isFinite) && inBox(w, bounds),
-  );
-  const marks = [
-    ...waypoints.map((w) => ({
+  const marks = waypoints
+    .filter((w) => inBox(w, bounds))
+    .map((w) => ({
       x: w.x + 0.5,
       y: w.y + 0.2,
       z: w.z + 0.5,
       label: w.name,
       color: "#f90",
-    })),
-  ];
+    }));
   if (inBox(self.floored(), bounds))
     marks.push({
       x: self.x,
@@ -371,7 +261,6 @@ export default async function screenshotProgram(
         dot: false,
         size: 11,
       });
-
   const cells = snapshot.blocks.map((b) => ({
     x: b.x,
     y: b.y,
@@ -379,50 +268,87 @@ export default async function screenshotProgram(
     air: isAir(b.name),
   }));
   const fit = visibleExtent(cells, bounds, [self.floored()]);
-  const name = await nextShotName();
-  const { width, height, columns } = viewLayout(settings, views.length);
-  const solid = new Set(
-    cells.filter((c) => !c.air).map((c) => `${c.x},${c.y},${c.z}`),
-  );
-  const directions = views.map((v) =>
-    v === "side" ? bestSide(solid, bounds, fit) : viewNames[v],
-  );
-  const { imagePath, metadata } = await capturePrismarineViews(snapshot, {
-    outputPath: resolve(`${name}.png`),
-    directions,
-    width,
-    height,
-    columns,
-    fitBounds: fit,
+  const volume =
+    (bounds.max.x - bounds.min.x + 1) *
+    (bounds.max.y - bounds.min.y + 1) *
+    (bounds.max.z - bounds.min.z + 1);
+  return {
+    bounds,
+    snapshot,
+    unknown,
+    knownFraction: Math.round((1 - unknown.length / volume) * 1000) / 1000,
     entities,
-    annotate: (view) => annotations(view, marks),
+    marks,
+    fit,
+  };
+}
+
+const boxLabel = (i) => `box ${String.fromCharCode(65 + i)}`;
+
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
+export default async function screenshotProgram(
+  bot,
+  { args = [], log = console.log },
+) {
+  const { views: chosen, boxes } = parseScreenshotArgs(args);
+  const settings = await readSettings();
+  const views = chosen ?? parseViews(settings.views);
+  const waypoints = (await readWaypoints()).filter((w) =>
+    [w.x, w.y, w.z].every(Number.isFinite),
+  );
+  if (!boxes.length) boxes.push(observationBounds(bot));
+  const scenes = [];
+  for (const box of boxes) scenes.push(await sceneOf(bot, box, waypoints));
+
+  const name = await nextShotName();
+  const total = views.length * scenes.length;
+  // Two boxes of two views: one row per box.
+  const layout = viewLayout(settings, total);
+  const columns = layout.columns;
+  const { imagePath, metadata } = await capturePrismarineViews(null, {
+    outputPath: resolve(`${name}.png`),
+    width: layout.width,
+    height: layout.height,
+    columns,
+    scenes: scenes.map((scene, i) => ({
+      snapshot: scene.snapshot,
+      label: scenes.length > 1 ? boxLabel(i) : undefined,
+      directions: views.map((v) => viewNames[v]),
+      fitBounds: scene.fit,
+      entities: scene.entities,
+      annotate: (view) => annotations(view, scene.marks),
+    })),
   });
   // What pick.mjs rays through: every rendered block, and the cells nobody has seen.
   await writeFile(
     `${name}.cells.json`,
     JSON.stringify({
-      bounds,
-      blocks: snapshot.blocks
-        .filter((b) => !isAir(b.name))
-        .map((b) => [b.x, b.y, b.z, b.name]),
-      unknown,
-      hide: [...hide],
-      cuts,
-      entities: entities.map((e) => ({
-        name: e.username ?? e.name,
-        x: e.pos.x,
-        y: e.pos.y,
-        z: e.pos.z,
-        width: e.width,
-        height: e.height,
+      scenes: scenes.map((scene) => ({
+        bounds: scene.bounds,
+        blocks: scene.snapshot.blocks
+          .filter((b) => !isAir(b.name))
+          .map((b) => [b.x, b.y, b.z, b.name]),
+        unknown: scene.unknown,
+        entities: scene.entities.map((e) => ({
+          name: e.username ?? e.name,
+          x: e.pos.x,
+          y: e.pos.y,
+          z: e.pos.z,
+          width: e.width,
+          height: e.height,
+        })),
       })),
     }),
   );
-  const metadataPath = resolve(`${name}.json`);
   await writeFile(
-    metadataPath,
+    resolve(`${name}.json`),
     JSON.stringify(
-      { ...metadata, framed: fit, hide: [...hide], cuts, marks },
+      {
+        ...metadata,
+        boxes: scenes.map((s) => ({ bounds: s.bounds, framed: s.fit })),
+      },
       null,
       2,
     ) + "\n",
@@ -430,15 +356,14 @@ export default async function screenshotProgram(
   log(
     JSON.stringify({
       imagePath,
-      bounds,
-      framed: fit,
       size: [metadata.width, metadata.height],
-      knownFraction: Math.round((1 - unknown.length / volume) * 1000) / 1000,
+      boxes: scenes.map((s, i) => ({
+        ...(scenes.length > 1 ? { box: boxLabel(i) } : {}),
+        bounds: s.bounds,
+        framed: s.fit,
+        knownFraction: s.knownFraction,
+      })),
       views: metadata.views.map((v) => v.label),
-      hidden: hide.size || cuts.length ? { names: [...hide], cuts } : undefined,
-      region: region?.note
-        ? { name: options.region, note: region.note }
-        : undefined,
       notes: `Missing cells are unobserved, not air. For coordinates, give pixels of this ${metadata.width}×${metadata.height} image to pick.mjs ${imagePath} X Y.`,
     }),
   );
