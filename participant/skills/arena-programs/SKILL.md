@@ -62,14 +62,18 @@ A module controls the character unless it says `export const control = false` (o
 
 Several `mf run` calls for the same character in one batch of tool calls race: the last to arrive keeps running. Put at most one controlling program per character in a batch; `mf inbox`, `mf status` and read-only modules can go beside it.
 
-## Ending to hand you a decision
+## Robust programs, and when to hand you a decision
 
-Nothing a program does wakes you; its end does. So a program should know when to stop and hand the decision back, and return what you need to make it. Give each long program these exits:
+Prefer a program that copes over one that gives up. Handle the trouble you can foresee in code: pick another path when one fails, eat when food is low, fight back or step away from a mob, wait for a gate, retry a missed block. A check that ends the program at the first surprise ("not where I expected", "no plank in hand") hands you a decision the code could have made, and the character stands still while you think. Check few assumptions at the start and handle the rest as it runs.
+
+When something deserves your eyes but the program can still go on, tell you without stopping: `requestJudgment(data)` makes a waiting `mf run` return at once as `running` while the program keeps going. Then look whether it still makes progress (`mf inbox`, its output in the `logs` directory, `mf status`). If it does, leave it alone: wait for it, or start writing the next program meanwhile. Replace or cancel it only when it is stuck or doing the wrong thing.
+
+End the program, returning what you need, only when it cannot go on usefully:
 
 - **Done:** the goal is reached; return what it found or changed.
 - **Out of time:** a deadline you pass in (`args`), not an endless loop.
-- **Failing:** the same step failed a few times; return the last error instead of retrying forever.
-- **Something to look at:** a condition it watches for (a mob nearby, food low, a chest in sight, a watchdog finding).
+- **Failing:** the same step failed a few times despite the fallbacks; return the last error instead of retrying forever.
+- **No way forward:** something it watches for that it cannot handle itself (a watchdog finding it cannot work around, a player it must not fight).
 
 ```js
 const { watchdog } = await import(
@@ -88,7 +92,7 @@ export default async function (bot, { signal, args }) {
       if (finding) return { status: "stuck", finding, at: bot.entity.position };
       if (Date.now() > deadline)
         return { status: "timeout", at: bot.entity.position };
-      if (bot.food < 6) return { status: "hungry", food: bot.food };
+      if (bot.food < 6) await eat(bot); // cope instead of returning (arena-survival shows eating)
       try {
         const done = await oneStep(bot, signal); // your step: dig, place, walk a leg...
         if (done) return { status: "done", at: bot.entity.position };
