@@ -201,6 +201,9 @@ async function main() {
     );
     // Entity skins load on their own, without a signal.
     if (scene.entities.length) await new Promise((r) => setTimeout(r, 300));
+    // updateEntity moves and turns the models with 50 ms tweens, which only
+    // a render loop would advance: finish them here.
+    viewer.update();
     for (const view of job.views.filter((v) => v.scene === s)) {
       const { position, yaw, pitch } = view.camera;
       viewer.camera.position.set(position.x, position.y + 1.6 + dy, position.z);

@@ -11,6 +11,7 @@ import {
   capturePrismarineViews,
 } from "../packages/world-visual/prismarine.mjs";
 import { fixtureWorld } from "../examples/fixture-world.mjs";
+import { projectPoint } from "../packages/world-visual/camera.mjs";
 const require = createRequire(import.meta.url);
 let deps = true;
 try {
@@ -183,6 +184,65 @@ test(
       }
       assert.ok(darker > 1000, `darker ${darker}`);
       assert.equal(lighter, 0);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
+  "entities are drawn where they stand, not at the origin",
+  { skip: !render },
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "visual-entity-"));
+    try {
+      const cow = {
+        id: 7,
+        name: "cow",
+        pos: { x: 14.5, y: 1, z: 8.5 },
+        width: 0.9,
+        height: 1.4,
+      };
+      const shot = async (entities) => {
+        const { imagePath, metadata } = await capturePrismarineViews(
+          fixtureWorld(),
+          {
+            outputPath: join(dir, `${entities.length}.png`),
+            directions: ["+x+z"],
+            width: 200,
+            height: 150,
+            cropToContent: false,
+            entities,
+          },
+        );
+        const { loadImage, createCanvas } = require("canvas");
+        const image = await loadImage(imagePath);
+        const c = createCanvas(image.width, image.height);
+        c.getContext("2d").drawImage(image, 0, 0);
+        return {
+          data: c.getContext("2d").getImageData(0, 0, 200, 150).data,
+          camera: metadata.views[0].camera,
+        };
+      };
+      const [without, withCow] = [await shot([]), await shot([cow])];
+      const at = projectPoint(withCow.camera, 200, 150, {
+        ...cow.pos,
+        y: cow.pos.y + 0.7,
+      });
+      // The pixels around the cow's middle change when it is drawn.
+      let changed = 0;
+      for (let dy = -2; dy <= 2; dy++)
+        for (let dx = -2; dx <= 2; dx++) {
+          const i = (Math.round(at.y + dy) * 200 + Math.round(at.x + dx)) * 4;
+          if (
+            Math.abs(withCow.data[i] - without.data[i]) +
+              Math.abs(withCow.data[i + 1] - without.data[i + 1]) +
+              Math.abs(withCow.data[i + 2] - without.data[i + 2]) >
+            30
+          )
+            changed++;
+        }
+      assert.ok(changed >= 10, `changed ${changed} of 25`);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
