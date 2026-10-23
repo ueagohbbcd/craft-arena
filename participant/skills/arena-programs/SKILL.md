@@ -124,7 +124,7 @@ const inbox = new InboxClient();
 - `post(data)`: an event you want to see once, such as a step finished.
 - `upsert(key, data)`: progress; a newer report with the same key replaces an unread older one. Send the whole current state, not a difference.
 - `setStatus(key, data)`: the program's current value, shown by `mf status` until replaced or cleared with `null`.
-- `requestJudgment(data)`: despite its name, only listed first in `mf inbox`. It does not stop the program or wake you; to hand you a decision, return.
+- `requestJudgment(data)`: an urgent report. It is listed first in `mf inbox`, and an `mf run` waiting for any program returns at once as `running`, but the program keeps running. To hand over a decision and stop, return instead.
 
 Say in each report whether the program goes on or has stopped; that it ended is already in its result. More in `$MF_TOOLKIT_ROOT/runtime/inbox/README.md`.
 

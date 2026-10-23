@@ -16,7 +16,7 @@ Participant guidance is in [the system prompt](../../participant/agents.d/10-are
 | `ARENA_SESSION_URL`                                          | Login gate's read-only session endpoint; launcher and host add the character query                                   |
 | `ARENA_PROVISION_DIR`                                        | Provision manifest containing character names, workspace files, and participant ID                                   |
 | `ARENA_DEFAULT_SCRIPTS`                                      | Default modules to start (`observer`, `chat`, `watchdog`); empty starts none. Passed to `mf` as `MF_DEFAULT_SCRIPTS` |
-| `ARENA_CHAT_WAKE`                                            | `mention` or `all`: matching chat is listed first in `mf inbox`                                                      |
+| `ARENA_CHAT_WAKE`                                            | `mention` or `all`: matching chat makes the `game.chat` report urgent (listed first, and a waiting `mf run` returns early) |
 | `ARENA_TASK_KILL_GRACE_MS`                                   | How long TaskManager waits after SIGTERM before killing a task process group (default 2500 ms)                       |
 | `OPENAI_BASE_URL`, `ARENA_MODEL_CONFIG`                      | Optional configured model endpoint and descriptor                                                                    |
 
