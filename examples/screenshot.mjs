@@ -165,11 +165,13 @@ export const defaultSettings = Object.freeze({
   views: ["se", "nw"],
   view: { width: 768, height: 512 },
   maxPixels: 1_200_000,
+  crop: true,
 });
 
 /**
  * Settings from screenshot.json in the working directory over the defaults:
- * `views` (view names, or 1, 2 or 4), `view` (one view's pixels) and `maxPixels`
+ * `views` (view names, or 1, 2 or 4), `view` (one view's pixels), `crop`
+ * (crop each view to what it shows; `false` keeps the whole box framing) and `maxPixels`
  * (the whole image is scaled down to fit; `null` keeps every view's size).
  */
 export async function readSettings(file = "screenshot.json") {
@@ -348,6 +350,7 @@ export default async function screenshotProgram(
     width: layout.width,
     height: layout.height,
     columns,
+    cropToContent: settings.crop !== false,
     scenes: scenes.map((scene, i) => ({
       snapshot: scene.render,
       clip: edge === "solid" ? undefined : { ...scene.bounds, faces: edge },

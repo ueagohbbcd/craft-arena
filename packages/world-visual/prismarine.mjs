@@ -556,10 +556,19 @@ export async function capturePrismarineViews(
     scenes,
     fitBounds,
     entities,
+    cropToContent = true,
+    renderScale = 1.5,
     ...options
   } = {},
 ) {
   if (!outputPath) throw new TypeError("outputPath is required");
+  // Each view is rendered larger, cropped to the pixels that show something
+  // and scaled into its cell, so the empty corners of a box seen at an angle
+  // (and empty space in an open-edge picture) do not take up the image.
+  const scale = cropToContent ? renderScale : 1;
+  const renderWidth = Math.round(width * scale),
+    renderHeight = Math.round(height * scale);
+  validateImageDimensions(renderWidth, renderHeight);
   scenes ??= [{ snapshot, directions, fitBounds, entities, annotate }];
   const shots = scenes.flatMap((scene, s) =>
     (scene.directions ?? directions).map((viewDirection) => ({
@@ -590,8 +599,8 @@ export async function capturePrismarineViews(
         {
           ...options,
           outputPath: join(dir, `view-${i}.png`),
-          width,
-          height,
+          width: renderWidth,
+          height: renderHeight,
           viewDirection,
           fitBounds: scene.fitBounds,
           clip: scene.clip,
@@ -613,13 +622,27 @@ export async function capturePrismarineViews(
       };
       views.push({
         ...view,
+        render: { width: renderWidth, height: renderHeight },
         png: (await readFile(imagePath)).toString("base64"),
-        marks: scene.annotate?.(view) ?? [],
+        // Marks in rendered pixels; the page moves them with the crop.
+        marks:
+          scene.annotate?.({
+            ...view,
+            viewport: {
+              ...view.viewport,
+              width: renderWidth,
+              height: renderHeight,
+            },
+          }) ?? [],
         metadata,
       });
     }
-    const stitched = await session.page.evaluate(
-      async ({ views, width, height, columns, rows }) => {
+    const {
+      png: stitched,
+      crops,
+      filled,
+    } = await session.page.evaluate(
+      async ({ views, width, height, columns, rows, cropToContent }) => {
         const canvas = document.createElement("canvas");
         canvas.width = width * columns;
         canvas.height = height * rows;
@@ -637,19 +660,77 @@ export async function capturePrismarineViews(
           ctx.fillStyle = color;
           ctx.fillText(text, x + 4, y + size + 1);
         };
+        const crops = [];
+        // The viewer's sky colour (lightblue) is "nothing here".
+        const isSky = (d, i) =>
+          Math.abs(d[i] - 173) < 8 &&
+          Math.abs(d[i + 1] - 216) < 8 &&
+          Math.abs(d[i + 2] - 230) < 8;
+        const contentBox = (image) => {
+          const c = document.createElement("canvas");
+          c.width = image.width;
+          c.height = image.height;
+          const g = c.getContext("2d");
+          g.drawImage(image, 0, 0);
+          const d = g.getImageData(0, 0, c.width, c.height).data;
+          let x0 = c.width,
+            y0 = c.height,
+            x1 = -1,
+            y1 = -1;
+          for (let py = 0; py < c.height; py++)
+            for (let px = 0; px < c.width; px++)
+              if (!isSky(d, (py * c.width + px) * 4)) {
+                if (px < x0) x0 = px;
+                if (px > x1) x1 = px;
+                if (py < y0) y0 = py;
+                if (py > y1) y1 = py;
+              }
+          return x1 < 0 ? null : { x0, y0, x1: x1 + 1, y1: y1 + 1 };
+        };
+        // Grow the content box to the cell's shape, with a small margin, inside the render.
+        const cropFor = (box, W, H) => {
+          if (!box) return { x: 0, y: 0, w: W, h: H };
+          const pad = Math.round(W * 0.02);
+          let w = box.x1 - box.x0 + 2 * pad,
+            h = box.y1 - box.y0 + 2 * pad;
+          const aspect = width / height;
+          if (w / h > aspect) h = w / aspect;
+          else w = h * aspect;
+          if (w > W) [w, h] = [W, W / aspect];
+          if (h > H) [w, h] = [H * aspect, H];
+          const cx = (box.x0 + box.x1) / 2,
+            cy = (box.y0 + box.y1) / 2;
+          const x = Math.min(Math.max(cx - w / 2, 0), W - w),
+            y = Math.min(Math.max(cy - h / 2, 0), H - h);
+          return { x, y, w, h };
+        };
         for (const v of views) {
           const image = new Image();
           image.src = "data:image/png;base64," + v.png;
           await image.decode();
           const { x, y } = v.viewport;
-          ctx.drawImage(image, x, y, width, height);
+          const crop = cropToContent
+            ? cropFor(contentBox(image), image.width, image.height)
+            : { x: 0, y: 0, w: image.width, h: image.height };
+          crops.push(crop);
+          ctx.drawImage(
+            image,
+            crop.x,
+            crop.y,
+            crop.w,
+            crop.h,
+            x,
+            y,
+            width,
+            height,
+          );
           ctx.save();
           ctx.beginPath();
           ctx.rect(x, y, width, height);
           ctx.clip();
           for (const m of v.marks) {
-            const px = x + m.x,
-              py = y + m.y;
+            const px = x + ((m.x - crop.x) * width) / crop.w,
+              py = y + ((m.y - crop.y) * height) / crop.h;
             if (m.dot !== false) {
               ctx.beginPath();
               ctx.arc(px, py, m.dot === "small" ? 2.5 : 5, 0, Math.PI * 2);
@@ -673,9 +754,40 @@ export async function capturePrismarineViews(
           if (views.length > 1)
             tag(v.label, x + 6, y + height - 30, { size: 16 });
         }
-        return canvas.toDataURL("image/png").split(",")[1];
+        // Share of the image that shows something, before labels.
+        let content = 0;
+        {
+          const all = document.createElement("canvas");
+          all.width = canvas.width;
+          all.height = canvas.height;
+          const g = all.getContext("2d");
+          for (const [i, v] of views.entries()) {
+            const image = new Image();
+            image.src = "data:image/png;base64," + v.png;
+            await image.decode();
+            const c = crops[i];
+            g.drawImage(
+              image,
+              c.x,
+              c.y,
+              c.w,
+              c.h,
+              v.viewport.x,
+              v.viewport.y,
+              width,
+              height,
+            );
+          }
+          const d = g.getImageData(0, 0, all.width, all.height).data;
+          for (let i = 0; i < d.length; i += 4) if (!isSky(d, i)) content++;
+        }
+        return {
+          png: canvas.toDataURL("image/png").split(",")[1],
+          crops,
+          filled: content / (canvas.width * canvas.height),
+        };
       },
-      { views, width, height, columns, rows },
+      { views, width, height, columns, rows, cropToContent },
     );
     await mkdir(dirname(outputPath), { recursive: true });
     await writeFile(outputPath, Buffer.from(stitched, "base64"));
@@ -695,8 +807,12 @@ export async function capturePrismarineViews(
         column: i % columns,
         row: Math.floor(i / columns),
         viewport: v.viewport,
+        // Rendered at `render` pixels; the cell shows its `crop` scaled to the viewport.
+        render: v.render,
+        crop: crops[i],
         camera: v.camera,
       })),
+      filled: Math.round(filled * 1000) / 1000,
     };
     await writeFile(
       outputPath.replace(/\.png$/i, "") + ".json",

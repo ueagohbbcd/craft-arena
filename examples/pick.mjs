@@ -123,12 +123,16 @@ export default async function pick(bot, { args = [] }) {
         p.x >= v.x && p.x < v.x + v.width && p.y >= v.y && p.y < v.y + v.height,
     );
     if (!view) throw new Error(`Pixel ${p.x} ${p.y} is outside ${p.image}`);
+    // The cell shows `crop` of a larger render, scaled to the viewport.
+    const vp = view.viewport,
+      render = view.render ?? vp,
+      crop = view.crop ?? { x: 0, y: 0, w: vp.width, h: vp.height };
     const ray = pixelRay(
       view.camera,
-      view.viewport.width,
-      view.viewport.height,
-      p.x - view.viewport.x + 0.5,
-      p.y - view.viewport.y + 0.5,
+      render.width,
+      render.height,
+      crop.x + ((p.x - vp.x + 0.5) * crop.w) / vp.width,
+      crop.y + ((p.y - vp.y + 0.5) * crop.h) / vp.height,
     );
     rays.push({ ...ray, view: `${p.image}#${view.label}` });
     const { bounds, entities, nameAt, inside, outer } = scenes[view.scene ?? 0];
