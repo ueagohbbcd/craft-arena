@@ -48,7 +48,7 @@
 2. 用仓库的 `RconClient`、`serverConfig`、`serializeSnbt`、`readServerSession` 直接走协议：
    - `arena-example`：写 `arena:config`、`#arena:prepare`（分数 0、`waiting`）、`#arena:start`（`running`）、`scoreboard players add red arena_points 3` 后服务器写出 `winner:"red"`、`state:"ended"`。缺少标签时 1.21.1 回复 `Can't find any functions for name arena:<阶段>`，判定器据此报"未安装数据包"。
    - `race-of-wool`（纪念碑坐标即 Direct Fire 的）：准备时清空已放好的目标并强制加载区块；`setblock` 放羊毛后分数 1→2，拆掉一块回落，集齐判胜；开赛前双方都放满，开赛第一刻判平局；`#arena:stop` 记录持有数（`most-score` 可用）并释放强制加载。
-3. 当前 CI 实服流程：在一个 `mf` 监督进程下启动两个角色，经登录入口读取会话；`mf run` 让红方模块放下三块羊毛（最后一块结束比赛，会话变化可能先中断模块，以数据包判胜为准）。会话 `scores` 依次为 1、2、3，随后数据包判红方胜。结果：`reason: "judge-decision"`、`winner: "red"`、`scores: {red:3, blue:0}`、`stopConfirmed: true`。
+3. 当前 CI 实服流程：在一个 `mf` 监督进程下启动两个角色，经登录入口读取会话；`mf run` 让红方模块放下三块羊毛（和模型一样先读 `mf inbox` 再运行；开赛带来的会话变化可能让运行返回 `not_started` 或被中断，读过收件箱后重跑，模块跳过已放好的目标；以数据包判胜为准）。会话 `scores` 依次为 1、2、3，随后数据包判红方胜。结果：`reason: "judge-decision"`、`winner: "red"`、`scores: {red:3, blue:0}`、`stopConfirmed: true`。
 
 没有覆盖：Direct Fire 地图本身、参赛模型、服务端录像、默认观察器读新公开数据的实服运行、Windows 部署脚本里新增的 `-Datapacks` 复制（只在 Windows 上运行）。
 

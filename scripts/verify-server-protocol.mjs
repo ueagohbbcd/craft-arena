@@ -467,12 +467,24 @@ async function live(rcon, dir, map) {
     const modulePath = join(runDir, "place-goals.mjs");
     await writeFile(
       modulePath,
-      `import { Vec3 } from "vec3";\nexport default async function(bot) {\n  await bot.waitForChunksToLoad();\n  for (const goal of ${JSON.stringify(red)}) {\n    const item = bot.inventory.items().find((entry) => entry.name === goal.block.replace("minecraft:", ""));\n    if (!item) throw new Error("Missing " + goal.block);\n    await bot.equip(item, "hand");\n    await bot.placeBlock(bot.blockAt(new Vec3(goal.x, goal.y - 1, goal.z)), new Vec3(0, 1, 0));\n  }\n}\n`,
+      `import { Vec3 } from "vec3";\nexport default async function(bot) {\n  await bot.waitForChunksToLoad();\n  for (const goal of ${JSON.stringify(red)}) {\n    const item = bot.inventory.items().find((entry) => entry.name === goal.block.replace("minecraft:", ""));\n    if (bot.blockAt(new Vec3(goal.x, goal.y, goal.z))?.name === goal.block.replace("minecraft:", "")) continue;\n    if (!item) throw new Error("Missing " + goal.block);\n    await bot.equip(item, "hand");\n    await bot.placeBlock(bot.blockAt(new Vec3(goal.x, goal.y - 1, goal.z)), new Vec3(0, 1, 0));\n  }\n}\n`,
     );
-    const runExit = await mf(mfState, "run", "--bot", "arena_red1", modulePath);
-    // The last placement ends the match; that session change can interrupt
-    // the program (130) before it returns. The verdict below is the check.
-    assert.ok([0, 130].includes(runExit), `module run ended with ${runExit}`);
+    // prepare and start change the session, and the character notices each
+    // change within a second. Like the model: read the inbox, run, and after
+    // not_started (75) or an interruption (130) read again and rerun; the
+    // module skips goals already placed. The last placement itself ends the
+    // match, which may interrupt the module before it returns.
+    let runExit;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      assert.equal(await mf(mfState, "inbox"), 0, "mf inbox");
+      runExit = await mf(mfState, "run", "--bot", "arena_red1", modulePath);
+      if (runExit === 0 || (await arenaCli("status")).state === "ended") break;
+      assert.ok(
+        [75, 130].includes(runExit),
+        `module run ended with ${runExit}`,
+      );
+      await delay(1500);
+    }
     await waitFor(
       async () => (await arenaCli("status")).state === "ended",
       10000,
