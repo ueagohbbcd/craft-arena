@@ -199,12 +199,20 @@ test("an expect does not fail on a reply lost to another RCON client", async () 
   for (const lost of [
     "",
     "Storage arena:session has the following contents: {}",
+    // The reply to a fence, the empty command RconClient sends after each one.
+    "Unknown or incomplete command, see below for error<--[HERE]",
   ]) {
     s.replies["tp arena_red1 0 64 0"] = lost;
     await runCommands(s.rcon(), list);
   }
-  s.replies["tp arena_red1 0 64 0"] = "Unknown or incomplete command";
-  await assert.rejects(runCommands(s.rcon(), list), /Unexpected reply/);
+  for (const real of [
+    "Unknown or incomplete command",
+    "Unknown or incomplete command, see below for error\ntp arena_red1 0 64 0<--[HERE]",
+    "No player was found",
+  ]) {
+    s.replies["tp arena_red1 0 64 0"] = real;
+    await assert.rejects(runCommands(s.rcon(), list), /Unexpected reply/);
+  }
 });
 
 test("runCommands refuses empty commands", async () => {

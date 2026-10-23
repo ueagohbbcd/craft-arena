@@ -360,10 +360,9 @@ async function live(rcon, dir, map) {
   match.config.rules = { ...match.config.rules, durationMs: 120000 };
   match.commands.start = [
     ...(match.commands.start ?? []),
-    ...red.map((g) => ({
-      command: `give arena_red1 ${g.block} 1`,
-      expect: "Gave",
-    })),
+    // No expect: the reply may be another RCON client's text. The module
+    // below fails when an item did not arrive.
+    ...red.map((g) => `give arena_red1 ${g.block} 1`),
   ];
   const matchPath = join(dir, "match.json");
   await writeFile(matchPath, JSON.stringify(match));
