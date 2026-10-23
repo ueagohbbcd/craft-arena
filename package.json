@@ -19,7 +19,7 @@
     "agent:start": "node packages/pi-extension/bootstrap.mjs"
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
     "mineflayer": "4.39.0",
     "mineflayer-pathfinder": "2.4.5",
     "mineflayer-pvp": "1.3.2",
@@ -38,7 +38,7 @@
     "prismarine-viewer": "1.33.0"
   },
   "devDependencies": {
-    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-ai": "1.4.0",
     "prettier": "3.9.9",
     "yaml": "2.9.0"
   }
