@@ -355,8 +355,7 @@ export default function arenaExtension(pi) {
     );
   });
   pi.on("turn_start", async (_event, ctx) => {
-    const r = await ensure(ctx);
-    r.tasks.resumeWaits();
+    await ensure(ctx);
   });
   // The spending limit: charge each finished response, hold the next request
   // while over it. The model hears about it in its next platform message.
@@ -390,7 +389,6 @@ export default function arenaExtension(pi) {
   pi.on("turn_end", async (event, ctx) => {
     lastStopReason = event.message?.stopReason ?? event.outcome;
     const r = await ensure(ctx);
-    r.tasks.resumeWaits();
     r.platformWake = false;
     await deliverPlatform(r);
     // A final answer (no tool calls, not aborted) gets one more turn when

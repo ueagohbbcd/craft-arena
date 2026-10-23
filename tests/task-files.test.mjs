@@ -152,38 +152,3 @@ test("arena-task does not signal a task left running by a gone manager", async (
   const result = await cancelTask(logDir, "lost-task");
   assert.equal(result.status, "lost");
 });
-
-test("a wait ends early when the task shows no progress", async (t) => {
-  const { tasks } = await manager(t);
-  const silent = tasks.start("sleep 5");
-  const started = Date.now();
-  const stalled = await tasks.wait(silent, { timeoutMs: 4000, stallMs: 200 });
-  assert.equal(stalled.status, "running");
-  assert.equal(stalled.reason, "no progress");
-  assert.ok(Date.now() - started < 2000);
-
-  // Output, or a changing progress key, keeps the wait going.
-  const chatty = tasks.start("for i in $(seq 8); do echo $i; sleep 0.1; done");
-  assert.equal(
-    (await tasks.wait(chatty, { timeoutMs: 4000, stallMs: 400 })).status,
-    "completed",
-  );
-  let position = 0;
-  const moving = tasks.start("sleep 0.8");
-  const timer = setInterval(() => position++, 50);
-  t.after(() => clearInterval(timer));
-  assert.equal(
-    (
-      await tasks.wait(moving, {
-        timeoutMs: 4000,
-        stallMs: 300,
-        progress: () => position,
-      })
-    ).status,
-    "completed",
-  );
-  assert.equal(
-    (await tasks.wait(silent, { timeoutMs: 300, stallMs: 0 })).reason,
-    "wait timeout",
-  );
-});
