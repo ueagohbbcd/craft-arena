@@ -112,6 +112,15 @@ test("every gate and participant variable is defined by the code or the contract
     ),
     participant: [
       await sourceText(fileURLToPath(new URL("../packages/", import.meta.url))),
+      // The characters run under the toolkit's `mf` runtime.
+      await sourceText(
+        fileURLToPath(
+          new URL(
+            "../node_modules/mineflayer-world-memory/runtime/",
+            import.meta.url,
+          ),
+        ),
+      ),
     ].join("\n"),
   };
   for (const [service, text] of Object.entries(code)) {

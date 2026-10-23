@@ -1,6 +1,6 @@
 /** Read-only participant radar. No hostility assumptions or automatic movement. */
 import { setTimeout as sleep } from "node:timers/promises";
-import { InboxClient } from "../packages/inbox/index.mjs";
+import { InboxClient } from "mineflayer-world-memory/runtime/inbox/index.mjs";
 
 const vector = (p) => ({ x: p.x, y: p.y, z: p.z });
 export function sampleEntities(
@@ -91,13 +91,16 @@ export async function watchEntities(
   }
 }
 
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
 export default async function entityRadarProgram(
   bot,
   { args = [], signal, log = console.log },
 ) {
   if (args.length > 2)
     throw new Error(
-      `Usage: node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/entity-radar.mjs" [radius=32] [intervalMs=1000]`,
+      `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/entity-radar.mjs" [radius=32] [intervalMs=1000]`,
     );
   const radius = Number(args[0] ?? 32),
     intervalMs = Number(args[1] ?? 1000);

@@ -149,13 +149,16 @@ export function summarizeTerrain({
   };
 }
 
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
 export default async function summarizeTerrainProgram(
   bot,
   { args = [], log = console.log },
 ) {
   if (args.length && args.length !== 6)
     throw new Error(
-      `Usage: node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/summarize-terrain.mjs" [minX minY minZ maxX maxY maxZ]`,
+      `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/summarize-terrain.mjs" [minX minY minZ maxX maxY maxZ]`,
     );
   const position = bot.entity.position;
   const [x, y, z, maxX, maxY, maxZ] = args.map(Number);

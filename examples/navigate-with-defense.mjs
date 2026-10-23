@@ -4,8 +4,8 @@
  */
 import { once } from "node:events";
 import { setTimeout as sleep } from "node:timers/promises";
-import { sampleObservation } from "../packages/observation/index.mjs";
-import { InboxClient } from "../packages/inbox/index.mjs";
+import { sampleObservation } from "mineflayer-world-memory/runtime/observation/index.mjs";
+import { InboxClient } from "mineflayer-world-memory/runtime/inbox/index.mjs";
 import { loadPathfinder, loadPvp, stopBot } from "./native.mjs";
 
 export async function navigateWithDefense(

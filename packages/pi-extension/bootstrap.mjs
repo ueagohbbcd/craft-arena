@@ -31,7 +31,7 @@ import {
   provisionTeammates,
   readParticipantConfig,
 } from "./participant-config.mjs";
-import { startBotHosts } from "./bot-hosts.mjs";
+import { botNames, startMf } from "./mf-supervisor.mjs";
 
 const extensionPath = fileURLToPath(new URL("./index.mjs", import.meta.url));
 const projectRoot = resolve(dirname(extensionPath), "../..");
@@ -47,7 +47,8 @@ const positiveInteger = (value, fallback) => {
  * arena's own participant/agents.d/10-arena.md) once, without disabling Pi's
  * own discovery of user/project context files: a file Pi already loads as a
  * context file is not appended again. The repository's root AGENTS.md is the
- * developer guide, not a participant prompt.
+ * developer guide, not a participant prompt: Pi picks it up when started
+ * inside the repository, which this warns about.
  */
 export async function systemPromptArgs({ cwd, agentDir, args = [], files }) {
   const loaded = new Set();
@@ -61,6 +62,13 @@ export async function systemPromptArgs({ cwd, agentDir, args = [], files }) {
       agentDir,
     }))
       loaded.add(await realpath(file.path).catch(() => null));
+    const developerGuide = await realpath(join(projectRoot, "AGENTS.md")).catch(
+      () => null,
+    );
+    if (developerGuide && loaded.has(developerGuide))
+      process.stderr.write(
+        `Pi loads ${developerGuide}, the arena's developer guide, as project context because it runs inside the repository; start it from a separate workspace (as the participant image does) or pass --no-context-files.\n`,
+      );
   }
   const out = [];
   for (const file of files)
@@ -287,11 +295,11 @@ async function launchPi({
   );
   const packageRoot = resolve(dirname(entry), "..");
   const resident = args.length === 0;
-  // Native runtime: this container runs its own characters' bots.
-  const hosts = env.ARENA_MINECRAFT_HOST
-    ? await startBotHosts({ env })
-    : undefined;
-  if (hosts) env = { ...env, ...hosts.env };
+  // This container runs its own characters, under the toolkit's `mf`.
+  const native = Boolean(env.ARENA_MINECRAFT_HOST);
+  let hosts;
+  // The first character names the session the login gate reports.
+  if (native) env = { ...env, ARENA_BOT: (await botNames(env))[0] };
   const sessionUrl =
     env.ARENA_SESSION_URL && env.ARENA_BOT
       ? `${env.ARENA_SESSION_URL}${env.ARENA_SESSION_URL.includes("?") ? "&" : "?"}username=${encodeURIComponent(env.ARENA_BOT)}`
@@ -299,10 +307,7 @@ async function launchPi({
   // Wait for the gate's authoritative session before sending the opening prompt.
   const waitForMatch = resident && Boolean(sessionUrl);
   const startTimeoutMs = positiveInteger(env.ARENA_START_TIMEOUT_MS, 600000);
-  const profile = await preparePiProfile({ env, cwd }).catch((error) => {
-    hosts?.close();
-    throw error;
-  });
+  const profile = await preparePiProfile({ env, cwd });
   const sessionDir =
     env.PI_CODING_AGENT_SESSION_DIR || join(cwd, ".pi", "sessions");
   // Copies of the trusted briefing for the model to re-read after compaction.
@@ -316,7 +321,9 @@ async function launchPi({
       builtinAgentsDir: [
         join(projectRoot, "participant", "agents.d"),
         // The character runs in this container: in-process runs, fair play.
-        ...(hosts ? [join(projectRoot, "participant", "agents.native.d")] : []),
+        ...(native
+          ? [join(projectRoot, "participant", "agents.native.d")]
+          : []),
       ],
     });
     guidanceArgs = await systemPromptArgs({
@@ -333,6 +340,14 @@ async function launchPi({
             (await mkdtemp(join(tmpdir(), "arena-session-"))),
         })
       : undefined;
+    if (native) {
+      hosts = await startMf({
+        env,
+        cwd,
+        defaultScripts: config.defaultScripts,
+      });
+      env = { ...env, ...hosts.env };
+    }
   } catch (error) {
     // The exit cleanup below is not reached yet; drop the generated profile.
     hosts?.close();
@@ -343,7 +358,7 @@ async function launchPi({
   const initialPrompt =
     config.firstMessage ||
     env.ARENA_PROMPT ||
-    "Play the Minecraft session by writing Node programs and running them with bash, as your system prompt describes. Reports from your programs and the default scripts reach you as inbox reports. Follow the session briefing if there is one, and keep going until its goal is complete or the session ends.";
+    "Play the Minecraft session by writing Node programs and running them with `mf run` in bash, as your system prompt describes. Read `mf inbox` for what happened in the game. Follow the session briefing if there is one, and keep going until its goal is complete or the session ends.";
   const cliArgs = [
     ...(profile.generated
       ? ["--provider", "arena", "--model", profile.modelId]
@@ -367,9 +382,6 @@ async function launchPi({
     ...(profile.generated ? { PI_CODING_AGENT_DIR: profile.agentDir } : {}),
     PI_CODING_AGENT_SESSION_DIR: sessionDir,
     ...(sessionFiles ? { ARENA_SESSION_DIR: sessionFiles.directory } : {}),
-    ...(config.defaultScripts !== undefined
-      ? { ARENA_DEFAULT_SCRIPTS: config.defaultScripts }
-      : {}),
   };
   let images = config.images;
   if (images.length && !profileAcceptsImages(profile)) {

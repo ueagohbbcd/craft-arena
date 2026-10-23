@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { createRequire } from "node:module";
 import { navigateWithAutoeat } from "../examples/navigate-with-autoeat.mjs";
-import { Inbox } from "../packages/inbox/index.mjs";
+import { Inbox } from "mineflayer-world-memory/runtime/inbox/index.mjs";
 const require = createRequire(import.meta.url);
 const nativeGoto = require("mineflayer-pathfinder/lib/goto.js");
 const { Vec3 } = require("vec3");

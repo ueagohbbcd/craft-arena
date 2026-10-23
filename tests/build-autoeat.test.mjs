@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
 import { buildWithAutoeat } from "../examples/build-with-autoeat.mjs";
-import { Inbox } from "../packages/inbox/index.mjs";
+import { Inbox } from "mineflayer-world-memory/runtime/inbox/index.mjs";
 
 function fixture({ steps = 2, noFood = false, consume = true } = {}) {
   let now = 0,

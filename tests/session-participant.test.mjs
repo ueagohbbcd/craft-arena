@@ -10,7 +10,7 @@ import { openingPromptText } from "../packages/pi-extension/bootstrap.mjs";
 import {
   chatWakes,
   startChatForwarder,
-} from "../packages/default-scripts/chat.mjs";
+} from "mineflayer-world-memory/runtime/default-scripts/chat.mjs";
 
 async function serve(t, handler) {
   const requests = [];
@@ -248,7 +248,7 @@ test("startChatForwarder rejects an unknown wake mode", () => {
         inbox: {},
         wake: "loud",
       }),
-    /ARENA_CHAT_WAKE/,
+    /MF_CHAT_WAKE/,
   );
 });
 

@@ -2,6 +2,9 @@
 import { Vec3 } from "vec3";
 import { readWorldBlock } from "mineflayer-world-memory/reader.mjs";
 
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
 export default async function queryBlockMemory(
   bot,
   { args = [], log = console.log },

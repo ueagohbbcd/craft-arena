@@ -146,14 +146,17 @@ function same(a, b) {
 }
 
 /**
- * Vanilla RCON shares one output buffer between clients: while bot hosts read
- * the session storage, a command's own reply can come back empty or as their
- * storage text. Such a reply says nothing about the command, so `expect`
- * does not fail on it.
+ * Vanilla RCON shares one output buffer between clients: while the login gate
+ * reads the session storage, a command's own reply can come back empty, as
+ * their storage text, or as the reply to an RCON client's empty fence command.
+ * Such a reply says nothing about the command, so `expect` does not fail on
+ * it.
  */
 const lostReply = (reply) =>
   !String(reply ?? "").trim() ||
-  /^Storage [\w.:/-]+ has the following contents:/.test(String(reply));
+  /^Storage [\w.:/-]+ has the following contents:/.test(String(reply)) ||
+  String(reply) ===
+    "Unknown or incomplete command, see below for error<--[HERE]";
 
 /**
  * Runs operator commands in order. Each is a string or `{command, expect}`;

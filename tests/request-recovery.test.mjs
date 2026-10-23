@@ -567,7 +567,7 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
       assert.match(JSON.stringify(prompt(2)), /previous model request failed/);
       assert.match(
         JSON.stringify(prompt(7)),
-        /The session is still running, and none of the programs/,
+        /The session is still running, and none of the commands/,
       );
       assert.ok(
         requests[2].at - requests[1].at >= 180,

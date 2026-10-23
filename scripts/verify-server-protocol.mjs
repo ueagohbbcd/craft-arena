@@ -14,8 +14,9 @@
  *     and removed blocks, a win, a same-tick draw, #arena:stop, the time
  *     limit from arena:config.rules.durationMs, and no limit without it; starts
  *     with the listed players offline;
- *   - live (unless --skip-live): a login gate and native bot-host processes,
- *     with module execution through a bot socket and a datapack verdict.
+ *   - live (unless --skip-live): a login gate and both characters under the
+ *     toolkit's `mf` supervisor, a module run with `mf run` and a datapack
+ *     verdict.
  * Needs Java 21 on PATH. Exits non-zero on the first failed check.
  */
 import assert from "node:assert/strict";
@@ -29,7 +30,7 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RconClient } from "../packages/arena/src/rcon.mjs";
 import {
@@ -57,19 +58,24 @@ async function waitFor(check, ms, message) {
     await delay(150);
   }
 }
-/** Starts a native packages/bot-host/cli.mjs process behind the login gate. */
-function spawnBotHost(env) {
-  return spawn(process.execPath, [join(root, "packages/bot-host/cli.mjs")], {
-    env: {
-      ...process.env,
-      ARENA_MINECRAFT_HOST: "127.0.0.1",
-      ARENA_MINECRAFT_PORT: String(PORTS.gate),
-      MC_VERSION: "1.21.1",
-      MF_AUTH: "offline",
-      ARENA_WORLD_ID: "verify-world",
-      ...env,
+const toolkitRuntime = dirname(
+  fileURLToPath(
+    import.meta.resolve("mineflayer-world-memory/runtime/supervisor.mjs"),
+  ),
+);
+/** The toolkit's `mf` with the given environment; resolves to its exit code. */
+function mf(env, ...mfArgs) {
+  const child = spawn(
+    process.execPath,
+    [join(toolkitRuntime, "bin/mf.mjs"), ...mfArgs],
+    {
+      env: { ...process.env, ...env },
+      stdio: ["ignore", "inherit", "inherit"],
     },
-    stdio: ["ignore", "inherit", "inherit"],
+  );
+  return new Promise((resolveExit, reject) => {
+    child.once("error", reject);
+    child.once("exit", resolveExit);
   });
 }
 const log = (text) => console.log(text);
@@ -140,7 +146,7 @@ function startServer(dir, jar) {
       reject(new Error(`Server exited (${code}):\n${output.slice(-2000)}`)),
     );
   });
-  return { child, ready };
+  return { child, ready, output: () => output };
 }
 
 const writeConfig = writeServerConfig;
@@ -354,10 +360,9 @@ async function live(rcon, dir, map) {
   match.config.rules = { ...match.config.rules, durationMs: 120000 };
   match.commands.start = [
     ...(match.commands.start ?? []),
-    ...red.map((g) => ({
-      command: `give arena_red1 ${g.block} 1`,
-      expect: "Gave",
-    })),
+    // No expect: the reply may be another RCON client's text. The module
+    // below fails when an item did not arrive.
+    ...red.map((g) => `give arena_red1 ${g.block} 1`),
   ];
   const matchPath = join(dir, "match.json");
   await writeFile(matchPath, JSON.stringify(match));
@@ -382,13 +387,24 @@ async function live(rcon, dir, map) {
       stdio: ["ignore", "ignore", "inherit"],
     },
   );
-  const hosts = ["arena_red1", "arena_blue1"].map((username) =>
-    spawnBotHost({
-      MF_USERNAME: username,
-      ARENA_RUN_SOCKET: join(runDir, `${username}.sock`),
-      ARENA_SESSION_URL: `http://127.0.0.1:${PORTS.session}/v1/session`,
-      ARENA_PARTICIPANT_ID: username === "arena_red1" ? "red1" : "blue1",
-    }),
+  // Both characters under one `mf` supervisor, as in a participant container.
+  const mfState = {
+    MF_USERNAMES: "arena_red1,arena_blue1",
+    MF_HOST: "127.0.0.1",
+    MF_PORT: String(PORTS.gate),
+    MC_VERSION: "1.21.1",
+    MF_AUTH: "offline",
+    MF_STATE_DIR: join(runDir, ".mf"),
+    MF_DEFAULT_SCRIPTS: "",
+    ARENA_SESSION_URL: `http://127.0.0.1:${PORTS.session}/v1/session`,
+  };
+  const supervisor = spawn(
+    process.execPath,
+    [join(toolkitRuntime, "supervisor.mjs")],
+    {
+      env: { ...process.env, ...mfState },
+      stdio: ["ignore", "ignore", "inherit"],
+    },
   );
   const session = async () => {
     const response = await fetch(
@@ -406,8 +422,8 @@ async function live(rcon, dir, map) {
     await waitFor(
       async () => {
         if (gate.exitCode !== null) throw new Error("login gate exited");
-        for (const host of hosts)
-          if (host.exitCode !== null) throw new Error("native bot host exited");
+        if (supervisor.exitCode !== null)
+          throw new Error("mf supervisor exited");
         const list = await rcon.command("list");
         return /arena_red1/.test(list) && /arena_blue1/.test(list);
       },
@@ -450,25 +466,24 @@ async function live(rcon, dir, map) {
     const modulePath = join(runDir, "place-goals.mjs");
     await writeFile(
       modulePath,
-      `import { Vec3 } from "vec3";\nexport default async function(bot) {\n  await bot.waitForChunksToLoad();\n  for (const goal of ${JSON.stringify(red)}) {\n    const item = bot.inventory.items().find((entry) => entry.name === goal.block.replace("minecraft:", ""));\n    if (!item) throw new Error("Missing " + goal.block);\n    await bot.equip(item, "hand");\n    await bot.placeBlock(bot.blockAt(new Vec3(goal.x, goal.y - 1, goal.z)), new Vec3(0, 1, 0));\n  }\n}\n`,
+      `import { Vec3 } from "vec3";\nexport default async function(bot) {\n  await bot.waitForChunksToLoad();\n  for (const goal of ${JSON.stringify(red)}) {\n    const item = bot.inventory.items().find((entry) => entry.name === goal.block.replace("minecraft:", ""));\n    if (bot.blockAt(new Vec3(goal.x, goal.y, goal.z))?.name === goal.block.replace("minecraft:", "")) continue;\n    if (!item) throw new Error("Missing " + goal.block);\n    await bot.equip(item, "hand");\n    await bot.placeBlock(bot.blockAt(new Vec3(goal.x, goal.y - 1, goal.z)), new Vec3(0, 1, 0));\n  }\n}\n`,
     );
-    const run = spawn(
-      process.execPath,
-      [join(root, "packages/bot-host/run.mjs"), modulePath],
-      {
-        cwd: root,
-        env: {
-          ...process.env,
-          ARENA_RUN_SOCKET: join(runDir, "arena_red1.sock"),
-        },
-        stdio: ["ignore", "inherit", "inherit"],
-      },
-    );
-    const runExit = await new Promise((resolveExit, reject) => {
-      run.once("error", reject);
-      run.once("exit", resolveExit);
-    });
-    assert.equal(runExit, 0, "native module run completed");
+    // prepare and start change the session, and the character notices each
+    // change within a second. Like the model: read the inbox, run, and after
+    // not_started (75) or an interruption (130) read again and rerun; the
+    // module skips goals already placed. The last placement itself ends the
+    // match, which may interrupt the module before it returns.
+    let runExit;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      assert.equal(await mf(mfState, "inbox"), 0, "mf inbox");
+      runExit = await mf(mfState, "run", "--bot", "arena_red1", modulePath);
+      if (runExit === 0 || (await arenaCli("status")).state === "ended") break;
+      assert.ok(
+        [75, 130].includes(runExit),
+        `module run ended with ${runExit}`,
+      );
+      await delay(1500);
+    }
     await waitFor(
       async () => (await arenaCli("status")).state === "ended",
       10000,
@@ -481,11 +496,9 @@ async function live(rcon, dir, map) {
       5000,
       () => "login gate session did not report the winner",
     );
-    log(
-      "ok live: login gate + native bot hosts, socket module run, datapack verdict",
-    );
+    log("ok live: login gate + mf characters, module run, datapack verdict");
   } finally {
-    await Promise.all(hosts.map(stop));
+    await stop(supervisor);
     await stop(gate);
     await delay(1000);
   }
@@ -514,6 +527,10 @@ try {
   log("All server protocol checks passed.");
 } catch (e) {
   console.error(e);
+  // The server's own log says who left the game and why.
+  console.error(
+    `Server log (last 60 lines):\n${server.output().split("\n").slice(-60).join("\n")}`,
+  );
   process.exitCode = 1;
 } finally {
   try {

@@ -1,7 +1,7 @@
 /** Attack the nearest currently observed entity among supplied entity IDs. */
 import { randomUUID } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
-import { InboxClient } from "../packages/inbox/index.mjs";
+import { InboxClient } from "mineflayer-world-memory/runtime/inbox/index.mjs";
 import { loadPvp, stopBot } from "./native.mjs";
 
 export default async function fightTarget(

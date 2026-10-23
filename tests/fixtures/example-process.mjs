@@ -5,8 +5,8 @@ import { EventEmitter } from "node:events";
 import { createRequire, registerHooks } from "node:module";
 import { setTimeout as sleep } from "node:timers/promises";
 import { pathToFileURL } from "node:url";
-import { startRunner } from "../../packages/bot-host/runner.mjs";
-import { runModule } from "../../packages/bot-host/run.mjs";
+import { startRunner } from "mineflayer-world-memory/runtime/host/runner.mjs";
+import { runModule } from "mineflayer-world-memory/runtime/host/run.mjs";
 
 const require = createRequire(import.meta.url);
 const { Vec3 } = require("vec3");
@@ -131,7 +131,7 @@ const inboxStub = `export const InboxClient = globalThis.fixtureInbox;`;
 const inboxUrl = `data:text/javascript,${encodeURIComponent(inboxStub)}`;
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier === "../packages/inbox/index.mjs")
+    if (specifier === "mineflayer-world-memory/runtime/inbox/index.mjs")
       return { url: inboxUrl, shortCircuit: true };
     return nextResolve(specifier, context);
   },

@@ -9,7 +9,7 @@ import {
   shareWithParticipant,
 } from "../packages/arena/src/provision.mjs";
 import { applyProvisionFiles } from "../packages/pi-extension/participant-config.mjs";
-import { runSocket } from "../packages/bot-host/run.mjs";
+import { runSocket } from "mineflayer-world-memory/runtime/host/run.mjs";
 
 async function fixture(t, map, match = { config: { sessionId: "s1" } }) {
   const root = await mkdtemp(join(tmpdir(), "arena-provision-"));
@@ -397,6 +397,6 @@ test("native run socket lookup uses the participant manifest for any owned bot",
   assert.equal(runSocket("arena_red2", env), "/tmp/arena-bots/arena_red2.sock");
   assert.throws(
     () => runSocket("arena_blue1", env),
-    /not one of this participant's characters/,
+    /not one of the characters/,
   );
 });

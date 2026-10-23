@@ -1,6 +1,5 @@
 import { cp, mkdir, readdir, readFile, stat } from "node:fs/promises";
 import { dirname, extname, join } from "node:path";
-import { defaultScripts } from "./default-scripts.mjs";
 
 const imageTypes = {
   ".png": "image/png",
@@ -37,9 +36,10 @@ async function listFiles(directory) {
 
 /**
  * default-scripts.json is a list of script names, or an object of lists keyed
- * by bot name (the bot is ARENA_BOT). Returns the comma list the extension
- * reads from ARENA_DEFAULT_SCRIPTS.
+ * by bot name (the bot is ARENA_BOT). Returns the comma list `mf` reads from
+ * MF_DEFAULT_SCRIPTS.
  */
+const DEFAULT_SCRIPTS = ["observer", "chat", "watchdog"];
 function defaultScriptsFrom(text, env) {
   let value;
   try {
@@ -58,9 +58,11 @@ function defaultScriptsFrom(text, env) {
     throw new Error(
       "default-scripts.json must be a list of script names, or an object of such lists keyed by bot name",
     );
-  const list = value.join(",");
-  defaultScripts({ ARENA_DEFAULT_SCRIPTS: list }); // Unknown names are an error now, not at session start.
-  return list;
+  // Unknown names are an error now, not when the characters start.
+  const unknown = value.filter((name) => !DEFAULT_SCRIPTS.includes(name));
+  if (unknown.length)
+    throw new Error(`Unknown default script: ${unknown.join(", ")}`);
+  return value.join(",");
 }
 
 /**

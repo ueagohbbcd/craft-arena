@@ -4,8 +4,8 @@ import { join } from "node:path";
 import {
   worldMemoryOptions,
   attachWorldMemory,
-} from "../packages/bot-host/world-memory.mjs";
-import { hostEnv } from "../packages/pi-extension/bot-hosts.mjs";
+} from "mineflayer-world-memory/runtime/host/world-memory.mjs";
+import { hostEnv } from "mineflayer-world-memory/runtime/host/launcher.mjs";
 import { worldReader } from "../examples/reach-map.mjs";
 import queryBlockMemory from "../examples/query-block-memory.mjs";
 
