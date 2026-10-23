@@ -1,5 +1,6 @@
 /** One on-demand state sample (sampleObservation) and its helpers. Read-only: no actions, goals or task policy. */
 import { createHash } from "node:crypto";
+import { Vec3 } from "vec3";
 import { entityRadar, chunkEntities } from "./entity-radar.mjs";
 import { aroundSummary } from "./reach.mjs";
 export { entityRadar } from "./entity-radar.mjs";
@@ -16,6 +17,17 @@ const controls = [
   "sneak",
 ];
 const finite = (value) => (Number.isFinite(value) ? value : null);
+
+// Mineflayer sets bot.oxygenLevel from the air supply of any entity whose
+// metadata arrives (a dolphin nearby makes it tick down on land), so read the
+// player's own air supply. The server sends it only once it is below full.
+function oxygenOf(bot) {
+  const keys = bot?.registry?.entitiesByName?.player?.metadataKeys;
+  const index = Array.isArray(keys) ? keys.indexOf("air_supply") : -1;
+  const air = index >= 0 ? bot?.entity?.metadata?.[index] : undefined;
+  if (Number.isFinite(air)) return Math.round(air / 15);
+  return bot?.entity ? 20 : null;
+}
 const boolean = (value) => (typeof value === "boolean" ? value : null);
 const vector = (value) =>
   value && axes.every((axis) => Number.isFinite(value[axis]))
@@ -528,10 +540,8 @@ function classify(block) {
 }
 function readBlock(bot, position) {
   if (!position || typeof bot?.blockAt !== "function") return null;
-  const argument = bot.Vec3
-    ? new bot.Vec3(position.x, position.y, position.z)
-    : { ...position };
-  return safe(() => bot.blockAt(argument));
+  // Native Mineflayer's blockAt needs a Vec3 (it calls floored()).
+  return safe(() => bot.blockAt(new Vec3(position.x, position.y, position.z)));
 }
 function blockSummary(block, position) {
   return {
@@ -848,7 +858,7 @@ export function sampleObservation(bot, options = {}) {
       health: finite(bot?.health),
       food: finite(bot?.food),
       isSleeping: boolean(bot?.isSleeping),
-      oxygen: finite(bot?.oxygenLevel),
+      oxygen: oxygenOf(bot),
       effects: plain(entity?.effects),
       dimension: bot?.game?.dimension ?? null,
       controlFlags: bot?.controlState

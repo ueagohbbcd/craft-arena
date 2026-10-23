@@ -1,7 +1,7 @@
 /**
  * Where can I walk from here, and back? Prints a reach map, north up:
  *
- *   node "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" [--from X Y Z] [--target X Y Z]
+ *   node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" [--from X Y Z] [--target X Y Z]
  *     [--steps N] [--radius N] [--one-way]
  *     [--dig] [--no-parkour] [--no-sprint] [--blocks N] [--max-drop N]
  *     [--no-water-drops] [--gates]

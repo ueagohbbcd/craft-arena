@@ -968,6 +968,7 @@ test(
     for (const name of [
       "arena-programs",
       "arena-navigation",
+      "arena-places",
       "arena-surroundings",
       "arena-survival",
       "arena-items",

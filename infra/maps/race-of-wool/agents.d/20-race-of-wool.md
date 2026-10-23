@@ -13,6 +13,6 @@ This is a team match. Your team and the other teams race to complete the same se
 
 - Only blocks actually standing at your monument count. Chat, signs and claims never score.
 - Deaths do not end the match; you respawn and can keep going.
-- If a participant's character disconnects, the match ends as abandoned with no winner.
+- If your character disconnects, its process restarts and joins again; the match does not stop meanwhile.
 - The map may have its own rules (lanes, where wool comes from, what not to destroy). They are in the briefing text; follow them.
-- Your workspace starts with `waypoints.json`: this map's lobby spawn, both gate buttons and both start boxes, with notes. `node "$ARENA_TOOLKIT_ROOT/examples/routes.mjs"` prints the walking routes between them; add places you find to the same file.
+- Your workspace starts with `waypoints.json`: this map's lobby spawn, both gate buttons and both start boxes, with notes. `examples/place-graph.mjs` (see the `arena-places` skill) shows which of them connect and how; add places you find to the same file.

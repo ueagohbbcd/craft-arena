@@ -1,8 +1,9 @@
 /**
- * Routes between named places, computed with Pathfinder's own search
- * (`AStar` over `Movements`) without moving anyone. Each pair is searched
- * under several movement settings, so a route table shows which places
+ * A place graph: links between named places, found with Pathfinder's own
+ * search (`AStar` over `Movements`) without moving anyone. Each pair is
+ * searched under several movement settings, so the graph shows which places
  * connect by walking alone and which need a gate, placed blocks or digging.
+ * It is for looking up; moving is Pathfinder's job.
  *
  * Takes the same `blockAt` as the reach map: a live bot's, a stored world's,
  * or a test world's. Unknown cells cannot be walked or dug.
@@ -14,19 +15,19 @@ const require = createRequire(import.meta.url);
 const AStar = require("mineflayer-pathfinder/lib/astar");
 const Move = require("mineflayer-pathfinder/lib/move");
 
-/** The settings a route table tries, in order. `walk` is the reach map's default. */
-export const routeConfigs = Object.freeze([
+/** The settings each link is tried with, in order. `walk` is the reach map's default. */
+export const linkConfigs = Object.freeze([
   { name: "walk", settings: {} },
   { name: "gates", settings: { canOpenDoors: true } },
   { name: "place", settings: { blocks: 16 } },
   { name: "dig", settings: { canDig: true } },
 ]);
 
-/** Arrived at the target's X and Z with feet within one block of its Y, as navigate.mjs counts it. */
+/** Within one block of the target, like Pathfinder's GoalNear(range 1) in navigate.mjs. */
 function arriveAt(t) {
   return {
     heuristic: (n) => Math.hypot(t.x - n.x, t.z - n.z) + Math.abs(t.y - n.y),
-    isEnd: (n) => n.x === t.x && n.z === t.z && Math.abs(n.y - t.y) <= 1,
+    isEnd: (n) => (n.x - t.x) ** 2 + (n.y - t.y) ** 2 + (n.z - t.z) ** 2 <= 1,
   };
 }
 
@@ -42,7 +43,7 @@ const cell = (p) => ({
  * `timeout`; steps are blocks of walking (at least one per move); `end` is
  * where the path stops and `short` how far that is from `to` (0 when ok).
  */
-export function findRoute({
+export function findLink({
   blockAt,
   registry,
   minY = -64,
@@ -98,24 +99,24 @@ export function findRoute({
 }
 
 /**
- * Routes between every ordered pair of `points` (`[{name, x, y, z}]`), or
+ * Links between every ordered pair of `points` (`[{name, x, y, z}]`), or
  * only those starting at `fromName`, under each of `configs`. Stops starting
  * new searches after `budgetMs` and marks the rest as not tried. Returns
  * `{pairs, text}`.
  */
-export function routeTable({
+export function placeGraph({
   blockAt,
   registry,
   minY = -64,
   points,
-  configs = routeConfigs,
+  configs = linkConfigs,
   fromName = null,
   timeoutMs = 1000,
   budgetMs = 20_000,
   base = {},
 }) {
   if (!Array.isArray(points) || points.length < 2)
-    throw new Error("a route table needs at least two places");
+    throw new Error("a place graph needs at least two places");
   const names = new Set(points.map((p) => p.name));
   if (names.size !== points.length)
     throw new Error("waypoint names must be unique");
@@ -126,12 +127,12 @@ export function routeTable({
       if (a === b || (fromName && a.name !== fromName)) continue;
       const results = {};
       for (const c of configs) {
-        // Each search gets at most what is left of the table's budget.
+        // Each search gets at most what is left of the graph's budget.
         const left = budgetMs - (Date.now() - started);
         results[c.name] =
           left <= 0
             ? { status: "skipped" }
-            : findRoute({
+            : findLink({
                 blockAt,
                 registry,
                 minY,
@@ -144,7 +145,7 @@ export function routeTable({
       }
       pairs.push({ from: a.name, to: b.name, results });
     }
-  return { pairs, text: routeText(pairs, configs, base) };
+  return { pairs, text: graphText(pairs, configs, base) };
 }
 
 function describe(name, r) {
@@ -162,10 +163,10 @@ const xyz = (p) => `${p.x} ${p.y} ${p.z}`;
 
 /**
  * One line per pair. Configs after the first are shown only when they
- * find a route the first did not, or a shorter one. A pair whose two
+ * find a link the first did not, or a shorter one. A pair whose two
  * directions read the same is printed once with ⇄.
  */
-function routeText(pairs, configs, base) {
+function graphText(pairs, configs, base) {
   const [first, ...rest] = configs;
   const line = (p) => {
     const r0 = p.results[first.name];
@@ -201,7 +202,7 @@ function routeText(pairs, configs, base) {
     `drops up to ${base.maxDropDown ?? 4}`,
   ].join(", ");
   return [
-    `Routes moving like Pathfinder (${switches}). Numbers are blocks of walking.`,
+    `Links between your places, searched like Pathfinder (${switches}) without moving. Numbers are blocks of walking. To go there, use Pathfinder.`,
     `walk: no digging, no placing, gates closed. Others are listed only when they do better: gates opens fence gates (not doors)${blocks ? `, place may place up to ${blocks} blocks` : ""}, dig may dig.`,
     ...lines,
   ].join("\n");

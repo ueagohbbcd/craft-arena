@@ -64,14 +64,32 @@ export async function startSessionEndpoint({
   intervalMs = 250,
   createRcon = (options) => new RconClient(options),
 }) {
-  const client = createRcon(rcon);
-  await client.connect();
+  // Connect on first use and again after the connection drops (the server
+  // restarting between matches, or not listening yet when the gate starts).
+  let client;
+  let connecting;
+  const connection = async () => {
+    if (client && !client.socket?.destroyed) return client;
+    connecting ??= (async () => {
+      client?.close?.();
+      client = undefined;
+      const next = createRcon(rcon);
+      await next.connect();
+      client = next;
+      return next;
+    })().finally(() => (connecting = undefined));
+    return connecting;
+  };
+  const shared = {
+    command: async (text) => (await connection()).command(text),
+  };
+  await connection().catch(() => {});
   const polls = new Map();
   for (const name of usernames) {
     const polled = polledSession({
       intervalMs,
       read: serverSessionReader({
-        rcon: client,
+        rcon: shared,
         username: () => name,
         sessionId,
       }),
@@ -91,6 +109,7 @@ export async function startSessionEndpoint({
     }
     try {
       const result = polled.getSessionState();
+      if (!result) throw new Error("No session from the game server yet");
       res.writeHead(200, {
         "content-type": "application/json",
         "cache-control": "no-store",
@@ -109,7 +128,7 @@ export async function startSessionEndpoint({
     port: server.address().port,
     close() {
       for (const polled of polls.values()) polled.close();
-      client.close?.();
+      client?.close?.();
       server.closeAllConnections?.();
       server.close();
     },

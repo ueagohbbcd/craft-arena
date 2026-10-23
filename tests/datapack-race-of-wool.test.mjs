@@ -70,10 +70,10 @@ test("race-of-wool prepare writes protocol v1 session state and public data", as
   assert.match(await fn("stop"), /state set value "ended"/);
 });
 
-test("race-of-wool counts down arena:config.durationMs and draws at zero", async () => {
+test("race-of-wool counts down arena:config.rules.durationMs and draws at zero", async () => {
   assert.match(
     await fn("start"),
-    /^execute store result score #left rw_time run data get storage arena:config durationMs 0\.02$/m,
+    /^execute store result score #left rw_time run data get storage arena:config rules\.durationMs 0\.02$/m,
   );
   assert.match(
     await fn("tick"),

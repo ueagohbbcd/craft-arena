@@ -38,7 +38,7 @@ The observer samples once a second and compares each sample with what you last r
 
 | Section              | Contents                                                                                                                                                                                                                                                                                                                  |
 | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `connection`         | `status` (`fresh`, `stale`, `connecting`, `unavailable`, `disconnected`, `unknown`), `dimension`, `epoch` (generation of the connection to the game bridge)                                                                                                                                                               |
+| `connection`         | `status` (`fresh`, `stale`, `connecting`, `unavailable`, `disconnected`, `unknown`), `dimension`, `epoch` (always null for a native bot)                                                                                                                                                                                  |
 | `self`               | position and velocity (1 decimal), `yaw`/`pitch` (2 decimals), health, food, oxygen, effects, dimension, `controlFlags`, `media` (water, lava, web), `support` (on ground, block below), `collision`                                                                                                                      |
 | `inventory`          | main inventory and hotbar: items grouped by type and exact component variant, counts, slots, `totalItems`, `emptySlots`                                                                                                                                                                                                   |
 | `equipment`          | armor slots and offhand                                                                                                                                                                                                                                                                                                   |
@@ -119,8 +119,7 @@ Events are inbox events with `type` `observation.<name>`. Each carries `observed
 | `death`                | your character died                                                                                           | **urgent**                                          |
 | `spawn` / `respawn`    | your character spawned (`initial` marks the first spawn)                                                      | normal                                              |
 | `disconnected`         | the Minecraft bot ended or was kicked                                                                         | **urgent**                                          |
-| `lost`                 | the connection to the game bridge dropped; game state is unknown until restored                               | normal                                              |
-| `reset` / `restored`   | your program's copy of the game state (the local mirror) was rebuilt, or came back after `lost` or `stale`    | normal                                              |
+| `restored`             | data is fresh again after `stale`                                                                             | normal                                              |
 | `stale`                | the newest data became older than 5 seconds; `restored` follows when fresh data resumes                       | normal                                              |
 | `inventory_transition` | you ran out of food, ammunition or solid block items, or lost an equipped or held item                        | normal                                              |
 | `objective_inventory`  | your count of one of your team's public goal blocks (`briefing.public.goals`) went from 0 to positive or back | normal                                              |
@@ -149,7 +148,7 @@ On four recorded 30-minute matches these thresholds produced 1 to 3 reports per 
 
 ## One sample on request: `examples/observe.mjs`
 
-`node "$ARENA_TOOLKIT_ROOT/examples/observe.mjs"` prints one full sample now, as JSON `{state, metadata}`. It uses its own bridge connection, not the observer's, so it works even when the observer is stopped. It applies the public session facts (teams, goal items) and `observer.json`, like the default observer. A program can call `observe(bot, options)` from `observe.mjs` directly.
+`node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/observe.mjs"` prints one full sample now, as JSON `{state, metadata}`. It samples the character's bot directly, so it works even when the observer is stopped. It applies the public session facts (teams, goal items) and `observer.json`, like the default observer. A program can call `observe(bot, options)` from `observe.mjs` directly.
 
 | Switch (option)                    | Effect                                                                                   |
 | ---------------------------------- | ---------------------------------------------------------------------------------------- |
@@ -168,7 +167,7 @@ On four recorded 30-minute matches these thresholds produced 1 to 3 reports per 
 
 A sample does not include recent blocks or nearby signs; those live inside the observer process. A program can get them from its own observer with `startObserver(...).sample()`.
 
-For a picture, run `node "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ]`. See [packages/world-visual/README.md](../world-visual/README.md).
+For a picture, run `node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ]`. See [packages/world-visual/README.md](../world-visual/README.md).
 
 ## Change or replace the observer
 
@@ -256,15 +255,15 @@ Grid characters: digits are feet height, `4` = the start's, one block per digit,
 
 `examples/reach-map.mjs` and `examples/profile.mjs` print them for your character and fill unloaded columns from block memory.
 
-Routes between named places come from [routes.mjs](routes.mjs), with Pathfinder's own search (`AStar` over the same `Movements`), so nothing moves:
+A place graph (links between named places, for looking up, not for moving) comes from [place-graph.mjs](place-graph.mjs), with Pathfinder's own search (`AStar` over the same `Movements`), so nothing moves:
 
-| Function                                                                                                       | Returns                                                                                                                                                               |
-| -------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `findRoute({blockAt, registry, from, to, timeoutMs = 1000, ...switches})`                                      | `{status, steps, dug, placed, end, short}`: `ok`, `none` or `timeout`; arrival is the target's X and Z with feet within one block of its Y, as navigate.mjs counts it |
-| `routeTable({blockAt, registry, points, configs = routeConfigs, fromName, timeoutMs, budgetMs = 20000, base})` | `{pairs, text}`: every ordered pair under each config (`walk`, `gates`, `place` 16 blocks, `dig`), one line per pair, the other configs only where they beat walking  |
-| `parseWaypoints(json)`                                                                                         | `[{name, x, y, z, note?}]` from an array or a `{name: [x, y, z]}` object                                                                                              |
+| Function                                                                                                      | Returns                                                                                                                                                              |
+| ------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `findLink({blockAt, registry, from, to, timeoutMs = 1000, ...switches})`                                      | `{status, steps, dug, placed, end, short}`: `ok`, `none` or `timeout`; arrival is within one block of the target, like `GoalNear` range 1 in navigate.mjs            |
+| `placeGraph({blockAt, registry, points, configs = linkConfigs, fromName, timeoutMs, budgetMs = 20000, base})` | `{pairs, text}`: every ordered pair under each config (`walk`, `gates`, `place` 16 blocks, `dig`), one line per pair, the other configs only where they beat walking |
+| `parseWaypoints(json)`                                                                                        | `[{name, x, y, z, note?}]` from an array or a `{name: [x, y, z]}` object                                                                                             |
 
-`examples/routes.mjs` reads `waypoints.json` and prints the table for your character.
+`examples/place-graph.mjs` reads `waypoints.json` and prints the graph for your character.
 
 ```js
 const { players, drops } = entityRadar(bot, { radius: 24 });
@@ -367,6 +366,5 @@ Environment variables:
 | `ARENA_OBSERVER_READY_MS` | 5000                                     | Pi extension: how long the opening request waits for the observer's first report                                                                                                           |
 | `ARENA_DEFAULT_SCRIPTS`   | `observer,chat,watchdog`                 | Pi extension: which default scripts start (empty starts none)                                                                                                                              |
 | `ARENA_CHAT_WAKE`         | `none`                                   | chat: `mention` posts chat that names the bot (whole word, any case) or whispers to it as urgent, so it wakes an idle model; `all` does so for all chat. The bot's own messages never wake |
-| `ARENA_CHAT_USERNAME`     | the session's `username`                 | chat: the bot's name for `mention`, used when the session does not give one                                                                                                                |
 
-`observer.json` can set `intervalMs` (state sampling period, default 1000) and `recentBlocks` (`enabled` true, `radius` 6, `intervalMs` 1000, `maxReads` 4096, `positionLimit` 3, `minReportMs` 30000) besides `radar` and `events`. Default scripts start when the native host exposes `ARENA_RUN_SOCKET`. How reports reach the model is described in [docs/CONTEXT-DELIVERY.md](../../docs/CONTEXT-DELIVERY.md); test coverage is in [docs/VALIDATION.md](../../docs/VALIDATION.md).
+`observer.json` can set `intervalMs` (state sampling period, default 1000) and `recentBlocks` (`enabled` true, `radius` 6, `intervalMs` 1000, `maxReads` 4096, `positionLimit` 3, `minReportMs` 30000) besides `radar` and `events`. Default scripts start when the native host exposes `ARENA_RUN_SOCKET`.

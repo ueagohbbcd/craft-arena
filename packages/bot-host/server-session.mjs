@@ -13,13 +13,17 @@ export function serverSessionReader({
 }) {
   let config = null;
   let configState;
+  let configAt = 0;
   return async () => {
     const { readConfig, readSession } = await serverProtocol();
     const state = await readSession(rcon);
-    if (state.state !== configState) {
+    // A new prepare can change teams and briefing without a state change, so
+    // the config is also read again every few seconds.
+    if (state.state !== configState || now() - configAt >= 2000) {
       try {
         config = await readConfig(rcon);
         configState = state.state;
+        configAt = now();
       } catch {}
     }
     const name = username();
@@ -49,9 +53,20 @@ export function serverSessionReader({
   };
 }
 
-/** Poll a session reader on the trusted side and expose its current snapshot. */
-export function polledSession({ read, intervalMs = 250, onChange = () => {} }) {
+/**
+ * Poll a session reader on the trusted side and expose its current snapshot.
+ * Before the first successful read, or when reads have failed for `staleMs`
+ * (no session written yet, the server restarting), the snapshot is undefined.
+ */
+export function polledSession({
+  read,
+  intervalMs = 250,
+  staleMs = 5000,
+  onChange = () => {},
+  now = Date.now,
+}) {
   let current;
+  let readAt = 0;
   let timer;
   let reading;
   let stopped = false;
@@ -61,6 +76,7 @@ export function polledSession({ read, intervalMs = 250, onChange = () => {} }) {
       .then(async (next) => {
         const previous = current;
         current = next;
+        readAt = now();
         if (previous?.state !== next.state) await onChange(next, previous);
         return next;
       })
@@ -71,11 +87,11 @@ export function polledSession({ read, intervalMs = 250, onChange = () => {} }) {
   };
   return {
     async start() {
-      await poll();
+      await poll().catch(() => {});
       timer = setInterval(() => void poll().catch(() => {}), intervalMs);
       timer.unref?.();
     },
-    getSessionState: () => current,
+    getSessionState: () => (now() - readAt <= staleMs ? current : undefined),
     close() {
       stopped = true;
       clearInterval(timer);

@@ -2,7 +2,7 @@
   "config": {
     "sessionId": "OPERATOR_CONFIGURE_SESSION_ID",
     "kind": "match",
-    "durationMs": 1800000,
+    "rules": { "durationMs": 1800000 },
     "briefing": "OPERATOR_REPLACE_WITH_PUBLIC_MAP_RULES_AND_START_INSTRUCTIONS",
     "teams": [
       { "id": "red", "players": ["arena_red1"] },

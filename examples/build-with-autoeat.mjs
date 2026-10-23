@@ -1,5 +1,5 @@
 /** Build an explicit placement plan while coordinating background meals.
- * Usage: node examples/build-with-autoeat.mjs plan.json
+ * Usage: node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/build-with-autoeat.mjs" plan.json
  * Plan: {"material":"cobblestone","steps":[{"against":{"x":0,"y":64,"z":0},"face":{"x":0,"y":1,"z":0}}]}
  * Plan positions must be reachable from the current location. Health events
  * trigger meals; a shared hand Promise serializes equip/place/use-item.

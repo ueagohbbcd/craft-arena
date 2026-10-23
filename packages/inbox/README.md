@@ -54,7 +54,7 @@ The constructor reads `MC_INBOX_SOCKET`, `MC_INBOX_SESSION` and `MC_INBOX_TASK_I
 
 ## When messages reach the model
 
-New information reaches the model only at a request boundary: when a tool call returns, when a turn ends, or when a message starts a new turn. [docs/CONTEXT-DELIVERY.md](../../docs/CONTEXT-DELIVERY.md) describes all sources and timings.
+New information reaches the model only at a request boundary: when a tool call returns, when a turn ends, or when a message starts a new turn.
 
 | Message                   | When the model sees it                                                                                                                 |
 | ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- |
@@ -122,7 +122,7 @@ The CLI prints the JSON result and exits with 1 on failure. It has no options fo
 
 ## Raw HTTP
 
-Any language can talk to the inbox. By default it listens on a Unix socket (`MC_INBOX_SOCKET`):
+Any language can talk to the inbox. It listens on a Unix socket (`MC_INBOX_SOCKET`):
 
 ```sh
 curl --unix-socket "$MC_INBOX_SOCKET" -H 'Content-Type: application/json' \

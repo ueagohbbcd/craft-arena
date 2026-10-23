@@ -6,7 +6,7 @@ import { once } from "node:events";
 import { setTimeout as sleep } from "node:timers/promises";
 import { sampleObservation } from "../packages/observation/index.mjs";
 import { InboxClient } from "../packages/inbox/index.mjs";
-import { loadPvp, stopBot } from "./native.mjs";
+import { loadPathfinder, loadPvp, stopBot } from "./native.mjs";
 
 export async function navigateWithDefense(
   bot,
@@ -274,7 +274,8 @@ export default async function navigateWithDefenseProgram(
   if (xyz.length !== 3 || !xyz.every(Number.isFinite))
     throw new Error("Usage: navigate-with-defense.mjs X Y Z");
   const inbox = new InboxClient();
-  const { Movements, goals } = loadPvp(bot);
+  loadPvp(bot);
+  const { Movements, goals } = loadPathfinder(bot);
   const movements = new Movements(bot);
   movements.canDig = false;
   bot.pathfinder.setMovements(movements);

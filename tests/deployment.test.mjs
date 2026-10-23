@@ -149,7 +149,6 @@ test("live deployment: replay storage stays on the server and native gates read 
         ),
       ].map((match) => [match[1], match[2]]),
     );
-    assert.match(sections.minecraft, /:\/results/);
     assert.match(sections.minecraft, /replay-config/);
     assert.match(sections.minecraft, /stop_grace_period/);
     assert.equal(sections["arena-host"], undefined);

@@ -26,7 +26,6 @@ services:
     - backend
     volumes:
     - world:/data
-    - match-results:/results
     - replay-config:/data/config/ServerReplay
   # The participants' only route to a model: forwards to one base URL (an
   # official API or a service on the host) and adds the key there. To let
@@ -165,5 +164,4 @@ volumes:
   blue-work: {}
   red-git: {}
   blue-git: {}
-  match-results: {}
   replay-config: {}

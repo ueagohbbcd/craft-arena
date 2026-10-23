@@ -106,4 +106,3 @@ A missing package throws an error that says what to install. The viewer server (
 
 - `node --test tests/visual-viewer.test.mjs`: camera directions, camera fitting, state-id remapping.
 - `node --test tests/visual-prismarine.test.mjs`: serves the real viewer and decodes a real chunk. `MC_TEST_CHROMIUM=1` adds a real Chromium capture.
-- `node --test tests/visual-example.test.mjs`: the screenshot script's default box.

@@ -9,8 +9,8 @@ const blockedHandler = fileURLToPath(
 /**
  * The general Mineflayer watchdog with its findings sent to your inbox:
  * `stuck` and `repeat` as ordinary reports, `blocked` (a synchronous loop) as
- * an urgent one sent from a worker thread. Call it on the first line after
- * connectBot(); see mineflayer-world-memory's docs/watchdog.md for options.
+ * an urgent one sent from a worker thread. Call it on the first line of
+ * your module's run(); see the toolkit's docs/watchdog.md for options.
  * Returns { failure(error), pause(), resume(), close() }.
  */
 export function watchdog(bot, { inbox = new InboxClient(), ...options } = {}) {

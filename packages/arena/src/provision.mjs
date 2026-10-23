@@ -297,7 +297,7 @@ async function exists(path) {
 /**
  * Compile `mapDir` + `matchPath` into `outDir`. outDir may exist (a
  * deployment being assembled), but none of the outputs may.
- * Returns { agents, teams, files } for printing.
+ * Returns { agents, teams } for printing.
  */
 export async function provision({
   mapDir,

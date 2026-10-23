@@ -34,7 +34,7 @@
 | 默认观察器（默认脚本）                                                       | 夹具测试           | `tests/default-observer.test.mjs`、`tests/observation-*.test.mjs`、`tests/nearby-scan.test.mjs`、`tests/recent-blocks.test.mjs` | 改成脚本后**没有在真实服务器上跑过**。2026-10-11 的实服 9 项检查测的是已删除的会话内实现                            |
 | 默认聊天转发                                                                 | 夹具测试           | `tests/chat-forwarder.test.mjs`                                                                                                 | 直接测试原生 Mineflayer 事件和 inbox；Pi 接口是桩                                                                   |
 | 原生 bot 模块与任务 socket                                                   | 夹具测试           | `tests/native-runner.test.mjs`                                                                                                  | 独立覆盖模块运行、取消、监听与定时器清理、角色进程生命周期；不验证 Pi 对话集成                                      |
-| 区块记忆                                                                     | 夹具测试           | `tests/block-memory.test.mjs`、`tests/world-memory-integration.test.mjs`                                                        | 使用测试 bot 验证已收到区块的记忆与查询；没有在真实比赛中评估其策略效果                                             |
+| 区块记忆                                                                     | 夹具测试           | `tests/world-memory-integration.test.mjs`                                                        | 使用测试 bot 验证已收到区块的记忆与查询；没有在真实比赛中评估其策略效果                                             |
 | 模型转发、启动器的两种模型接入                                               | 真实 Pi 测试       | `tests/model-relay.test.mjs`、`tests/integration-pi.test.mjs`、`tests/pi-extension.test.mjs`                                    | 本地假上游；没有连过真实模型，也没有在部署里跑过                                                                    |
 | 运营命令行与 RCON（2026-10-16 取代比赛主控）                                 | 实服验证（CI）     | `tests/arena-cli.test.mjs`（含本地 TCP RCON）；`npm run verify:server`                                                          | 命令行读比赛文件，由登录入口与原生 bot host 完成准备、开赛、数据包判胜、结束；没有参赛模型                          |
 | 服务器协议 v1、`race-of-wool`／`arena-example` 数据包                        | 实服验证           | `tests/datapack-*.test.mjs`（静态）；2026-10-14 实服运行                                                                        | 胜、平、`#arena:stop`、`durationMs` 倒数判平、拆除目标回落、区块强制加载与释放；Direct Fire 地图本身没有装进去跑    |
@@ -85,9 +85,6 @@ npm run demo:screenshot           # 需要本地 Chromium 和可选依赖
 | `node --test tests/integration-pi.test.mjs`                                                                   | 真实 Pi 集成测试                            |
 | `ARENA_TEST_REAL_DEFAULT_WAIT=1 node --test --test-name-pattern='omitted bash' tests/integration-pi.test.mjs` | 用真实的 30 秒默认等待时长（CI 用 0.12 秒） |
 | `MC_TEST_CHROMIUM=1 node --test tests/visual-prismarine.test.mjs`                                             | 真实 Chromium 截图                          |
-| `node scripts/validate-observation-live.mjs --server-dir <隔离测试服> --confirm-isolated-test-server`         | 实服观察检查（`--help` 看全部参数）         |
-
-`validate-observation-live.mjs` 需要一个已有、已停机、已接受 EULA 的隔离测试服。它校验官方 1.21.1 服务器 JAR，为本次检查新建世界，退出后恢复服务器配置。不要指向比赛服务器。
 
 部署检查见 [infra/README.md](../infra/README.md) 和 [infra/windows-local/README.md](../infra/windows-local/README.md)。
 

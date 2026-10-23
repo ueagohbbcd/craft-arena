@@ -38,19 +38,19 @@
 | 函数标签         | 何时调用                  | 服务器应做的事                                               |
 | ---------------- | ------------------------- | ------------------------------------------------------------ |
 | `#arena:prepare` | 准备阶段，参赛 bot 已上线 | 重置地图，按 `arena:config` 分队、传送到大厅、设好限制       |
-| `#arena:start`   | 开赛                      | 把参赛者传送到起点、放行、开始计分，按 `durationMs` 开始计时 |
+| `#arena:start`   | 开赛                      | 把参赛者传送到起点、放行、开始计分，需要时按地图自己的规则（如 `rules.durationMs`）开始计时 |
 | `#arena:stop`    | 运营者中止                | 冻结比赛，保留现场供录像和检查                               |
 
 调用前，运营命令行把会话配置写进命令存储 `arena:config`：
 
 ```mcfunction
-data remove storage arena:config durationMs
+data remove storage arena:config rules
 data remove storage arena:config briefing
 data remove storage arena:config runId
-data merge storage arena:config {version:1, kind:"match", teams:[{id:"red", players:["arena_red1"]}, {id:"blue", players:["arena_blue1"]}], runId:"...", sessionId:"...", durationMs:1800000, briefing:"..."}
+data merge storage arena:config {version:1, kind:"match", teams:[{id:"red", players:["arena_red1"]}, {id:"blue", players:["arena_blue1"]}], runId:"...", sessionId:"...", rules:{durationMs:1800000}, briefing:"..."}
 ```
 
-`data modify` 必须带路径，不能一次替换整个存储，所以先删掉上一场可能留下的可选键，再合并；合并时列表和标量直接覆盖旧值。没有时限时不写 `durationMs`，有时限时由数据包自己计时并结束；没有队伍的 `open` 会话 `teams` 为空列表。`briefing` 是给模型的简报文字，由角色运行时和启动器提供给参赛者。
+`data modify` 必须带路径，不能一次替换整个存储，所以先删掉上一场可能留下的可选键，再合并；合并时列表和标量直接覆盖旧值。`rules` 是地图自己的参数，平台不解析也不校验内容，原样交给数据包；时限这类规则（羊毛竞速的 `rules.durationMs`）由数据包自己计时并结束。没有队伍的 `open` 会话 `teams` 为空列表。`briefing` 是给模型的简报文字，由角色运行时和启动器提供给参赛者。
 
 用函数标签而不是单个函数，这样多个数据包可以挂在同一阶段上。
 

@@ -33,7 +33,7 @@ It connects to `MC_RCON_HOST` (default `127.0.0.1`) and `MC_RCON_PORT` (default 
   "config": {
     "sessionId": "direct-fire-local",
     "kind": "match",
-    "durationMs": 1800000,
+    "rules": { "durationMs": 1800000 },
     "briefing": "Red team uses Lane 1 ...",
     "teams": [
       { "id": "red", "players": ["arena_red1"] },
@@ -56,7 +56,7 @@ It connects to `MC_RCON_HOST` (default `127.0.0.1`) and `MC_RCON_PORT` (default 
 | ------------ | -------------------------------------------------------------------------------------------------------- |
 | `sessionId`  | `[A-Za-z0-9_-]{1,64}`                                                                                    |
 | `kind`       | `match` (default) or `open`                                                                              |
-| `durationMs` | optional positive integer; the rules datapack ends the match when it runs out (race-of-wool: a draw)     |
+| `rules`      | optional object passed to the map's datapack untouched (race-of-wool reads `rules.durationMs`, a time limit in ms that ends the match as a draw) |
 | `briefing`   | optional text; native bot hosts receive it as `briefing.text`           |
 | `teams`      | `[{id, players: [usernames]}]`; `draw` is reserved and cannot be a team ID; a player is in one team only |
 
