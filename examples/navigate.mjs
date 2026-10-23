@@ -1,5 +1,5 @@
 /** Pathfinder trip with an Inbox judgment request when movement stalls. */
-import { InboxClient } from "../packages/inbox/index.mjs";
+import { InboxClient } from "mineflayer-world-memory/runtime/inbox/index.mjs";
 import { Vec3 } from "vec3";
 import { loadPathfinder, stopBot } from "./native.mjs";
 import { summarizeTerrain } from "./summarize-terrain.mjs";

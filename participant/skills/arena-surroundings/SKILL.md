@@ -7,7 +7,7 @@ description: "Seeing the world around you: full state on request, pictures of te
 
 The default observer already reports changes to your state, inventory, nearby entities, blocks and signs. Use these when you need more than it sends.
 
-- **Full current state:** `node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/observe.mjs"` prints JSON (`--full-entities`, `--full-local`, `--full-items` expand parts).
+- **Full current state:** `mf run "$ARENA_TOOLKIT_ROOT/examples/observe.mjs"` prints JSON (`--full-entities`, `--full-local`, `--full-items` expand parts).
 - **Where you can walk:** [reach-map.mjs](../../../examples/reach-map.mjs) and [profile.mjs](../../../examples/profile.mjs), and which of your places connect, see the `arena-places` skill.
 - **Local terrain and connectivity as numbers:** [summarize-terrain.mjs](../../../examples/summarize-terrain.mjs).
 - **Entities near you:** `examples/observe.mjs --full-entities`, or [entity-radar.mjs](../../../examples/entity-radar.mjs).
@@ -24,8 +24,8 @@ The runtime starts [chat.mjs](../../../packages/default-scripts/chat.mjs) at ses
 When a decision depends on shape, such as a doorway, a wall or stacked levels, take a picture:
 
 ```sh
-node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"
-node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ
 ```
 
 Without coordinates it frames 25×25 blocks around you, from 8 below to 16 above your feet. One angle hides what is behind a wall or under a floor: add `--views` (before the coordinates) to get the box from all four corners stitched into one image, each labelled with the corner it looks from, or `--views 2` for two opposite corners. The stitched image is 960×720, under twice the pixels of one 768×512 picture, and takes a few seconds longer; use it for broken ladders, stacked floors and enclosed rooms. With six coordinates it captures that box. It prints JSON with `imagePath`, `bounds`, `knownFraction` and `notes`. Read that JSON first, then open `imagePath` with `read`. Blank areas are blocks the character has not received, not air; `knownFraction` says how much of the box is known. Each picture costs render time and tokens, so use `blockAt`, `findBlocks` and block memory for exact coordinates.

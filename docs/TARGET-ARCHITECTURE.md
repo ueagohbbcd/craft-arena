@@ -32,7 +32,7 @@ export default async function (bot, { signal, args, log }) {
 }
 ```
 
-模块经 `node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" [--bot NAME] file.mjs [args...]` 作为受管任务运行。`--bot` 选择该参赛者已分配的其他角色。同步循环会阻塞这个角色的全部模块和 Mineflayer 网络处理，因此每轮工作都应适时 `await`。模块应在取消信号到达时结束；平台会在取消或异常时进行控制清理。
+模块经 `mf run [--bot NAME] file.mjs [args...]` 作为受管任务运行。`--bot` 选择该参赛者已分配的其他角色。同步循环会阻塞这个角色的全部模块和 Mineflayer 网络处理，因此每轮工作都应适时 `await`。模块应在取消信号到达时结束；平台会在取消或异常时进行控制清理。
 
 默认观察、聊天和看门狗仍是普通任务，可由模型查看或取消。程序向模型报告使用 `InboxClient`；模块也可直接监听 Mineflayer 事件或查询原生对象，无需让观察报告成为唯一的信息来源。
 

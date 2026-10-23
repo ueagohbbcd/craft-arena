@@ -6,12 +6,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { Inbox } from "../packages/inbox/index.mjs";
-import { TaskManager } from "../packages/tasks/index.mjs";
-import { cancelTask, listTasks } from "../packages/tasks/cli.mjs";
+import { Inbox } from "mineflayer-world-memory/runtime/inbox/index.mjs";
+import { TaskManager } from "mineflayer-world-memory/runtime/tasks/index.mjs";
+import { cancelTask, listTasks } from "../packages/pi-extension/arena-task.mjs";
 
 const cli = fileURLToPath(
-  new URL("../packages/tasks/bin/arena-task", import.meta.url),
+  new URL("../packages/pi-extension/bin/arena-task", import.meta.url),
 );
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 

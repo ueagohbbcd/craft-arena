@@ -7,14 +7,14 @@ import {
   terrainProfile,
   aroundSummary,
   cellKind,
-} from "../packages/observation/reach.mjs";
+} from "mineflayer-world-memory/runtime/observation/reach.mjs";
 import { parseReachArgs } from "../examples/reach-map.mjs";
 import {
   findLink,
   placeGraph,
   linkConfigs,
   parseWaypoints,
-} from "../packages/observation/place-graph.mjs";
+} from "mineflayer-world-memory/runtime/observation/place-graph.mjs";
 import {
   parsePlaceGraphArgs,
   configsFor,

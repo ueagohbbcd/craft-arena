@@ -10,10 +10,7 @@ import http from "node:http";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { RconClient } from "../arena/src/rcon.mjs";
-import {
-  polledSession,
-  serverSessionReader,
-} from "../bot-host/server-session.mjs";
+import { polledSession, serverSessionReader } from "./server-session.mjs";
 import { startLoginGate } from "./index.mjs";
 
 export function gateOptions(env = process.env) {

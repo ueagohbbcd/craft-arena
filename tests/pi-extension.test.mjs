@@ -13,7 +13,6 @@ import { tmpdir } from "node:os";
 import extension, {
   defaultToolWaitSeconds,
 } from "../packages/pi-extension/index.mjs";
-import { InboxClient } from "../packages/inbox/index.mjs";
 import { preparePiProfile } from "../packages/pi-extension/bootstrap.mjs";
 
 async function modelConfig(dir, overrides = {}) {
@@ -33,7 +32,6 @@ async function modelConfig(dir, overrides = {}) {
 
 async function harness(t, { env = {} } = {}) {
   const saved = { ...process.env };
-  delete process.env.MC_INBOX_SOCKET;
   const taskDir = await mkdtemp(join(tmpdir(), "pi-extension-tasks-"));
   t.after(() => rm(taskDir, { recursive: true, force: true }));
   process.env.ARENA_TASK_DIR = taskDir;
@@ -66,22 +64,21 @@ async function harness(t, { env = {} } = {}) {
   });
   const run = (name, args, id = "call") =>
     tools.get(name).execute(id, args, undefined, undefined, ctx);
-  const result = await run(
-    "bash",
-    {
-      command: `${process.execPath} -e 'console.log(JSON.stringify({socketPath:process.env.MC_INBOX_SOCKET,sessionId:process.env.MC_INBOX_SESSION}))'`,
-      wait_seconds: 5,
-    },
-    "environment",
-  );
-  const client = new InboxClient(JSON.parse(result.details.stdout));
+  // A command left running that finishes on its own: the harness then has
+  // a task.completed waiting for the next boundary or wake.
+  let finished = 0;
+  const finishTask = async (output = "finished") => {
+    const id = `finish-${++finished}`;
+    await run("bash", { command: `printf ${output}`, wait_seconds: 0 }, id);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+  };
   return {
     handlers,
     tools,
     sent,
     platform,
     ctx,
-    client,
+    finishTask,
     run,
     setPending: (x) => {
       pending = x;
@@ -148,7 +145,7 @@ test("Pi per-call wait overrides preserve longer waits and explicit kill deadlin
 
 test("Pi hooks coalesce at one top-level return and preserve existing result content", async (t) => {
   const h = await harness(t);
-  await h.client.post({ normal: true });
+  await h.finishTask("normal");
   const event = {
     toolName: "read",
     toolCallId: "read",
@@ -172,90 +169,70 @@ test("Pi hooks coalesce at one top-level return and preserve existing result con
   assert.equal(h.sent.length, 0);
 });
 
-test("the full runtime file keeps program state the compact report omits", async (t) => {
-  const h = await harness(t, {
-    env: {
-      ARENA_SESSION_URL: "",
-    },
-  });
-  const value = { phase: "reported phase", payload: "x".repeat(24000) };
-  await h.client.setStatus("large-program-state", value);
-  // The request-only tail is retired; the compact projection arrives as an
-  // ordinary durable observation message at a natural boundary.
-  const connection = await h.handlers.get("before_agent_start")({}, h.ctx);
-  const compact = JSON.parse(
-    connection.message.content
-      .split("\n")
-      .findLast((line) => line.trim().startsWith("{")),
-  ).changes;
-  assert.equal(compact.programStatus[0].data, undefined);
-  assert.deepEqual(compact.omitted, { programStatusData: 1 });
-  assert(Buffer.byteLength(JSON.stringify(compact.programStatus)) < 8192);
-  const full = JSON.parse(await readFile(compact.fullFile, "utf8"));
-  assert.deepEqual(full.programStatus[0].data, value);
-  assert.equal(full.tasks.length, 1);
-  assert.equal(h.sent.length, 0);
-});
-
-test("after compaction the model gets waiting reports, a full runtime snapshot and the character state before its next request", async (t) => {
+test("after compaction the model gets finished tasks, the commands still running and the character state before its next request", async (t) => {
   const h = await harness(t, {
     env: { ARENA_SESSION_URL: "" },
   });
-  // Establish a delivered runtime baseline, as an earlier turn would.
-  await h.handlers.get("before_agent_start")({}, h.ctx);
-  await h.client.post({ type: "build.step", step: 3 });
-  // A completed task makes a runtime change report wait in the inbox too.
-  await h.run("bash", { command: "true", wait_seconds: 5 }, "later");
+  await h.finishTask("unseen");
+  const running = await h.run(
+    "bash",
+    { command: "sleep 5", wait_seconds: 0 },
+    "still-running",
+  );
   await h.handlers.get("session_compact")({ reason: "threshold" }, h.ctx);
   const [message, options] = h.sent.at(-1);
   assert.equal(message.customType, "arena-after-compaction");
   assert.deepEqual(options, { deliverAs: "steer" });
-  assert.equal(message.details.runtime.type, "runtime.snapshot");
-  assert.equal(message.details.runtime.changes.tasks.length, 2);
+  assert.deepEqual(
+    message.details.tasks.map((task) => task.taskId),
+    [running.details.taskId],
+  );
   assert.equal(
     message.details.character.unavailable,
-    "native bot host unavailable",
+    "no characters in this container",
   );
-  const keys = message.details.batch.messages.map((m) => m.key);
-  assert(!keys.includes("runtime.current"), "the snapshot replaces it");
-  assert(
-    message.details.batch.messages.some((m) => m.data?.type === "build.step"),
-  );
+  assert.equal(message.details.batch.messages[0].data.stdout, "unseen");
   assert.match(message.content, /^Context was compacted/);
 });
 
-test("Pi passive turn boundary persists inbox without requesting continuation", async (t) => {
+test("a finished task rides a turn with tool calls without requesting another turn", async (t) => {
   const h = await harness(t);
-  await h.client.post({ passive: true });
+  await h.finishTask();
   const result = await h.handlers.get("turn_end")(
-    { entries: [{ type: "custom", customType: "previous" }] },
+    {
+      entries: [{ type: "custom", customType: "previous" }],
+      toolResults: [{}],
+    },
     h.ctx,
   );
   assert.equal(result.entries.length, 2);
   assert.equal(result.entries[1].type, "custom_message");
+  assert.match(result.entries[1].content, /task\.completed/);
   assert.equal(result.continue, undefined);
   assert.equal(h.sent.length, 0);
 });
 
-test("idle urgent wakes only when configured; busy urgent releases all bash waits", async (t) => {
+test("a task finishing while the model is busy waits for a boundary; while idle it wakes the model once", async (t) => {
   const h = await harness(t);
-  const pending = [
-    h.run("bash", { command: "sleep 0.2; printf later", timeout: 20 }, "a"),
-    h.run("bash", { command: "sleep 0.2", timeout: 20 }, "b"),
-  ];
-  await new Promise((resolve) => setTimeout(resolve, 30));
-  await h.client.requestJudgment("busy urgent");
-  const results = await Promise.all(pending);
-  assert.ok(results.every((r) => r.details.status === "running"));
+  // Another command's wait is not cut short by it.
+  const waiting = h.run(
+    "bash",
+    { command: "sleep 0.4; printf waited", wait_seconds: 5 },
+    "waiting",
+  );
+  await h.finishTask("busy");
   assert.equal(h.sent.length, 0);
-  await h.handlers.get("tool_result")(
-    { toolCallId: "a", content: results[0].content },
+  assert.equal((await waiting).details.stdout, "waited");
+  const boundary = await h.handlers.get("tool_result")(
+    { toolCallId: "waiting", content: [] },
     h.ctx,
   );
+  assert.match(boundary.content[0].text, /busy/);
   h.setIdle(true);
-  await h.client.requestJudgment("idle urgent");
+  await h.finishTask("idle");
   assert.equal(h.sent.length, 1);
   assert.equal(h.sent[0][1].triggerTurn, true);
+  assert.match(h.sent[0][0].content, /idle/);
 });
 
 test("over the spending limit the next request waits, and the model hears it at the boundary", async (t) => {
@@ -587,8 +564,6 @@ test("session state reaches the model once per change, without a clock", async (
     env: {
       ARENA_SESSION_URL: `http://127.0.0.1:${server.address().port}/v1/session`,
       ARENA_BOT: "clock-fixture",
-      // A host stub, not a game: no default observer/chat scripts.
-      ARENA_DEFAULT_SCRIPTS: "",
     },
   });
   await await h.handlers.get("turn_end")(
@@ -610,7 +585,7 @@ test("session state reaches the model once per change, without a clock", async (
 });
 
 test(
-  "resident bootstrap does not poll a running program even while the trusted match runs",
+  "resident bootstrap does not poll a running program, and its completion wakes the idle model",
   { timeout: 20000 },
   async (t) => {
     const http = await import("node:http");
@@ -622,7 +597,8 @@ test(
     let stdout = "";
     let stderr = "";
     let child;
-    const script = `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(connectionPath)},JSON.stringify({pid:process.pid,socketPath:process.env.MC_INBOX_SOCKET,sessionId:process.env.MC_INBOX_SESSION}));setInterval(()=>{},1000);`;
+    const goPath = join(dir, "go");
+    const script = `const fs=require('node:fs');fs.writeFileSync(${JSON.stringify(connectionPath)},JSON.stringify({pid:process.pid}));setInterval(()=>{if(fs.existsSync(${JSON.stringify(goPath)}))process.exit(0)},20);`;
     const command = `${process.execPath} -e '${script.replaceAll("'", "'\\''")}'`;
     const server = http.createServer(async (req, res) => {
       if (req.url === "/v1/chat") {
@@ -679,7 +655,7 @@ test(
       } else {
         chunk({
           role: "assistant",
-          content: count === 2 ? "idle fixture" : "urgent fixture handled",
+          content: count === 2 ? "idle fixture" : "completion fixture handled",
         });
         chunk({}, "stop");
       }
@@ -704,8 +680,6 @@ test(
       OPENAI_API_KEY: "resident-scoped-fixture-token",
       ARENA_SESSION_URL: `http://127.0.0.1:${server.address().port}/v1/session`,
       ARENA_BOT: "host-resident-fixture",
-      // A host stub, not a game: no default observer/chat scripts.
-      ARENA_DEFAULT_SCRIPTS: "",
       ARENA_IDLE_REMINDER_MS: "30",
       ARENA_TOOL_WAIT_SECONDS: "0.05",
     };
@@ -743,25 +717,22 @@ test(
     const connection = JSON.parse(await readFile(connectionPath, "utf8"));
     assert.doesNotThrow(() => process.kill(connection.pid, 0));
     assert.equal(child.exitCode, null);
-    const client = new InboxClient(connection);
-    await client.post({ observation: "ordinary while idle" });
+    // Neither the idle reminder nor any poll asks the model while it runs.
     await new Promise((resolve) => setTimeout(resolve, 150));
     assert.equal(count, 2);
-    await client.requestJudgment({ question: "urgent while idle" });
-    await waitFor(() => stdout.includes("urgent fixture handled"));
+    await writeFile(goPath, "");
+    await waitFor(() => stdout.includes("completion fixture handled"));
     assert.equal(count, 3);
-    assert.doesNotThrow(() => process.kill(connection.pid, 0));
     const exited = once(child, "exit");
     child.kill("SIGTERM");
     const [code] = await exited;
     assert.equal(code, 0, stderr);
-    assert.throws(() => process.kill(connection.pid, 0), { code: "ESRCH" });
   },
 );
 
-test("urgent at a final boundary continues exactly once; late settled urgent is claimed once", async (t) => {
+test("a task finished at a final boundary continues exactly once; one finished after it wakes once", async (t) => {
   const h = await harness(t);
-  await h.client.requestJudgment("during final assistant response");
+  await h.finishTask("during final assistant response");
   const result = await h.handlers.get("turn_end")(
     { entries: [], toolResults: [], outcome: "completed" },
     h.ctx,
@@ -783,7 +754,7 @@ test("urgent at a final boundary continues exactly once; late settled urgent is 
     ),
     undefined,
   );
-  await h.client.requestJudgment("after final boundary before settled");
+  await h.finishTask("after final boundary before settled");
   h.setIdle(true);
   h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
   h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
@@ -865,8 +836,6 @@ test(
           OPENAI_API_KEY: "model-scoped-token",
           ARENA_SESSION_URL: url,
           ARENA_BOT: "blue-one",
-          // A host stub, not a game: no default observer/chat scripts.
-          ARENA_DEFAULT_SCRIPTS: "",
           ARENA_START_TIMEOUT_MS: "10000",
           ARENA_SESSION_DIR: sessionDir,
           ARENA_RULES_DIR: rulesDir,
@@ -983,8 +952,6 @@ function residentHost(t) {
     env: {
       ARENA_SESSION_URL: "http://host.invalid",
       ARENA_BOT: "fixture-bot",
-      // A host stub, not a game: no default observer/chat scripts.
-      ARENA_DEFAULT_SCRIPTS: "",
       ARENA_IDLE_REMINDER_MS: "30",
     },
     setState: (value) => {
@@ -1059,7 +1026,7 @@ test("idle reminder respects queued turns and freshly checks the host", async (t
   assert.equal(h.sent.length, 1);
   assert.match(
     h.sent[0][0].content,
-    /none of the programs you started is still running/,
+    /none of the commands you started is still running/,
   );
   await delay(80);
   assert.equal(h.sent.length, 1);
@@ -1085,14 +1052,14 @@ test("idle reminder respects queued turns and freshly checks the host", async (t
   assert.equal(h.sent.length, 1, "a fresh host end cancels idle continuation");
 });
 
-test("idle inbox events join an already queued turn without scheduling a second request", async (t) => {
+test("a task finished while a turn is queued joins it without scheduling a second request", async (t) => {
   const h = await harness(t);
   h.setIdle(true);
   h.setPending(true);
-  await h.client.requestJudgment({ question: "deliver with the queued turn" });
+  await h.finishTask("queued");
   assert.equal(h.sent.length, 0);
   const result = await h.handlers.get("tool_result")({ content: [] }, h.ctx);
-  assert.match(result.content[0].text, /deliver with the queued turn/);
+  assert.match(result.content[0].text, /queued/);
 });
 
 test("public data changes ride the next platform message; a changed notice wakes an idle model once", async (t) => {
@@ -1181,11 +1148,8 @@ test("an unusable task directory turns task files off, not the tools", async (t)
   const result = await h.run("bash", { command: "printf ok", wait_seconds: 5 });
   assert.equal(result.details.stdout, "ok");
   assert.equal(result.details.logDir, undefined);
-  const boundary = await h.handlers.get("tool_result")(
-    { content: [{ type: "text", text: "x" }] },
-    h.ctx,
-  );
-  assert.match(JSON.stringify(boundary), /Task files unavailable/);
+  const opening = await h.handlers.get("before_agent_start")({}, h.ctx);
+  assert.match(opening.message.content, /Task files unavailable/);
 });
 
 test("tasks a gone manager left running are marked lost at start", async (t) => {
@@ -1225,33 +1189,4 @@ test("bash takes exactly one of command or taskId, and a kill deadline only for 
     await readFile(join(result.details.logDir, "stdout.log"), "utf8"),
     "hi",
   );
-  // A runtime report (here the opening one) rewrites the full runtime file.
-  await h.handlers.get("before_agent_start")({}, h.ctx);
-  const runtime = JSON.parse(
-    await readFile(join(process.env.ARENA_TASK_DIR, "runtime.json"), "utf8"),
-  );
-  assert.ok(
-    runtime.tasks.some((task) => task.taskId === result.details.taskId),
-  );
-});
-
-test("a bash wait returns early when the program shows no progress", async (t) => {
-  const h = await harness(t, { env: { ARENA_STALL_SECONDS: "0.2" } });
-  assert.match(
-    h.tools.get("bash").description,
-    /stall_seconds \(default 0\.2;/,
-  );
-  const stalled = await h.run(
-    "bash",
-    { command: "sleep 3", wait_seconds: 5 },
-    "stalled",
-  );
-  assert.equal(stalled.details.status, "running");
-  assert.equal(stalled.details.reason, "no progress");
-  const off = await h.run("bash", {
-    taskId: stalled.details.taskId,
-    wait_seconds: 0.5,
-    stall_seconds: 0,
-  });
-  assert.equal(off.details.reason, "wait timeout");
 });

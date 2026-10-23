@@ -5,7 +5,7 @@ description: "Looking up where you can go, without moving: the reach map and ter
 
 # Places and how they connect
 
-These tools only look: they run Pathfinder's search over the blocks your character has received and print text, and nothing moves. To go somewhere, use Pathfinder (see the `arena-navigation` skill). All are run like any module, for example `node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" --target X Y Z`.
+These tools only look: they run Pathfinder's search over the blocks your character has received and print text, and nothing moves. To go somewhere, use Pathfinder (see the `arena-navigation` skill). All are run like any module, for example `mf run "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" --target X Y Z`.
 
 ## Reach map and terrain profile
 
@@ -41,8 +41,8 @@ Once you know how a place is laid out, write down a few representative footholds
 [place-graph.mjs](../../../examples/place-graph.mjs) searches between every pair with Pathfinder's search (nobody moves) and prints one line per pair, the links between your places:
 
 ```sh
-node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/place-graph.mjs"                 # all pairs in waypoints.json
-node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/place-graph.mjs" --here --from here  # from where you stand to each place
+mf run "$ARENA_TOOLKIT_ROOT/examples/place-graph.mjs"                 # all pairs in waypoints.json
+mf run "$ARENA_TOOLKIT_ROOT/examples/place-graph.mjs" --here --from here  # from where you stand to each place
 ```
 
 ```

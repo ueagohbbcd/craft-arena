@@ -155,7 +155,7 @@ export default async function summarizeTerrainProgram(
 ) {
   if (args.length && args.length !== 6)
     throw new Error(
-      `Usage: node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/summarize-terrain.mjs" [minX minY minZ maxX maxY maxZ]`,
+      `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/summarize-terrain.mjs" [minX minY minZ maxX maxY maxZ]`,
     );
   const position = bot.entity.position;
   const [x, y, z, maxX, maxY, maxZ] = args.map(Number);

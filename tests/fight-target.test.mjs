@@ -26,7 +26,7 @@ globalThis.fightTargetNative = {
 };
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier === "../packages/inbox/index.mjs")
+    if (specifier === "mineflayer-world-memory/runtime/inbox/index.mjs")
       return {
         url: `data:text/javascript,${encodeURIComponent("export const InboxClient = globalThis.fightTargetInbox;")}`,
         shortCircuit: true,

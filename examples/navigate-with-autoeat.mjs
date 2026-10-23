@@ -1,6 +1,6 @@
 /** Inbox example: report each meal's cause, observed changes and route recovery. */
 import { once } from "node:events";
-import { InboxClient } from "../packages/inbox/index.mjs";
+import { InboxClient } from "mineflayer-world-memory/runtime/inbox/index.mjs";
 import { loadPathfinder, stopBot } from "./native.mjs";
 
 const foods = new Set([

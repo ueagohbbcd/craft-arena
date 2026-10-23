@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { queryEntitiesIntersecting } from "../packages/observation/queries.mjs";
-import { sampleObservation } from "../packages/observation/index.mjs";
+import { queryEntitiesIntersecting } from "mineflayer-world-memory/runtime/observation/queries.mjs";
+import { sampleObservation } from "mineflayer-world-memory/runtime/observation/index.mjs";
 import { inspectPlacementEntities } from "../examples/inspect-placement-entities.mjs";
 
 const bounds = {

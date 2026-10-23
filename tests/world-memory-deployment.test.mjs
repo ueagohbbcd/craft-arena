@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { parse } from "yaml";
-import { hostEnv } from "../packages/pi-extension/bot-hosts.mjs";
+import { hostEnv } from "mineflayer-world-memory/runtime/host/launcher.mjs";
 
 test("Compose templates forward optional history mode without a shared cache directory", async () => {
   for (const path of [

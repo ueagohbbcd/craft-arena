@@ -7,8 +7,8 @@ There is no built-in image tool, and `examples/observe.mjs` prints text only. If
 ## Take a screenshot
 
 ```sh
-node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                       # around your feet
-node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20   # minX minY minZ maxX maxY maxZ
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                       # around your feet
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20   # minX minY minZ maxX maxY maxZ
 ```
 
 |             |                                                                                                                                       |

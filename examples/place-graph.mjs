@@ -3,7 +3,7 @@
  * Pathfinder's own search. For looking up only: nothing moves. To go
  * somewhere, use Pathfinder (see the arena-navigation skill).
  *
- *   node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/place-graph.mjs" [--file waypoints.json]
+ *   mf run "$ARENA_TOOLKIT_ROOT/examples/place-graph.mjs" [--file waypoints.json]
  *     [--here] [--from NAME] [--only NAME,NAME,...] [--blocks N]
  *     [--timeout MS] [--budget S] [--no-parkour] [--max-drop N]
  *
@@ -24,7 +24,7 @@ import {
   parseWaypoints,
   linkConfigs,
   placeGraph,
-} from "../packages/observation/place-graph.mjs";
+} from "mineflayer-world-memory/runtime/observation/place-graph.mjs";
 import { worldReader } from "./reach-map.mjs";
 
 export function parsePlaceGraphArgs(args) {

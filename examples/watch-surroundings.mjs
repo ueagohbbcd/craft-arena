@@ -1,8 +1,8 @@
 // Watch loaded nearby blocks and report discoveries through InboxClient.
 import { setTimeout as sleep } from "node:timers/promises";
-import { InboxClient } from "../packages/inbox/index.mjs";
+import { InboxClient } from "mineflayer-world-memory/runtime/inbox/index.mjs";
 import { Vec3 } from "vec3";
-import { sampleNearbyConnectedBlocks } from "../packages/observation/nearby-connected-blocks.mjs";
+import { sampleNearbyConnectedBlocks } from "mineflayer-world-memory/runtime/observation/nearby-connected-blocks.mjs";
 
 export default async function watchSurroundings(
   bot,

@@ -1,14 +1,14 @@
 /**
  * One state sample, printed as JSON:
  *
- *   node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/observe.mjs" [--full-entities] [--full-local] [--full-items]
+ *   mf run "$ARENA_TOOLKIT_ROOT/examples/observe.mjs" [--full-entities] [--full-local] [--full-items]
  *
  * Uses the same public session facts (teams, goal items) and observer
  * configuration as the default observer. Programs can import `observe`.
  */
-import { observe } from "../packages/observation/observe.mjs";
-import { observationOptionsFromSession } from "../packages/observation/session-options.mjs";
-import { readObserverOptions } from "../packages/observation/observer-config.mjs";
+import { observe } from "mineflayer-world-memory/runtime/observation/observe.mjs";
+import { observationOptionsFromSession } from "mineflayer-world-memory/runtime/observation/session-options.mjs";
+import { readObserverOptions } from "mineflayer-world-memory/runtime/observation/observer-config.mjs";
 export { observe };
 
 const flags = {

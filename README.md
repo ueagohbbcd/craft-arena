@@ -16,7 +16,7 @@ export default async function (bot, { signal, args, log }) {
 Run a module from `bash` with:
 
 ```sh
-node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" task.mjs [args...]
+mf run task.mjs [args...]
 ```
 
 The Unix socket between the task process and bot host supports module run/cancel, task status, and session reads. Game control and world queries stay in-process on the native bot. `arena-task cancel <taskId>` sends cancellation to the module. The host gives it time to clean up; if it remains active, the host process is killed and restarted. That also ends other modules running in that character's process; those tasks fail rather than reporting success.

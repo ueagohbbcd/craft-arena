@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { sampleEntities, watchEntities } from "../examples/entity-radar.mjs";
-import { Inbox } from "../packages/inbox/index.mjs";
+import { Inbox } from "mineflayer-world-memory/runtime/inbox/index.mjs";
 const entity = (id, x) => ({
   id,
   type: "player",

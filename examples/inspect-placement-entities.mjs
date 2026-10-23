@@ -1,6 +1,6 @@
 /**
  * Inspect observed entity overlap at a placement target:
- *   node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/inspect-placement-entities.mjs" X Y Z
+ *   mf run "$ARENA_TOOLKIT_ROOT/examples/inspect-placement-entities.mjs" X Y Z
  * X Y Z are the intended new block, not the reference block clicked by placeBlock.
  * The default entity summary can omit a nearby bat or other low-priority entity.
  * This query filters the full observed mirror before limiting its output.
@@ -14,7 +14,7 @@
  * Check mirror age and the actual target block alongside these candidates.
  * Pose-specific and server collision rules may differ from the observed boxes.
  */
-import { queryEntitiesIntersecting } from "../packages/observation/queries.mjs";
+import { queryEntitiesIntersecting } from "mineflayer-world-memory/runtime/observation/queries.mjs";
 
 export function inspectPlacementEntities(bot, target, { limit = 12 } = {}) {
   if (!["x", "y", "z"].every((axis) => Number.isSafeInteger(target?.[axis])))
@@ -36,7 +36,7 @@ export default async function inspectPlacementEntitiesProgram(
 ) {
   if (args.length !== 3 || !args.map(Number).every(Number.isSafeInteger))
     throw new Error(
-      `Usage: node "$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs" "$ARENA_TOOLKIT_ROOT/examples/inspect-placement-entities.mjs" X Y Z`,
+      `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/inspect-placement-entities.mjs" X Y Z`,
     );
   const [x, y, z] = args.map(Number);
   log(JSON.stringify(inspectPlacementEntities(bot, { x, y, z })));

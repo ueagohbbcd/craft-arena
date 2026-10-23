@@ -181,15 +181,8 @@ test("participant image carries only participant-side code", async () => {
   const copied = [...dockerfile.matchAll(/^COPY --chown=node:node (\S+) /gm)]
     .map((m) => m[1])
     .filter((path) => path !== "package.json");
-  const participant = [
-    "pi-extension",
-    "tasks",
-    "inbox",
-    "bot-host",
-    "observation",
-    "default-scripts",
-    "world-visual",
-  ];
+  // The characters and their runtime come from the toolkit package.
+  const participant = ["pi-extension", "world-visual"];
   for (const path of copied)
     if (path.startsWith("packages"))
       assert.ok(
@@ -198,10 +191,6 @@ test("participant image carries only participant-side code", async () => {
       );
   for (const name of participant)
     assert.ok(copied.includes(`packages/${name}`), `missing packages/${name}`);
-  assert.ok(
-    copied.includes("packages/bot-host"),
-    "native bot host is required",
-  );
   assert.ok(
     !copied.includes("packages/login-gate"),
     "login gate is trusted-side code",

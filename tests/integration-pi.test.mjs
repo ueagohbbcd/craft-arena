@@ -15,7 +15,6 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { createModelRelay } from "../packages/model-relay/index.mjs";
-import { InboxClient } from "../packages/inbox/index.mjs";
 import inboxExtension from "../packages/pi-extension/index.mjs";
 process.env.PI_OFFLINE = "1";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -188,7 +187,6 @@ async function harness(
 function nodeCommand(script) {
   return `${quote(process.execPath)} --input-type=module -e ${quote(script)}`;
 }
-const ipcImport = `import {InboxClient} from ${JSON.stringify(resolve("packages/inbox/index.mjs"))};const client=new InboxClient();`;
 
 test(
   "real Pi omitted bash wait budgets resume with fresh state while one command continues",
@@ -205,7 +203,8 @@ test(
     const waits = [];
     try {
       h = await harness(t, async (body, n, dir) => {
-        if (n === 1)
+        if (n === 1) {
+          firstStartedAt = Date.now();
           return [
             {
               id: "budget-command",
@@ -217,35 +216,19 @@ test(
               },
             },
           ];
+        }
         const result = JSON.parse(
           body.messages
             .filter((message) => message.role === "tool")
             .at(-1)
             .content.split("\n")[0],
         );
-        // Apply durable replaced sections; unchanged tasks need not be repeated.
-        let tasks = [];
-        for (const message of body.messages) {
-          if (typeof message.content !== "string") continue;
-          const marker = message.content.indexOf("Inbox reports");
-          if (marker < 0) continue;
-          const batch = JSON.parse(
-            message.content.slice(message.content.indexOf("\n", marker) + 1),
-          );
-          for (const { data } of batch.messages)
-            if (data.type?.startsWith("runtime.") && data.changes?.tasks)
-              tasks = data.changes.tasks;
-        }
         if (n === 2 || n === 3) {
           assert.equal(result.status, "running");
           assert.equal(result.reason, "wait timeout");
           assert.equal(result.timedOut, undefined);
           assert.equal(result.taskId, taskId ?? result.taskId);
           taskId = result.taskId;
-          const task = tasks.find((task) => task.taskId === taskId);
-          assert.equal(task.status, "running");
-          assert.equal(task.startedAt, firstStartedAt ?? task.startedAt);
-          firstStartedAt = task.startedAt;
           // Allow startup to finish even on a heavily loaded CI machine.
           for (let i = 0; i < 200; i++) {
             const worker = await readFile(join(dir, "worker.json"), "utf8")
@@ -314,106 +297,36 @@ test(
 );
 
 test(
-  "real Pi loads extension; normal program IPC joins bash result without an extra model invocation",
-  { timeout: 15000 },
-  async (t) => {
-    const h = await harness(t, (_body, n) =>
-      n === 1
-        ? [
-            {
-              id: "normal-task",
-              name: "bash",
-              args: {
-                command: nodeCommand(
-                  `${ipcImport}await client.post({marker:'ordinary-observation'});await new Promise(r=>setTimeout(r,100));console.log('normal-finished');`,
-                ),
-                timeout: 5,
-              },
-            },
-          ]
-        : "done",
-    );
-    await h.session.prompt("Run the provided fixture.");
-    assert.equal(h.requests.length, 2);
-    const finalContext = JSON.stringify(h.requests[1].messages);
-    assert.match(finalContext, /ordinary-observation/);
-    assert.match(finalContext, /normal-finished/);
-    assert.equal(
-      h.events.filter((e) => e.type === "tool_execution_end").length,
-      1,
-    );
-  },
-);
-
-test(
-  "real Pi urgent IPC releases a parallel bash batch and later completion is delivered exactly once",
+  "real Pi parallel bash batch returns at its wait budget and each later completion is delivered exactly once",
   { timeout: 20000 },
   async (t) => {
-    let firstFollowup;
+    const gated = (dir, name) =>
+      nodeCommand(
+        `import{writeFile,access}from'node:fs/promises';while(await access(${JSON.stringify(join(dir, "release-children"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,20));await writeFile(${JSON.stringify(join(dir, `finished-${name}`))},'yes');console.log('unique-completion-'+'${name}');`,
+      );
     const h = await harness(t, (_body, n, dir) => {
       if (n === 1)
-        return [
-          {
-            id: "urgent-a",
-            name: "bash",
-            args: {
-              command: nodeCommand(
-                `${ipcImport}await client.post({marker:'ordinary-before-urgent'});await new Promise(r=>setTimeout(r,120));await client.requestJudgment({marker:'judge-now'});const{access}=await import('node:fs/promises');while(await access(${JSON.stringify(join(dir, "release-children"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,20));console.log('unique-completion-a');`,
-              ),
-              timeout: 10,
-            },
-          },
-          {
-            id: "urgent-b",
-            name: "bash",
-            args: {
-              command: nodeCommand(
-                `import{writeFile,access}from'node:fs/promises';while(await access(${JSON.stringify(join(dir, "release-children"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,20));await writeFile(${JSON.stringify(join(dir, "child-finished"))},'yes');console.log('unique-completion-b');`,
-              ),
-              timeout: 10,
-            },
-          },
-        ];
-      if (n === 2) {
-        firstFollowup = Date.now();
-        return "Released batch observed.";
-      }
-      if (n === 3)
-        return [
-          {
-            id: "drain-late",
-            name: "bash",
-            args: { command: "printf boundary", timeout: 1 },
-          },
-        ];
+        return ["a", "b"].map((name) => ({
+          id: `parallel-${name}`,
+          name: "bash",
+          args: { command: gated(dir, name), wait_seconds: 0.3, timeout: 10 },
+        }));
+      if (n === 2) return "Batch returned while both still run.";
       return "done";
     });
-    const start = Date.now();
     await h.session.prompt("Run the parallel fixtures.");
     assert.equal(h.requests.length, 2);
-    assert.ok(firstFollowup >= start);
     await assert.rejects(
-      readFile(join(h.dir, "child-finished")),
+      readFile(join(h.dir, "finished-a")),
       { code: "ENOENT" },
       "model resumes while children are still gated",
     );
-    const context = JSON.stringify(h.requests[1].messages);
-    assert.match(context, /judge-now/);
-    assert.match(context, /ordinary-before-urgent/);
     const results = h.requests[1].messages.filter((m) => m.role === "tool");
     assert.equal(results.length, 2);
     for (const r of results) assert.match(JSON.stringify(r), /running/);
     await writeFile(join(h.dir, "release-children"), "go");
-    for (let n = 0; n < 100; n++) {
-      if (
-        await readFile(join(h.dir, "child-finished"), "utf8").catch(() => false)
-      )
-        break;
-      await sleep(20);
-    }
-    assert.equal(await readFile(join(h.dir, "child-finished"), "utf8"), "yes");
-    // A finished task needs a decision, so it wakes the idle model.
-    for (let n = 0; n < 100 && h.requests.length < 3; n++) await sleep(20);
+    // A finished task wakes the idle model.
+    for (let n = 0; n < 150 && h.requests.length < 3; n++) await sleep(20);
     await sleep(200);
     assert.ok(h.requests.length >= 3, "a late completion wakes the model");
     // The newest request carries the whole history: each completion once.
@@ -478,7 +391,7 @@ test(
 );
 
 test(
-  "real codemode can filter its raw nested result while unrelated inbox survives at the top-level boundary",
+  "real codemode can filter its raw nested result while an unrelated finished task survives at the top-level boundary",
   { timeout: 20000 },
   async (t) => {
     const nested = [];
@@ -490,9 +403,12 @@ test(
           content: event.content,
         });
       });
-    const command = nodeCommand(
-      `${ipcImport}await client.post({marker:'nested-observation'});console.log('nested-output-survives-filter');`,
-    );
+    // The first command finishes while the second is still being waited on.
+    const background = {
+      command: "printf background-finished",
+      wait_seconds: 0,
+    };
+    const command = "sleep 0.3; printf nested-output-survives-filter";
     const h = await harness(
       t,
       (_body, n) =>
@@ -502,7 +418,7 @@ test(
                 id: "outer-codemode",
                 name: "codemode",
                 args: {
-                  code: `const raw=await tools.bash(${JSON.stringify({ command, timeout: 5 })}); if(!raw.stdout?.includes('nested-output-survives-filter'))throw new Error('Nested caller did not receive raw output');text('only selected text');`,
+                  code: `await tools.bash(${JSON.stringify(background)});const raw=await tools.bash(${JSON.stringify({ command, timeout: 5 })}); if(!raw.stdout?.includes('nested-output-survives-filter'))throw new Error('Nested caller did not receive raw output');text('only selected text');`,
                 },
               },
             ]
@@ -518,11 +434,11 @@ test(
       h.requests[1].messages.filter((m) => m.role === "tool"),
     );
     assert.match(transcript, /only selected text/);
-    assert.match(transcript, /nested-observation/);
+    assert.match(transcript, /background-finished/);
     assert.doesNotMatch(transcript, /nested-output-survives-filter/);
-    const bash = nested.find((e) => e.name === "bash");
+    const bash = nested.filter((e) => e.name === "bash").at(-1);
     assert.equal(bash.parent, "outer-codemode");
-    assert.doesNotMatch(JSON.stringify(bash.content), /nested-observation/);
+    assert.doesNotMatch(JSON.stringify(bash.content), /background-finished/);
     assert.equal(
       h.requests[1].messages.filter((m) => m.role === "tool").length,
       1,
@@ -592,7 +508,7 @@ for (const nested of [false, true])
 
 /** Run the shipped launcher once with --print against a fixture upstream. */
 test(
-  "after compaction the next request carries the full runtime state",
+  "after compaction the next request carries the current state",
   { timeout: 30000 },
   async (t) => {
     const h = await harness(t, () => "Noted.", {
@@ -604,7 +520,7 @@ test(
     await h.session.prompt("Continue.");
     const last = JSON.stringify(h.requests.at(-1).messages);
     assert.match(last, /Context was compacted/);
-    assert.match(last, /runtime\.snapshot/);
+    assert.match(last, /no characters in this container/);
   },
 );
 
@@ -701,10 +617,6 @@ async function runBootstrapPrint(t, configure) {
     received[0].body.tools.find((x) => x.function.name === "bash").function
       .parameters.properties.wait_seconds,
     "extension overrides built-in bash",
-  );
-  assert.match(
-    JSON.stringify(received[0].body.messages),
-    /Inbox open for session/,
   );
   return { dir, received, stdout };
 }
@@ -813,7 +725,7 @@ test(
 );
 
 test(
-  "resident bootstrap keeps child alive after final answer, resumes same session on urgent IPC and reaps on host end",
+  "resident bootstrap keeps child alive after final answer, resumes the same session when a command finishes and reaps on host end",
   { timeout: 30000 },
   async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "mc-resident-integration-"));
@@ -844,31 +756,36 @@ test(
       let raw = "";
       for await (const c of req) raw += c;
       requests.push(JSON.parse(raw));
-      const command = nodeCommand(
-        `${ipcImport}const{writeFile,access}=await import('node:fs/promises');await writeFile(${JSON.stringify(join(dir, "worker.json"))},JSON.stringify({pid:process.pid,session:process.env.MC_INBOX_SESSION}));while(await access(${JSON.stringify(join(dir, "send-urgent"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,20));await client.requestJudgment({marker:'resident-urgent-observation'});await new Promise(()=>{setInterval(()=>{},1000)});`,
+      // One command stays until the session ends; the other ends on a signal file.
+      const lasting = nodeCommand(
+        `const{writeFile}=await import('node:fs/promises');await writeFile(${JSON.stringify(join(dir, "worker.json"))},JSON.stringify({pid:process.pid}));await new Promise(()=>{setInterval(()=>{},1000)});`,
+      );
+      const ending = nodeCommand(
+        `const{access}=await import('node:fs/promises');while(await access(${JSON.stringify(join(dir, "finish"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,20));console.log('resident-finished-'+'command');`,
       );
       const delta =
         requests.length === 1
           ? {
               role: "assistant",
               tool_calls: [
-                {
-                  index: 0,
-                  id: "resident-background",
-                  type: "function",
-                  function: {
-                    name: "bash",
-                    arguments: JSON.stringify({ command, wait_seconds: 0 }),
-                  },
+                ["resident-background", lasting],
+                ["resident-ending", ending],
+              ].map(([id, command], index) => ({
+                index,
+                id,
+                type: "function",
+                function: {
+                  name: "bash",
+                  arguments: JSON.stringify({ command, wait_seconds: 0 }),
                 },
-              ],
+              })),
             }
           : {
               role: "assistant",
               content:
                 requests.length === 2
                   ? "resident-idle-ready"
-                  : "resident-urgent-acknowledged",
+                  : "resident-completion-acknowledged",
             };
       res.writeHead(200, { "content-type": "text/event-stream" });
       res.end(
@@ -981,15 +898,15 @@ test(
     assert.match(second, /Arena platform message/);
     assert.doesNotMatch(second, /elapsedMs|remainingMs/);
     assert.match(second, /resident-fixture/);
-    await writeFile(join(dir, "send-urgent"), "go");
+    await writeFile(join(dir, "finish"), "go");
     await until(
       () =>
         requests.length === 3 &&
-        stdout.includes("resident-urgent-acknowledged"),
-      "urgent continuation",
+        stdout.includes("resident-completion-acknowledged"),
+      "completion continuation",
     );
     const continuation = JSON.stringify(requests[2].messages);
-    assert.match(continuation, /resident-urgent-observation/);
+    assert.match(continuation, /resident-finished-command/);
     assert.match(continuation, /Start the resident fixture/);
     assert.match(continuation, /resident-background/);
     assert.match(continuation, /resident-idle-ready/);
@@ -1009,108 +926,51 @@ test(
   },
 );
 
-for (const urgent of [false, true])
-  test(
-    `real Pi ${urgent ? "urgent" : "passive"} IPC during final response stream ${urgent ? "continues exactly once" : "does not force continuation"}`,
-    { timeout: 15000 },
-    async (t) => {
-      const h = await harness(t, async (_body, n, dir) => {
-        if (n === 1)
-          return [
-            {
-              id: "stream-connection",
-              name: "bash",
-              args: {
-                command: nodeCommand(
-                  `import{writeFile}from'node:fs/promises';await writeFile(${JSON.stringify(join(dir, "connection.json"))},JSON.stringify({socketPath:process.env.MC_INBOX_SOCKET,sessionId:process.env.MC_INBOX_SESSION}));`,
-                ),
-              },
-            },
-          ];
-        if (n === 2)
-          return {
-            streamText: "final answer is streaming",
-            afterStart: async () => {
-              await sleep(40);
-              assert.equal(
-                h.session.isStreaming,
-                true,
-                "IPC arrives during real streamed final response",
-              );
-              const client = new InboxClient(
-                JSON.parse(
-                  await readFile(join(dir, "connection.json"), "utf8"),
-                ),
-              );
-              if (urgent)
-                await client.requestJudgment({
-                  marker: "during-final-stream-event",
-                });
-              else await client.post({ marker: "during-final-stream-event" });
-              await sleep(40);
-            },
-          };
-        return "continuation after streamed urgent event";
-      });
-      await h.session.prompt("Exercise the final streaming boundary.");
-      await sleep(100);
-      assert.equal(h.requests.length, urgent ? 3 : 2);
-      const delivered = h.session.messages
-        .filter((m) => m.role === "custom" && m.customType === "arena-inbox")
-        .flatMap((m) => m.details?.messages ?? [])
-        .filter((m) => m.data.marker === "during-final-stream-event");
-      assert.equal(
-        delivered.length,
-        1,
-        "the event is delivered once at the final boundary",
-      );
-      if (urgent) {
-        const context = JSON.stringify(h.requests[2].messages);
-        assert.match(context, /Exercise the final streaming boundary/);
-        assert.match(context, /final answer is streaming/);
-        assert.equal(
-          (context.match(/during-final-stream-event/g) || []).length,
-          1,
-        );
-      }
-    },
-  );
-
-/** The platform update as the model received it in a request. */
-function platformFromRequest(request) {
-  for (const m of request.messages) {
-    const text =
-      typeof m.content === "string"
-        ? m.content
-        : Array.isArray(m.content)
-          ? m.content.map((c) => c.text ?? "").join("")
-          : "";
-    const at = text.indexOf("Arena platform message");
-    if (at >= 0) return JSON.parse(text.slice(text.indexOf("\n", at) + 1));
-  }
-}
-test("default real Pi persists runtime task changes and has no temporary tail", async (t) => {
-  const h = await harness(t, async (_body, n) =>
-    n === 1
-      ? [
+test(
+  "real Pi: a command finishing during the final response stream continues exactly once",
+  { timeout: 15000 },
+  async (t) => {
+    const h = await harness(t, async (_body, n, dir) => {
+      if (n === 1)
+        return [
           {
-            id: "one",
+            id: "stream-background",
             name: "bash",
-            args: { command: "printf hello", wait_seconds: 1 },
+            args: {
+              command: nodeCommand(
+                `const{access}=await import('node:fs/promises');while(await access(${JSON.stringify(join(dir, "finish"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,10));console.log('during-final-'+'stream-event');`,
+              ),
+              wait_seconds: 0,
+            },
           },
-        ]
-      : "done",
-  );
-  await h.session.prompt("Run one command.");
-  assert.equal(h.requests.length, 2);
-  const request = JSON.stringify(h.requests[1].messages);
-  assert.match(request, /runtime.snapshot/);
-  assert.match(request, /runtime.changed/);
-  assert.doesNotMatch(
-    request,
-    /Current observation for this model request only/,
-  );
-  const history = JSON.stringify(h.session.agent.state.messages);
-  assert.match(history, /runtime.snapshot/);
-  assert.match(history, /runtime.changed/);
-});
+        ];
+      if (n === 2)
+        return {
+          streamText: "final answer is streaming",
+          afterStart: async () => {
+            await sleep(40);
+            assert.equal(
+              h.session.isStreaming,
+              true,
+              "the command ends during the real streamed final response",
+            );
+            await writeFile(join(dir, "finish"), "go");
+            await sleep(200);
+          },
+        };
+      return "continuation after the finished command";
+    });
+    await h.session.prompt("Exercise the final streaming boundary.");
+    await sleep(100);
+    assert.equal(h.requests.length, 3);
+    const delivered = h.session.messages
+      .filter((m) => m.role === "custom" && m.customType === "arena-tasks")
+      .flatMap((m) => m.details?.messages ?? [])
+      .filter((m) => m.data.stdout?.includes("during-final-stream-event"));
+    assert.equal(delivered.length, 1, "delivered once at the final boundary");
+    const context = JSON.stringify(h.requests[2].messages);
+    assert.match(context, /Exercise the final streaming boundary/);
+    assert.match(context, /final answer is streaming/);
+    assert.equal((context.match(/during-final-stream-event/g) || []).length, 1);
+  },
+);
