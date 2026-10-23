@@ -1,4 +1,4 @@
-/** Offline Prismarine screenshot using synthetic blocks; needs Chromium, no game connection. */
+/** Offline Prismarine screenshot using synthetic blocks; needs the renderer's native packages and Xvfb, no game connection. */
 import { resolve } from "node:path";
 import { fixtureWorld } from "./fixture-world.mjs";
 import { capturePrismarineSnapshot } from "../packages/world-visual/prismarine.mjs";

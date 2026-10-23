@@ -34,7 +34,7 @@
 | 服务器协议 v1、`race-of-wool`／`arena-example` 数据包                                  | 实服验证           | `tests/datapack-*.test.mjs`（静态）；2026-10-14 实服运行                                     | 胜、平、`#arena:stop`、`durationMs` 倒数判平、拆除目标回落、区块强制加载与释放；Direct Fire 地图本身没有装进去跑    |
 | 参赛镜像只含参赛侧代码                                                                 | 夹具测试           | `tests/deployment.test.mjs`；按清单复制的目录能加载全部参赛侧模块                            | 没有在这个环境里构建镜像（没有 Docker 守护进程）                                                                    |
 | 服务端录像                                                                             | 无                 | 平台不再自动录像，运营者通过命令行发 ServerReplay 命令                                       | 真实服务器录像输出与回放播放都没验收                                                                                |
-| 截图脚本                                                                               | 夹具测试           | `tests/visual-*.test.mjs`                                                                    | 真实 Chromium 测试需 `MC_TEST_CHROMIUM=1`；上次跑通是 2026-10-11 的 Windows 部署，在删除 Pi 里的图像工具之前        |
+| 截图脚本                                                                               | 夹具测试           | `tests/visual-*.test.mjs`                                                                    | 有 `gl`、`canvas` 和 X 显示（或 `xvfb-run`）时跑真实 headless-gl 渲染，CI 上也跑；2026-10-23 在本地实服上实拍核对过 |
 | Windows 本机部署                                                                       | 部署验证（旧代码） | `tests/deployment.test.mjs`、`tests/windows-*.test.mjs`                                      | 2026-10-11 跑过。删除 OAuth 适配器（`e6933a4`）后 PowerShell 脚本没有重跑；`windows-initialize` 只在 Windows 上运行 |
 | 完整自主对局                                                                           | 无                 | —                                                                                            | 没有一场从开局到判胜、全程无人干预的记录                                                                            |
 
@@ -68,7 +68,7 @@ npm run check                     # 语法检查
 npm run format:check              # prettier
 npm test                          # 全部测试（npm run validate = check + test）
 node packages/arena/src/cli.mjs check infra/match.live.template.json
-npm run demo:screenshot           # 需要本地 Chromium 和可选依赖
+npm run demo:screenshot           # 需要可选依赖 gl、canvas 和 Xvfb
 ```
 
 单独跑的测试：
@@ -77,7 +77,7 @@ npm run demo:screenshot           # 需要本地 Chromium 和可选依赖
 | ------------------------------------------------------------------------------------------------------------- | ------------------------------------------- |
 | `node --test tests/integration-pi.test.mjs`                                                                   | 真实 Pi 集成测试                            |
 | `ARENA_TEST_REAL_DEFAULT_WAIT=1 node --test --test-name-pattern='omitted bash' tests/integration-pi.test.mjs` | 用真实的 30 秒默认等待时长（CI 用 0.12 秒） |
-| `MC_TEST_CHROMIUM=1 node --test tests/visual-prismarine.test.mjs`                                             | 真实 Chromium 截图                          |
+| `node --test tests/visual-prismarine.test.mjs`                                                                | 真实 headless-gl 截图                       |
 
 部署检查见 [infra/README.md](../infra/README.md) 和 [infra/windows-local/README.md](../infra/windows-local/README.md)。
 

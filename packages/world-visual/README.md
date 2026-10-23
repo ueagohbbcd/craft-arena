@@ -2,7 +2,7 @@
 
 This package draws pictures of the blocks your character has loaded. Nothing sends you a picture on its own: run [examples/screenshot.mjs](../../examples/screenshot.mjs) when a decision depends on shape, such as a doorway, a wall or stacked levels.
 
-There is no built-in image tool, and `examples/observe.mjs` prints text only. If Chromium is missing, images fail but text reports keep working.
+There is no built-in image tool, and `examples/observe.mjs` prints text only. If the renderer's native packages or Xvfb are missing, images fail but text reports keep working.
 
 ## Take a screenshot
 
@@ -28,7 +28,7 @@ mf run "$ARENA_TOOLKIT_ROOT/examples/pick.mjs" out/shot-3.png 410 285           
 
 `pick.mjs IMAGE X Y [X Y]... [IMAGE2 X Y]...` takes pixels of the whole image. For each it casts the camera's ray through the saved cells of that view's box and returns the first block it hits (`name`, `x y z`, `face`), the cell in front of that face (`standable` for a top face with two air cells) and an entity the ray hits first. Pixels from two or more different views also give `meet`: the point nearest to all the rays, which may be in the air, with `spread` (how far apart the rays pass). Pure geometry lives in [camera.mjs](camera.mjs): `projectPoint`, `pixelRay`, `raycastCells` and `nearestPointToRays` match the viewer's camera (eye 1.6 above `camera.position`, Euler `pitch, yaw, 0, 'ZYX'`, 75° vertical fov).
 
-The module reads the live bot state and renders a local snapshot; the host connection remains available to other modules. It takes several seconds because it starts a headless Chromium (`CHROMIUM_PATH`, `/usr/bin/chromium` by default). Modules it imports, such as `prismarine.mjs`, are cached by the character process: restart the character after changing them.
+The module reads the live bot state and renders a local snapshot; the host connection remains available to other modules. It takes a few seconds (about 3 s for two views on the Direct Fire map): a separate Node process ([gl-render.mjs](gl-render.mjs)) renders the views with the same viewer on headless-gl, under `xvfb-run` when `DISPLAY` is not set, then crops, stitches and labels them with node-canvas. Modules it imports, such as `prismarine.mjs`, are cached by the character process: restart the character after changing them.
 
 To render in your own program, take a snapshot and pass it to `capturePrismarineViews`:
 
@@ -62,7 +62,7 @@ export default async function (bot) {
 
 Each view is textured (Minecraft models and textures); light is full everywhere. Its metadata gives `knownFraction`, `bounds`, `camera` and `defaultedStates` (blocks drawn in their default orientation because the snapshot had no state id).
 
-For a map-like view, `renderMinimap(snapshot, {width, height})` from `mineflayer-world-memory/live.mjs` draws a top-down picture (no Chromium needed) that marks what is known:
+For a map-like view, `renderMinimap(snapshot, {width, height})` from `mineflayer-world-memory/live.mjs` draws a top-down picture (no renderer needed) that marks what is known:
 
 | Colour                            | Meaning                                                                                                           |
 | --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
@@ -102,18 +102,19 @@ Both renderers take this object (`snapshotFromBot(bot, {bounds})` reads it direc
 
 ## Dependencies
 
-| Part                            | Needs                                                                                                                                                                                                                                                                                                       |
-| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Top-down and schematic pictures | Node built-ins and `mineflayer-world-memory`                                                                                                                                                                                                                                                                |
-| Textured views (screenshot)     | Optional dependencies `prismarine-viewer` and `playwright` in the root `package.json` (with their dependencies `prismarine-chunk`, `minecraft-data`, `express`, `socket.io`, `playwright-core`), and a Chromium binary at `CHROMIUM_PATH` (default `/usr/bin/chromium`; installed in the participant image) |
+| Part                            | Needs                                                                                                                                                                                                                                                                                              |
+| ------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Top-down and schematic pictures | Node built-ins and `mineflayer-world-memory`                                                                                                                                                                                                                                                       |
+| Textured views (screenshot)     | Optional dependencies `prismarine-viewer`, `gl` (headless-gl 9.0.0-rc.10: the first release with prebuilt binaries for Node 24) and `canvas` in the root `package.json`, and `xvfb-run` (package `xvfb`, with `xauth`) for the X display headless-gl needs; all installed in the participant image |
 
-A missing package throws an error that says what to install. The viewer server (`servePrismarineSnapshot`) listens on 127.0.0.1 only and never connects to Minecraft. Block states are remapped to the patch release the viewer supports for the same minor version (1.20.4 renders as 1.20.1). Textures come from the installed `prismarine-viewer` package; this repository ships no texture files.
+A missing package throws an error that says what to install. Nothing connects to Minecraft or listens on a port. The viewer meshes only y 0 to 255 (and skips faces next to y < 0), so each box is moved up or down into that range while rendering and the camera with it; a box can be at most 256 blocks high. Its own wait for finished meshes returns early when a section was marked twice, so the renderer waits until the meshing workers go quiet. Block states are remapped to the patch release the viewer supports for the same minor version (1.20.4 renders as 1.20.1). Textures come from the installed `prismarine-viewer` package; this repository ships no texture files.
 
 ## Files and tests
 
-| File                             | Contents                                                                            |
-| -------------------------------- | ----------------------------------------------------------------------------------- |
-| [prismarine.mjs](prismarine.mjs) | `servePrismarineSnapshot`, `capturePrismarineSnapshot` and `capturePrismarineViews` |
+| File                             | Contents                                                                                                      |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| [prismarine.mjs](prismarine.mjs) | `prismarineScene` (snapshot → viewer chunk columns), `capturePrismarineSnapshot` and `capturePrismarineViews` |
+| [gl-render.mjs](gl-render.mjs)   | The renderer process: viewer on headless-gl, clipping, crop, stitching, marks and labels                      |
 
 - `node --test tests/visual-viewer.test.mjs`: camera directions, camera fitting, state-id remapping.
-- `node --test tests/visual-prismarine.test.mjs`: serves the real viewer and decodes a real chunk. `MC_TEST_CHROMIUM=1` adds a real Chromium capture.
+- `node --test tests/visual-prismarine.test.mjs`: real chunk state, the y shift below 0, and real headless-gl renders (skipped without `gl`, `canvas` and an X display or `xvfb-run`).
