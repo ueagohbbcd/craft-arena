@@ -61,7 +61,7 @@ async function loadShot(image) {
   const nameAnywhere = (x, y, z) =>
     scenes.find((sc) => sc.inside(x, y, z))?.nameAt(x, y, z) ??
     "outside every box";
-  return { metadata, scenes, nameAnywhere };
+  return { metadata, scenes, nameAnywhere, cutFaces: cells.cutFaces !== false };
 }
 
 /** Distance along a ray to an entity's box, or null. */
@@ -98,7 +98,7 @@ export default async function pick(bot, { args = [] }) {
   const picks = [];
   for (const p of points) {
     if (!shots.has(p.image)) shots.set(p.image, await loadShot(p.image));
-    const { metadata, scenes, nameAnywhere } = shots.get(p.image);
+    const { metadata, scenes, nameAnywhere, cutFaces } = shots.get(p.image);
     const view = metadata.views.find(
       ({ viewport: v }) =>
         p.x >= v.x && p.x < v.x + v.width && p.y >= v.y && p.y < v.y + v.height,
@@ -113,10 +113,15 @@ export default async function pick(bot, { args = [] }) {
     );
     rays.push({ ...ray, view: `${p.image}#${view.label}` });
     const { bounds, entities, nameAt } = scenes[view.scene ?? 0];
-    const hit = raycastCells(ray, bounds, (x, y, z) => {
-      const name = nameAt(x, y, z);
-      return name === "unknown" ? null : !isAir(name);
-    });
+    const hit = raycastCells(
+      ray,
+      bounds,
+      (x, y, z) => {
+        const name = nameAt(x, y, z);
+        return name === "unknown" ? null : !isAir(name);
+      },
+      { startSolid: !cutFaces },
+    );
     const result = { pixel: [p.x, p.y], view: view.label };
     if (hit.cell) {
       const { x, y, z } = hit.cell;

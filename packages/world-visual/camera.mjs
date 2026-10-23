@@ -73,9 +73,18 @@ const faceNames = {
  * Walk a ray cell by cell through `bounds` and return the first cell that
  * `solidAt(x, y, z)` accepts: `{cell, face, normal, distance, crossedUnknown}`,
  * or `{cell: null}` when it leaves the box. `solidAt` returns true for a hit,
- * false for empty, and null for a cell nobody has seen.
+ * false for empty, and null for a cell nobody has seen. A hit is a solid
+ * cell entered from a cell that is not solid; with `startSolid` the ray
+ * starts as if inside solid ground, so it passes through the solid cells at
+ * the box edge (pictures without cut faces) and hits the first wall it sees
+ * from open space.
  */
-export function raycastCells({ origin, direction }, bounds, solidAt) {
+export function raycastCells(
+  { origin, direction },
+  bounds,
+  solidAt,
+  { startSolid = false } = {},
+) {
   // Clip the ray to the box (slab method), so a camera outside still works.
   let t0 = 0,
     t1 = Infinity,
@@ -112,14 +121,15 @@ export function raycastCells({ origin, direction }, bounds, solidAt) {
   }
   let axis = enterAxis,
     t = t0,
-    crossedUnknown = false;
+    crossedUnknown = false,
+    previousSolid = startSolid;
   const inside = (c) =>
     ["x", "y", "z"].every(
       (a) => c[a] >= bounds.min[a] && c[a] <= bounds.max[a],
     );
   while (inside(cell) && t <= t1 + 1e-9) {
     const solid = solidAt(cell.x, cell.y, cell.z);
-    if (solid === true) {
+    if (solid === true && !previousSolid) {
       const normal = { x: 0, y: 0, z: 0 };
       if (axis) normal[axis] = -step[axis];
       return {
@@ -131,6 +141,7 @@ export function raycastCells({ origin, direction }, bounds, solidAt) {
       };
     }
     if (solid == null) crossedUnknown = true;
+    previousSolid = solid === true;
     axis =
       next.x < next.y
         ? next.x < next.z

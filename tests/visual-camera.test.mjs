@@ -82,6 +82,19 @@ test("a ray stops at the first solid cell and names the face it entered", () => 
   assert.equal(miss.cell, null);
 });
 
+test("without cut faces a ray passes through the solid edge and hits the far wall", () => {
+  // Solid ground with a tunnel cell at x=5; the ray comes in from the west.
+  const solidAt = (x) => x !== 5;
+  const ray = {
+    origin: { x: -3, y: 2.5, z: 5.5 },
+    direction: { x: 1, y: 0, z: 0 },
+  };
+  assert.equal(raycastCells(ray, box, solidAt).cell.x, 0);
+  const through = raycastCells(ray, box, solidAt, { startSolid: true });
+  assert.equal(through.cell.x, 6);
+  assert.equal(through.face, "west");
+});
+
 test("rays that miss each other still meet at their nearest point", () => {
   const m = nearestPointToRays([
     { origin: { x: 0, y: 0, z: 0 }, direction: { x: 1, y: 0, z: 0 } },
@@ -120,7 +133,16 @@ test("screenshot and pick arguments", () => {
     { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 2, z: 3 } },
     { min: { x: 1, y: 2, z: 3 }, max: { x: 4, y: 5, z: 6 } },
   ]);
-  assert.deepEqual(parseScreenshotArgs([]), { views: null, boxes: [] });
+  assert.deepEqual(parseScreenshotArgs([]), {
+    views: null,
+    boxes: [],
+    cutFaces: true,
+  });
+  assert.equal(
+    parseScreenshotArgs(["--no-cut-faces", "--views", "top"]).cutFaces,
+    false,
+  );
+  assert.throws(() => parseScreenshotArgs(["--cut", "1"]));
   assert.deepEqual(parseScreenshotArgs(["--views", "4"]).views, [
     "se",
     "sw",

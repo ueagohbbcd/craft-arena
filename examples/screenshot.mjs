@@ -14,7 +14,7 @@ import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
 import { capturePrismarineViews } from "../packages/world-visual/prismarine.mjs";
 import { isAir, projectPoint } from "../packages/world-visual/camera.mjs";
 
-const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views VIEWS] [minX minY minZ maxX maxY maxZ]...`;
+const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views VIEWS] [--no-cut-faces] [minX minY minZ maxX maxY maxZ]...`;
 const KEEP_SHOTS = 20;
 
 /** A nearby box: mostly above and around the player, clipped to the dimension. */
@@ -40,20 +40,24 @@ const boxOf = (v) => {
   };
 };
 
-/** `{views, boxes}` from the command line: views or null, and zero or more boxes. */
+/** `{views, boxes, cutFaces}` from the command line: views or null, zero or more boxes. */
 export function parseScreenshotArgs(args) {
   args = [...args];
-  let views = null;
-  if (args[0] === "--views") {
-    args.shift();
-    if (!args[0]) throw new Error(usage);
-    views = parseViews(args.shift());
+  let views = null,
+    cutFaces = true;
+  while (args[0]?.startsWith("--")) {
+    const flag = args.shift();
+    if (flag === "--views") {
+      if (!args[0]) throw new Error(usage);
+      views = parseViews(args.shift());
+    } else if (flag === "--no-cut-faces") cutFaces = false;
+    else throw new Error(`Unknown option ${flag}. ${usage}`);
   }
   if (args.length % 6) throw new Error(usage);
   const boxes = [];
   for (let i = 0; i < args.length; i += 6)
     boxes.push(boxOf(args.slice(i, i + 6)));
-  return { views, boxes };
+  return { views, boxes, cutFaces };
 }
 
 const viewNames = {
@@ -93,8 +97,13 @@ async function readWaypoints() {
   }
 }
 
-/** Smallest box around the blocks a camera can see: non-air cells next to air. */
-export function visibleExtent(cells, bounds, extra = []) {
+/** Smallest box around the blocks a camera can see: non-air cells next to air or (with cut faces) the box edge. */
+export function visibleExtent(
+  cells,
+  bounds,
+  extra = [],
+  { cutFaces = true } = {},
+) {
   const key = (x, y, z) => `${x},${y},${z}`;
   const solid = new Set();
   for (const c of cells) if (!c.air) solid.add(key(c.x, c.y, c.z));
@@ -127,7 +136,9 @@ export function visibleExtent(cells, bounds, extra = []) {
       [0, 0, -1],
     ].some(([dx, dy, dz]) => {
       const n = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
-      return inBox(n, bounds) && !solid.has(key(n.x, n.y, n.z));
+      // A face the box cuts is drawn too, unless cut faces are off.
+      if (!inBox(n, bounds)) return cutFaces;
+      return !solid.has(key(n.x, n.y, n.z));
     });
     if (exposed) grow(c);
   }
@@ -219,9 +230,27 @@ async function nextShotName() {
 }
 
 /** The snapshot of one box and what goes on top of it. */
-async function sceneOf(bot, bounds, waypoints) {
+async function sceneOf(bot, bounds, waypoints, cutFaces) {
   const snapshot = snapshotFromBot(bot, { bounds });
   const unknown = unknownCells(snapshot.blocks, bounds);
+  // Without cut faces the viewer also gets one layer of real blocks around
+  // the box: they hide the faces the box cuts, and clipping hides them.
+  const render = cutFaces
+    ? snapshot
+    : snapshotFromBot(bot, {
+        bounds: {
+          min: {
+            x: bounds.min.x - 1,
+            y: bounds.min.y - 1,
+            z: bounds.min.z - 1,
+          },
+          max: {
+            x: bounds.max.x + 1,
+            y: bounds.max.y + 1,
+            z: bounds.max.z + 1,
+          },
+        },
+      });
   const self = bot.entity.position;
   const marks = waypoints
     .filter((w) => inBox(w, bounds))
@@ -267,7 +296,7 @@ async function sceneOf(bot, bounds, waypoints) {
     z: b.z,
     air: isAir(b.name),
   }));
-  const fit = visibleExtent(cells, bounds, [self.floored()]);
+  const fit = visibleExtent(cells, bounds, [self.floored()], { cutFaces });
   const volume =
     (bounds.max.x - bounds.min.x + 1) *
     (bounds.max.y - bounds.min.y + 1) *
@@ -275,6 +304,7 @@ async function sceneOf(bot, bounds, waypoints) {
   return {
     bounds,
     snapshot,
+    render,
     unknown,
     knownFraction: Math.round((1 - unknown.length / volume) * 1000) / 1000,
     entities,
@@ -292,7 +322,7 @@ export default async function screenshotProgram(
   bot,
   { args = [], log = console.log },
 ) {
-  const { views: chosen, boxes } = parseScreenshotArgs(args);
+  const { views: chosen, boxes, cutFaces } = parseScreenshotArgs(args);
   const settings = await readSettings();
   const views = chosen ?? parseViews(settings.views);
   const waypoints = (await readWaypoints()).filter((w) =>
@@ -300,7 +330,8 @@ export default async function screenshotProgram(
   );
   if (!boxes.length) boxes.push(observationBounds(bot));
   const scenes = [];
-  for (const box of boxes) scenes.push(await sceneOf(bot, box, waypoints));
+  for (const box of boxes)
+    scenes.push(await sceneOf(bot, box, waypoints, cutFaces));
 
   const name = await nextShotName();
   const total = views.length * scenes.length;
@@ -313,7 +344,8 @@ export default async function screenshotProgram(
     height: layout.height,
     columns,
     scenes: scenes.map((scene, i) => ({
-      snapshot: scene.snapshot,
+      snapshot: scene.render,
+      clip: cutFaces ? undefined : scene.bounds,
       label: scenes.length > 1 ? boxLabel(i) : undefined,
       directions: views.map((v) => viewNames[v]),
       fitBounds: scene.fit,
@@ -340,6 +372,7 @@ export default async function screenshotProgram(
           height: e.height,
         })),
       })),
+      cutFaces,
     }),
   );
   await writeFile(

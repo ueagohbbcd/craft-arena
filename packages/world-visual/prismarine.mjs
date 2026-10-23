@@ -183,6 +183,25 @@ export async function servePrismarineSnapshot(
     entry.column.setSkyLight(new Vec3(b.x - cx * 16, b.y, b.z - cz * 16), 15);
   }
   const { bounds, size } = norm;
+  // The viewer culls a face whose neighbour lies in a column it never got, so
+  // send empty columns around the selection: faces the box cuts then always
+  // show (a block just outside the box, when one was sent, still hides them).
+  for (
+    let cx = Math.floor((bounds.min.x - 1) / 16);
+    cx <= Math.floor((bounds.max.x + 1) / 16);
+    cx++
+  )
+    for (
+      let cz = Math.floor((bounds.min.z - 1) / 16);
+      cz <= Math.floor((bounds.max.z + 1) / 16);
+      cz++
+    )
+      if (!chunks.has(`${cx},${cz}`))
+        chunks.set(`${cx},${cz}`, {
+          x: cx * 16,
+          z: cz * 16,
+          column: new Chunk(),
+        });
   // The camera frames fitBounds (what is worth seeing) inside the selection.
   const fit = fitBounds ?? bounds;
   const target = {
@@ -281,6 +300,7 @@ export async function capturePrismarineSnapshot(
     alignLongAxis = false,
     fitBounds,
     entities,
+    clip,
   } = {},
 ) {
   if (!outputPath) throw new TypeError("outputPath is required");
@@ -340,6 +360,32 @@ export async function capturePrismarineSnapshot(
       await page.addInitScript(() => {
         window.__arenaDraws = 0;
         window.__arenaPendingSections = new Set();
+        // The viewer's page sets window.THREE and builds its WebGLRenderer from
+        // it; keep that renderer so captures can set clipping planes on it.
+        let three;
+        Object.defineProperty(window, "THREE", {
+          configurable: true,
+          get: () => three,
+          set(module) {
+            window.__arenaTHREE = module;
+            const extra = {};
+            three = new Proxy(module, {
+              get(target, key) {
+                if (key in extra) return extra[key];
+                if (key !== "WebGLRenderer") return target[key];
+                return function (...args) {
+                  const renderer = new target.WebGLRenderer(...args);
+                  window.__arenaRenderer = renderer;
+                  return renderer;
+                };
+              },
+              set(target, key, value) {
+                extra[key] = value;
+                return true;
+              },
+            });
+          },
+        });
         const NativeWorker = window.Worker;
         let nextWorker = 0;
         window.Worker = class extends NativeWorker {
@@ -397,6 +443,24 @@ export async function capturePrismarineSnapshot(
           },
         );
     }
+    // Clip everything outside `clip` (a box): blocks just outside it hide the
+    // faces the box cuts, and the planes then hide those blocks themselves.
+    await page.evaluate((box) => {
+      const T = window.__arenaTHREE,
+        renderer = window.__arenaRenderer;
+      if (!T || !renderer) throw new Error("viewer renderer not found");
+      const e = 0.001;
+      renderer.clippingPlanes = box
+        ? [
+            new T.Plane(new T.Vector3(1, 0, 0), -box.min.x - e),
+            new T.Plane(new T.Vector3(-1, 0, 0), box.max.x + 1 - e),
+            new T.Plane(new T.Vector3(0, 1, 0), -box.min.y - e),
+            new T.Plane(new T.Vector3(0, -1, 0), box.max.y + 1 - e),
+            new T.Plane(new T.Vector3(0, 0, 1), -box.min.z - e),
+            new T.Plane(new T.Vector3(0, 0, -1), box.max.z + 1 - e),
+          ]
+        : [];
+    }, clip ?? null);
     await page.waitForTimeout(500);
     if (errors.length)
       throw new Error(`Prismarine browser error: ${errors.join("; ")}`);
@@ -471,7 +535,7 @@ export const viewLabels = Object.freeze({
  * views. `annotate(view)` may return marks and labels in that view's pixels
  * (`{x, y, label, color, dot}`). `scenes` instead renders several
  * snapshots into one image, one after another: `[{snapshot, directions,
- * fitBounds, entities, annotate, label}]` (the top-level snapshot is then
+ * fitBounds, entities, annotate, label, clip}]` (the top-level snapshot is then
  * unused). Returns `{imagePath, metadata}`; the metadata lists each view's
  * scene, camera and where it sits in the image (`viewport`).
  */
@@ -525,6 +589,7 @@ export async function capturePrismarineViews(
           height,
           viewDirection,
           fitBounds: scene.fitBounds,
+          clip: scene.clip,
           entities: scene.entities,
           captureSession: session,
         },
