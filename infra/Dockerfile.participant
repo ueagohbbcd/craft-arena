@@ -2,7 +2,7 @@ FROM node:24-bookworm-slim
 # Bootstrap HTTPS with Node's bundled CA roots; Debian then installs its managed CA bundle.
 RUN node -e "const fs=require('node:fs');fs.mkdirSync('/etc/ssl/certs',{recursive:true});fs.writeFileSync('/etc/ssl/certs/ca-certificates.crt',require('node:tls').rootCertificates.join('\n'))" \
     && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
-    && apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates git python3 chromium ripgrep fd-find && rm -rf /var/lib/apt/lists/*
+    && apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates git python3 xvfb xauth fonts-dejavu-core ripgrep fd-find && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/arena
 COPY scripts/mf-reference.json scripts/prepare-mf-reference.mjs scripts/prune-node-modules.mjs ./scripts/
 RUN node scripts/prepare-mf-reference.mjs /opt/mf-reference && chown -R node:node /opt/mf-reference
@@ -10,7 +10,9 @@ ENV ARENA_REFERENCE_ROOT="/opt/mf-reference"
 COPY --chown=node:node package.json package-lock.json ./
 # Drop Bedrock data and viewer assets for other versions (about 600 MB); the
 # arena server is 1.21.1.
-RUN npm ci --ignore-scripts && node scripts/prune-node-modules.mjs node_modules 1.21.1 && chown -R node:node /opt/arena
+# Install scripts stay off except for the two native renderer packages,
+# which download their prebuilt binaries (headless-gl, node-canvas).
+RUN npm ci --ignore-scripts && npm rebuild gl canvas && node scripts/prune-node-modules.mjs node_modules 1.21.1 && chown -R node:node /opt/arena
 # Only participant-side code and its documentation enter this image: no
 # trusted-side source (arena commands, login gate, model relay), no
 # tests, no developer docs, no operator configuration. The list is checked by
@@ -27,7 +29,6 @@ RUN mkdir -p /workspace /team-git /arena/session && chown node:node /workspace /
 # The launcher writes briefing copies to ARENA_SESSION_DIR; operators may mount
 # read-only rule files at ARENA_RULES_DIR (listed in the opening prompt).
 ENV ARENA_SESSION_DIR="/arena/session" ARENA_RULES_DIR="/arena/rules" ARENA_CONFIG_DIR="/arena/config"
-ENV CHROMIUM_PATH="/usr/bin/chromium"
 ENV PATH="/opt/arena/node_modules/.bin:${PATH}"
 USER node
 WORKDIR /workspace

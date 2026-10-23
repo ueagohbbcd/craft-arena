@@ -33,7 +33,8 @@
     "vec3": "0.2.0"
   },
   "optionalDependencies": {
-    "playwright": "1.64.0",
+    "canvas": "3.2.3",
+    "gl": "9.0.0-rc.10",
     "prismarine-viewer": "1.33.0"
   },
   "devDependencies": {
