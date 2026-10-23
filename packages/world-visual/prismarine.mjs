@@ -382,8 +382,8 @@ export const viewLabels = Object.freeze({
  * per row (2). `annotate(view)` may return marks and labels in that view's
  * pixels (`{x, y, label, color, dot}`). `scenes` instead renders several
  * snapshots into one image, one after another: `[{snapshot, directions,
- * fitBounds, entities, annotate, label, clip}]` (the top-level snapshot is then
- * unused). Returns `{imagePath, metadata}`; the metadata lists each view's
+ * fitBounds, entities, annotate, label, clip, grid}]` (the top-level snapshot is
+ * then unused; `grid` draws block edges on the faces). Returns `{imagePath, metadata}`; the metadata lists each view's
  * scene, camera and where it sits in the image (`viewport`).
  */
 export async function capturePrismarineViews(
@@ -471,10 +471,11 @@ export async function capturePrismarineViews(
       columns,
       rows,
       cropToContent,
-      scenes: built.map(({ columns, entities, dy }) => ({
+      scenes: built.map(({ columns, entities, dy }, s) => ({
         columns,
         entities,
         dy,
+        grid: Boolean(scenes[s].grid),
       })),
       views,
     },

@@ -129,21 +129,23 @@ test("rays that miss each other still meet at their nearest point", () => {
 test("screenshot and pick arguments", () => {
   const a = { min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 2, z: 3 } };
   const b = { min: { x: 1, y: 2, z: 3 }, max: { x: 4, y: 5, z: 6 } };
-  // Views and an edge after each box; the same box again for another edge.
+  // Views, an edge and grid after each box; the same box again for another edge.
   assert.deepEqual(
     parseScreenshotArgs(
-      "1 2 3 0 0 0 se top 1 2 3 4 5 6 open 0 0 0 1 2 3 se,nw game".split(" "),
+      "1 2 3 0 0 0 se top 1 2 3 4 5 6 open grid 0 0 0 1 2 3 se,nw game".split(
+        " ",
+      ),
     ),
     [
-      { bounds: a, views: ["se", "top"], edge: "solid" },
-      { bounds: b, views: null, edge: "open" },
-      { bounds: a, views: ["se", "nw"], edge: "game" },
+      { bounds: a, views: ["se", "top"], edge: "solid", grid: false },
+      { bounds: b, views: null, edge: "open", grid: true },
+      { bounds: a, views: ["se", "nw"], edge: "game", grid: false },
     ],
   );
   assert.deepEqual(parseScreenshotArgs([]), []);
   // Words before any box are for the box around you.
   assert.deepEqual(parseScreenshotArgs(["top", "open"]), [
-    { bounds: null, views: ["top"], edge: "open" },
+    { bounds: null, views: ["top"], edge: "open", grid: false },
   ]);
   assert.throws(() =>
     parseScreenshotArgs(["top", "1", "2", "3", "4", "5", "6"]),

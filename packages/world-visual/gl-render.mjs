@@ -112,6 +112,45 @@ function cropFor(box, W, H, aspect) {
   };
 }
 
+/**
+ * Darken the block edges on the block faces of `material`: where a fragment
+ * lies on a whole-block plane (a full block's face) and within about a pixel
+ * of another whole-block line. Faces off those planes, such as slab tops,
+ * plants and torches, get no lines.
+ */
+function drawGrid(material) {
+  material.extensions = { derivatives: true };
+  material.onBeforeCompile = (shader) => {
+    shader.vertexShader = shader.vertexShader
+      .replace("void main() {", "varying vec3 vGridPos;\nvoid main() {")
+      .replace(
+        "#include <project_vertex>",
+        "#include <project_vertex>\nvGridPos = (modelMatrix * vec4(transformed, 1.0)).xyz;",
+      );
+    shader.fragmentShader = shader.fragmentShader
+      .replace("void main() {", "varying vec3 vGridPos;\nvoid main() {")
+      .replace(
+        "#include <dithering_fragment>",
+        `#include <dithering_fragment>
+        {
+          // In a block of its own: the clipping chunk has a \`plane\` too.
+          vec3 gridOff = abs(fract(vGridPos + 0.5) - 0.5);
+          vec3 gridPx = gridOff / max(fwidth(vGridPos), 1e-6);
+          // The face's own axis is the one nearest a whole block (in blocks;
+          // in pixels it is noise where the face is flat). The nearer of the
+          // other two is the distance to the nearest edge, in pixels.
+          float edge = gridOff.x <= min(gridOff.y, gridOff.z)
+            ? min(gridPx.y, gridPx.z)
+            : gridOff.y <= gridOff.z
+              ? min(gridPx.x, gridPx.z)
+              : min(gridPx.x, gridPx.y);
+          if (min(gridOff.x, min(gridOff.y, gridOff.z)) < 0.002)
+            gl_FragColor.rgb *= mix(0.55, 1.0, smoothstep(0.5, 1.5, edge));
+        }`,
+      );
+  };
+}
+
 async function waitFor(check, timeoutMs, what) {
   const until = Date.now() + timeoutMs;
   while (!check()) {
@@ -133,6 +172,7 @@ async function main() {
   for (const [s, scene] of job.scenes.entries()) {
     const viewer = new Viewer(renderer);
     viewer.setVersion(job.renderVersion);
+    if (scene.grid) drawGrid(viewer.world.material);
     // The viewer's own wait (waitForChunksToRender) ends at the first answer
     // for a section that was marked twice (once before its column reached
     // the worker), while the second is still queued. Wait instead until
@@ -161,6 +201,9 @@ async function main() {
     );
     // Entity skins load on their own, without a signal.
     if (scene.entities.length) await new Promise((r) => setTimeout(r, 300));
+    // updateEntity moves and turns the models with 50 ms tweens, which only
+    // a render loop would advance: finish them here.
+    viewer.update();
     for (const view of job.views.filter((v) => v.scene === s)) {
       const { position, yaw, pitch } = view.camera;
       viewer.camera.position.set(position.x, position.y + 1.6 + dy, position.z);
@@ -191,6 +234,14 @@ async function main() {
           ]
         : [];
       renderer.render(viewer.scene, viewer.camera);
+      // three.js only logs a shader that does not compile and draws nothing.
+      const broken = renderer.info.programs.find(
+        (p) => p.diagnostics && !p.diagnostics.runnable,
+      );
+      if (broken)
+        throw new Error(
+          `A shader did not compile: ${broken.diagnostics.fragmentShader.log || broken.diagnostics.vertexShader.log || broken.diagnostics.programLog}`,
+        );
       renders[job.views.indexOf(view)] = readRGBA(gl, RW, RH);
     }
     for (const worker of viewer.world.workers) await worker.terminate();
