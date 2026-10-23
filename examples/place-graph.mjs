@@ -84,6 +84,9 @@ export function configsFor(blocks) {
     .map((c) => (c.name === "place" ? { ...c, settings: { blocks } } : c));
 }
 
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
 export default async function placeGraphProgram(
   bot,
   { args = [], log = console.log },

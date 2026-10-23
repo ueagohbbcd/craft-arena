@@ -149,6 +149,9 @@ export function summarizeTerrain({
   };
 }
 
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
 export default async function summarizeTerrainProgram(
   bot,
   { args = [], log = console.log },

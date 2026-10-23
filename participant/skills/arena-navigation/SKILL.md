@@ -1,6 +1,6 @@
 ---
 name: arena-navigation
-description: "Moving the character: Pathfinder in your own program, navigate.mjs as a ready trip with reports, walking with defense, and stopping Pathfinder safely before using the hand. Use whenever the character has to go somewhere."
+description: "Moving the character: Pathfinder in your own program, navigate.mjs as a ready trip that ends when it arrives, fails or stalls, walking with defense, and stopping Pathfinder safely before using the hand. Use whenever the character has to go somewhere."
 ---
 
 # Getting around
@@ -9,21 +9,21 @@ When calculating directions, `Vector` follows native `vec3`: `normalize()` mutat
 
 ## How to move
 
-Move with Pathfinder (`bot.pathfinder.goto` / `setGoal`) from your own program, as in the example in the `arena-programs` skill; in a fight, PvP (`bot.pvp`, see `arena-survival`) moves for you. For a plain trip with reports, run `navigate.mjs`:
+Move with Pathfinder (`bot.pathfinder.goto` / `setGoal`) from your own program, as in the example in the `arena-programs` skill; in a fight, PvP (`bot.pvp`, see `arena-survival`) moves for you. For a plain trip, run [navigate.mjs](../../../examples/navigate.mjs) with a small `wait_seconds`; its end reaches you by itself:
 
 ```json
 {
-  "command": "node \"$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs\" \"$ARENA_TOOLKIT_ROOT/examples/navigate.mjs\" X Y Z",
-  "wait_seconds": 30
+  "command": "mf run \"$ARENA_TOOLKIT_ROOT/examples/navigate.mjs\" X Y Z",
+  "wait_seconds": 5
 }
 ```
 
-[navigate.mjs](../../../examples/navigate.mjs) uses Pathfinder with its default movement settings, which include digging. Add `--no-dig` to keep the terrain intact.
+It uses Pathfinder with its default movement settings, which include digging. Add `--no-dig` to keep the terrain intact.
 
-- It counts as arrived within one block of X Y Z (Pathfinder's `GoalNear` with range 1). Then it posts `route.arrived`, prints `{"status":"arrived",…}` and exits with code 0.
-- On failure (no path, or Pathfinder stopped short) it posts a `route.failed` report with the error, the goal and your position, and exits with code 1 with the error on stderr.
-- Once the trip has lasted 120 seconds and the character has also moved less than one block in the last 30 seconds, it sends one urgent `route.review` report and keeps walking. The report includes a terrain summary and the current path status; cancel the task if you want to stop.
-- `arena-task cancel <taskId>` stops it cleanly: it clears the goal, releases the controls and exits.
+- It counts as arrived within one block of X Y Z (Pathfinder's `GoalNear` with range 1) and returns `{"status":"arrived",…}`.
+- On failure (no path, or Pathfinder stopped short) it ends with exit code 1, the error, the goal and your position on stderr.
+- Once the trip has lasted 120 seconds and the character has also moved less than one block in the last 30 seconds, it stops and returns `{"status":"stalled",…}` with a terrain summary and the last path status.
+- `mf cancel TASK_ID` stops it cleanly: it clears the goal, releases the controls and ends.
 
 When a trip may meet mobs, use [navigate-with-defense.mjs](../../../examples/navigate-with-defense.mjs) instead (see the `arena-survival` skill).
 

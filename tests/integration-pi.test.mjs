@@ -891,7 +891,7 @@ test(
       "arena-items",
     ])
       assert.match(first, new RegExp(`skills/${name}/SKILL\\.md`));
-    assert.match(first, /arena-task cancel/);
+    assert.match(first, /mf cancel TASK_ID/);
     const tools = requests[0].tools.map((x) => x.function.name);
     assert.deepEqual(tools.toSorted(), ["bash", "edit", "read", "write"]);
     const second = JSON.stringify(requests[1].messages);

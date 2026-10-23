@@ -1,24 +1,23 @@
 # Pi extension and launcher
 
-The launcher starts Pi and, when configured with `ARENA_MINECRAFT_HOST`, one native bot-host process per participant character. Pi owns the Inbox server, session platform messages, model rate limits, task manager, and the `bash` task tool. Game controls stay in the real Mineflayer process; the local Unix socket carries only run/cancel, status, and session requests.
+The launcher starts Pi and, when configured with `ARENA_MINECRAFT_HOST`, the toolkit's `mf` supervisor for the participant's characters ([mf-supervisor.mjs](mf-supervisor.mjs); characters from the provision manifest, else `ARENA_BOT`). The model drives them with `mf` from `bash`; `mf`'s state lives in `.mf` in the working directory. The supervisor runs the default observer, chat forwarder and watchdog as read-only modules, keeps the report queue that `mf inbox` reads, and restarts characters whose process exits.
 
-The default observer, chat forwarder, and watchdog run as ordinary cancellable background tasks. Each reports through `InboxClient`. Task outputs and status are written under `ARENA_TASK_DIR`, and `arena-task` can list, inspect, or cancel them. A task cancellation gives native module cleanup time; if a module remains active, its whole bot host is killed and restarted, so other tasks on that character also end.
+The extension owns only the harness side: the `bash` task tool (every command a task that outlives the wait; task files under `ARENA_TASK_DIR`, `arena-task` lists and cancels them), telling the model when a command finishes (`Finished tasks`, appended to the next tool result or waking an idle model), platform messages for session changes, public data and notices, the idle reminder, the model spending limit, and one full `mf snapshot` after compaction. Nothing from the game reaches the model through the extension.
 
-The launcher waits for the login gate's read-only session endpoint before sending the opening prompt. Session changes and trusted public notices use platform messages. Reports from programs remain ordinary Inbox messages.
+The launcher waits for the login gate's read-only session endpoint before sending the opening prompt.
 
 Participant guidance is in [the system prompt](../../participant/agents.d/10-arena.md). Validation steps and environment limitations are in [docs/VALIDATION.md](../../docs/VALIDATION.md).
 
 ## Main settings
 
-| Variable | Purpose |
-| --- | --- |
-| `ARENA_MINECRAFT_HOST`, `ARENA_MINECRAFT_PORT`, `MC_VERSION` | Native Mineflayer connection settings |
-| `ARENA_SESSION_URL` | Login gate's read-only session endpoint; launcher and host add the character query |
-| `ARENA_PROVISION_DIR` | Provision manifest containing character names, workspace files, and participant ID |
-| `ARENA_RUN_SOCKET`, `ARENA_BOTS_FILE` | Set by launcher for module execution and selecting another character |
-| `ARENA_DEFAULT_SCRIPTS` | Comma-separated names to start; empty disables default tasks |
-| `ARENA_TASK_KILL_GRACE_MS` | How long TaskManager waits after SIGTERM before killing a task process group (default 2500 ms) |
-| `ARENA_CANCEL_GRACE_MS` | Host runner's own hard-stop bound for direct cancel requests (default 5000 ms) |
-| `OPENAI_BASE_URL`, `ARENA_MODEL_CONFIG` | Optional configured model endpoint and descriptor |
+| Variable                                                     | Purpose                                                                                                              |
+| ------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `ARENA_MINECRAFT_HOST`, `ARENA_MINECRAFT_PORT`, `MC_VERSION` | Native Mineflayer connection settings                                                                                |
+| `ARENA_SESSION_URL`                                          | Login gate's read-only session endpoint; launcher and host add the character query                                   |
+| `ARENA_PROVISION_DIR`                                        | Provision manifest containing character names, workspace files, and participant ID                                   |
+| `ARENA_DEFAULT_SCRIPTS`                                      | Default modules to start (`observer`, `chat`, `watchdog`); empty starts none. Passed to `mf` as `MF_DEFAULT_SCRIPTS` |
+| `ARENA_CHAT_WAKE`                                            | `mention` or `all`: matching chat is listed first in `mf inbox`                                                      |
+| `ARENA_TASK_KILL_GRACE_MS`                                   | How long TaskManager waits after SIGTERM before killing a task process group (default 2500 ms)                       |
+| `OPENAI_BASE_URL`, `ARENA_MODEL_CONFIG`                      | Optional configured model endpoint and descriptor                                                                    |
 
 Other Pi/model configuration and participant files are described in [infra/README.md](../../infra/README.md).

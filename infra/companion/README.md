@@ -4,20 +4,20 @@
 
 ## 组成
 
-| 服务          | 镜像                                                  | 网络                            | 作用                                                                                                                                                    |
-| ------------- | ----------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `gate`        | [`Dockerfile.trusted`](../Dockerfile.trusted)         | `companion`、`minecraft-egress` | 校验玩家名并连接 Minecraft 服务器的登录门              |
-| `model-relay` | 同上                                                  | `companion`、`model-egress`     | [模型转发](../../packages/model-relay/README.md)：把模型请求转发到 `MODEL_UPSTREAM_URL`，只有它拿到上游 key                                             |
+| 服务          | 镜像                                                  | 网络                            | 作用                                                                                                                         |
+| ------------- | ----------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `gate`        | [`Dockerfile.trusted`](../Dockerfile.trusted)         | `companion`、`minecraft-egress` | 校验玩家名并连接 Minecraft 服务器的登录门                                                                                    |
+| `model-relay` | 同上                                                  | `companion`、`model-egress`     | [模型转发](../../packages/model-relay/README.md)：把模型请求转发到 `MODEL_UPSTREAM_URL`，只有它拿到上游 key                  |
 | `participant` | [`Dockerfile.participant`](../Dockerfile.participant) | `companion`（内部网络）         | Pi 和参赛者程序。开局提示带上会话简报，其中有陪玩提示词；`ARENA_CHAT_WAKE=mention` 让提到 bot 名字的聊天和私聊唤醒空闲的模型 |
 
 参赛容器只在内部网络上，访问不到 Minecraft 服务器和外网；bot host 通过登录门连接角色，模型请求经模型转发。也可以让参赛容器自己访问模型，见 [infra/README.md](../README.md#参赛容器自己访问模型)。
 
-| 文件                           | 内容                                                                           |
-| ------------------------------ | ------------------------------------------------------------------------------ |
-| [`compose.yaml`](compose.yaml) | 三个服务                                                                       |
-| [`.env.example`](.env.example) | 需要填的变量：服务器地址和版本、bot 账号、登录方式、模型地址和 key |
-| [`model.json`](model.json)     | 上游那个模型的描述，参赛容器读它生成 Pi 配置                                   |
-| [`PROMPT.md`](PROMPT.md)       | 陪玩提示词（英文，模型读）：陪玩家玩、回答聊天、遵守服务器规则、不搞破坏       |
+| 文件                           | 内容                                                                                            |
+| ------------------------------ | ----------------------------------------------------------------------------------------------- |
+| [`compose.yaml`](compose.yaml) | 三个服务                                                                                        |
+| [`.env.example`](.env.example) | 需要填的变量：服务器地址和版本、bot 账号、登录方式、模型地址和 key                              |
+| [`model.json`](model.json)     | 上游那个模型的描述，参赛容器读它生成 Pi 配置                                                    |
+| [`PROMPT.md`](PROMPT.md)       | 陪玩提示词（英文，模型读）：陪玩家玩、回答聊天、遵守服务器规则、不搞破坏                        |
 | [`rules/`](rules/)             | 可选：服务器规则等文件，只读挂到参赛容器的 `/arena/rules`，开局提示会列出（`.` 开头的文件除外） |
 
 ## 服务器前提
@@ -56,13 +56,13 @@ docker compose down
 
 可调的变量：
 
-| 变量                                                        | 默认               | 作用                                                                            |
-| ----------------------------------------------------------- | ------------------ | ------------------------------------------------------------------------------- |
-| `MC_PORT`                                                   | `25565`            | 服务器端口                                                                      |
-| `MF_AUTH`                                                   | `offline`          | `offline` 或 `microsoft`                                                        |
-| `PROMPT.md`                                                | `./PROMPT.md`      | 陪玩提示词，只读挂到参赛容器的 `/arena/rules/PROMPT.md`        |
-| `ARENA_CHAT_WAKE`                                           | `mention`          | `none`：聊天只进收件箱；`mention`：提到 bot 或私聊时唤醒；`all`：所有聊天都唤醒 |
-| `ARENA_MEMORY_LIMIT`、`ARENA_CPU_LIMIT`、`ARENA_PIDS_LIMIT` | `2g`、`2.0`、`256` | 每个容器的资源上限                                                              |
+| 变量                                                        | 默认               | 作用                                                                                                                                            |
+| ----------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MC_PORT`                                                   | `25565`            | 服务器端口                                                                                                                                      |
+| `MF_AUTH`                                                   | `offline`          | `offline` 或 `microsoft`                                                                                                                        |
+| `PROMPT.md`                                                 | `./PROMPT.md`      | 陪玩提示词，只读挂到参赛容器的 `/arena/rules/PROMPT.md`                                                                                         |
+| `ARENA_CHAT_WAKE`                                           | `mention`          | `mention`／`all`：提到 bot 或私聊（`all` 为所有聊天）在 `mf inbox` 里排在前面；`none`：不区分。唤醒靠陪玩提示词让模型常驻的 `wait-for-chat.mjs` |
+| `ARENA_MEMORY_LIMIT`、`ARENA_CPU_LIMIT`、`ARENA_PIDS_LIMIT` | `2g`、`2.0`、`256` | 每个容器的资源上限                                                                                                                              |
 
 换上游或模型时，同时改 `.env` 的 `MODEL_UPSTREAM_URL`／`MODEL_UPSTREAM_KEY` 和 `model.json`。上游可以是宿主机上的服务（`http://host.docker.internal:PORT/v1`）。
 
@@ -70,6 +70,6 @@ docker compose down
 
 - 一个部署一个 bot。要多个 bot，可为每个角色配置独立的 participant 和 gate 服务；模型转发可以共用。
 - 没有录像和结果记录。
-- bot host 与服务器断开后由 Pi 启动器自动重启。
+- 角色进程与服务器断开后由 `mf` 监督进程自动重启。
 - 平台不统计、不限制模型用量，模型调用一直在计费。长时间运行前确认上游账户的额度；需要限速或上限时，在上游那一层做。
-- `allowChat` 打开着，模型能在服务器里说话。服务器若不希望 bot 发言，在 `.env` 中设置 `ARENA_CHAT_WAKE=none`，然后运行 `docker compose up -d`。
+- `allowChat` 打开着，模型能在服务器里说话。服务器若不希望 bot 发言，从 `PROMPT.md` 去掉回聊天的要求和 `wait-for-chat.mjs`，然后运行 `docker compose up -d`。

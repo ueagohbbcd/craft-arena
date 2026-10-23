@@ -4,24 +4,8 @@ import { EventEmitter } from "node:events";
 import { registerHooks } from "node:module";
 import { Vec3 } from "vec3";
 
-const deliveries = [];
-let failDelivery = false;
-globalThis.fixtureInbox = class {
-  async post(data) {
-    deliveries.push(data);
-  }
-  async requestJudgment(data) {
-    deliveries.push(data);
-    if (failDelivery) throw new Error("inbox unavailable");
-  }
-};
 registerHooks({
   resolve(specifier, context, nextResolve) {
-    if (specifier === "mineflayer-world-memory/runtime/inbox/index.mjs")
-      return {
-        url: `data:text/javascript,${encodeURIComponent("export const InboxClient = globalThis.fixtureInbox;")}`,
-        shortCircuit: true,
-      };
     if (specifier === "./native.mjs")
       return {
         url: `data:text/javascript,${encodeURIComponent(`export function loadPathfinder(){return {Movements:class{},goals:{GoalNear:class{constructor(x,y,z,r){Object.assign(this,{x,y,z,r})}isEnd(p){return Math.hypot(p.x-this.x,p.y-this.y,p.z-this.z)<=this.r+1}}}}} export function stopBot(bot){bot.pathfinder.setGoal(null);bot.clearControlStates?.();bot.deactivateItem?.()}`)}`,
@@ -32,9 +16,7 @@ registerHooks({
 });
 const { default: navigate } = await import("../examples/navigate.mjs");
 
-async function harness(t, { rejectJudgment = false } = {}) {
-  deliveries.length = 0;
-  failDelivery = rejectJudgment;
+async function harness(t) {
   let now = 0,
     clockReads = 0,
     tick,
@@ -75,7 +57,6 @@ async function harness(t, { rejectJudgment = false } = {}) {
   const done = navigate(bot, {
     signal: controller.signal,
     args: ["10", "1", "0"],
-    log() {},
   });
   void done.catch(() => {});
   await new Promise(setImmediate);
@@ -83,11 +64,8 @@ async function harness(t, { rejectJudgment = false } = {}) {
     bot,
     controller,
     done,
-    get reports() {
-      return deliveries.filter((entry) => entry.reason);
-    },
-    get events() {
-      return deliveries.filter((entry) => entry.type?.startsWith("route."));
+    get stopped() {
+      return stopped;
     },
     advance(ms, x = bot.entity.position.x) {
       now = ms;
@@ -106,55 +84,44 @@ async function harness(t, { rejectJudgment = false } = {}) {
   };
 }
 
-test("native navigation reports a stall once despite path updates and jitter, then arrives", async (t) => {
+test("a trip that stops moving ends as stalled; jitter and path updates do not count", async (t) => {
   const h = await harness(t);
   for (let sec = 1; sec <= 29; sec++) {
     h.bot.emit("path_update", { status: "success", path: [1, 2] });
     h.advance(sec * 1000, sec % 2 ? 0.1 : 0);
   }
-  assert.equal(h.reports.length, 0);
+  assert.equal(h.stopped, false);
   h.advance(30_000);
-  assert.equal(h.reports[0].reason, "no_displacement");
-  assert.equal(h.reports[0].path.steps, 2);
-  assert.ok(h.reports[0].terrain.counts);
-  assert.match(h.reports[0].activity, /still running/);
-  await h.advance(180_000);
-  assert.equal(h.reports.length, 1);
-  await h.arrive();
-  assert.equal(h.events.at(-1).type, "route.arrived");
+  const result = await h.done;
+  assert.equal(result.status, "stalled");
+  assert.equal(result.reason, "no_displacement");
+  assert.equal(result.path.steps, 2);
+  assert.ok(result.terrain.counts);
+  assert.equal(h.bot.listenerCount("path_update"), 0);
 });
 
-test("real displacement resets stall time; a later stopped route gets reviewed", async (t) => {
+test("real displacement resets stall time; a later stopped route stalls", async (t) => {
   const h = await harness(t);
   for (let sec = 1; sec < 120; sec++) h.advance(sec * 1000, sec % 2 ? 2 : 0);
-  assert.equal(h.reports.length, 0);
+  assert.equal(h.stopped, false);
   h.advance(150_000, 2);
-  assert.equal(h.reports[0].reason, "no_displacement");
-  assert.ok(h.reports[0].elapsedMs >= 120_000);
-  await h.arrive();
+  const result = await h.done;
+  assert.equal(result.status, "stalled");
+  assert.ok(result.elapsedMs >= 120_000);
 });
 
-test("arrival cleans up its path listener and timer without a judgment request", async (t) => {
+test("arrival cleans up its path listener and timer", async (t) => {
   const h = await harness(t);
   h.advance(1000, 10);
   await h.arrive();
-  assert.equal(h.reports.length, 0);
-});
-
-test("failed urgent inbox delivery stops the pending goal and reports the route failure", async (t) => {
-  const h = await harness(t, { rejectJudgment: true });
-  h.advance(30_000);
-  await assert.rejects(h.done, /Goal changed/);
-  assert.equal(h.events.at(-1).type, "route.failed");
-  assert.equal(h.bot.listenerCount("path_update"), 0);
+  assert.equal((await h.done).status, "arrived");
 });
 
 for (const name of ["SIGTERM", "SIGINT"]) {
   test(`${name} abort stops native navigation without reporting a route failure`, async (t) => {
     const h = await harness(t);
     h.controller.abort(new Error("Run cancelled"));
-    await h.done;
-    assert.equal(h.events.length, 0);
+    assert.equal(await h.done, undefined);
     assert.equal(h.bot.listenerCount("path_update"), 0);
   });
 }

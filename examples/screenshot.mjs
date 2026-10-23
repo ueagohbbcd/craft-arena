@@ -44,6 +44,9 @@ export function parseScreenshotArgs(args) {
   return { views, box: args.map(Number) };
 }
 
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
 export default async function screenshotProgram(
   bot,
   { args = [], log = console.log },

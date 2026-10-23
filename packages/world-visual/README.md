@@ -41,7 +41,7 @@ export default async function (bot) {
 }
 ```
 
-`node packages/bot-host/run.mjs examples/screenshot.mjs --views [2|4] [box]` writes `out/views.png` instead: the box seen from four corners (or two opposite ones), 480×360 each, stitched two per row and labelled with the corner each looks from. In a program, `capturePrismarineViews(snapshot, {outputPath, directions, width, height})` does the same with one viewer and one browser; its metadata lists each view's `label`, `column`, `row` and `camera`.
+`mf run examples/screenshot.mjs --views [2|4] [box]` writes `out/views.png` instead: the box seen from four corners (or two opposite ones), 480×360 each, stitched two per row and labelled with the corner each looks from. In a program, `capturePrismarineViews(snapshot, {outputPath, directions, width, height})` does the same with one viewer and one browser; its metadata lists each view's `label`, `column`, `row` and `camera`.
 
 `capturePrismarineSnapshot(snapshot, options)` also takes `width`, `height`, `viewDirection` (`"+x+z"` by default, `"-x+z"`, `"-x-z"` or `"+x-z"`: the corner the camera looks from), `center` (camera position) and `timeoutMs` (30000). [examples/render-fixture.mjs](../../examples/render-fixture.mjs) renders a synthetic world with no game connection.
 

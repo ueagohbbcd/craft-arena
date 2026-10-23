@@ -29,6 +29,9 @@ export function parseProfileArgs(args) {
   return { target: { x, z } };
 }
 
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
 export default async function profileProgram(
   bot,
   { args = [], log = console.log },

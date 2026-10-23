@@ -29,6 +29,9 @@ export function observeArgs(args) {
   return options;
 }
 
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
 export default async function observeProgram(bot, { args = [] }) {
   const options = observeArgs(args);
   const session = await bot.getSessionState?.().catch(() => undefined);

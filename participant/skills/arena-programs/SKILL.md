@@ -1,93 +1,113 @@
 ---
 name: arena-programs
-description: "How to write and run modules against your character's native Mineflayer bot: module shape, tasks, waiting and cancelling, sharing movement and the main hand, reporting to yourself through the inbox, platform messages, and looking up Mineflayer, Pathfinder and PvP calls in the bundled docs. Read it before your first program, and again when a program misbehaves or you need a call you have not used yet."
+description: "How to write and run modules on your character's native Mineflayer bot with mf: module shape, loading plugins, controlling and read-only programs, ending a program to hand you a decision, reporting through the inbox, the watchdog, and looking up Mineflayer, Pathfinder and PvP calls in the bundled docs. Read it before your first program, and again when a program misbehaves or you need a call you have not used yet."
 ---
 
 # Writing programs
 
-The character is a native Mineflayer bot running in its own process. Use `run.mjs` to execute a module in that process; the module receives the real `bot` object. There is no remote bot object, state mirror, or arbitrary bot RPC. Read-only queries and game actions alike run inside the module.
-
-Save modules in your working directory and start each as a `bash` task:
+A module exports a default async function. It runs inside the character's own process and gets the real Mineflayer `bot`; game state and actions all happen in the module. What it returns is printed as JSON when it ends; a throw ends it with exit code 1 and the error on stderr.
 
 ```js
 // inspect.mjs
+export const control = false; // read-only: runs beside the controlling program
+
 export default async function (bot) {
   const p = bot.entity.position.floored();
-  console.log(
-    JSON.stringify({
-      position: bot.entity.position,
-      health: bot.health,
-      inventory: bot.inventory.items().map((item) => [item.name, item.count]),
-      below: bot.blockAt(p.offset(0, -1, 0))?.name ?? null,
-    }),
-  );
+  return {
+    position: bot.entity.position,
+    health: bot.health,
+    inventory: bot.inventory.items().map((item) => [item.name, item.count]),
+    below: bot.blockAt(p.offset(0, -1, 0))?.name ?? null,
+  };
 }
 ```
 
 ```json
-{
-  "command": "node \"$ARENA_TOOLKIT_ROOT/packages/bot-host/run.mjs\" inspect.mjs",
-  "wait_seconds": 30
-}
+{ "command": "mf run --inbox 25 inspect.mjs" }
 ```
 
-For another character listed in `/arena/provision/manifest.json`, add `--bot NAME` before the module path. A module can import Mineflayer plugins and other toolkit code in the character process. For example:
+Plugins and other packages load from the arena's installed packages:
 
 ```js
 import { createRequire } from "node:module";
 
 const require = createRequire(`${process.env.ARENA_TOOLKIT_ROOT}/package.json`);
-const {
-  pathfinder: pathfinderPlugin,
-  Movements,
-  goals,
-} = require("mineflayer-pathfinder");
+const { pathfinder, Movements, goals } = require("mineflayer-pathfinder");
 
 export default async function (bot, { signal, args, log }) {
-  if (!bot.pathfinder) bot.loadPlugin(pathfinderPlugin);
+  if (!bot.pathfinder) bot.loadPlugin(pathfinder);
   const [x, y, z] = args.map(Number);
   bot.pathfinder.setMovements(new Movements(bot));
-  const cancel = () => bot.pathfinder.setGoal(null);
-  signal.addEventListener("abort", cancel, { once: true });
+  const stop = () => bot.pathfinder.setGoal(null);
+  signal.addEventListener("abort", stop, { once: true });
   try {
     await bot.pathfinder.goto(new goals.GoalNear(x, y, z, 1));
-    log("position", bot.entity.position);
+    return { arrived: bot.entity.position };
   } finally {
-    signal.removeEventListener("abort", cancel);
-    bot.pathfinder.setGoal(null);
-    bot.clearControlStates();
+    signal.removeEventListener("abort", stop);
   }
 }
 ```
 
-The runner removes event listeners and timers registered by the module when it ends. On cancellation or failure it aborts the signal, clears movement controls and stops Pathfinder and PvP. Handle `signal` in long-running work so your module can release resources and finish cleanly. Plugins loaded by a module remain loaded for the lifetime of the character process.
+- `signal` aborts when the program is cancelled, replaced by another controlling program, or interrupted by a change such as a death. Let long work end on it.
+- `log(...)` (or `console.log`) prints into the program's output.
+- The function ending is the program ending: wait for a walk inside the module. When a controlling module ends, however it ends, the character releases its movement keys and stops Pathfinder and PvP.
+- Listeners added on `bot` and timers the module started are removed when it ends. Listeners on other objects (`bot.inventory`, a plugin) are yours to remove. Plugins stay loaded until the character's process restarts.
+- Relative paths inside a module resolve against the character's process, not your shell: build paths from `import.meta.url` or pass absolute ones. The module file is loaded fresh on each run; files it imports are cached until the character restarts.
+- All modules of one character share its event loop. A synchronous loop blocks Mineflayer and every other module; after 20 s without a heartbeat the character's process is restarted. Await between steps.
 
-## Tasks and concurrency
+## Controlling and read-only programs
 
-Every `bash` command is a managed task with a `taskId`. If its wait expires, it returns `running` and the module continues. Continue waiting with the same `taskId`; do not start the module again. Use `arena-task list` to inspect tasks and `arena-task cancel <taskId>` to stop one. The final output is delivered once, either to a later wait or as a `task.completed` inbox report.
+A module controls the character unless it says `export const control = false` (or you pass `--read-only`). Starting a controlling program first stops the current one; a read-only one runs beside it and must not move the character or use its hand. `mf run --keep FILE` starts a read-only module that keeps running and restarts with its character, like the default modules.
 
-Modules for the same character share one bot, event loop, movement controls, inventory and main hand. Keep only one module at a time responsible for movement or hand actions. Read-only modules can run alongside a controller, but all modules share the event loop: a synchronous loop blocks Mineflayer and every other module. Await between steps in loops. Different characters have separate processes and can run independently.
+Several `mf run` calls for the same character in one batch of tool calls race: the last to arrive keeps running. Put at most one controlling program per character in a batch; `mf inbox`, `mf status` and read-only modules can go beside it.
 
-The task interface handles only `run`, `cancel`, `status` and `session` requests. Use the native bot object inside the module for game state and actions. Do not attempt to send the bot, its events or arbitrary method calls across a process boundary.
+## Ending to hand you a decision
 
-## Report to the model
+Nothing a program does wakes you; its end does. So when a program reaches a point where you have to decide (no path, a chest found, food gone, an unknown mob), it should stop and return what you need to decide, for example `{status: "stalled", reason, position, ...}`. A program that keeps going and only reports it leaves the report waiting in `mf inbox` until you next read it.
 
-An urgent inbox report may end a `bash` wait early, but the module keeps running; inspect its status, keep waiting, or cancel it. The inbox is separate from trusted platform messages about the session, public data and notices (below).
+Before a controlling program ends, leave the character somewhere safe. After it ends, `idle` takes over until the next controlling program: it fights hostile mobs within a few blocks, eats when food is low and holds jump in water. `mf idle off` turns it off; an `idle.mjs` in your working directory replaces it.
 
-Load the client with ``const { InboxClient } = await import(`${process.env.ARENA_TOOLKIT_ROOT}/packages/inbox/index.mjs`)`` and create one with `new InboxClient()`. What each method is for:
+## Reporting through the inbox
 
-- `post(data)`: an event you want to see, such as a step finished. Arrives with your next tool result
-- `upsert(key, data)`: progress; a newer report with the same key replaces the older one if you have not seen it yet
-- `setStatus(key, data, {ttlMs})`: the program's current value, shown as `programStatus` in the runtime report until it is replaced, cleared with `null`, or expires
-- `requestJudgment(data)`: an urgent report. It ends your current wait or wakes you, and the program keeps running
-- `delivery(id, {timeoutMs})`: waits (30 s by default) until a message has left the queue. Resolves with `outcome`: `delivered`, `replaced`, `expired`, `overflow` or `removed`, or `pending` if it is still queued when the wait ends
+For progress you want to see when you next read `mf inbox`:
 
-A send resolves to `{accepted: true, id}` once the message is queued, and rejects with an error if it is refused (for example, too large). Queued does not mean you have read it. Every report should say whether the program is continuing or has stopped. You do not need to report that a program exited, because the runtime does that. More in the [inbox README](../../../packages/inbox/README.md).
+```js
+const { InboxClient } = await import(
+  `${process.env.MF_TOOLKIT_ROOT}/runtime/inbox/index.mjs`
+);
+const inbox = new InboxClient();
+```
+
+- `post(data)`: an event you want to see once, such as a step finished.
+- `upsert(key, data)`: progress; a newer report with the same key replaces an unread older one. Send the whole current state, not a difference.
+- `setStatus(key, data)`: the program's current value, shown by `mf status` until replaced or cleared with `null`.
+- `requestJudgment(data)`: listed first in `mf inbox`. It does not stop the program or wake you.
+
+Say in each report whether the program goes on or has stopped; that it ended is already in its result. More in `$MF_TOOLKIT_ROOT/runtime/inbox/README.md`.
+
+## Watching for stuck work
+
+The default watchdog reports trouble that lasts minutes. For tighter checks inside a long program:
+
+```js
+const { watchdog } = await import(
+  `${process.env.MF_TOOLKIT_ROOT}/runtime/observation/watchdog.mjs`
+);
+const dog = watchdog(bot);
+try {
+  // ... pass caught errors to dog.failure(error); dog.pause() / dog.resume() around intentional stillness
+} finally {
+  dog.close();
+}
+```
+
+It reports a stuck character and repeated failed work into the inbox, and interrupts the program when a synchronous loop blocks the process.
 
 ## Platform messages
 
-- **Session start and end.** The `session` section of the `Arena platform message` gives `kind`, `sessionId`, `state` and, in a match, `winner`. It is sent when one of them changes and arrives with your next request. A program can call `await bot.getSessionState()` for the same state. The rules on the server end the match.
-- **Slow model requests.** Long context, long replies, a busy model service or a spending limit all add time. When the operator set a spending limit and you went over it, a `modelRate` section in the next `Arena platform message` says how long requests waited and how long the next one will wait. The game and your programs keep running while you wait, so keep useful programs running, and keep each request's new context short.
+- **Session start and end.** The `session` section of an `Arena platform message` gives `kind`, `sessionId`, `state` and, in a match, `winner`, when one of them changes. A program can call `await bot.getSessionState()` for the same state. The rules on the server end the match.
+- **Slow model requests.** Long context, long replies, a busy model service or a spending limit all add time. A `modelRate` section says how long requests waited because of the operator's spending limit. The game goes on meanwhile, so keep a useful program running and keep each request's new context short.
 
 ## Looking up a Mineflayer call
 
@@ -98,6 +118,6 @@ rg -n "^#### bot.dig" "$ARENA_REFERENCE_ROOT/mineflayer/docs/api.md"
 rg -n "canDig|allowParkour" "$ARENA_REFERENCE_ROOT/mineflayer-pathfinder/readme.md"
 ```
 
-When a call behaves differently from its documentation, read its source in the same directory.
+When a call behaves differently from its documentation, read its source in the same directory. The `mf` runtime itself is documented in `$MF_TOOLKIT_ROOT/runtime/README.md`.
 
-See `arena-navigation`, `arena-places`, `arena-items`, `arena-survival` and `arena-surroundings` for focused examples and guidance.
+See `arena-navigation`, `arena-places`, `arena-items`, `arena-survival` and `arena-surroundings` for focused examples.

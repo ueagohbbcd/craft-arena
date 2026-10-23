@@ -1,12 +1,13 @@
 /** Start the toolkit's `mf` supervisor for this participant's characters. */
 import { spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const supervisorScript = fileURLToPath(
   import.meta.resolve("mineflayer-world-memory/runtime/supervisor.mjs"),
 );
+const toolkitRoot = dirname(dirname(supervisorScript));
 
 /** The characters named in the provision manifest, else ARENA_BOT. */
 export async function botNames(env) {
@@ -32,6 +33,8 @@ export function mfEnv(env, { names, cwd, defaultScripts }) {
     MF_PORT: env.ARENA_MINECRAFT_PORT ?? "25565",
     // Absolute, so `mf` finds it from any directory.
     MF_STATE_DIR: env.MF_STATE_DIR || join(cwd, ".mf"),
+    // The toolkit's docs and code, for the model's shell as for programs.
+    MF_TOOLKIT_ROOT: toolkitRoot,
     ARENA_BOT: names[0],
     ...(defaultScripts !== undefined
       ? { MF_DEFAULT_SCRIPTS: defaultScripts }

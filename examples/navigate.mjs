@@ -1,18 +1,21 @@
-/** Pathfinder trip with an Inbox judgment request when movement stalls. */
-import { InboxClient } from "mineflayer-world-memory/runtime/inbox/index.mjs";
+/**
+ * Pathfinder trip to X Y Z:
+ *
+ *   mf run "$ARENA_TOOLKIT_ROOT/examples/navigate.mjs" X Y Z [--no-dig]
+ *
+ * Returns `{status: "arrived", position}`; a failed trip throws. A trip that has lasted 2 minutes without moving
+ * a block in the last 30 s stops and returns `{status: "stalled", ...}` with a
+ * terrain summary, so whoever started it decides what to do next.
+ */
 import { Vec3 } from "vec3";
 import { loadPathfinder, stopBot } from "./native.mjs";
 import { summarizeTerrain } from "./summarize-terrain.mjs";
 
-export default async function navigate(
-  bot,
-  { signal, args = [], log = console.log },
-) {
+export default async function navigate(bot, { signal, args = [] }) {
   const noDig = args.includes("--no-dig");
   const xyz = args.filter((arg) => arg !== "--no-dig").map(Number);
   if (xyz.length !== 3 || !xyz.every(Number.isFinite))
     throw new Error("Usage: navigate.mjs X Y Z [--no-dig]");
-  const inbox = new InboxClient();
   const { Movements, goals } = loadPathfinder(bot);
   const moves = new Movements(bot);
   if (noDig) moves.canDig = false;
@@ -26,7 +29,7 @@ export default async function navigate(
   const started = Date.now();
   let anchor = bot.entity.position.clone(),
     lastMoved = Date.now(),
-    requested = false;
+    stalled = null;
   const timer = setInterval(() => {
     const now = Date.now(),
       position = bot.entity.position;
@@ -34,8 +37,7 @@ export default async function navigate(
       anchor = position.clone();
       lastMoved = now;
     }
-    if (requested || now - lastMoved < 30000 || now - started < 120000) return;
-    requested = true;
+    if (stalled || now - lastMoved < 30000 || now - started < 120000) return;
     let terrain;
     try {
       terrain = summarizeTerrain({
@@ -46,19 +48,16 @@ export default async function navigate(
     } catch (error) {
       terrain = { error: error.message };
     }
-    void inbox
-      .requestJudgment({
-        type: "route.review",
-        reason: "no_displacement",
-        goal: xyz,
-        position: { ...position },
-        elapsedMs: now - started,
-        path: latestPath,
-        terrain,
-        activity:
-          "Pathfinder is still running; cancel this task to stop movement.",
-      })
-      .catch(() => bot.pathfinder.setGoal(null));
+    stalled = {
+      status: "stalled",
+      reason: "no_displacement",
+      goal: xyz,
+      position: { ...position },
+      elapsedMs: now - started,
+      path: latestPath,
+      terrain,
+    };
+    bot.pathfinder.setGoal(null);
   }, 1000);
   const abort = () => bot.pathfinder.setGoal(null);
   signal?.addEventListener("abort", abort, { once: true });
@@ -67,24 +66,11 @@ export default async function navigate(
     signal?.throwIfAborted();
     if (!goal.isEnd(bot.entity.position.floored()))
       throw new Error("Pathfinder finished without reaching the goal");
-    await inbox.post({
-      type: "route.arrived",
-      position: { ...bot.entity.position },
-    });
-    log(
-      JSON.stringify({
-        status: "arrived",
-        position: { ...bot.entity.position },
-      }),
-    );
+    return { status: "arrived", position: { ...bot.entity.position } };
   } catch (error) {
+    if (stalled) return stalled;
     if (!signal?.aborted) {
-      await inbox.post({
-        type: "route.failed",
-        error: error.message,
-        goal: xyz,
-        position: { ...bot.entity.position },
-      });
+      error.message += ` (goal ${xyz.join(" ")}, at ${bot.entity.position.floored()})`;
       throw error;
     }
   } finally {

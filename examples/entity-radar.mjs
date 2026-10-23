@@ -91,6 +91,9 @@ export async function watchEntities(
   }
 }
 
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
 export default async function entityRadarProgram(
   bot,
   { args = [], signal, log = console.log },

@@ -4,21 +4,16 @@ Participant prompts are in [participant/agents.d/10-arena.md](participant/agents
 
 ## Repository map
 
-| Path                       | Contents                                                                        | Readers                          |
-| -------------------------- | ------------------------------------------------------------------------------- | -------------------------------- |
-| `packages/arena`           | Match configuration, RCON, server protocol                                      | Trusted operator                 |
-| `packages/login-gate`      | Character login gate and read-only session endpoint                             | Trusted operator and native host |
-| `packages/bot-host`        | One native Mineflayer bot per character; module lifecycle and minimal local RPC | Participant runtime              |
-| `packages/model-relay`     | Configured upstream model forwarding                                            | Trusted operator                 |
-| `packages/pi-extension`    | Pi launcher, task tool, Inbox server, platform messages, default-task startup   | Participant platform             |
-| `packages/tasks`           | Shell processes, wait rules, cancellation, task files                           | Participant platform             |
-| `packages/inbox`           | `InboxClient`, messages, delivery receipts                                      | Participant programs             |
-| `packages/observation`     | Native bot sampling, event watching, default observer policy                    | Participant programs             |
-| `packages/default-scripts` | Ordinary observer, chat, and watchdog tasks                                     | Participant programs             |
-| `packages/world-visual`    | Optional screenshots                                                            | Participant programs             |
-| `examples/`                | Native Mineflayer modules                                                       | Participants                     |
-| `infra/`                   | Deployment, operations, and rule datapacks                                      | Operators                        |
-| `docs/`                    | Design, validation, and roadmap                                                 | Developers                       |
+| Path                    | Contents                                                           | Readers                          |
+| ----------------------- | ------------------------------------------------------------------ | -------------------------------- |
+| `packages/arena`        | Match configuration, RCON, server protocol                         | Trusted operator                 |
+| `packages/login-gate`   | Character login gate and read-only session endpoint                | Trusted operator and native host |
+| `packages/model-relay`  | Configured upstream model forwarding                               | Trusted operator                 |
+| `packages/pi-extension` | Pi launcher, `mf` supervisor startup, task tool, platform messages | Participant platform             |
+| `packages/world-visual` | Optional screenshots                                               | Participant programs             |
+| `examples/`             | Native Mineflayer modules                                          | Participants                     |
+| `infra/`                | Deployment, operations, and rule datapacks                         | Operators                        |
+| `docs/`                 | Design, validation, and roadmap                                    | Developers                       |
 
 ## Common commands
 
@@ -36,8 +31,8 @@ CI runs syntax, formatting, unit tests, and the real-server check. If the enviro
 
 ## Implementation guidance
 
-- Participant game code runs against the real Mineflayer bot inside `packages/bot-host`. The local socket is limited to module run/cancel, task status, session reads, and small status snapshots needed by the wait tool. Do not add a remote bot API or mirror.
-- Default observation and chat reporting belong in ordinary cancellable tasks under `packages/default-scripts/`, delivered through `InboxClient`; do not move automated reports into the Pi extension.
+- Participant game code runs against the real Mineflayer bot inside the toolkit's `mf` character processes (`mineflayer-world-memory/runtime`). Runtime, inbox, observer and default modules live in the toolkit; change them there and bump the pinned commit here. Do not add a remote bot API or mirror.
+- Game reports reach the model only through `mf inbox`. The Pi extension runs shell tasks, reports finished ones and sends platform messages; do not move game reports into it.
 - Trusted session changes and public data use platform messages through `packages/pi-extension/platform-messages.mjs`; do not add another trusted-message delivery path.
 - Keep Pi's participant-facing tools to `read`, `edit`, `write`, and the project `bash` tool. Put additional capabilities in files or command-line programs.
 - When participant behavior changes, update `participant/agents.d/10-arena.md`, the relevant skill, and the package README.

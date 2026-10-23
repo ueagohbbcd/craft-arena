@@ -105,7 +105,7 @@ The match file is the usual one. `config.teams` can be left out (provision fills
 | `compose.agents.yaml` | `gate-<agent>` per agent, `model-<relay>` per relay (`<RELAY>_MODEL_URL`, `<RELAY>_MODEL_KEY`), `participant-<id>` per agent, one internal network per agent       |
 | `agents/<id>/`        | mounted read-only at `/arena/provision`: `manifest.json` (agent, team, bot names, workspace files), `model.json`, `files/`; its `config/` is mounted at `/arena/config` |
 
-The participant gets `ARENA_BOT` (its main bot) and `ARENA_PROVISION_DIR`. The participant launcher starts one native host per name in the manifest; modules select another character with `bot-host/run.mjs --bot NAME`.
+The participant gets `ARENA_BOT` (its main bot) and `ARENA_PROVISION_DIR`. The participant launcher starts one `mf` character per name in the manifest; the model picks another character with `mf run --bot NAME`.
 
 ## RCON
 

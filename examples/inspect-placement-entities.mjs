@@ -30,6 +30,9 @@ export function inspectPlacementEntities(bot, target, { limit = 12 } = {}) {
   };
 }
 
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
 export default async function inspectPlacementEntitiesProgram(
   bot,
   { args = [], log = console.log },

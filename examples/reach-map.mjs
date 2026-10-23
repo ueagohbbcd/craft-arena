@@ -127,6 +127,9 @@ export async function worldReader(
   return { blockAt, note };
 }
 
+// Read-only: runs beside the program that controls the character.
+export const control = false;
+
 export default async function reachMapProgram(
   bot,
   { args = [], log = console.log },

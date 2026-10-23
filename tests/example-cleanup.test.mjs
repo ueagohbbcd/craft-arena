@@ -119,16 +119,18 @@ for (const slowEquip of [false, true]) {
   });
 }
 
-test("cancelling the native read-only radar module leaves it without active movement", async (t) => {
+test("cancelling the read-only radar module leaves the character's movement alone", async (t) => {
   const { trace, closed } = await cancelExample(t, "entity-radar.mjs", [
     "32",
     "1000",
   ]);
   assert.equal(closed.controls.forward, false);
-  assert.ok(trace.some((event) => event.type === "controls.released"));
   assert.equal(
-    trace.filter((event) => event.type === "goal.cleared").length,
-    1,
-    "the host clears movement as part of cancellation",
+    trace.filter(
+      (event) =>
+        event.type === "controls.released" || event.type === "goal.cleared",
+    ).length,
+    0,
+    "a read-only module never stops the controlling program's movement",
   );
 });
