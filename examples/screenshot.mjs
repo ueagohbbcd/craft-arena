@@ -1,12 +1,14 @@
 // Take a picture of the loaded world and print where it was saved.
 // Run when a decision depends on shape: a doorway, a wall, stacked levels.
-// Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views VIEWS] [BOX [BOX...]]
+// Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views VIEWS] [--edge solid|open|game] [BOX [BOX...]]
 // A BOX is minX minY minZ maxX maxY maxZ; without one it frames the area
 // around your feet. Each box is one row of the image, seen from the same
 // VIEWS (2 by default: se,nw; or 1, 4, or names se sw nw ne top east west
 // south north). Only blocks inside a box are drawn, so a second, smaller
-// box shows the inside of the first. The picture shows you, your waypoints
-// and the entities in each box; give its pixels to pick.mjs for coordinates.
+// box shows the inside of the first. EDGE says how faces where a box cuts
+// through blocks are drawn: all (solid), none (open) or as in the game.
+// The picture shows you, your waypoints and the entities in each box; give
+// its pixels to pick.mjs for coordinates.
 // Sizes and layout come from screenshot.json (readSettings).
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
