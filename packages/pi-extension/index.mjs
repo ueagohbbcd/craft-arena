@@ -80,7 +80,7 @@ const rateSection = ({ perHour, burst, heldMs, nextWaitMs }) => ({
 });
 
 /**
- * Pi 1.1.0 extension: the harness side of the arena. `bash` runs every
+ * Pi 1.4.0 extension: the harness side of the arena. `bash` runs every
  * command as a task that outlives the wait, and a task that finishes later
  * wakes the model. What happens in the game reaches the model only through
  * `mf inbox` (the toolkit's runtime); trusted session changes come as
