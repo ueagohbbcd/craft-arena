@@ -56,13 +56,13 @@ docker compose down
 
 可调的变量：
 
-| 变量                                                        | 默认               | 作用                                                                                                                                            |
-| ----------------------------------------------------------- | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| `MC_PORT`                                                   | `25565`            | 服务器端口                                                                                                                                      |
-| `MF_AUTH`                                                   | `offline`          | `offline` 或 `microsoft`                                                                                                                        |
-| `PROMPT.md`                                                 | `./PROMPT.md`      | 陪玩提示词，只读挂到参赛容器的 `/arena/rules/PROMPT.md`                                                                                         |
-| `ARENA_CHAT_WAKE`                                           | `mention`          | `mention`／`all`：提到 bot 或私聊（`all` 为所有聊天）在 `mf inbox` 里排在前面；`none`：不区分。唤醒靠陪玩提示词让模型常驻的 `wait-for-chat.mjs` |
-| `ARENA_MEMORY_LIMIT`、`ARENA_CPU_LIMIT`、`ARENA_PIDS_LIMIT` | `2g`、`2.0`、`256` | 每个容器的资源上限                                                                                                                              |
+| 变量                                                        | 默认               | 作用                                                                                          |
+| ----------------------------------------------------------- | ------------------ | --------------------------------------------------------------------------------------------- |
+| `MC_PORT`                                                   | `25565`            | 服务器端口                                                                                    |
+| `MF_AUTH`                                                   | `offline`          | `offline` 或 `microsoft`                                                                      |
+| `PROMPT.md`                                                 | `./PROMPT.md`      | 陪玩提示词，只读挂到参赛容器的 `/arena/rules/PROMPT.md`                                       |
+| `ARENA_CHAT_WAKE`                                           | `mention`          | `mention`／`all`：提到 bot 或私聊（`all` 为所有聊天）在 `mf inbox` 里排在前面；`none`：不区分 |
+| `ARENA_MEMORY_LIMIT`、`ARENA_CPU_LIMIT`、`ARENA_PIDS_LIMIT` | `2g`、`2.0`、`256` | 每个容器的资源上限                                                                            |
 
 换上游或模型时，同时改 `.env` 的 `MODEL_UPSTREAM_URL`／`MODEL_UPSTREAM_KEY` 和 `model.json`。上游可以是宿主机上的服务（`http://host.docker.internal:PORT/v1`）。
 
@@ -72,4 +72,4 @@ docker compose down
 - 没有录像和结果记录。
 - 角色进程与服务器断开后由 `mf` 监督进程自动重启。
 - 平台不统计、不限制模型用量，模型调用一直在计费。长时间运行前确认上游账户的额度；需要限速或上限时，在上游那一层做。
-- `allowChat` 打开着，模型能在服务器里说话。服务器若不希望 bot 发言，从 `PROMPT.md` 去掉回聊天的要求和 `wait-for-chat.mjs`，然后运行 `docker compose up -d`。
+- `allowChat` 打开着，模型能在服务器里说话。服务器若不希望 bot 发言，从 `PROMPT.md` 去掉回聊天的要求，然后运行 `docker compose up -d`。
