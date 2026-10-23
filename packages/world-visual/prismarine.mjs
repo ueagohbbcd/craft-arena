@@ -443,13 +443,18 @@ export async function capturePrismarineSnapshot(
           },
         );
     }
-    // Clip everything outside `clip` (a box): blocks just outside it hide the
-    // faces the box cuts, and the planes then hide those blocks themselves.
+    // Clip everything outside `clip` ({min, max, faces}): blocks just outside
+    // the box hide the faces it cuts where they would be hidden in the game,
+    // and the planes hide those blocks themselves. With faces "open" the
+    // planes sit just inside the box, so no face on its edge is drawn; with
+    // "game" just outside, so the edge faces stay where the outer block is
+    // not opaque. The outer blocks' own faces on the edge look into the box,
+    // away from the camera, and are culled as back faces.
     await page.evaluate((box) => {
       const T = window.__arenaTHREE,
         renderer = window.__arenaRenderer;
       if (!T || !renderer) throw new Error("viewer renderer not found");
-      const e = 0.001;
+      const e = box?.faces === "game" ? -0.001 : 0.001;
       renderer.clippingPlanes = box
         ? [
             new T.Plane(new T.Vector3(1, 0, 0), -box.min.x - e),

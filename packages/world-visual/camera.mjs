@@ -76,14 +76,15 @@ const faceNames = {
  * false for empty, and null for a cell nobody has seen. A hit is a solid
  * cell entered from a cell that is not solid; with `startSolid` the ray
  * starts as if inside solid ground, so it passes through the solid cells at
- * the box edge (pictures without cut faces) and hits the first wall it sees
- * from open space.
+ * the box edge (pictures with an open edge) and hits the first wall it sees
+ * from open space. `hitOnly(cell)` limits hits to some cells; the others
+ * still count as solid or not for the next cell.
  */
 export function raycastCells(
   { origin, direction },
   bounds,
   solidAt,
-  { startSolid = false } = {},
+  { startSolid = false, hitOnly = () => true } = {},
 ) {
   // Clip the ray to the box (slab method), so a camera outside still works.
   let t0 = 0,
@@ -129,7 +130,7 @@ export function raycastCells(
     );
   while (inside(cell) && t <= t1 + 1e-9) {
     const solid = solidAt(cell.x, cell.y, cell.z);
-    if (solid === true && !previousSolid) {
+    if (solid === true && !previousSolid && hitOnly(cell)) {
       const normal = { x: 0, y: 0, z: 0 };
       if (axis) normal[axis] = -step[axis];
       return {

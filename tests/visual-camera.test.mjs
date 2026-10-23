@@ -95,6 +95,21 @@ test("without cut faces a ray passes through the solid edge and hits the far wal
   assert.equal(through.face, "west");
 });
 
+test("hitOnly skips cells but keeps them as solid for the next one", () => {
+  // A solid layer just outside the box (x=0) hides the box's first solid cell.
+  const solidAt = (x) => x <= 1;
+  const ray = {
+    origin: { x: -3, y: 2.5, z: 5.5 },
+    direction: { x: 1, y: 0, z: 0 },
+  };
+  const hit = raycastCells(ray, box, solidAt, { hitOnly: (c) => c.x >= 1 });
+  assert.equal(hit.cell, null);
+  const open = raycastCells(ray, box, (x) => x === 1, {
+    hitOnly: (c) => c.x >= 1,
+  });
+  assert.equal(open.cell.x, 1);
+});
+
 test("rays that miss each other still meet at their nearest point", () => {
   const m = nearestPointToRays([
     { origin: { x: 0, y: 0, z: 0 }, direction: { x: 1, y: 0, z: 0 } },
@@ -136,11 +151,11 @@ test("screenshot and pick arguments", () => {
   assert.deepEqual(parseScreenshotArgs([]), {
     views: null,
     boxes: [],
-    cutFaces: true,
+    edge: "solid",
   });
   assert.equal(
-    parseScreenshotArgs(["--no-cut-faces", "--views", "top"]).cutFaces,
-    false,
+    parseScreenshotArgs(["--edge", "open", "--views", "top"]).edge,
+    "open",
   );
   assert.throws(() => parseScreenshotArgs(["--cut", "1"]));
   assert.deepEqual(parseScreenshotArgs(["--views", "4"]).views, [

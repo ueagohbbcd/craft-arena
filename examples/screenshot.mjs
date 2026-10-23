@@ -14,7 +14,7 @@ import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
 import { capturePrismarineViews } from "../packages/world-visual/prismarine.mjs";
 import { isAir, projectPoint } from "../packages/world-visual/camera.mjs";
 
-const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views VIEWS] [--no-cut-faces] [minX minY minZ maxX maxY maxZ]...`;
+const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [--views VIEWS] [--edge solid|open|game] [minX minY minZ maxX maxY maxZ]...`;
 const KEEP_SHOTS = 20;
 
 /** A nearby box: mostly above and around the player, clipped to the dimension. */
@@ -40,24 +40,27 @@ const boxOf = (v) => {
   };
 };
 
-/** `{views, boxes, cutFaces}` from the command line: views or null, zero or more boxes. */
+/** `{views, boxes, edge}` from the command line: views or null, zero or more boxes, "solid" by default. */
 export function parseScreenshotArgs(args) {
   args = [...args];
   let views = null,
-    cutFaces = true;
+    edge = "solid";
   while (args[0]?.startsWith("--")) {
     const flag = args.shift();
     if (flag === "--views") {
       if (!args[0]) throw new Error(usage);
       views = parseViews(args.shift());
-    } else if (flag === "--no-cut-faces") cutFaces = false;
-    else throw new Error(`Unknown option ${flag}. ${usage}`);
+    } else if (flag === "--edge") {
+      edge = args.shift();
+      if (!["solid", "open", "game"].includes(edge))
+        throw new Error(`--edge takes solid, open or game. ${usage}`);
+    } else throw new Error(`Unknown option ${flag}. ${usage}`);
   }
   if (args.length % 6) throw new Error(usage);
   const boxes = [];
   for (let i = 0; i < args.length; i += 6)
     boxes.push(boxOf(args.slice(i, i + 6)));
-  return { views, boxes, cutFaces };
+  return { views, boxes, edge };
 }
 
 const viewNames = {
@@ -97,12 +100,12 @@ async function readWaypoints() {
   }
 }
 
-/** Smallest box around the blocks a camera can see: non-air cells next to air or (with cut faces) the box edge. */
+/** Smallest box around the blocks a camera can see: non-air cells next to air or (with a solid edge) the box edge. */
 export function visibleExtent(
   cells,
   bounds,
   extra = [],
-  { cutFaces = true } = {},
+  { edge = "solid" } = {},
 ) {
   const key = (x, y, z) => `${x},${y},${z}`;
   const solid = new Set();
@@ -136,8 +139,8 @@ export function visibleExtent(
       [0, 0, -1],
     ].some(([dx, dy, dz]) => {
       const n = { x: c.x + dx, y: c.y + dy, z: c.z + dz };
-      // A face the box cuts is drawn too, unless cut faces are off.
-      if (!inBox(n, bounds)) return cutFaces;
+      // A face the box cuts is drawn too, unless the edge is open.
+      if (!inBox(n, bounds)) return edge !== "open";
       return !solid.has(key(n.x, n.y, n.z));
     });
     if (exposed) grow(c);
@@ -230,27 +233,29 @@ async function nextShotName() {
 }
 
 /** The snapshot of one box and what goes on top of it. */
-async function sceneOf(bot, bounds, waypoints, cutFaces) {
+async function sceneOf(bot, bounds, waypoints, edge) {
   const snapshot = snapshotFromBot(bot, { bounds });
   const unknown = unknownCells(snapshot.blocks, bounds);
-  // Without cut faces the viewer also gets one layer of real blocks around
-  // the box: they hide the faces the box cuts, and clipping hides them.
-  const render = cutFaces
-    ? snapshot
-    : snapshotFromBot(bot, {
-        bounds: {
-          min: {
-            x: bounds.min.x - 1,
-            y: bounds.min.y - 1,
-            z: bounds.min.z - 1,
+  // Unless the edge is solid, the viewer also gets the layer of
+  // real blocks around the box: they hide the faces the box cuts as the game
+  // would, and clipping hides the layer itself.
+  const render =
+    edge === "solid"
+      ? snapshot
+      : snapshotFromBot(bot, {
+          bounds: {
+            min: {
+              x: bounds.min.x - 1,
+              y: bounds.min.y - 1,
+              z: bounds.min.z - 1,
+            },
+            max: {
+              x: bounds.max.x + 1,
+              y: bounds.max.y + 1,
+              z: bounds.max.z + 1,
+            },
           },
-          max: {
-            x: bounds.max.x + 1,
-            y: bounds.max.y + 1,
-            z: bounds.max.z + 1,
-          },
-        },
-      });
+        });
   const self = bot.entity.position;
   const marks = waypoints
     .filter((w) => inBox(w, bounds))
@@ -296,7 +301,7 @@ async function sceneOf(bot, bounds, waypoints, cutFaces) {
     z: b.z,
     air: isAir(b.name),
   }));
-  const fit = visibleExtent(cells, bounds, [self.floored()], { cutFaces });
+  const fit = visibleExtent(cells, bounds, [self.floored()], { edge });
   const volume =
     (bounds.max.x - bounds.min.x + 1) *
     (bounds.max.y - bounds.min.y + 1) *
@@ -322,7 +327,7 @@ export default async function screenshotProgram(
   bot,
   { args = [], log = console.log },
 ) {
-  const { views: chosen, boxes, cutFaces } = parseScreenshotArgs(args);
+  const { views: chosen, boxes, edge } = parseScreenshotArgs(args);
   const settings = await readSettings();
   const views = chosen ?? parseViews(settings.views);
   const waypoints = (await readWaypoints()).filter((w) =>
@@ -331,7 +336,7 @@ export default async function screenshotProgram(
   if (!boxes.length) boxes.push(observationBounds(bot));
   const scenes = [];
   for (const box of boxes)
-    scenes.push(await sceneOf(bot, box, waypoints, cutFaces));
+    scenes.push(await sceneOf(bot, box, waypoints, edge));
 
   const name = await nextShotName();
   const total = views.length * scenes.length;
@@ -345,7 +350,7 @@ export default async function screenshotProgram(
     columns,
     scenes: scenes.map((scene, i) => ({
       snapshot: scene.render,
-      clip: cutFaces ? undefined : scene.bounds,
+      clip: edge === "solid" ? undefined : { ...scene.bounds, faces: edge },
       label: scenes.length > 1 ? boxLabel(i) : undefined,
       directions: views.map((v) => viewNames[v]),
       fitBounds: scene.fit,
@@ -363,6 +368,10 @@ export default async function screenshotProgram(
           .filter((b) => !isAir(b.name))
           .map((b) => [b.x, b.y, b.z, b.name]),
         unknown: scene.unknown,
+        // The layer just outside the box, for --edge game.
+        outside: scene.render.blocks
+          .filter((b) => !inBox(b, scene.bounds))
+          .map((b) => [b.x, b.y, b.z, b.name]),
         entities: scene.entities.map((e) => ({
           name: e.username ?? e.name,
           x: e.pos.x,
@@ -372,7 +381,7 @@ export default async function screenshotProgram(
           height: e.height,
         })),
       })),
-      cutFaces,
+      edge,
     }),
   );
   await writeFile(

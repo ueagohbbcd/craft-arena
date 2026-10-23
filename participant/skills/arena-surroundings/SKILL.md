@@ -28,11 +28,12 @@ mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                            
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ    # box A
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" A_BOX B_BOX                      # A, and inside it the smaller B
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --views top minX minY minZ maxX maxY maxZ
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --no-cut-faces minX minY minZ maxX maxY maxZ   # tunnels in the rock
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" --edge open minX minY minZ maxX maxY maxZ   # tunnels in the rock
 ```
 
 - **Choose the box.** Only blocks inside it are drawn, and the camera frames them, not empty sky. Without a box it covers 25×25 blocks around you, from 8 below to 16 above your feet. A box around just the building or passage you are deciding about gives a closer picture.
-- **Seeing inside.** Give a second, smaller box B: it is drawn in its own row from the same views, without whatever lies outside it. Where a box cuts through solid blocks it draws the cut face, so B works like a section: a box B one block inside A's walls and below its roof shows the rooms; a box B whose top is at the height of a floor or a tunnel shows its layout as holes in the cut. `--no-cut-faces` leaves the cut faces out, as if your eye were inside the rock: underground, only the walls of tunnels and caves remain.
+- **Seeing inside.** Give a second, smaller box B: it is drawn in its own row from the same views, without whatever lies outside it. A box B one block inside A's walls and below its roof shows the rooms; a box B whose top is at the height of a floor or a tunnel shows its layout.
+- **The box edge.** `--edge` says how faces on the edge of a box are drawn where it cuts through blocks. `solid` (default) draws every cut face, so the box looks like a solid cut: use it when you placed the box just behind a wall you already know. `open` draws none, as if your eye were inside the rock: underground, only the walls of tunnels and caves remain, which shows where they go without knowing it first. `game` draws a cut face only where the block just outside the box would let it show in the game.
 - **Views.** Two from opposite corners above (`se,nw`) by default. `--views` takes `1`, `2`, `4` or names separated by commas: `se`, `sw`, `nw`, `ne`, `top` (straight down, north up), `east`, `west`, `south`, `north` (level, from that side). One image holds 1, 2 or 4 pictures (boxes × views). For a structure, look from the corners first; for a large area, `top` works well.
 - **Drawn on top:** `you`, your waypoints from `waypoints.json` and the names of mobs. Players and mobs themselves are drawn too.
 

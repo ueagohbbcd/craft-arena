@@ -38,30 +38,44 @@ const base = (image) => image.replace(/\.(png|json|cells\.json)$/, "");
 async function loadShot(image) {
   const metadata = JSON.parse(await readFile(`${base(image)}.json`, "utf8"));
   const cells = JSON.parse(await readFile(`${base(image)}.cells.json`, "utf8"));
-  const scenes = cells.scenes.map(({ bounds, blocks, unknown, entities }) => {
-    const solid = new Map(
-      blocks.map(([x, y, z, name]) => [`${x},${y},${z}`, name]),
-    );
-    const unseen = new Set(unknown.map((c) => c.join(",")));
-    const inside = (x, y, z) =>
-      x >= bounds.min.x &&
-      x <= bounds.max.x &&
-      y >= bounds.min.y &&
-      y <= bounds.max.y &&
-      z >= bounds.min.z &&
-      z <= bounds.max.z;
-    const nameAt = (x, y, z) =>
-      !inside(x, y, z)
-        ? "outside the box"
-        : (solid.get(`${x},${y},${z}`) ??
-          (unseen.has(`${x},${y},${z}`) ? "unknown" : "air"));
-    return { bounds, entities, nameAt, inside };
-  });
+  const scenes = cells.scenes.map(
+    ({ bounds, blocks, unknown, entities, outside = [] }) => {
+      const solid = new Map(
+        blocks.map(([x, y, z, name]) => [`${x},${y},${z}`, name]),
+      );
+      // The layer just outside the box (open and game edges only).
+      const outer = new Map(
+        outside.map(([x, y, z, name]) => [`${x},${y},${z}`, name]),
+      );
+      const unseen = new Set(unknown.map((c) => c.join(",")));
+      const inside = (x, y, z) =>
+        x >= bounds.min.x &&
+        x <= bounds.max.x &&
+        y >= bounds.min.y &&
+        y <= bounds.max.y &&
+        z >= bounds.min.z &&
+        z <= bounds.max.z;
+      const nameAt = (x, y, z) =>
+        !inside(x, y, z)
+          ? "outside the box"
+          : (solid.get(`${x},${y},${z}`) ??
+            (unseen.has(`${x},${y},${z}`) ? "unknown" : "air"));
+      return { bounds, entities, nameAt, inside, outer };
+    },
+  );
   // Around a hit, look in every box of the shot: a small box B sits inside A.
   const nameAnywhere = (x, y, z) =>
     scenes.find((sc) => sc.inside(x, y, z))?.nameAt(x, y, z) ??
+    scenes
+      .map((sc) => sc.outer.get(`${x},${y},${z}`))
+      .find((name) => name != null) ??
     "outside every box";
-  return { metadata, scenes, nameAnywhere, cutFaces: cells.cutFaces !== false };
+  return {
+    metadata,
+    scenes,
+    nameAnywhere,
+    edge: cells.edge ?? "solid",
+  };
 }
 
 /** Distance along a ray to an entity's box, or null. */
@@ -82,6 +96,11 @@ function rayHitsBox({ origin, direction }, min, max) {
   return t0 <= t1 ? t0 : null;
 }
 
+const grow = ({ min, max }) => ({
+  min: { x: min.x - 1, y: min.y - 1, z: min.z - 1 },
+  max: { x: max.x + 1, y: max.y + 1, z: max.z + 1 },
+});
+
 const round = (p) => ({
   x: Math.round(p.x * 10) / 10,
   y: Math.round(p.y * 10) / 10,
@@ -98,7 +117,7 @@ export default async function pick(bot, { args = [] }) {
   const picks = [];
   for (const p of points) {
     if (!shots.has(p.image)) shots.set(p.image, await loadShot(p.image));
-    const { metadata, scenes, nameAnywhere, cutFaces } = shots.get(p.image);
+    const { metadata, scenes, nameAnywhere, edge } = shots.get(p.image);
     const view = metadata.views.find(
       ({ viewport: v }) =>
         p.x >= v.x && p.x < v.x + v.width && p.y >= v.y && p.y < v.y + v.height,
@@ -112,15 +131,26 @@ export default async function pick(bot, { args = [] }) {
       p.y - view.viewport.y + 0.5,
     );
     rays.push({ ...ray, view: `${p.image}#${view.label}` });
-    const { bounds, entities, nameAt } = scenes[view.scene ?? 0];
+    const { bounds, entities, nameAt, inside, outer } = scenes[view.scene ?? 0];
+    // The ray follows the picture's rule for faces on the box edge: always
+    // drawn (solid), never drawn (open), or drawn where the block outside does not hide them
+    // ("game": walk one layer further out, hits only inside the box).
+    const game = edge === "game";
     const hit = raycastCells(
       ray,
-      bounds,
+      game ? grow(bounds) : bounds,
       (x, y, z) => {
+        if (!inside(x, y, z)) {
+          const name = outer.get(`${x},${y},${z}`);
+          return name != null && !isAir(name);
+        }
         const name = nameAt(x, y, z);
         return name === "unknown" ? null : !isAir(name);
       },
-      { startSolid: !cutFaces },
+      {
+        startSolid: edge === "open",
+        hitOnly: (c) => inside(c.x, c.y, c.z),
+      },
     );
     const result = { pixel: [p.x, p.y], view: view.label };
     if (hit.cell) {
