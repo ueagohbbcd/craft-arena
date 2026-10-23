@@ -32,7 +32,7 @@ CI runs syntax, formatting, unit tests, and the real-server check. If the enviro
 ## Implementation guidance
 
 - Participant game code runs against the real Mineflayer bot inside the toolkit's `mf` character processes (`mineflayer-world-memory/runtime`). Runtime, inbox, observer and default modules live in the toolkit; change them there and bump the pinned commit here. Do not add a remote bot API or mirror.
-- Game reports reach the model only through `mf inbox`. The Pi extension runs shell tasks, reports finished ones and sends platform messages; do not move game reports into it.
+- The Pi extension must not deliver game reports by itself: it runs shell tasks, reports finished ones and sends trusted platform messages. The model sees the game through what it runs (`mf inbox`, `mf snapshot`, program output and return values). Do not add another automatic report path to the extension.
 - Trusted session changes and public data use platform messages through `packages/pi-extension/platform-messages.mjs`; do not add another trusted-message delivery path.
 - Keep Pi's participant-facing tools to `read`, `edit`, `write`, and the project `bash` tool. Put additional capabilities in files or command-line programs.
 - When participant behavior changes, update `participant/agents.d/10-arena.md`, the relevant skill, and the package README.

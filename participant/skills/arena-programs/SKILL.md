@@ -1,6 +1,6 @@
 ---
 name: arena-programs
-description: "How to write and run modules on your character's native Mineflayer bot with mf: module shape, loading plugins, controlling and read-only programs, ending a program to hand you a decision, reporting through the inbox, the watchdog, and looking up Mineflayer, Pathfinder and PvP calls in the bundled docs. Read it before your first program, and again when a program misbehaves or you need a call you have not used yet."
+description: "How to write and run modules on your character's native Mineflayer bot with mf: module shape, loading plugins, controlling and read-only programs, ending a program to hand you a decision (done, deadline, repeated failures, a watchdog finding), reporting through the inbox, and looking up Mineflayer, Pathfinder and PvP calls in the bundled docs. Read it before your first program, and again when a program misbehaves or you need a call you have not used yet."
 ---
 
 # Writing programs
@@ -64,9 +64,51 @@ Several `mf run` calls for the same character in one batch of tool calls race: t
 
 ## Ending to hand you a decision
 
-Nothing a program does wakes you; its end does. So when a program reaches a point where you have to decide (no path, a chest found, food gone, an unknown mob), it should stop and return what you need to decide, for example `{status: "stalled", reason, position, ...}`. A program that keeps going and only reports it leaves the report waiting in `mf inbox` until you next read it.
+Nothing a program does wakes you; its end does. So a program should know when to stop and hand the decision back, and return what you need to make it. Give each long program these exits:
 
-Before a controlling program ends, leave the character somewhere safe. After it ends, `idle` takes over until the next controlling program: it fights hostile mobs within a few blocks, eats when food is low and holds jump in water. `mf idle off` turns it off; an `idle.mjs` in your working directory replaces it.
+- **Done:** the goal is reached; return what it found or changed.
+- **Out of time:** a deadline you pass in (`args`), not an endless loop.
+- **Failing:** the same step failed a few times; return the last error instead of retrying forever.
+- **Something to look at:** a condition it watches for (a mob nearby, food low, a chest in sight, a watchdog finding).
+
+```js
+const { watchdog } = await import(
+  `${process.env.MF_TOOLKIT_ROOT}/runtime/observation/watchdog.mjs`
+);
+
+export default async function (bot, { signal, args }) {
+  const deadline = Date.now() + Number(args[0] ?? 120) * 1000;
+  let failures = 0,
+    lastError = null,
+    finding = null;
+  // Its findings end this program instead of waiting in the inbox.
+  const dog = watchdog(bot, { report: (event) => (finding ??= event) });
+  try {
+    while (true) {
+      if (finding) return { status: "stuck", finding, at: bot.entity.position };
+      if (Date.now() > deadline)
+        return { status: "timeout", at: bot.entity.position };
+      if (bot.food < 6) return { status: "hungry", food: bot.food };
+      try {
+        const done = await oneStep(bot, signal); // your step: dig, place, walk a leg...
+        if (done) return { status: "done", at: bot.entity.position };
+        failures = 0;
+      } catch (error) {
+        if (signal.aborted) throw error;
+        dog.failure(error);
+        lastError = error.message;
+        if (++failures >= 3) return { status: "failed", error: lastError };
+      }
+    }
+  } finally {
+    dog.close();
+  }
+}
+```
+
+`watchdog(bot)` without `report` sends its findings to `mf inbox` instead, where they wait until you read it. A synchronous loop that blocks the process is caught either way: the program is interrupted. Use `dog.pause()` and `dog.resume()` around intentional stillness.
+
+Before a controlling program ends, leave the character somewhere safe. While it runs, its own code keeps the character alive (`arena-survival` shows walking with defense and eating). After it ends, `idle` takes over until the next controlling program: it fights hostile mobs within a few blocks, eats when food is low and holds jump in water. `mf idle off` turns it off; an `idle.mjs` in your working directory replaces it.
 
 ## Reporting through the inbox
 
@@ -82,27 +124,9 @@ const inbox = new InboxClient();
 - `post(data)`: an event you want to see once, such as a step finished.
 - `upsert(key, data)`: progress; a newer report with the same key replaces an unread older one. Send the whole current state, not a difference.
 - `setStatus(key, data)`: the program's current value, shown by `mf status` until replaced or cleared with `null`.
-- `requestJudgment(data)`: listed first in `mf inbox`. It does not stop the program or wake you.
+- `requestJudgment(data)`: despite its name, only listed first in `mf inbox`. It does not stop the program or wake you; to hand you a decision, return.
 
 Say in each report whether the program goes on or has stopped; that it ended is already in its result. More in `$MF_TOOLKIT_ROOT/runtime/inbox/README.md`.
-
-## Watching for stuck work
-
-The default watchdog reports trouble that lasts minutes. For tighter checks inside a long program:
-
-```js
-const { watchdog } = await import(
-  `${process.env.MF_TOOLKIT_ROOT}/runtime/observation/watchdog.mjs`
-);
-const dog = watchdog(bot);
-try {
-  // ... pass caught errors to dog.failure(error); dog.pause() / dog.resume() around intentional stillness
-} finally {
-  dog.close();
-}
-```
-
-It reports a stuck character and repeated failed work into the inbox, and interrupts the program when a synchronous loop blocks the process.
 
 ## Platform messages
 

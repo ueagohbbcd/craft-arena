@@ -4,11 +4,11 @@
 
 ## 组成
 
-| 服务          | 镜像                                                  | 网络                            | 作用                                                                                                                         |
-| ------------- | ----------------------------------------------------- | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `gate`        | [`Dockerfile.trusted`](../Dockerfile.trusted)         | `companion`、`minecraft-egress` | 校验玩家名并连接 Minecraft 服务器的登录门                                                                                    |
-| `model-relay` | 同上                                                  | `companion`、`model-egress`     | [模型转发](../../packages/model-relay/README.md)：把模型请求转发到 `MODEL_UPSTREAM_URL`，只有它拿到上游 key                  |
-| `participant` | [`Dockerfile.participant`](../Dockerfile.participant) | `companion`（内部网络）         | Pi 和参赛者程序。开局提示带上会话简报，其中有陪玩提示词；`ARENA_CHAT_WAKE=mention` 让提到 bot 名字的聊天和私聊唤醒空闲的模型 |
+| 服务          | 镜像                                                  | 网络                            | 作用                                                                                                                                              |
+| ------------- | ----------------------------------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `gate`        | [`Dockerfile.trusted`](../Dockerfile.trusted)         | `companion`、`minecraft-egress` | 校验玩家名并连接 Minecraft 服务器的登录门                                                                                                         |
+| `model-relay` | 同上                                                  | `companion`、`model-egress`     | [模型转发](../../packages/model-relay/README.md)：把模型请求转发到 `MODEL_UPSTREAM_URL`，只有它拿到上游 key                                       |
+| `participant` | [`Dockerfile.participant`](../Dockerfile.participant) | `companion`（内部网络）         | Pi 和参赛者程序。开局提示带上会话简报，其中有陪玩提示词；聊天进 `mf inbox`，不会唤醒模型（`ARENA_CHAT_WAKE=mention` 只让提到 bot 的聊天排在前面） |
 
 参赛容器只在内部网络上，访问不到 Minecraft 服务器和外网；bot host 通过登录门连接角色，模型请求经模型转发。也可以让参赛容器自己访问模型，见 [infra/README.md](../README.md#参赛容器自己访问模型)。
 

@@ -47,7 +47,8 @@ const positiveInteger = (value, fallback) => {
  * arena's own participant/agents.d/10-arena.md) once, without disabling Pi's
  * own discovery of user/project context files: a file Pi already loads as a
  * context file is not appended again. The repository's root AGENTS.md is the
- * developer guide, not a participant prompt.
+ * developer guide, not a participant prompt: Pi picks it up when started
+ * inside the repository, which this warns about.
  */
 export async function systemPromptArgs({ cwd, agentDir, args = [], files }) {
   const loaded = new Set();
@@ -61,6 +62,13 @@ export async function systemPromptArgs({ cwd, agentDir, args = [], files }) {
       agentDir,
     }))
       loaded.add(await realpath(file.path).catch(() => null));
+    const developerGuide = await realpath(join(projectRoot, "AGENTS.md")).catch(
+      () => null,
+    );
+    if (developerGuide && loaded.has(developerGuide))
+      process.stderr.write(
+        `Pi loads ${developerGuide}, the arena's developer guide, as project context because it runs inside the repository; start it from a separate workspace (as the participant image does) or pass --no-context-files.\n`,
+      );
   }
   const out = [];
   for (const file of files)
