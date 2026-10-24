@@ -55,3 +55,29 @@ test("prune keeps the 1.16.4 entity textures the viewer still loads", () => {
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("prune drops the toolkit's own skills and bundle, and keeps its code", () => {
+  const dir = mkdtempSync(join(tmpdir(), "arena-prune-"));
+  try {
+    const nodeModules = join(dir, "node_modules");
+    const toolkit = join(nodeModules, "mineflayer-world-memory");
+    for (const file of [
+      "skills/mf-basics/SKILL.md",
+      "bundle/mineflayer-agent/SKILL.md",
+      "runtime/bin/mf.mjs",
+      "examples/navigate.mjs",
+    ]) {
+      mkdirSync(dirname(join(toolkit, file)), { recursive: true });
+      writeFileSync(join(toolkit, file), "x");
+    }
+
+    execFileSync(process.execPath, [script, nodeModules, "1.21.1"]);
+
+    assert.ok(!existsSync(join(toolkit, "skills")));
+    assert.ok(!existsSync(join(toolkit, "bundle")));
+    assert.ok(existsSync(join(toolkit, "runtime/bin/mf.mjs")));
+    assert.ok(existsSync(join(toolkit, "examples/navigate.mjs")));
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

@@ -38,9 +38,11 @@ keepOnly(
 keepOnly(join(viewer, "textures/1.16.4"), (name) => name === "entity");
 keepOnly(join(viewer, "blocksStates"), (name) => name === `${version}.json`);
 
-// The toolkit tarball carries its own general-purpose skill. Participants get
-// the arena's skills instead, and models can read node_modules.
-rmSync(join(root, "mineflayer-world-memory/skills"), {
-  recursive: true,
-  force: true,
-});
+// The toolkit tarball carries its own general-purpose skills and their
+// one-skill bundle. Participants get the arena's skills instead, and models
+// can read node_modules.
+for (const dir of ["skills", "bundle"])
+  rmSync(join(root, "mineflayer-world-memory", dir), {
+    recursive: true,
+    force: true,
+  });

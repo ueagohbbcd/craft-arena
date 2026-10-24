@@ -42,13 +42,23 @@ export default async function (bot, { signal, args, log }) {
   signal.addEventListener("abort", stop, { once: true });
   try {
     await bot.pathfinder.goto(new goals.GoalNear(x, y, z, 1));
-    return { arrived: bot.entity.position };
+    return { status: "arrived", at: bot.entity.position };
+  } catch (error) {
+    if (signal.aborted) throw error;
+    // NoPath, Timeout, PathStopped...: Pathfinder says why; pass it on.
+    return {
+      status: "failed",
+      reason: error.name,
+      error: error.message,
+      at: bot.entity.position,
+    };
   } finally {
     signal.removeEventListener("abort", stop);
   }
 }
 ```
 
+- Build on what the plugins report (Pathfinder's `goto` and `path_update`, PvP's `attack`, `stop` and `stoppedAttacking`) instead of your own distance tests or sleeps. A timeout is a fallback with the plugin's last status attached, not proof that something happened. (`goto` also resolves on an empty path; `navigate.mjs` shows the arrival check that matches Pathfinder's own.)
 - `signal` aborts when the program is cancelled, replaced by another controlling program, or interrupted by a change such as a death. Let long work end on it.
 - `log(...)` (or `console.log`) prints into the program's output. Print a line at each milestone (arrived, found it, chest opened): when a wait comes back `running`, the output shows how far it got.
 - The function ending is the program ending: wait for a walk inside the module. When a controlling module ends, however it ends, the character releases its movement keys and stops Pathfinder and PvP.
