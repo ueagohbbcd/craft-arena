@@ -7,8 +7,8 @@ description: "Digging, placing, equipping, crafting and containers: the Mineflay
 
 Use these calls inside a native bot module (see `arena-programs`). They are Mineflayer methods on the real bot object.
 
-- Place: [inspect-placement-entities.mjs](../../../examples/inspect-placement-entities.mjs) checks that no entity blocks the placement.
-- Equip: equip the right item at the start of each program and again each time work resumes. Between programs `idle` may have switched to a sword or eaten, and an eating or fighting step inside your program may have changed it too. [build-with-autoeat.mjs](../../../examples/build-with-autoeat.mjs) builds and eats in one program and takes turns with the hand.
+- Place: `$MF_TOOLKIT_ROOT/examples/inspect-placement-entities.mjs` checks that no entity blocks the placement.
+- Equip: equip the right item at the start of each program and again each time work resumes. Between programs `idle` may have switched to a sword or eaten, and an eating or fighting step inside your program may have changed it too. `$MF_TOOLKIT_ROOT/examples/build-with-autoeat.mjs` builds and eats in one program and takes turns with the hand.
 - Craft: use Mineflayer's `bot.recipesFor(itemType, metadata, minResultCount, table)` to find recipes the current inventory can make, then `await bot.craft(recipe, runs, table)`. The `runs` argument counts recipe executions, so use `Math.ceil(minResultCount / recipe.result.count)` when you need a minimum number of result items. Pass `null` as `table` for a recipe that needs no crafting table.
 - Furnaces, anvils, enchanting tables and villagers: `openFurnace`, `openAnvil`, `openEnchantmentTable` and `openVillager` work as in Mineflayer. A furnace's `fuel` and `progress` are copied with each state update, so read them again after waiting.
 - Find the logs of one tree: `queryTreeCandidate` in `$MF_TOOLKIT_ROOT/runtime/observation/queries.mjs`, see the observation README next to it.

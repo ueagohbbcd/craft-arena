@@ -11,9 +11,13 @@ Participant prompts are in [participant/agents.d/10-arena.md](participant/agents
 | `packages/model-relay`  | Configured upstream model forwarding                               | Trusted operator                 |
 | `packages/pi-extension` | Pi launcher, `mf` supervisor startup, task tool, platform messages | Participant platform             |
 | `packages/world-visual` | Optional screenshots                                               | Participant programs             |
-| `examples/`             | Native Mineflayer modules                                          | Participants                     |
+| `examples/`             | Screenshot and pick modules (the other example programs are in the toolkit's `examples/`) | Participants |
 | `infra/`                | Deployment, operations, and rule datapacks                         | Operators                        |
 | `docs/`                 | Design, validation, and roadmap                                    | Developers                       |
+
+## What lives where
+
+The toolkit (`mineflayer-world-memory`, repository `mineflayer-agent-tools`) teaches and helps an agent play Minecraft: libraries, the `mf` runtime, example programs and a skill. This repository runs matches and decides what a participant sees: the platform, its own `arena-*` skills (which point at the toolkit's examples), and the images. Participant containers have no network, so the participant image installs every dependency the toolkit's parts need, including the awkward ones such as the renderer's. The picture tools (`packages/world-visual`, `examples/screenshot.mjs`, `pick.mjs`) are planned to move into the toolkit later; this repository would still install their dependencies.
 
 ## Common commands
 

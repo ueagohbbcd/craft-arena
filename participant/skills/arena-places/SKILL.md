@@ -5,11 +5,11 @@ description: "Looking up where you can go, without moving: the reach map and ter
 
 # Places and how they connect
 
-These tools only look: they run Pathfinder's search over the blocks your character has received and print text, and nothing moves. To go somewhere, use Pathfinder (see the `arena-navigation` skill). All are run like any module, for example `mf run "$ARENA_TOOLKIT_ROOT/examples/reach-map.mjs" --target X Y Z`.
+These tools only look: they run Pathfinder's search over the blocks your character has received and print text, and nothing moves. To go somewhere, use Pathfinder (see the `arena-navigation` skill). All are run like any module, for example `mf run "$MF_TOOLKIT_ROOT/examples/reach-map.mjs" --target X Y Z`.
 
 ## Reach map and terrain profile
 
-[reach-map.mjs](../../../examples/reach-map.mjs) draws, north up, the places Pathfinder can take you from here (or `--from X Y Z`) that you can also walk back from, and says whether `--target X Y Z` is reachable.
+`$MF_TOOLKIT_ROOT/examples/reach-map.mjs` draws, north up, the places Pathfinder can take you from here (or `--from X Y Z`) that you can also walk back from, and says whether `--target X Y Z` is reachable.
 
 - Digits are feet height with `4` = yours, one block per digit; `^` and `_` are beyond that.
 - `v` is a place you can drop to but not walk back from.
@@ -18,7 +18,7 @@ These tools only look: they run Pathfinder's search over the blocks your charact
 - It searches like Pathfinder with parkour and without digging or placing. `--dig`, `--blocks N`, `--no-parkour`, `--max-drop N` show what changes with other settings.
 - Keep the default size (`--steps 24`, `--radius 12`): a bigger map is harder to read, not more useful. Draw another one with `--from` instead.
 
-[profile.mjs](../../../examples/profile.mjs) describes the ground along a line toward a point or a direction (walls, drops, water): `X Z` or `north 40`.
+`$MF_TOOLKIT_ROOT/examples/profile.mjs` describes the ground along a line toward a point or a direction (walls, drops, water): `X Z` or `north 40`.
 
 ## Waypoints and the place graph
 
@@ -38,11 +38,11 @@ Once you know how a place is laid out, write down a few representative footholds
 ]
 ```
 
-[place-graph.mjs](../../../examples/place-graph.mjs) searches between every pair with Pathfinder's search (nobody moves) and prints one line per pair, the links between your places:
+`$MF_TOOLKIT_ROOT/examples/place-graph.mjs` searches between every pair with Pathfinder's search (nobody moves) and prints one line per pair, the links between your places:
 
 ```sh
-mf run "$ARENA_TOOLKIT_ROOT/examples/place-graph.mjs"                 # all pairs in waypoints.json
-mf run "$ARENA_TOOLKIT_ROOT/examples/place-graph.mjs" --here --from here  # from where you stand to each place
+mf run "$MF_TOOLKIT_ROOT/examples/place-graph.mjs"                 # all pairs in waypoints.json
+mf run "$MF_TOOLKIT_ROOT/examples/place-graph.mjs" --here --from here  # from where you stand to each place
 ```
 
 ```

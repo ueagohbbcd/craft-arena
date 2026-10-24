@@ -8,12 +8,12 @@ description: "Seeing the world around you: full state on request, pictures of bo
 The default observer already reports changes to your state, inventory, nearby entities, blocks and signs into `mf inbox`. Use these when you need more. All the examples here are read-only: they run beside your controlling program without stopping it.
 
 - **Full current state now:** `mf snapshot` prints one full sample as JSON, including `local` (what walking 3 blocks each way meets: walls, drops, water) and head room. `--full-entities`, `--full-local`, `--full-items` expand parts.
-- **Where you can walk:** [reach-map.mjs](../../../examples/reach-map.mjs) and [profile.mjs](../../../examples/profile.mjs), and which of your places connect, see the `arena-places` skill.
-- **Local terrain and connectivity as numbers:** [summarize-terrain.mjs](../../../examples/summarize-terrain.mjs).
-- **Entities near you:** `mf snapshot --full-entities`, or [entity-radar.mjs](../../../examples/entity-radar.mjs) for a replaceable `nearby.entities` report every second.
+- **Where you can walk:** `$MF_TOOLKIT_ROOT/examples/reach-map.mjs` and `$MF_TOOLKIT_ROOT/examples/profile.mjs`, and which of your places connect, see the `arena-places` skill.
+- **Local terrain and connectivity as numbers:** `$MF_TOOLKIT_ROOT/examples/summarize-terrain.mjs`.
+- **Entities near you:** `mf snapshot --full-entities`, or `$MF_TOOLKIT_ROOT/examples/entity-radar.mjs` for a replaceable `nearby.entities` report every second.
 - **Signs:** the default observer sends the text of signs near you in one `observation.nearby_signs` report, with each set of signs seen since you last read it.
-- **Be told when a block appears:** `mf run "$ARENA_TOOLKIT_ROOT/examples/watch-surroundings.mjs" chest 600`, started with a small `wait_seconds`. It ends as soon as a chest is within 6 blocks (or after 600 s), and its end reaches you by itself.
-- **Blocks in chunks that are no longer loaded:** only when the operator enabled world history (`bot.worldMemory` exists; off by default). [query-block-memory.mjs](../../../examples/query-block-memory.mjs) returns live blocks first and history only for unloaded chunks; a `historical` block is how it looked at `observedAt`, and `unknown` is not air.
+- **Be told when a block appears:** `mf run "$MF_TOOLKIT_ROOT/examples/watch-surroundings.mjs" chest 600`, started with a small `wait_seconds`. It ends as soon as a chest is within 6 blocks (or after 600 s), and its end reaches you by itself.
+- **Blocks in chunks that are no longer loaded:** only when the operator enabled world history (`bot.worldMemory` exists; off by default). `$MF_TOOLKIT_ROOT/examples/query-block-memory.mjs` returns live blocks first and history only for unloaded chunks; a `historical` block is how it looked at `observedAt`, and `unknown` is not air.
 
 ## Game chat
 

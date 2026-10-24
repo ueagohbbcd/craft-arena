@@ -9,11 +9,11 @@ When calculating directions, `Vector` follows native `vec3`: `normalize()` mutat
 
 ## How to move
 
-Move with Pathfinder (`bot.pathfinder.goto` / `setGoal`) from your own program, as in the example in the `arena-programs` skill; in a fight, PvP (`bot.pvp`, see `arena-survival`) moves for you. For a plain trip, run [navigate.mjs](../../../examples/navigate.mjs) with a small `wait_seconds`; its end reaches you by itself:
+Move with Pathfinder (`bot.pathfinder.goto` / `setGoal`) from your own program, as in the example in the `arena-programs` skill; in a fight, PvP (`bot.pvp`, see `arena-survival`) moves for you. For a plain trip, run `$MF_TOOLKIT_ROOT/examples/navigate.mjs` with a small `wait_seconds`; its end reaches you by itself:
 
 ```json
 {
-  "command": "mf run \"$ARENA_TOOLKIT_ROOT/examples/navigate.mjs\" X Y Z",
+  "command": "mf run \"$MF_TOOLKIT_ROOT/examples/navigate.mjs\" X Y Z",
   "wait_seconds": 5
 }
 ```
@@ -25,7 +25,7 @@ It uses Pathfinder with its default movement settings, which include digging. Ad
 - Once the trip has lasted 120 seconds and the character has also moved less than one block in the last 30 seconds, it stops and returns `{"status":"stalled",…}` with a terrain summary and the last path status.
 - `mf cancel TASK_ID` stops it cleanly: it clears the goal, releases the controls and ends.
 
-When a trip may meet mobs, use [navigate-with-defense.mjs](../../../examples/navigate-with-defense.mjs) instead (see the `arena-survival` skill).
+When a trip may meet mobs, use `$MF_TOOLKIT_ROOT/examples/navigate-with-defense.mjs` instead (see the `arena-survival` skill).
 
 ## After NoPath or a stall
 
@@ -39,4 +39,4 @@ Look before you try again: the reach map (`arena-places` skill) with `--target X
 2. The character is on the ground (`bot.entity.onGround`).
 3. Pathfinder has finished any digging or placing (`bot.pathfinder.isMining()` and `isBuilding()` are false).
 
-[navigate-with-autoeat.mjs](../../../examples/navigate-with-autoeat.mjs) waits for these, eats, and then sets the original goal again.
+`$MF_TOOLKIT_ROOT/examples/navigate-with-autoeat.mjs` waits for these, eats, and then sets the original goal again.
