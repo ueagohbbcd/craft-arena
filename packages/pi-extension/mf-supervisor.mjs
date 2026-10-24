@@ -8,6 +8,7 @@ const supervisorScript = fileURLToPath(
   import.meta.resolve("mineflayer-world-memory/runtime/supervisor.mjs"),
 );
 const toolkitRoot = dirname(dirname(supervisorScript));
+const arenaRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 /** The characters named in the provision manifest, else ARENA_BOT. */
 export async function botNames(env) {
@@ -35,6 +36,8 @@ export function mfEnv(env, { names, cwd, defaultScripts }) {
     MF_STATE_DIR: env.MF_STATE_DIR || join(cwd, ".mf"),
     // The toolkit's docs and code, for the model's shell as for programs.
     MF_TOOLKIT_ROOT: toolkitRoot,
+    // The arena's own modules (screenshot, pick), for programs as for the shell.
+    ARENA_TOOLKIT_ROOT: env.ARENA_TOOLKIT_ROOT || arenaRoot.replace(/\/$/, ""),
     ARENA_BOT: names[0],
     ...(defaultScripts !== undefined
       ? { MF_DEFAULT_SCRIPTS: defaultScripts }

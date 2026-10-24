@@ -10,7 +10,7 @@ import {
   capturePrismarineSnapshot,
   capturePrismarineViews,
 } from "../packages/world-visual/prismarine.mjs";
-import { fixtureWorld } from "../examples/fixture-world.mjs";
+import { fixtureWorld } from "../scripts/fixture-world.mjs";
 import { projectPoint } from "../packages/world-visual/camera.mjs";
 const require = createRequire(import.meta.url);
 let deps = true;

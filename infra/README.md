@@ -203,4 +203,4 @@ node packages/arena/src/deployment.mjs status D > D/export/status.txt
 
 Docker 的 `internal: true` 去掉了普通的外网路由，但不能证明完全隔离（宿主机上的服务、IPv6、配置错误、后加的网络）。不要为了让参赛者用 Git 而给参赛容器接一个能出网的网络：队伍 Git 只用卷。确实需要外部访问时，用宿主机控制的白名单代理，并与模型凭据分开。
 
-运营配置（`deploy.json`、比赛文件、`.env`）留在部署目录里，不要放进参赛者能看到的目录。参赛镜像只复制参赛侧的包和 `examples/`，不带 `docs/`。走 relay 时参赛容器只拿到模型名和 relay 地址，没有 key。已做过的验收记录见 [docs/VALIDATION.md](../docs/VALIDATION.md)。
+运营配置（`deploy.json`、比赛文件、`.env`）留在部署目录里，不要放进参赛者能看到的目录。参赛镜像只复制参赛侧的包和 `examples/`（截图和点选；其他例程在工具包的 `examples/` 里，随依赖装进镜像），不带 `docs/`。走 relay 时参赛容器只拿到模型名和 relay 地址，没有 key。已做过的验收记录见 [docs/VALIDATION.md](../docs/VALIDATION.md)。
