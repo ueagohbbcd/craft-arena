@@ -353,12 +353,13 @@ async function live(rcon, dir, map) {
   );
   await rcon.command("forceload remove all");
   const mapJson = await directFire();
+  const matchJson = JSON.parse(
+    await readFile(join(root, "infra/deploy/match.direct-fire.json"), "utf8"),
+  );
   const match = compileMatch(
     mapJson,
-    JSON.parse(
-      await readFile(join(root, "infra/deploy/match.direct-fire.json"), "utf8"),
-    ),
-    resolveAgents(mapJson),
+    matchJson,
+    resolveAgents(mapJson, matchJson),
   );
   match.config.sessionId = "verify-live";
   match.config.rules = { ...match.config.rules, durationMs: 120000 };

@@ -28,7 +28,7 @@ async function fixture(t, map) {
 
 /** What deployment.mjs does with a map: agent files and the Compose project. */
 async function build(f, match = MODEL) {
-  const agents = resolveAgents(f.map);
+  const agents = resolveAgents(f.map, match);
   await writeAgents({ agents, mapDir: f.mapDir, outDir: f.outDir });
   return deploymentCompose({
     name: "t",
@@ -147,7 +147,7 @@ test("the match file adds rules, briefing and commands after the map's", () => {
   });
   const fails = (match, error, m = map) =>
     assert.throws(() => compileMatch(m, match, agents), error);
-  fails({ sessionId: "s1", teams: [] }, /teams come from the map's agents/);
+  fails({ sessionId: "s1", teams: [] }, /teams come from the roster/);
   fails({ config: {} }, /the match file is flat now/);
   fails({ sessionId: "s1", runtime: "bridge" }, /native participant hosts/);
   fails({ sessionId: "bad id" }, /sessionId must match/);
@@ -318,4 +318,83 @@ test("native run socket lookup uses the participant manifest for any owned bot",
     () => runSocket("arena_blue1", env),
     /not one of the characters/,
   );
+});
+
+test("a match file can bring its own roster on the map's teams", async (t) => {
+  const mode = {
+    source: "agents.d/20-mode.md",
+    target: "/arena/config/agents.d/20-mode.md",
+  };
+  const notes = { source: "notes.md", target: "/workspace/notes.md" };
+  const map = {
+    teams: { red: { files: [notes] }, blue: {} },
+    defaults: { files: [mode] },
+    agents: { red1: { team: "red", bots: ["arena_red1"] } },
+  };
+  const coop = {
+    ...MODEL,
+    agents: {
+      red1: { team: "red", bots: ["arena_red1"] },
+      red2: {
+        team: "red",
+        bots: ["arena_red2"],
+        model: "openai/gpt-5.5",
+        relay: "red2",
+      },
+      blue1: { team: "blue", bots: ["arena_blue1"] },
+    },
+  };
+  const agents = resolveAgents(map, coop);
+  assert.deepEqual(
+    agents.map((a) => [a.id, a.team, a.files]),
+    [
+      ["red1", "red", [notes]],
+      ["red2", "red", [notes]],
+      ["blue1", "blue", [mode]],
+    ],
+  );
+  assert.equal(resolveModels(agents, coop).red2.model, "openai/gpt-5.5");
+  const { config } = compileMatch(map, { sessionId: "s1", ...coop }, agents);
+  assert.deepEqual(config.teams, [
+    { id: "red", players: ["arena_red1", "arena_red2"] },
+    { id: "blue", players: ["arena_blue1"] },
+  ]);
+  // Model-only entries keep the map's roster.
+  assert.deepEqual(
+    resolveAgents(map, { agents: { red1: { model: "openai/gpt-5.5" } } }).map(
+      (a) => a.id,
+    ),
+    ["red1"],
+  );
+  const fails = (agents, error) =>
+    assert.throws(() => resolveAgents(map, { agents }), error);
+  fails(
+    { g1: { team: "green", bots: ["arena_g1"] } },
+    /not one of the map's teams \(red, blue\)/,
+  );
+  fails(
+    { red1: { team: "red", bots: ["arena_red1"] }, blue1: { model: "x/y" } },
+    /match agents.blue1: .* needs bots/,
+  );
+  assert.throws(
+    () =>
+      resolveModels(agents, {
+        ...MODEL,
+        agents: { red1: { bots: ["arena_red1"], files: [] } },
+      }),
+    /unknown key files: files come from the map/,
+  );
+  assert.throws(
+    () =>
+      resolveAgents({ ...map, agents: { a: { bots: ["bot_a"], model: "x" } } }),
+    /map.json agents.a: unknown key model/,
+  );
+  // The shipped map declares its teams.
+  const shipped = JSON.parse(
+    await readFile(
+      new URL("../infra/maps/direct-fire/map.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  assert.deepEqual(Object.keys(shipped.teams), ["red", "blue"]);
 });
