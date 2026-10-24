@@ -72,6 +72,9 @@ async function harness(t) {
       bot.entity.position.x = x;
       tick();
     },
+    nativeResolve() {
+      resolve();
+    },
     async arrive() {
       bot.entity.position = new Vec3(10, 1, 0);
       resolve();
@@ -108,6 +111,17 @@ test("real displacement resets stall time; a later stopped route stalls", async 
   const result = await h.done;
   assert.equal(result.status, "stalled");
   assert.ok(result.elapsedMs >= 120_000);
+});
+
+test("native goto success is accepted without a second coordinate threshold", async (t) => {
+  const h = await harness(t);
+  // The mock's native goto promise resolves; a separately calculated
+  // isEnd check would reject this slightly different reported position.
+  h.bot.entity.position = new Vec3(7, 1, 0);
+  h.nativeResolve();
+  const result = await h.done;
+  assert.equal(result.status, "arrived");
+  assert.equal(result.reason, "pathfinder_goal_reached");
 });
 
 test("arrival cleans up its path listener and timer", async (t) => {

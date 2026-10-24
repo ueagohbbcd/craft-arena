@@ -62,15 +62,22 @@ export default async function navigate(bot, { signal, args = [] }) {
   const abort = () => bot.pathfinder.setGoal(null);
   signal?.addEventListener("abort", abort, { once: true });
   try {
+    // goto resolves only when Pathfinder considers its own goal reached.
+    // Do not apply a second, stricter position check: GoalNear intentionally
+    // accepts a range and the bot's position is not necessarily block-centred.
     await bot.pathfinder.goto(goal);
     signal?.throwIfAborted();
-    if (!goal.isEnd(bot.entity.position.floored()))
-      throw new Error("Pathfinder finished without reaching the goal");
-    return { status: "arrived", position: { ...bot.entity.position } };
+    return {
+      status: "arrived",
+      reason: "pathfinder_goal_reached",
+      goal: xyz,
+      path: latestPath,
+      position: { ...bot.entity.position },
+    };
   } catch (error) {
     if (stalled) return stalled;
     if (!signal?.aborted) {
-      error.message += ` (goal ${xyz.join(" ")}, at ${bot.entity.position.floored()})`;
+      error.message += ` (Pathfinder ${error.name}, last path ${latestPath?.status ?? "unknown"}, goal ${xyz.join(" ")}, at ${bot.entity.position.floored()})`;
       throw error;
     }
   } finally {

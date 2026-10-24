@@ -9,7 +9,7 @@ When calculating directions, `Vector` follows native `vec3`: `normalize()` mutat
 
 ## How to move
 
-Move with Pathfinder (`bot.pathfinder.goto` / `setGoal`) from your own program, as in the example in the `arena-programs` skill; in a fight, PvP (`bot.pvp`, see `arena-survival`) moves for you. For a plain trip, run [navigate.mjs](../../../examples/navigate.mjs) with a small `wait_seconds`; its end reaches you by itself:
+Prefer native plugin methods and their completion/failure signals over hand-written movement loops or duplicate arrival checks. Move with Pathfinder (`bot.pathfinder.goto` / `setGoal`) from your own program, as in the example in the `arena-programs` skill; in a fight, PvP (`bot.pvp`, see `arena-survival`) moves for you. For a plain trip, run [navigate.mjs](../../../examples/navigate.mjs) with a small `wait_seconds`; its end reaches you by itself:
 
 ```json
 {
@@ -20,8 +20,8 @@ Move with Pathfinder (`bot.pathfinder.goto` / `setGoal`) from your own program, 
 
 It uses Pathfinder with its default movement settings, which include digging. Add `--no-dig` to keep the terrain intact.
 
-- It counts as arrived within one block of X Y Z (Pathfinder's `GoalNear` with range 1) and returns `{"status":"arrived",…}`.
-- On failure (no path, or Pathfinder stopped short) it ends with exit code 1, the error, the goal and your position on stderr.
+- It uses Pathfinder's `GoalNear` with range 1. A resolved `goto(goal)` is success by the plugin's own criteria: return `{"status":"arrived","reason":"pathfinder_goal_reached",…}`. **Do not add a separate distance threshold**, since this can disagree with Pathfinder and cause false timeouts.
+- On failure it ends with exit code 1, the native Pathfinder error name/message, latest `path_update` status, goal and position on stderr. Observe native `path_update` (`noPath`) and `goal_reached` when implementing custom navigation; don't infer their results from an extra coordinate check.
 - Once the trip has lasted 120 seconds and the character has also moved less than one block in the last 30 seconds, it stops and returns `{"status":"stalled",…}` with a terrain summary and the last path status.
 - `mf cancel TASK_ID` stops it cleanly: it clears the goal, releases the controls and ends.
 
