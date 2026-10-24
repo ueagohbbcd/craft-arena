@@ -26,8 +26,19 @@ test("reset archives known match state while retaining code, settings and old tr
   await writeFile(join(root, ".pi", "settings.json"), "settings");
   await writeFile(join(root, ".pi", "sessions", "run.jsonl"), "transcript");
   await writeFile(join(root, "match-artifacts", "map.json"), "map");
+  await mkdir(join(root, ".mf", "tasks", "t1"), { recursive: true });
+  await writeFile(join(root, ".mf", "inbox.jsonl"), "inbox");
+  await mkdir(join(root, ".arena", "tasks", "c1"), { recursive: true });
+  await writeFile(join(root, ".arena", "tasks", "c1", "stdout.log"), "out");
   await writeFile(join(root, "strategy.mjs"), "code");
   const archive = await archiveParticipantState(root, "run-1");
+  assert.equal(await readFile(join(archive, "mf", "inbox.jsonl"), "utf8"), "inbox");
+  assert.deepEqual(await readdir(join(archive, "mf", "tasks")), ["t1"]);
+  assert.equal(
+    await readFile(join(archive, "tasks", "c1", "stdout.log"), "utf8"),
+    "out",
+  );
+  assert.deepEqual(await readdir(join(root, ".arena")), []);
   assert.equal(
     await readFile(join(archive, "sessions", "run.jsonl"), "utf8"),
     "transcript",
@@ -58,7 +69,7 @@ test("reset refuses traversal IDs and symlinks before moving participant state",
     archiveParticipantState(root, "../outside"),
     /archive ID/,
   );
-  for (const path of [".arena-history", ".pi", "match-artifacts"]) {
+  for (const path of [".arena-history", ".pi", "match-artifacts", ".mf", ".arena"]) {
     await symlink(outside, join(root, path), "dir");
     await assert.rejects(
       archiveParticipantState(root, "run-1"),

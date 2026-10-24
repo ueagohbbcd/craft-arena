@@ -75,7 +75,7 @@ export function parseReachArgs(args) {
 export async function worldReader(
   bot,
   { minX, maxX, minZ, maxZ },
-  memory = bot.arenaMemory,
+  memory = bot.worldMemory ?? bot.arenaMemory,
 ) {
   const missing = [];
   const key = (x, z) => `${x},${z}`;

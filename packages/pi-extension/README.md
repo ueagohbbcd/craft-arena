@@ -2,7 +2,7 @@
 
 The launcher starts Pi and, when configured with `ARENA_MINECRAFT_HOST`, the toolkit's `mf` supervisor for the participant's characters ([mf-supervisor.mjs](mf-supervisor.mjs); characters from the provision manifest, else `ARENA_BOT`). The model drives them with `mf` from `bash`; `mf`'s state lives in `.mf` in the working directory. The supervisor runs the default observer, chat forwarder and watchdog as read-only modules, keeps the report queue that `mf inbox` reads, and restarts characters whose process exits.
 
-The extension owns only the harness side: the `bash` task tool (every command a task that outlives the wait; task files under `ARENA_TASK_DIR`, `arena-task` lists and cancels them), telling the model when a command finishes (`Finished tasks`, appended to the next tool result or waking an idle model), platform messages for session changes, public data and notices, the idle reminder, the model spending limit, and one full `mf snapshot` after compaction. Nothing from the game reaches the model through the extension.
+The extension owns only the harness side: the `bash` task tool (every command a task that outlives the wait; task files under `ARENA_TASK_DIR`, `arena-task` lists and cancels them), telling the model when a command finishes (`Finished tasks`, appended to the next tool result or waking an idle model), platform messages for session changes, public data and notices, the idle reminder, the model spending limit, and one `mf inbox --full` after compaction. Nothing from the game reaches the model through the extension.
 
 The launcher waits for the login gate's read-only session endpoint before sending the opening prompt.
 

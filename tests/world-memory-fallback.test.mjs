@@ -29,11 +29,11 @@ test("world memory is off by default and explicitly configurable", async () => {
   );
   assert.throws(
     () => worldMemoryOptions({ ARENA_WORLD_MEMORY_MODE: "persistent" }, "alex"),
-    /ARENA_WORLD_MEMORY_DIR/,
+    /MF_WORLD_MEMORY_DIR/,
   );
   assert.throws(
     () => worldMemoryOptions({ ARENA_WORLD_MEMORY_MODE: "always" }, "alex"),
-    /ARENA_WORLD_MEMORY_MODE/,
+    /MF_WORLD_MEMORY_MODE/,
   );
   const bot = { username: "alex" };
   assert.equal(
@@ -42,7 +42,7 @@ test("world memory is off by default and explicitly configurable", async () => {
     }),
     null,
   );
-  assert.equal(bot.arenaMemory, undefined);
+  assert.equal(bot.worldMemory, undefined);
   const memory = { ready: Promise.resolve(), chunkInfo() {} };
   const attached = await attachWorldMemory(
     bot,
@@ -55,6 +55,7 @@ test("world memory is off by default and explicitly configurable", async () => {
     },
   );
   assert.equal(attached, memory);
+  assert.equal(bot.worldMemory, memory);
   assert.equal(bot.arenaMemory, memory);
 });
 
@@ -65,19 +66,19 @@ test("host only provisions a disk cache when explicitly requested", () => {
     index: 0,
     runDir: "/tmp/arena",
   };
-  assert.equal(hostEnv({}, args).ARENA_WORLD_MEMORY_DIR, undefined);
+  assert.equal(hostEnv({}, args).MF_WORLD_MEMORY_DIR, undefined);
   assert.equal(
     hostEnv({ ARENA_WORLD_MEMORY_MODE: "session" }, args)
-      .ARENA_WORLD_MEMORY_DIR,
+      .MF_WORLD_MEMORY_DIR,
     undefined,
   );
   assert.equal(
     hostEnv({ ARENA_WORLD_MEMORY_MODE: "persistent" }, args)
-      .ARENA_WORLD_MEMORY_DIR,
+      .MF_WORLD_MEMORY_DIR,
     join(args.runDir, "world-memory", "alex"),
   );
   assert.equal(
-    hostEnv({ ARENA_WORLD_MEMORY_DIR: "/cache" }, args).ARENA_WORLD_MEMORY_DIR,
+    hostEnv({ MF_WORLD_MEMORY_DIR: "/cache" }, args).MF_WORLD_MEMORY_DIR,
     "/cache",
   );
 });
@@ -154,7 +155,7 @@ test("exact block query works with no history, and live wins over historical dat
   assert.equal(missing.status, "unknown");
   assert.equal(missing.memoryEnabled, false);
   bot.blockAt = () => ({ name: "fresh" });
-  bot.arenaMemory = {
+  bot.worldMemory = {
     ready: Promise.resolve(),
     chunkInfo: () => {
       throw new Error("should not read history");
@@ -170,7 +171,7 @@ test("exact block query falls back only to unloaded historical columns", async (
   const bot = {
     game: { dimension: "overworld" },
     blockAt: () => null,
-    arenaMemory: {
+    worldMemory: {
       ready: Promise.resolve(),
       chunkInfo: () => ({ loaded: false, observedAt: 1000 }),
       block: () => ({ name: "old_stone" }),
@@ -179,8 +180,8 @@ test("exact block query falls back only to unloaded historical columns", async (
   const historical = await query(bot);
   assert.equal(historical.status, "historical");
   assert.equal(historical.block, "old_stone");
-  bot.arenaMemory.chunkInfo = () => ({ loaded: true });
-  bot.arenaMemory.block = () => {
+  bot.worldMemory.chunkInfo = () => ({ loaded: true });
+  bot.worldMemory.block = () => {
     throw new Error("should not use loaded memory");
   };
   const missing = await query(bot);

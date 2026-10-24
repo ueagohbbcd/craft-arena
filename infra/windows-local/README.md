@@ -62,6 +62,20 @@ DEEPSEEK_API_KEY=sk-...
 
 资源上限写在 `deploy.json` 的 `limits`，含义同[通用部署](../README.md#资源上限)。录像见 [infra/README.md](../README.md#比赛录像)。
 
+导出一局的记录（对话、`mf inbox` 日志、程序和命令输出、截图）：有哪些文件见 [infra/README.md](../README.md#导出一局的记录)；在 PowerShell 里用 Docker Desktop 的 `docker`：
+
+```powershell
+$D = 'runtime/deploy'
+New-Item -ItemType Directory -Force "$D/export" | Out-Null
+foreach ($id in 'red1', 'blue1') {
+  docker compose --project-directory $D -f "$D/compose.yaml" --profile agents cp "participant-${id}:/workspace" "$D/export/$id"
+}
+docker compose --project-directory $D -f "$D/compose.yaml" --profile agents logs --no-color > "$D/export/services.log"
+./scripts/windows-arena.ps1 status > "$D/export/status.txt"
+```
+
+这些命令没在 Windows 上跑过。
+
 ## 从旧部署迁移
 
 旧部署（`compose.yaml` 从本目录复制、`agents/*/model.json`、`.env` 里有 `RED_MODEL_URL` 这类变量）不能原地升级。在旧部署 `stop` 之后：

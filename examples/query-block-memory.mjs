@@ -18,7 +18,7 @@ export default async function queryBlockMemory(
     throw new Error("Usage: query-block-memory.mjs X Y Z [BLOCK_NAME]");
 
   const dimension = bot.game?.dimension ?? "overworld";
-  const memory = bot.arenaMemory;
+  const memory = bot.worldMemory ?? bot.arenaMemory;
   if (memory) await memory.ready;
   const read = readWorldBlock(bot, { ...position, dimension }, memory);
   const block = read.block;

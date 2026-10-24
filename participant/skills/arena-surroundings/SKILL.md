@@ -13,7 +13,7 @@ The default observer already reports changes to your state, inventory, nearby en
 - **Entities near you:** `mf snapshot --full-entities`, or [entity-radar.mjs](../../../examples/entity-radar.mjs) for a replaceable `nearby.entities` report every second.
 - **Signs:** the default observer sends the text of signs near you in one `observation.nearby_signs` report, with each set of signs seen since you last read it.
 - **Be told when a block appears:** `mf run "$ARENA_TOOLKIT_ROOT/examples/watch-surroundings.mjs" chest 600`, started with a small `wait_seconds`. It ends as soon as a chest is within 6 blocks (or after 600 s), and its end reaches you by itself.
-- **Blocks in chunks that are no longer loaded:** only when the operator enabled world history (`bot.arenaMemory` exists; off by default). [query-block-memory.mjs](../../../examples/query-block-memory.mjs) returns live blocks first and history only for unloaded chunks; a `historical` block is how it looked at `observedAt`, and `unknown` is not air.
+- **Blocks in chunks that are no longer loaded:** only when the operator enabled world history (`bot.worldMemory` exists; off by default). [query-block-memory.mjs](../../../examples/query-block-memory.mjs) returns live blocks first and history only for unloaded chunks; a `historical` block is how it looked at `observedAt`, and `unknown` is not air.
 
 ## Game chat
 
