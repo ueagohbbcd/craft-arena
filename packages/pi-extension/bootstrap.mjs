@@ -392,6 +392,7 @@ async function launchPi({
   let forceTimer;
   let killTimer;
   let matchTimer;
+  let endTimer;
   let checkingMatch = false;
   let initialSent = false;
   // Without the wait, the first prompt is already on its way; the poll must not send it.
@@ -404,6 +405,7 @@ async function launchPi({
   const shutdown = (signal) => {
     if (stopping || child.exitCode !== null) return;
     stopping = true;
+    clearTimeout(endTimer);
     recovery?.close();
     clearInterval(matchTimer);
     if (resident) child.stdin.end();
@@ -412,6 +414,16 @@ async function launchPi({
       child.kill("SIGTERM");
       killTimer = setTimeout(() => child.kill("SIGKILL"), 1000);
     }, 5000);
+  };
+  // The session has ended: give the Pi extension one poll/turn boundary to
+  // deliver the ended platform message before closing the session under it.
+  const shutdownAfterEnd = () => {
+    if (stopping || endTimer) return;
+    endTimer = setTimeout(
+      () => shutdown(),
+      positiveInteger(env.ARENA_END_GRACE_MS, 5000),
+    );
+    endTimer.unref?.();
   };
   const term = () => shutdown("SIGTERM");
   const interrupt = () => shutdown("SIGINT");
@@ -434,7 +446,7 @@ async function launchPi({
         },
         async getSessionState() {
           const host = await readSession();
-          if (host?.state === "ended") shutdown();
+          if (host?.state === "ended") shutdownAfterEnd();
           return host?.state;
         },
         report(message) {
@@ -465,7 +477,7 @@ async function launchPi({
       if (host) {
         const fresh = await readSession();
         if (fresh?.state === "ended") {
-          shutdown();
+          shutdownAfterEnd();
           return;
         }
         if (fresh?.state !== "running") {
@@ -538,7 +550,7 @@ async function launchPi({
                 process.stderr.write(
                   "Arena ended before the initial prompt was submitted.\n",
                 );
-              shutdown();
+              shutdownAfterEnd();
             } else if (
               host.state === "running" &&
               !initialSent &&
@@ -576,6 +588,7 @@ async function launchPi({
     recovery?.close();
     detachRpc?.();
     clearInterval(matchTimer);
+    clearTimeout(endTimer);
     clearTimeout(forceTimer);
     clearTimeout(killTimer);
     process.off("SIGTERM", term);
