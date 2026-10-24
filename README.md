@@ -13,7 +13,7 @@ export default async function (bot, { signal, args, log }) {
 }
 ```
 
-The model runs modules from `bash` with `mf run task.mjs [args...]`, reads what happened in the game with `mf inbox`, and stops a program with `mf cancel`. The default observer, chat forwarder and watchdog are ordinary read-only modules that report into that inbox. The Pi extension only runs shell commands as tasks that outlive the tool call, tells the model when they finish, and sends trusted platform messages (session state, public data, notices); nothing in the game wakes the model.
+The model runs modules from `bash` with `mf run task.mjs [args...]`, reads what happened in the game with `mf log`, and stops a program with `mf cancel`. Background modules (here chat and danger) are ordinary read-only modules that write to that log; an urgent entry only makes a waiting `mf run` return early. The Pi extension only runs shell commands as tasks that outlive the tool call, tells the model when they finish, and sends trusted platform messages (session state, public data, notices); nothing in the game wakes the model.
 
 World memory is **off by default**. Native Mineflayer world queries continue working without it. Set `ARENA_WORLD_MEMORY_MODE=session` for an in-memory history or `persistent` for disk-backed history; when enabled it attaches `mineflayer-world-memory` as `bot.worldMemory` (also as the older `bot.arenaMemory`). Historical blocks are consulted only when the live chunk is unloaded and may be stale. Session state is available as `await bot.getSessionState()`. The model relay remains a separate trusted-side HTTP forwarder; it does not inspect or limit requests.
 

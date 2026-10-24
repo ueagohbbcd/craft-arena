@@ -1,6 +1,6 @@
 ---
 name: arena-programs
-description: "How to write and run modules on your character's native Mineflayer bot with mf: module shape, loading plugins, controlling and read-only programs, ending a program to hand you a decision (done, deadline, repeated failures, a watchdog finding), reporting through the inbox, and looking up Mineflayer, Pathfinder and PvP calls in the bundled docs. Read it before your first program, and again when a program misbehaves or you need a call you have not used yet."
+description: "How to write and run modules on your character's native Mineflayer bot with mf: module shape, loading plugins, controlling and read-only programs, ending a program to hand you a decision (done, deadline, repeated failures, a watchdog finding), milestone lines and log entries, and looking up Mineflayer, Pathfinder and PvP calls in the bundled docs. Read it before your first program, and again when a program misbehaves or you need a call you have not used yet."
 ---
 
 # Writing programs
@@ -23,7 +23,7 @@ export default async function (bot) {
 ```
 
 ```json
-{ "command": "mf run --inbox 25 inspect.mjs" }
+{ "command": "mf run inspect.mjs" }
 ```
 
 Plugins and other packages load from the arena's installed packages:
@@ -50,7 +50,7 @@ export default async function (bot, { signal, args, log }) {
 ```
 
 - `signal` aborts when the program is cancelled, replaced by another controlling program, or interrupted by a change such as a death. Let long work end on it.
-- `log(...)` (or `console.log`) prints into the program's output.
+- `log(...)` (or `console.log`) prints into the program's output. Print a line at each milestone (arrived, found it, chest opened): when a wait comes back `running`, the output shows how far it got.
 - The function ending is the program ending: wait for a walk inside the module. When a controlling module ends, however it ends, the character releases its movement keys and stops Pathfinder and PvP.
 - Listeners added on `bot` and timers the module started are removed when it ends. Listeners on other objects (`bot.inventory`, a plugin) are yours to remove. Plugins stay loaded until the character's process restarts.
 - Relative paths inside a module resolve against the character's process, not your shell: build paths from `import.meta.url` or pass absolute ones. The module file is loaded fresh on each run; files it imports are cached until the character restarts.
@@ -60,13 +60,13 @@ export default async function (bot, { signal, args, log }) {
 
 A module controls the character unless it says `export const control = false` (or you pass `--read-only`). Starting a controlling program first stops the current one; a read-only one runs beside it and must not move the character or use its hand. `mf run --keep FILE` starts a read-only module that keeps running and restarts with its character, like the default modules.
 
-Several `mf run` calls for the same character in one batch of tool calls race: the last to arrive keeps running. Put at most one controlling program per character in a batch; `mf inbox`, `mf status` and read-only modules can go beside it.
+Several `mf run` calls for the same character in one batch of tool calls race: the last to arrive keeps running. Put at most one controlling program per character in a batch; `mf log`, `mf status` and read-only modules can go beside it.
 
 ## Robust programs, and when to hand you a decision
 
 Prefer a program that copes over one that gives up. Handle the trouble you can foresee in code: pick another path when one fails, eat when food is low, fight back or step away from a mob, wait for a gate, retry a missed block. A check that ends the program at the first surprise ("not where I expected", "no plank in hand") hands you a decision the code could have made, and the character stands still while you think. Check few assumptions at the start and handle the rest as it runs.
 
-When something deserves your eyes but the program can still go on, tell you without stopping: `requestJudgment(data)` makes a waiting `mf run` return at once as `running` while the program keeps going. Then look whether it still makes progress (`mf inbox`, its output in the `logs` directory, `mf status`). If it does, leave it alone: wait for it, or start writing the next program meanwhile. Replace or cancel it only when it is stuck or doing the wrong thing.
+When something deserves your eyes but the program can still go on, tell you without stopping: an urgent log entry (below) makes a waiting `mf run` return at once as `running` while the program keeps going. Then look whether it still makes progress (its output in the `logs` directory, `mf log`, `mf status`). If it does, leave it alone: wait for it, or start writing the next program meanwhile. Replace or cancel it only when it is stuck or doing the wrong thing.
 
 End the program, returning what you need, only when it cannot go on usefully:
 
@@ -75,18 +75,21 @@ End the program, returning what you need, only when it cannot go on usefully:
 - **Failing:** the same step failed a few times despite the fallbacks; return the last error instead of retrying forever.
 - **No way forward:** something it watches for that it cannot handle itself (a watchdog finding it cannot work around, a player it must not fight).
 
+Every controlling program gets a watchdog: when the character tries to move but does not (15 s), or the same failure repeats (Pathfinder `noPath`, the same goal again, the same error passed to `watchdog.failure()`), a `[watchdog] …` line appears in the program's output. To end the program on a finding instead, turn the built-in one off and start your own with a `report`:
+
 ```js
-const { watchdog } = await import(
-  `${process.env.MF_TOOLKIT_ROOT}/runtime/observation/watchdog.mjs`
+const { watchdog: startWatchdog } = await import(
+  `${process.env.MF_TOOLKIT_ROOT}/watchdog.mjs`
 );
+
+export const watchdog = false; // this module runs its own
 
 export default async function (bot, { signal, args }) {
   const deadline = Date.now() + Number(args[0] ?? 120) * 1000;
   let failures = 0,
     lastError = null,
     finding = null;
-  // Its findings end this program instead of waiting in the inbox.
-  const dog = watchdog(bot, { report: (event) => (finding ??= event) });
+  const dog = startWatchdog(bot, { report: (event) => (finding ??= event) });
   try {
     while (true) {
       if (finding) return { status: "stuck", finding, at: bot.entity.position };
@@ -96,6 +99,7 @@ export default async function (bot, { signal, args }) {
       try {
         const done = await oneStep(bot, signal); // your step: dig, place, walk a leg...
         if (done) return { status: "done", at: bot.entity.position };
+        console.log(`step done at ${bot.entity.position.floored()}`); // a milestone
         failures = 0;
       } catch (error) {
         if (signal.aborted) throw error;
@@ -110,27 +114,25 @@ export default async function (bot, { signal, args }) {
 }
 ```
 
-`watchdog(bot)` without `report` sends its findings to `mf inbox` instead, where they wait until you read it. A synchronous loop that blocks the process is caught either way: the program is interrupted. Use `dog.pause()` and `dog.resume()` around intentional stillness.
+The built-in one is passed to the module as `watchdog` in its second argument when it is on: call `watchdog.failure(error)`, and `watchdog.pause()` / `watchdog.resume()` around intentional stillness. A synchronous loop that blocks the process is caught either way: the program is interrupted.
 
 Before a controlling program ends, leave the character somewhere safe. While it runs, its own code keeps the character alive (`arena-survival` shows walking with defense and eating). After it ends, `idle` takes over until the next controlling program: it fights hostile mobs within a few blocks, eats when food is low and holds jump in water. `mf idle off` turns it off; an `idle.mjs` in your working directory replaces it.
 
-## Reporting through the inbox
+## Log entries
 
-For progress you want to see when you next read `mf inbox`:
+What a controlling program says about its own progress belongs in its output. For something you want to find later in `mf log`, especially from a read-only program running beside it:
 
 ```js
-const { InboxClient } = await import(
-  `${process.env.MF_TOOLKIT_ROOT}/runtime/inbox/index.mjs`
+const { LogClient } = await import(
+  `${process.env.MF_TOOLKIT_ROOT}/runtime/log/index.mjs`
 );
-const inbox = new InboxClient();
+const log = new LogClient({ source: "lookout" }); // one source per program; default "program"
+await log.post({ seen: "zombie", at: [10, 64, 3] }); // one entry
+await log.post({ left: 12 }, { key: "arrows" }); // mf log shows only the newest per key
+await log.post({ question: "lava ahead" }, { urgent: true }); // also returns a waiting mf run early
 ```
 
-- `post(data)`: an event you want to see once, such as a step finished.
-- `upsert(key, data)`: progress; a newer report with the same key replaces an unread older one. Send the whole current state, not a difference.
-- `setStatus(key, data)`: the program's current value, shown by `mf status` until replaced or cleared with `null`.
-- `requestJudgment(data)`: an urgent report. It is listed first in `mf inbox`, and an `mf run` waiting for any program returns at once as `running`, but the program keeps running. To hand over a decision and stop, return instead.
-
-Say in each report whether the program goes on or has stopped; that it ended is already in its result. More in `$MF_TOOLKIT_ROOT/runtime/inbox/README.md`.
+An urgent entry makes an `mf run` waiting for any program return at once as `running`, naming the source; the program keeps running. To hand over a decision and stop, return instead. Say in each entry whether the program goes on or has stopped; that it ended is already in its result. More in `$MF_TOOLKIT_ROOT/runtime/README.md` ("The log").
 
 ## Platform messages
 

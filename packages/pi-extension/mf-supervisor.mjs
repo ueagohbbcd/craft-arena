@@ -43,7 +43,9 @@ export function mfEnv(env, { names, cwd, defaultScripts }) {
       ? { MF_DEFAULT_SCRIPTS: defaultScripts }
       : env.ARENA_DEFAULT_SCRIPTS !== undefined
         ? { MF_DEFAULT_SCRIPTS: env.ARENA_DEFAULT_SCRIPTS }
-        : {}),
+        : // The toolkit runs only chat; a match also wants danger, the one
+          // module whose entries end `mf run` early.
+          { MF_DEFAULT_SCRIPTS: "chat,danger" }),
   };
 }
 

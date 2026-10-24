@@ -17,7 +17,7 @@ async function directory(path) {
 
 /**
  * Reset only known match state: the Pi transcripts, match artifacts, the `mf`
- * state directory (its `inbox.jsonl`, `supervisor.log` and program logs) and
+ * state directory (its game log, `supervisor.log` and program logs) and
  * the Pi extension's command logs. Code, Git, and participant settings stay in
  * place.
  */

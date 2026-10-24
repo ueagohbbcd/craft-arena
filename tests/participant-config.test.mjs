@@ -96,13 +96,13 @@ test("default scripts are keyed by bot name when the file is an object", async (
   const dir = await tempDir(t, "arena-config-");
   await fill(dir, {
     "default-scripts.json": JSON.stringify({
-      arena_red1: ["observer", "chat"],
+      arena_red1: ["danger", "chat"],
       arena_red2: [],
     }),
   });
   const read = (ARENA_BOT) =>
     readParticipantConfig(dir, { env: ARENA_BOT ? { ARENA_BOT } : {} });
-  assert.equal((await read("arena_red1")).defaultScripts, "observer,chat");
+  assert.equal((await read("arena_red1")).defaultScripts, "danger,chat");
   assert.equal((await read("arena_red2")).defaultScripts, "");
   assert.equal((await read("arena_blue1")).defaultScripts, "");
   await assert.rejects(read(), /ARENA_BOT is not set/);
@@ -110,12 +110,12 @@ test("default scripts are keyed by bot name when the file is an object", async (
 
 test("bad config files are rejected before Pi starts", async (t) => {
   const dir = await tempDir(t, "arena-config-");
-  await fill(dir, { "default-scripts.json": '["observer","radar"]' });
+  await fill(dir, { "default-scripts.json": '["danger","observer"]' });
   await assert.rejects(
     readParticipantConfig(dir),
-    /Unknown default script: radar/,
+    /Unknown default script: observer/,
   );
-  await fill(dir, { "default-scripts.json": '"observer"' });
+  await fill(dir, { "default-scripts.json": '"danger"' });
   await assert.rejects(readParticipantConfig(dir), /must be a list/);
   await fill(dir, { "default-scripts.json": "[" });
   await assert.rejects(readParticipantConfig(dir), /default-scripts\.json/);

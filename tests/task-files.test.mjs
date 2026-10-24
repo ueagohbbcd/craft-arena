@@ -6,7 +6,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 import { fileURLToPath } from "node:url";
-import { Inbox } from "mineflayer-world-memory/runtime/inbox/index.mjs";
 import { TaskManager } from "mineflayer-world-memory/runtime/tasks/index.mjs";
 import { cancelTask, listTasks } from "../packages/pi-extension/arena-task.mjs";
 
@@ -17,7 +16,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function manager(t, options = {}) {
   const logDir = await mkdtemp(join(tmpdir(), "arena-task-files-"));
-  const tasks = new TaskManager({ inbox: new Inbox(), logDir, ...options });
+  const tasks = new TaskManager({ logDir, ...options });
   t.after(async () => {
     await tasks.close();
     await rm(logDir, { recursive: true, force: true });
@@ -66,7 +65,7 @@ test("logs keep output the retained tail drops, up to the file limit", async (t)
 });
 
 test("a task started without a log directory has no logDir", async (t) => {
-  const tasks = new TaskManager({ inbox: new Inbox() });
+  const tasks = new TaskManager();
   t.after(() => tasks.close());
   const result = await tasks.wait(tasks.start("true"));
   assert.equal(result.logDir, undefined);

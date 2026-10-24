@@ -39,7 +39,7 @@ async function listFiles(directory) {
  * by bot name (the bot is ARENA_BOT). Returns the comma list `mf` reads from
  * MF_DEFAULT_SCRIPTS.
  */
-const DEFAULT_SCRIPTS = ["observer", "chat", "watchdog"];
+const DEFAULT_SCRIPTS = ["chat", "danger", "radar", "explore", "watchdog"];
 function defaultScriptsFrom(text, env) {
   let value;
   try {

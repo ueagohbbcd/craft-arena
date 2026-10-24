@@ -2,7 +2,6 @@ import { execFile } from "node:child_process";
 import { basename, delimiter, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
-import { Inbox } from "mineflayer-world-memory/runtime/inbox/index.mjs";
 import { TaskManager } from "mineflayer-world-memory/runtime/tasks/index.mjs";
 import {
   createSessionReader,
@@ -63,7 +62,34 @@ async function prepareTaskDir(dir) {
     await writeFile(join(parent, ".gitignore"), "*\n");
 }
 const batchText = (batch) =>
-  `Finished tasks (commands you started with bash; read \`mf inbox\` for what happened in the game):\n${JSON.stringify(batch.messages.map((message) => message.data))}`;
+  `Finished tasks (commands you started with bash; read \`mf log\` for what happened in the game):\n${JSON.stringify(batch)}`;
+
+/** Commands that ended while nobody waited for them, until the model hears of them. */
+class Finished {
+  constructor(onAdd) {
+    this.items = [];
+    this.onAdd = onAdd;
+  }
+  get pending() {
+    return this.items.length > 0;
+  }
+  /** Returns how to take it back, for a wait that claims the task first. */
+  add(item, delivered) {
+    const entry = { item, delivered };
+    this.items.push(entry);
+    this.onAdd();
+    return () => {
+      const at = this.items.indexOf(entry);
+      if (at >= 0) this.items.splice(at, 1);
+    };
+  }
+  drain() {
+    return this.items.splice(0).map(({ item, delivered }) => {
+      delivered("message");
+      return item;
+    });
+  }
+}
 
 /** A millisecond setting from the environment; a malformed value fails startup. */
 function envMs(name, fallback) {
@@ -82,9 +108,10 @@ const rateSection = ({ perHour, burst, heldMs, nextWaitMs }) => ({
 /**
  * Pi 1.4.0 extension: the harness side of the arena. `bash` runs every
  * command as a task that outlives the wait, and a task that finishes later
- * wakes the model. What happens in the game reaches the model only through
- * `mf inbox` (the toolkit's runtime); trusted session changes come as
- * platform messages.
+ * wakes the model. What happens in the game is in `mf log` (the toolkit's
+ * runtime), read when the model chooses; an urgent entry ends `mf run`
+ * early, which ends that command. Trusted session changes come as platform
+ * messages.
  */
 export default function arenaExtension(pi) {
   const waitSeconds = defaultToolWaitSeconds();
@@ -102,7 +129,7 @@ export default function arenaExtension(pi) {
     process.env.ARENA_SESSION_URL && process.env.ARENA_BOT
       ? `${process.env.ARENA_SESSION_URL}${process.env.ARENA_SESSION_URL.includes("?") ? "&" : "?"}username=${encodeURIComponent(process.env.ARENA_BOT)}`
       : undefined;
-  const inboxAfterCompactionMs = 5000;
+  const logAfterCompactionMs = 5000;
   const readSession = createSessionReader({
     url: sessionUrl,
   });
@@ -173,8 +200,10 @@ export default function arenaExtension(pi) {
         runtime = undefined;
         await close(old);
       }
-      // Holds only this session's finished tasks; programs report to `mf`.
-      const inbox = new Inbox({ sessionId, ttlMs: Infinity });
+      // Holds only this session's finished commands; the game goes to `mf log`.
+      const finished = new Finished(() => {
+        if (context?.isIdle()) wakeIdle(runtime);
+      });
       const env = {};
       // Task output and status live on disk too, for read/tail/grep and
       // arena-task; delivery to the model does not depend on these files, so
@@ -191,21 +220,22 @@ export default function arenaExtension(pi) {
       }
       env.PATH = [taskBin, packageBin, process.env.PATH ?? ""].join(delimiter);
       const tasks = new TaskManager({
-        inbox,
+        onUnwatchedEnd: (task, { delivered }) =>
+          finished.add(
+            { type: "task.completed", ...tasks.snapshot(task) },
+            delivered,
+          ),
         cwd: ctx.cwd,
         env,
         logDir: taskDir,
         killGraceMs: envMs("ARENA_TASK_KILL_GRACE_MS", 2500),
       });
-      runtime = { sessionId, inbox, tasks, taskDirError, env };
+      runtime = { sessionId, finished, tasks, taskDirError, env };
       platform.reset();
       if (sessionUrl && !noticeTimer) {
         noticeTimer = setInterval(() => void checkNotice(), noticePollMs);
         noticeTimer.unref?.();
       }
-      inbox.on("message", () => {
-        if (context?.isIdle()) wakeIdle(runtime);
-      });
       return runtime;
     })();
     try {
@@ -222,11 +252,11 @@ export default function arenaExtension(pi) {
       r.sessionEnded ||
       idleWakeScheduled ||
       context?.hasPendingMessages?.() ||
-      !r.inbox.pending
+      !r.finished.pending
     )
       return;
     // Synchronous drain is the claim: turn_end and agent_settled cannot schedule this batch twice.
-    const batch = r.inbox.drain();
+    const batch = r.finished.drain();
     clearTimeout(idleTimer);
     idleWakeScheduled = true;
     pi.sendMessage(
@@ -262,7 +292,7 @@ export default function arenaExtension(pi) {
         customType: "arena-continue",
         extra: {
           reminder:
-            "The session is still running, and none of the commands you started is still running. Read `mf inbox`, check progress and continue with what the session briefing asks of you.",
+            "The session is still running, and none of the commands you started is still running. Read `mf log`, check progress and continue with what the session briefing asks of you.",
         },
       });
       if (!sent) idleWakeScheduled = false;
@@ -287,7 +317,8 @@ export default function arenaExtension(pi) {
     clearTimeout(idleTimer);
     const sent = await deliverPlatform(r, {
       triggerTurn: true,
-      append: () => (r.inbox.pending ? `\n${batchText(r.inbox.drain())}` : ""),
+      append: () =>
+        r.finished.pending ? `\n${batchText(r.finished.drain())}` : "",
     });
     if (!sent) idleWakeScheduled = false;
   }
@@ -309,17 +340,17 @@ export default function arenaExtension(pi) {
     await ensure(ctx);
   });
   pi.on("session_shutdown", stop);
-  /** The output of `mf inbox --full`, or why there is none. */
-  const fullInbox = (cwd) =>
+  /** The output of `mf log --all`, or why there is none. */
+  const fullLog = (cwd) =>
     new Promise((resolve) => {
       if (!native)
         return resolve({ unavailable: "no characters in this container" });
       execFile(
         process.execPath,
-        [mfBin, "inbox", "--full"],
+        [mfBin, "log", "--all"],
         {
           cwd,
-          timeout: inboxAfterCompactionMs,
+          timeout: logAfterCompactionMs,
           maxBuffer: 4 * 1024 * 1024,
         },
         (error, stdout) => {
@@ -328,23 +359,21 @@ export default function arenaExtension(pi) {
         },
       );
     });
-  // Compaction summarizes away the reports the model built its picture from,
-  // and the observer's reports only say what changed since the last one.
-  // Before the next request, send the commands still running and
-  // `mf inbox --full` (the observer's whole state plus every unread report),
-  // which later reports change against.
+  // Compaction summarizes away what the model read in the log. Before the
+  // next request, send the commands still running and `mf log --all` (what
+  // the log still keeps, read or not; it moves no read position).
   pi.on("session_compact", async (_event, ctx) => {
     const r = await ensure(ctx);
-    const game = await fullInbox(ctx.cwd);
+    const game = await fullLog(ctx.cwd);
     if (runtime !== r || r.closed) return;
     const state = {
       tasks: currentTasks(r.tasks).filter((task) => task.status === "running"),
     };
-    const batch = r.inbox.pending ? r.inbox.drain() : undefined;
+    const batch = r.finished.pending ? r.finished.drain() : undefined;
     pi.sendMessage(
       {
         customType: "arena-after-compaction",
-        content: `Context was compacted. Commands still running: ${JSON.stringify(state.tasks)}\n${game.text !== undefined ? `\`mf inbox --full\` (the observer's whole current state and every unread report; later reports say what changed against it):\n${game.text}` : `\`mf inbox --full\` failed (${game.unavailable}).`}${batch ? `\n${batchText(batch)}` : ""}`,
+        content: `Context was compacted. Commands still running: ${JSON.stringify(state.tasks)}\n${game.text !== undefined ? `\`mf log --all\` (what the game log keeps, read or not):\n${game.text}` : `\`mf log --all\` failed (${game.unavailable}).`}${batch ? `\n${batchText(batch)}` : ""}`,
         display: true,
         details: { ...state, game, batch },
       },
@@ -373,8 +402,8 @@ export default function arenaExtension(pi) {
     const r = await ensure(ctx);
     // A nested tool result can be filtered by codemode; the outer boundary owns delivery.
     if (event.parentToolCallId) return;
-    if (!r.inbox.pending) return;
-    const batch = r.inbox.drain();
+    if (!r.finished.pending) return;
+    const batch = r.finished.drain();
     return {
       content: [...event.content, { type: "text", text: batchText(batch) }],
       details: event.details,
@@ -395,11 +424,11 @@ export default function arenaExtension(pi) {
       event.outcome !== "aborted" &&
       event.outcome !== "error" &&
       !event.toolResults?.length;
-    if (!r.inbox.pending)
+    if (!r.finished.pending)
       return finalTurn && r.platformWake
         ? { entries: event.entries, continue: true }
         : undefined;
-    const batch = r.inbox.drain();
+    const batch = r.finished.drain();
     return {
       entries: [
         ...event.entries,

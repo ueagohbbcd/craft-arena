@@ -159,7 +159,7 @@ test("Pi hooks coalesce at one top-level return and preserve existing result con
   assert.equal(h.sent.length, 0);
 });
 
-test("after compaction the model gets finished tasks, the commands still running and `mf inbox --full` before its next request", async (t) => {
+test("after compaction the model gets finished tasks, the commands still running and `mf log --all` before its next request", async (t) => {
   const h = await harness(t, {
     env: { ARENA_SESSION_URL: "" },
   });
@@ -181,7 +181,7 @@ test("after compaction the model gets finished tasks, the commands still running
     message.details.game.unavailable,
     "no characters in this container",
   );
-  assert.equal(message.details.batch.messages[0].data.stdout, "unseen");
+  assert.equal(message.details.batch[0].stdout, "unseen");
   assert.match(message.content, /^Context was compacted/);
 });
 
@@ -483,7 +483,7 @@ test(
   },
 );
 
-test("without a session there is no platform message, and none rides the inbox", async (t) => {
+test("without a session there is no platform message, and none rides the finished commands", async (t) => {
   const h = await harness(t);
   const boundary = await h.handlers.get("tool_result")(
     { content: [{ type: "text", text: "finished" }] },
@@ -922,11 +922,11 @@ test("resident waits for a live program then delivers its actual completion exac
   await delay(180);
   assert.equal(h.sent.length, 1);
   assert.equal(h.sent[0][1].triggerTurn, true);
-  const completions = h.sent[0][0].details.messages.filter(
-    (message) => message.data.type === "task.completed",
+  const completions = h.sent[0][0].details.filter(
+    (task) => task.type === "task.completed",
   );
   assert.equal(completions.length, 1);
-  assert.equal(completions[0].data.stdout, "done");
+  assert.equal(completions[0].stdout, "done");
   h.handlers.get("agent_settled")({ aborted: false }, h.ctx);
   await delay(80);
   assert.equal(

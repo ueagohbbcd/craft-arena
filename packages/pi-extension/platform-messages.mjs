@@ -88,7 +88,7 @@ export function sessionData(host) {
  * Trusted messages for the model: changes to the session's state and public
  * data. These come from the platform, not from
  * participant programs, so they travel as their own Pi message rather than
- * through the participant inbox. `collect()` returns only the sections that
+ * through the game log. `collect()` returns only the sections that
  * changed since the last delivered update.
  *
  * Public data is compared with the baseline the opening prompt carried
