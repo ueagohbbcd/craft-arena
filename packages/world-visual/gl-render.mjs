@@ -81,11 +81,14 @@ function readRGBA(gl, width, height) {
   return out;
 }
 
-// The viewer's sky colour (lightblue) is "nothing here".
+// The background, where nothing is drawn (air or blocks never received). Not
+// the viewer's light-blue sky: that is also the colour of ice and light blue
+// wool, which the crop would take for nothing, and it reads as real sky.
+const BACKGROUND = [32, 34, 42];
 const isSky = (d, i) =>
-  Math.abs(d[i] - 173) < 8 &&
-  Math.abs(d[i + 1] - 216) < 8 &&
-  Math.abs(d[i + 2] - 230) < 8;
+  Math.abs(d[i] - BACKGROUND[0]) < 8 &&
+  Math.abs(d[i + 1] - BACKGROUND[1]) < 8 &&
+  Math.abs(d[i + 2] - BACKGROUND[2]) < 8;
 
 function contentBox(d, W, H) {
   let x0 = W,
@@ -162,6 +165,9 @@ async function main() {
   const renders = [];
   for (const [s, scene] of job.scenes.entries()) {
     const viewer = new Viewer(renderer);
+    // A CSS string, like the viewer's own "lightblue": three converts it from
+    // sRGB, so the pixels read back match BACKGROUND.
+    viewer.scene.background = new THREE.Color(`rgb(${BACKGROUND.join(",")})`);
     viewer.setVersion(job.renderVersion);
     if (scene.grid) drawGrid(viewer.world.material);
     // The viewer's own wait (waitForChunksToRender) ends at the first answer
