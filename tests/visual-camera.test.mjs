@@ -13,6 +13,14 @@ import {
   defaultSettings,
 } from "../examples/screenshot.mjs";
 import { parsePickArgs } from "../examples/pick.mjs";
+import {
+  ASPECT_RANGE,
+  cropFor,
+  legendOf,
+  paddedBox,
+  panelSize,
+  sharedAspect,
+} from "../packages/world-visual/panel-layout.mjs";
 
 const box = { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 10, z: 10 } };
 const close = (a, b, eps = 1e-6) =>
@@ -132,21 +140,43 @@ test("screenshot and pick arguments", () => {
   // Views, an edge and grid after each box; the same box again for another edge.
   assert.deepEqual(
     parseScreenshotArgs(
-      "1 2 3 0 0 0 se top 1 2 3 4 5 6 open grid 0 0 0 1 2 3 se,nw game".split(
+      "1 2 3 0 0 0 se top 1 2 3 4 5 6 open grid names 0 0 0 1 2 3 se,nw game nonames".split(
         " ",
       ),
     ),
     [
-      { bounds: a, views: ["se", "top"], edge: "solid", grid: false },
-      { bounds: b, views: null, edge: "open", grid: true },
-      { bounds: a, views: ["se", "nw"], edge: "game", grid: false },
+      {
+        bounds: a,
+        views: ["se", "top"],
+        edge: "solid",
+        grid: false,
+        names: "legend",
+      },
+      { bounds: b, views: null, edge: "open", grid: true, names: "inline" },
+      {
+        bounds: a,
+        views: ["se", "nw"],
+        edge: "game",
+        grid: false,
+        names: "none",
+      },
     ],
   );
   assert.deepEqual(parseScreenshotArgs([]), []);
   // Words before any box are for the box around you.
   assert.deepEqual(parseScreenshotArgs(["top", "open"]), [
-    { bounds: null, views: ["top"], edge: "open", grid: false },
+    {
+      bounds: null,
+      views: ["top"],
+      edge: "open",
+      grid: false,
+      names: "legend",
+    },
   ]);
+  assert.throws(
+    () => parseScreenshotArgs("0 0 0 1 1 1 names nonames".split(" ")),
+    /One of names or nonames/,
+  );
   assert.throws(() =>
     parseScreenshotArgs(["top", "1", "2", "3", "4", "5", "6"]),
   );
@@ -185,4 +215,41 @@ test("one image holds 1, 2 or 4 pictures, shrunk to the pixel budget", () => {
   );
   assert.throws(() => viewLayout(defaultSettings, 3));
   assert.throws(() => viewLayout(defaultSettings, 8));
+});
+
+test("panels share one shape that follows what the views show", () => {
+  const wide = { x0: 0, y0: 0, x1: 400, y1: 100 };
+  const tall = { x0: 0, y0: 0, x1: 100, y1: 400 };
+  const square = { x0: 10, y0: 10, x1: 210, y1: 210 };
+  assert.equal(sharedAspect([square], 1.5), 1);
+  // A wide and a tall view meet in between; nothing shown keeps the fallback.
+  assert.equal(sharedAspect([wide, tall], 1.5), 1);
+  assert.equal(sharedAspect([null], 1.5), 1.5);
+  assert.deepEqual(ASPECT_RANGE, [0.5, 2.5]);
+  assert.equal(sharedAspect([{ x0: 0, y0: 0, x1: 1000, y1: 10 }], 1.5), 2.5);
+  assert.equal(sharedAspect([tall, tall], 1.5), 0.5);
+  // The pixel budget stays that of one 768x512 panel.
+  const { width, height } = panelSize(768 * 512, 0.5);
+  assert.ok(Math.abs(width * height - 768 * 512) < 768, `${width}x${height}`);
+  assert.ok(Math.abs(width / height - 0.5) < 0.01);
+  // The crop has the panel's shape, holds the box and stays in the render.
+  const crop = cropFor(paddedBox(tall, 1152), 1152, 768, 0.5);
+  assert.ok(Math.abs(crop.w / crop.h - 0.5) < 1e-9);
+  assert.ok(crop.x >= 0 && crop.y >= 0 && crop.y + crop.h <= 768);
+  assert.deepEqual(cropFor(null, 100, 50, 2), { x: 0, y: 0, w: 100, h: 50 });
+});
+
+test("legend marks become one line per name with a count", () => {
+  assert.deepEqual(
+    legendOf([
+      { label: "zombie", color: "#c4f", legend: true },
+      { label: "you", color: "#e33" },
+      { label: "cow", color: "#2bd", legend: true },
+      { label: "zombie", color: "#c4f", legend: true },
+    ]),
+    [
+      { label: "zombie", color: "#c4f", count: 2 },
+      { label: "cow", color: "#2bd", count: 1 },
+    ],
+  );
 });

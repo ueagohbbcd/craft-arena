@@ -7,9 +7,12 @@
 // from (se sw nw ne top east west south north; default se nw) and one EDGE,
 // how faces where it cuts through blocks are drawn: all (solid, default),
 // none (open) or as in the game. `grid` draws block edges on its block
-// faces. To see a box with another edge, give it again. The pictures go in reading order, box after box: 1, 2 side by side,
-// or 4 in two rows. The picture shows you, your waypoints and the entities
-// in each box; give its pixels to pick.mjs for coordinates.
+// faces. To see a box with another edge, give it again. The pictures go in
+// reading order, box after box: 1, 2 side by side, or 4 in two rows, all of
+// one shape that follows what they show. The picture shows you, your
+// waypoints and the entities in each box, the entities' names in a corner
+// legend (`names` writes them beside the entities, `nonames` leaves them
+// out); give its pixels to pick.mjs for coordinates.
 // Sizes and layout come from screenshot.json (readSettings).
 import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
@@ -17,7 +20,7 @@ import { snapshotFromBot } from "mineflayer-world-memory/live.mjs";
 import { capturePrismarineViews } from "../packages/world-visual/prismarine.mjs";
 import { isAir, projectPoint } from "../packages/world-visual/camera.mjs";
 
-const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ [VIEW...] [solid|open|game] [grid]]...`;
+const usage = `Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [minX minY minZ maxX maxY maxZ [VIEW...] [solid|open|game] [grid] [names|nonames]]...`;
 const KEEP_SHOTS = 20;
 
 /** A nearby box: mostly above and around the player, clipped to the dimension. */
@@ -44,13 +47,17 @@ const boxOf = (v) => {
 };
 
 const edges = ["solid", "open", "game"];
+/** How entity names are shown: in the corner legend (default), beside them, or not at all. */
+const nameModes = { names: "inline", nonames: "none" };
 
 /**
- * The boxes on the command line, `[{bounds, views, edge, grid}]`. Each box is six
- * numbers followed by its views (names such as `se nw` or `se,nw,top`; null
- * takes the settings' default) and at most one edge (`solid`, `open` or
- * `game`; default solid), and `grid` to draw block edges. Words before any box are for the box around your
- * feet (bounds null), which is then the only one.
+ * The boxes on the command line, `[{bounds, views, edge, grid, names}]`. Each
+ * box is six numbers followed by its views (names such as `se nw` or
+ * `se,nw,top`; null takes the settings' default), at most one edge (`solid`,
+ * `open` or `game`; default solid), `grid` to draw block edges, and `names`
+ * or `nonames` for entity names (default: a corner legend). Words before any
+ * box are for the box around your feet (bounds null), which is then the only
+ * one.
  */
 export function parseScreenshotArgs(args) {
   const boxes = [];
@@ -66,13 +73,20 @@ export function parseScreenshotArgs(args) {
         views: null,
         edge: null,
         grid: false,
+        names: null,
       });
       i += 6;
       continue;
     }
     const box =
       boxes.at(-1) ??
-      (around ??= { bounds: null, views: null, edge: null, grid: false });
+      (around ??= {
+        bounds: null,
+        views: null,
+        edge: null,
+        grid: false,
+        names: null,
+      });
     const word = args[i++];
     if (edges.includes(word)) {
       if (box.edge)
@@ -81,10 +95,17 @@ export function parseScreenshotArgs(args) {
         );
       box.edge = word;
     } else if (word === "grid") box.grid = true;
-    else box.views = [...(box.views ?? []), ...parseViews(word, false)];
+    else if (nameModes[word]) {
+      if (box.names)
+        throw new Error(`One of names or nonames per box. ${usage}`);
+      box.names = nameModes[word];
+    } else box.views = [...(box.views ?? []), ...parseViews(word, false)];
   }
   if (around) boxes.push(around);
-  for (const box of boxes) box.edge ??= "solid";
+  for (const box of boxes) {
+    box.edge ??= "solid";
+    box.names ??= "legend";
+  }
   return boxes;
 }
 
@@ -192,13 +213,17 @@ export const defaultSettings = Object.freeze({
   view: { width: 768, height: 512 },
   maxPixels: 1_200_000,
   crop: true,
+  aspect: "content",
 });
 
 /**
  * Settings from screenshot.json in the working directory over the defaults:
  * `views` (view names, or 1, 2 or 4), `view` (one view's pixels), `crop`
- * (crop each view to what it shows; `false` keeps the whole box framing) and `maxPixels`
- * (the whole image is scaled down to fit; `null` keeps every view's size).
+ * (crop each view to what it shows; `false` keeps the whole box framing),
+ * `aspect` ("content": all views of an image take the shape of what they
+ * show, with the pixels of `view`; "fixed": the shape of `view`) and
+ * `maxPixels` (the whole image is scaled down to fit; `null` keeps every
+ * view's size).
  */
 export async function readSettings(file = "screenshot.json") {
   let own = {};
@@ -260,8 +285,20 @@ async function nextShotName() {
   return `out/shot-${(shots.at(-1) ?? 0) + 1}`;
 }
 
+// Dot colours for entity names in the legend, one per name.
+const legendColors = [
+  "#c4f",
+  "#2bd",
+  "#fd3",
+  "#7e5",
+  "#f6a",
+  "#69f",
+  "#fa4",
+  "#ddd",
+];
+
 /** The snapshot of one box and what goes on top of it. */
-async function sceneOf(bot, bounds, waypoints, edge) {
+async function sceneOf(bot, bounds, waypoints, edge, names = "legend") {
   const snapshot = snapshotFromBot(bot, { bounds });
   const unknown = unknownCells(snapshot.blocks, bounds);
   // Unless the edge is solid, the viewer also gets the layer of
@@ -312,17 +349,28 @@ async function sceneOf(bot, bounds, waypoints, edge) {
       height: e.height,
       username: e.username,
     }));
+  const colors = new Map();
   for (const e of entities)
-    if (e.id !== bot.entity.id && !e.username)
-      marks.push({
+    if (names !== "none" && e.id !== bot.entity.id && !e.username) {
+      const at = {
         x: e.pos.x,
         y: e.pos.y + (e.height ?? 1) + 0.3,
         z: e.pos.z,
         label: e.name,
-        color: "#a3e",
-        dot: false,
-        size: 11,
-      });
+      };
+      if (names === "inline")
+        marks.push({ ...at, color: "#a3e", dot: false, size: 11 });
+      else {
+        if (!colors.has(e.name))
+          colors.set(e.name, legendColors[colors.size % legendColors.length]);
+        marks.push({
+          ...at,
+          color: colors.get(e.name),
+          dot: "small",
+          legend: true,
+        });
+      }
+    }
   const cells = snapshot.blocks.map((b) => ({
     x: b.x,
     y: b.y,
@@ -362,7 +410,13 @@ export default async function screenshotProgram(
     [w.x, w.y, w.z].every(Number.isFinite),
   );
   if (!boxes.length)
-    boxes.push({ bounds: null, views: null, edge: "solid", grid: false });
+    boxes.push({
+      bounds: null,
+      views: null,
+      edge: "solid",
+      grid: false,
+      names: "legend",
+    });
   const scenes = [];
   for (const box of boxes) {
     const scene = await sceneOf(
@@ -370,6 +424,7 @@ export default async function screenshotProgram(
       box.bounds ?? observationBounds(bot),
       waypoints,
       box.edge,
+      box.names,
     );
     scenes.push({
       ...scene,
@@ -408,6 +463,7 @@ export default async function screenshotProgram(
     height: layout.height,
     columns: layout.columns,
     cropToContent: settings.crop !== false,
+    aspect: settings.aspect,
     scenes: scenes.map((scene) => ({
       snapshot: scene.render,
       clip:

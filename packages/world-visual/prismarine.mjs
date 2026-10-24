@@ -383,8 +383,12 @@ export const viewLabels = Object.freeze({
  * pixels (`{x, y, label, color, dot}`). `scenes` instead renders several
  * snapshots into one image, one after another: `[{snapshot, directions,
  * fitBounds, entities, annotate, label, clip, grid}]` (the top-level snapshot is
- * then unused; `grid` draws block edges on the faces). Returns `{imagePath, metadata}`; the metadata lists each view's
- * scene, camera and where it sits in the image (`viewport`).
+ * then unused; `grid` draws block edges on the faces). `aspect: "content"`
+ * (with cropToContent) gives every panel the shape of what the views show,
+ * one shape for all, with the pixels of a width × height panel; a mark with
+ * `legend` gets a dot and its label goes to the panel's corner legend.
+ * Returns `{imagePath, metadata}`; the metadata lists each view's scene,
+ * camera and where it sits in the image (`viewport`).
  */
 export async function capturePrismarineViews(
   snapshot,
@@ -399,6 +403,7 @@ export async function capturePrismarineViews(
     fitBounds,
     entities,
     cropToContent = true,
+    aspect = "fixed",
     renderScale = 1.5,
     timeoutMs,
   } = {},
@@ -460,7 +465,7 @@ export async function capturePrismarineViews(
     };
   });
   await mkdir(dirname(outputPath), { recursive: true });
-  const { crops, filled } = await renderJob(
+  const result = await renderJob(
     {
       outputPath,
       renderVersion: built[0].renderVersion,
@@ -471,6 +476,7 @@ export async function capturePrismarineViews(
       columns,
       rows,
       cropToContent,
+      aspect,
       scenes: built.map(({ columns, entities, dy }, s) => ({
         columns,
         entities,
@@ -481,10 +487,22 @@ export async function capturePrismarineViews(
     },
     { timeoutMs },
   );
+  const { crops, filled } = result;
+  // The panel size the renderer chose (a content aspect changes it).
+  const panel = {
+    width: result.width ?? width,
+    height: result.height ?? height,
+  };
+  for (const [i, v] of views.entries())
+    v.viewport = {
+      x: (i % columns) * panel.width,
+      y: Math.floor(i / columns) * panel.height,
+      ...panel,
+    };
   const metadata = {
     ...built[0].metadata,
-    width: width * columns,
-    height: height * rows,
+    width: panel.width * columns,
+    height: panel.height * rows,
     capture:
       views.length > 1 ? "headless-gl renders, stitched" : "headless-gl render",
     views: views.map((v, i) => ({
