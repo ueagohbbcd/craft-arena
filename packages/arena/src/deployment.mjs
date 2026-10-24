@@ -252,7 +252,7 @@ export async function loadDeployment(dir) {
     throw new Error(`${matchPath}: map must be the path of the map package`);
   const mapDir = resolve(dirname(matchPath), match.map);
   const map = await readJson(join(mapDir, "map.json"), "Map package");
-  const agents = resolveAgents(map);
+  const agents = resolveAgents(map, match);
   const models = resolveModels(agents, match);
   const compiled = compileMatch(map, match, agents);
   // Validated here so a bad value fails before anything is written.

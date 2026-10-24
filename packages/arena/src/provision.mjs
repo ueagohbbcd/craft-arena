@@ -12,13 +12,16 @@
  *     "rules": { ... },          arena:config rules for its datapack (coordinates)
  *     "commands": { "prepare": [...], "start": [...], "stop": [...] },
  *     "briefing": "what the map is like",
+ *     "teams": { "red": { "files": [...] }, "blue": {} },
  *     "defaults": { "files": [...] },
  *     "agents": { "red1": { "team": "red", "bots": ["arena_red1"], "files": [...] } } }
  *
  * A file is { source, target, mode }: source relative to the map directory;
  * target an absolute path under /arena/config/ or /workspace/; mode "replace"
  * (default) or "once" (workspace only: keep a file the participant already has).
- * An agent's own `files` (and `team`) replace the defaults; they are not merged.
+ * `teams` names the teams the map's rules know (optional: without it any team
+ * name is accepted). `agents` is the default roster. An agent's files are its
+ * own slot's `files`, else its team's, else the defaults'; they are not merged.
  *
  * The match file is one round on that map:
  *
@@ -27,9 +30,13 @@
  *     "defaults": { "model": "deepseek/deepseek-flash" },
  *     "agents": { "blue1": { "model": "openai/gpt-5.5", "relay": false } } }
  *
- * Teams come from the map's agents; rules merge over the map's; briefings and
- * commands are the map's followed by the match's. Each agent's model settings
- * (`defaults` overlaid by its own entry) are independent knobs:
+ * Who plays is the match's choice: when any entry in the match's `agents` has
+ * `team` or `bots`, those entries are the whole roster (each needs `bots`) and
+ * the map's agents are not used; otherwise the map's roster plays and the
+ * match's entries only set models. Teams come from the roster; rules merge
+ * over the map's; briefings and commands are the map's followed by the
+ * match's. Each agent's model settings (`defaults` overlaid by its own entry)
+ * are independent knobs:
  *
  *   model     a Pi built-in model, provider/id (required)
  *   relay     true (default): a model relay holds the key, named after the
@@ -73,6 +80,7 @@ const MAP_KEYS = [
   "rules",
   "commands",
   "briefing",
+  "teams",
   "defaults",
   "agents",
 ];
@@ -95,6 +103,7 @@ const MODEL_KEYS = [
   "thinking",
   "compactAt",
 ];
+const ROSTER_KEYS = ["team", "bots"];
 
 const envName = (value) => value.toUpperCase().replace(/[^A-Z0-9]/g, "_");
 const isObject = (value) =>
@@ -172,28 +181,73 @@ export function checkMap(map) {
   if (map.briefing !== undefined && typeof map.briefing !== "string")
     errors.push("map.json: briefing must be a string");
   checkCommands(map.commands, "map.json", errors);
+  if (map.teams !== undefined)
+    if (!isObject(map.teams) || !Object.keys(map.teams).length)
+      errors.push("map.json: teams must map team names to {files?}");
+    else
+      for (const [team, entry] of Object.entries(map.teams))
+        if (!isObject(entry))
+          errors.push(`map.json: teams.${team} must be an object`);
+        else unknownKeys(entry, ["files"], `map.json teams.${team}`, errors);
   return errors;
 }
 
-/** The map's agent slots with defaults applied; throws on any error. */
-export function resolveAgents(map) {
+/** Whether the match file brings its own roster (see the header). */
+const matchRoster = (match) =>
+  isObject(match?.agents) &&
+  Object.values(match.agents).some(
+    (entry) => isObject(entry) && ROSTER_KEYS.some((key) => key in entry),
+  );
+
+/**
+ * The roster (the match's, else the map's agents) with files resolved;
+ * throws on any error.
+ */
+export function resolveAgents(map, match) {
   const errors = [];
   if (!isObject(map)) throw new Error("map.json must be an object");
   const defaults = map.defaults ?? {};
-  const agents = map.agents;
+  const own = matchRoster(match);
+  const agents = own ? match.agents : map.agents;
   if (!isObject(agents) || !Object.keys(agents).length)
     throw new Error("map.json needs at least one agent in agents");
+  const teams = isObject(map.teams) ? map.teams : null;
+  if (!isObject(defaults))
+    throw new Error("map.json: defaults must be an object");
+  unknownKeys(defaults, ["files"], "map.json defaults", errors);
   const seen = new Map();
   const out = [];
   for (const [id, slot] of Object.entries(agents)) {
     if (!AGENT_ID.test(id))
       errors.push(`agent id ${id} must match ${AGENT_ID}`);
-    const agent = { id, ...defaults, ...slot };
+    if (!isObject(slot)) {
+      errors.push(`agent ${id} must be an object`);
+      continue;
+    }
+    if (own && !("bots" in slot))
+      errors.push(
+        `match agents.${id}: the match lists its own roster, so every entry needs bots`,
+      );
+    if (!own)
+      unknownKeys(
+        slot,
+        ["team", "bots", "files"],
+        `map.json agents.${id}`,
+        errors,
+      );
+    const agent = own
+      ? { id, team: slot?.team, bots: slot?.bots }
+      : { id, team: slot.team, bots: slot.bots, files: slot.files };
     if (
       agent.team !== undefined &&
       (typeof agent.team !== "string" || !agent.team)
     )
       errors.push(`agent ${id}: team must be a non-empty string`);
+    else if (teams && agent.team !== undefined && !(agent.team in teams))
+      errors.push(
+        `agent ${id}: team ${agent.team} is not one of the map's teams (${Object.keys(teams).join(", ")})`,
+      );
+    agent.files ??= teams?.[agent.team]?.files ?? defaults.files;
     if (!Array.isArray(agent.bots) || !agent.bots.length)
       errors.push(`agent ${id}: bots must list at least one bot`);
     else
@@ -248,7 +302,14 @@ export function resolveModels(agents, match) {
       errors.push(`match agents.${id} is not an agent of the map`);
     else if (!isObject(entry))
       errors.push(`match agents.${id} must be an object`);
-    else unknownKeys(entry, MODEL_KEYS, `match agents.${id}`, errors);
+    else
+      unknownKeys(
+        entry,
+        [...MODEL_KEYS, ...ROSTER_KEYS],
+        `match agents.${id}`,
+        errors,
+        { files: ": files come from the map (teams or defaults)" },
+      );
   }
   if (errors.length) throw new Error(errors.join("\n"));
   const out = {};
@@ -357,7 +418,7 @@ export function compileMatch(map, match, agents) {
   if (!isObject(match)) errors.push("the match file must be an object");
   else {
     unknownKeys(match, MATCH_KEYS, "match file", errors, {
-      teams: ": teams come from the map's agents",
+      teams: ": teams come from the roster (agents)",
       config:
         ": the match file is flat now (sessionId, rules, briefing at the top)",
       runtime: ": bots always run in native participant hosts",
