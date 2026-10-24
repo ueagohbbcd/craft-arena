@@ -68,8 +68,7 @@ test("host only provisions a disk cache when explicitly requested", () => {
   };
   assert.equal(hostEnv({}, args).MF_WORLD_MEMORY_DIR, undefined);
   assert.equal(
-    hostEnv({ ARENA_WORLD_MEMORY_MODE: "session" }, args)
-      .MF_WORLD_MEMORY_DIR,
+    hostEnv({ ARENA_WORLD_MEMORY_MODE: "session" }, args).MF_WORLD_MEMORY_DIR,
     undefined,
   );
   assert.equal(

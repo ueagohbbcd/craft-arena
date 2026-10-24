@@ -323,8 +323,7 @@ export default function arenaExtension(pi) {
           maxBuffer: 4 * 1024 * 1024,
         },
         (error, stdout) => {
-          if (error)
-            resolve({ unavailable: error.message.split("\n")[0] });
+          if (error) resolve({ unavailable: error.message.split("\n")[0] });
           else resolve({ text: stdout.trimEnd() });
         },
       );
