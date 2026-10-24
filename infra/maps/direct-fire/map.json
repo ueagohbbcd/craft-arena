@@ -1,0 +1,159 @@
+{
+  "save": "Direct Fire by Vechs, Java 1.21 conversion v1.1",
+  "server": {
+    "difficulty": "normal",
+    "pvp": true,
+    "spawn-protection": 0,
+    "allow-flight": true
+  },
+  "rules": {
+    "publishGoals": true,
+    "objectives": [
+      "red-wool",
+      "blue-wool",
+      "green-wool"
+    ],
+    "goals": [
+      {
+        "team": "red",
+        "objective": "red-wool",
+        "x": 290,
+        "y": 68,
+        "z": -18,
+        "block": "minecraft:red_wool"
+      },
+      {
+        "team": "red",
+        "objective": "blue-wool",
+        "x": 291,
+        "y": 68,
+        "z": -18,
+        "block": "minecraft:blue_wool"
+      },
+      {
+        "team": "red",
+        "objective": "green-wool",
+        "x": 292,
+        "y": 68,
+        "z": -18,
+        "block": "minecraft:green_wool"
+      },
+      {
+        "team": "blue",
+        "objective": "red-wool",
+        "x": 290,
+        "y": 68,
+        "z": -63,
+        "block": "minecraft:red_wool"
+      },
+      {
+        "team": "blue",
+        "objective": "blue-wool",
+        "x": 291,
+        "y": 68,
+        "z": -63,
+        "block": "minecraft:blue_wool"
+      },
+      {
+        "team": "blue",
+        "objective": "green-wool",
+        "x": 292,
+        "y": 68,
+        "z": -63,
+        "block": "minecraft:green_wool"
+      }
+    ],
+    "starts": [
+      {
+        "team": "red",
+        "x": 317.5,
+        "y": 72,
+        "z": -24.5,
+        "yaw": 90,
+        "pitch": 0
+      },
+      {
+        "team": "blue",
+        "x": 317.5,
+        "y": 72,
+        "z": -56.5,
+        "yaw": 90,
+        "pitch": 0
+      }
+    ],
+    "watchItems": [
+      "white_wool",
+      "orange_wool",
+      "magenta_wool",
+      "light_blue_wool",
+      "yellow_wool",
+      "lime_wool",
+      "pink_wool",
+      "gray_wool",
+      "light_gray_wool",
+      "cyan_wool",
+      "purple_wool",
+      "blue_wool",
+      "brown_wool",
+      "green_wool",
+      "red_wool",
+      "black_wool"
+    ]
+  },
+  "commands": {
+    "prepare": [
+      {
+        "command": "gamerule doMobSpawning false",
+        "expect": "false"
+      },
+      {
+        "command": "gamerule spawnRadius 0",
+        "expect": "0"
+      },
+      {
+        "command": "difficulty normal",
+        "expect": "Normal|normal|already"
+      }
+    ],
+    "start": [
+      {
+        "command": "gamerule doMobSpawning true",
+        "expect": "true"
+      }
+    ],
+    "stop": [
+      {
+        "command": "gamerule doMobSpawning false",
+        "expect": "false"
+      }
+    ]
+  },
+  "briefing": "Direct Fire by Vechs, Java 1.21 conversion. Red team uses Lane 1 (block Z -32 through -17), Blue team Lane 2 (Z -64 through -49). Stay in your 16-block-wide lane after starting. Obtain red, blue and green goal wool from map chests, never by dyeing. Place all three in your monument to win. Ranged combat across lanes is allowed; do not target the enemy monument with TNT. Do not travel on top of any map ceiling. Start in the original lane start boxes; use the map buttons to leave. Deaths do not end the match; you respawn at the map's lobby spawn, and sleeping in or right-clicking a bed in your lane sets your respawn point there. Lane and wool-origin rules are participant rules; the server datapack scores monument blocks only.",
+  "defaults": {
+    "files": [
+      {
+        "source": "agents.d/20-race-of-wool.md",
+        "target": "/arena/config/agents.d/20-race-of-wool.md"
+      },
+      {
+        "source": "waypoints.json",
+        "target": "/workspace/waypoints.json",
+        "mode": "once"
+      }
+    ]
+  },
+  "agents": {
+    "red1": {
+      "team": "red",
+      "bots": [
+        "arena_red1"
+      ]
+    },
+    "blue1": {
+      "team": "blue",
+      "bots": [
+        "arena_blue1"
+      ]
+    }
+  }
+}

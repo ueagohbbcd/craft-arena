@@ -4,7 +4,6 @@ node_modules/
 *.log
 artifacts/
 runtime/
-infra/match.live.json
 .cache/
 out/
 .pi/

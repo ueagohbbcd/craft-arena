@@ -1,6 +1,6 @@
 # Server protocol tools
 
-`packages/arena` is the operator's side of [server protocol v1](../../docs/GAME-MODES.md#服务器协议-v1数据包或插件实现): an RCON client, the protocol reads and writes, and a small command line. There is no match host. The rules datapack (or plugin) judges and ends the match, time limit included; participant bot hosts read session data through their agent's login gate. Anything more, such as a schedule, recordings, result files or watching participant containers, belongs in the operator's own scripts, which call this command line.
+`packages/arena` is the operator's side of [server protocol v1](../../docs/GAME-MODES.md#服务器协议-v1数据包或插件实现): an RCON client, the protocol reads and writes, and a small command line. There is no match host. The rules datapack (or plugin) judges and ends the match, time limit included; participants read session data through their agent's login gate. `src/deployment.mjs` builds and runs one deployment on top of it; anything more, such as a schedule, recordings or result files, belongs in the operator's own scripts.
 
 Readers: developers and operators.
 
@@ -9,7 +9,8 @@ Readers: developers and operators.
 | `src/cli.mjs`             | the operator command line, below                                                                                                                            |
 | `src/server-protocol.mjs` | `validateServerConfig`, `writeServerConfig` (`arena:config`), `runPhase` (`#arena:*`), `readSession` / `readConfig`, `runCommands`; used by the operator tools and login gates |
 | `src/rcon.mjs`            | `RconClient`: TCP RCON client                                                                                                                               |
-| `src/provision.mjs`       | `provision`: map package + match file → Compose services, per-agent config and teams, see [Provision](#provision)                                           |
+| `src/provision.mjs`       | map package + match file → the compiled match file, model access per agent, the Compose project and per-agent files, see [Deployment](#deployment)       |
+| `src/deployment.mjs`      | `init`, `deploy` and the operator commands for one deployment directory, see [Deployment](#deployment)                                                     |
 | `src/snbt.mjs`            | SNBT reader/writer and `data get storage` reply parser                                                                                                      |
 
 ## Command line
@@ -21,57 +22,68 @@ node packages/arena/src/cli.mjs stop [MATCH.json]    # #arena:stop, run stop com
 node packages/arena/src/cli.mjs status               # arena:session as JSON
 node packages/arena/src/cli.mjs command say Five minutes left
 node packages/arena/src/cli.mjs check MATCH.json     # validate only; no server needed
-node packages/arena/src/cli.mjs provision MAP_DIR MATCH.json OUT_DIR [MODEL_DIR]  # see Provision; no server needed
 ```
 
-It connects to `MC_RCON_HOST` (default `127.0.0.1`) and `MC_RCON_PORT` (default `25575`) with `MC_RCON_PASSWORD`, prints one line of JSON and exits 1 on any failure. Both Compose deployments have an `arena` service under the `tools` profile that runs it on the backend network: `docker compose --profile tools run --rm arena status`.
+`MATCH.json` here is the compiled file `deploy` writes to `generated/match.json`.
 
-## Match file
+It connects to `MC_RCON_HOST` (default `127.0.0.1`) and `MC_RCON_PORT` (default `25575`) with `MC_RCON_PASSWORD`, prints one line of JSON and exits 1 on any failure. A generated deployment has an `arena` service under the `tools` profile that runs it on the backend network: `docker compose --profile tools run --rm arena status`.
+
+## Compiled match file
 
 ```json
 {
   "config": {
     "sessionId": "direct-fire-local",
     "kind": "match",
-    "rules": { "durationMs": 1800000 },
-    "briefing": "Red team uses Lane 1 ...",
+    "rules": { "durationMs": 1800000, "goals": [...] },
+    "briefing": "Direct Fire by Vechs ...",
     "teams": [
       { "id": "red", "players": ["arena_red1"] },
       { "id": "blue", "players": ["arena_blue1"] }
     ]
   },
   "commands": {
-    "prepare": [
-      { "command": "gamerule doMobSpawning false", "expect": "false" }
-    ],
-    "start": [{ "command": "gamerule doMobSpawning true", "expect": "true" }],
-    "stop": []
+    "prepare": [{ "command": "gamerule doMobSpawning false", "expect": "false" }],
+    "start": [{ "command": "gamerule doMobSpawning true", "expect": "true" }]
   }
 }
 ```
 
-`config` becomes `arena:config` (with `version: 1`, and a fresh `runId` unless one is given):
+`config` becomes `arena:config` (with `version: 1`, and a fresh `runId` unless one is given). A value too long for one RCON command is written in parts (`configCommands`):
 
-| Key          | Requirement                                                                                              |
-| ------------ | -------------------------------------------------------------------------------------------------------- |
-| `sessionId`  | `[A-Za-z0-9_-]{1,64}`                                                                                    |
-| `kind`       | `match` (default) or `open`                                                                              |
-| `rules`      | optional object passed to the map's datapack untouched (race-of-wool reads `rules.durationMs`, a time limit in ms that ends the match as a draw) |
-| `briefing`   | optional text; native bot hosts receive it as `briefing.text`           |
-| `teams`      | `[{id, players: [usernames]}]`; `draw` is reserved and cannot be a team ID; a player is in one team only |
+| Key         | Requirement                                                                                                                                       |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `sessionId` | `[A-Za-z0-9_-]{1,64}`                                                                                                                             |
+| `kind`      | `match` (default) or `open`                                                                                                                       |
+| `rules`     | optional object passed to the map's datapack untouched (race-of-wool reads its coordinates and `rules.durationMs`, a time limit in ms that ends the match as a draw) |
+| `briefing`  | optional text; participants receive it as `briefing.text`                                                                                         |
+| `teams`     | `[{id, players: [usernames]}]`; `draw` is reserved and cannot be a team ID; a player is in one team only                                         |
 
-Each command is a string or `{command, expect}`; with `expect` (a regular expression) a reply that does not match fails the command and stops the run. `prepare` and `start` commands run before their function tag, `stop` commands after it. Opening teleports belong to the rules datapack, not to these commands (race-of-wool: `starts` in its `map.mcfunction`); the Direct Fire match file sets no spawnpoint, so deaths follow the map's own respawn.
+Each command is a string or `{command, expect}`; with `expect` (a regular expression) a reply that does not match fails the command and stops the run. `prepare` and `start` commands run before their function tag, `stop` commands after it. Opening teleports belong to the rules datapack, not to these commands (race-of-wool: `rules.starts`); the Direct Fire map sets no spawnpoint, so deaths follow the map's own respawn.
 
-Starting points: [infra/match.live.template.json](../../infra/match.live.template.json) and [infra/windows-local/match.direct-fire.json](../../infra/windows-local/match.direct-fire.json).
+## Deployment
 
-## Provision
+```sh
+node packages/arena/src/deployment.mjs init DIR --save WORLD [--name NAME]
+node packages/arena/src/deployment.mjs deploy DIR [--accept-eula] [--replace-save] [--refresh-server]
+node packages/arena/src/deployment.mjs build|up|start|stop|status|logs|reset DIR
+```
 
-`provision MAP_DIR MATCH.json OUT_DIR` ([src/provision.mjs](src/provision.mjs)) compiles a map package and a match file into what one deployment runs. It needs no server. The Windows initializer runs it; see [docs/TARGET-ARCHITECTURE.md](../../docs/TARGET-ARCHITECTURE.md) for the design.
+The operator's guide is [infra/README.md](../../infra/README.md); the design is in [docs/TARGET-ARCHITECTURE.md](../../docs/TARGET-ARCHITECTURE.md). Three inputs, each pointing at the next:
 
-A map package is a directory with `map.json`:
+`DIR/deploy.json`: `name` (Compose project and image tag, default `craft-arena-<DIR name>`), `match` (default `match.json`), `save` (a world folder with `level.dat`), `datapacks` (directories with `pack.mcmeta`, mounted read-only at `world/datapacks/<name>`), `server` (server.properties), `serverDownload`, `serverJar`, `limits` (`cpus`, `memory`, `pids`, `minecraftMemory`). Paths are relative to deploy.json.
+
+The match file: `map` (the map package directory, relative to the match file), `sessionId`, `kind`, `rules`, `briefing`, `commands`, and model access in `defaults` and `agents.<id>`: `model` (a Pi built-in model, `provider/id`), `relay` (true, a relay name, or false), `baseUrl`, `key` (the `.env` variable, default `<PROVIDER>_API_KEY`), `internet`, `thinking`, `compactAt`. The header of [src/provision.mjs](src/provision.mjs) says what each does.
+
+The map package, a directory with `map.json`:
 
 ```json
 {
+  "save": "Direct Fire by Vechs, Java 1.21 conversion v1.1",
+  "server": { "difficulty": "normal", "pvp": true },
+  "rules": { "objectives": [...], "goals": [...], "starts": [...] },
+  "commands": { "prepare": [...], "start": [...], "stop": [...] },
+  "briefing": "Red team uses Lane 1 ...",
   "defaults": {
     "files": [
       {
@@ -89,23 +101,30 @@ A map package is a directory with `map.json`:
 
 | Key           | Meaning                                                                                                                                                                                                                                                                                                                                                                   |
 | ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `save`        | A note saying which save folder this map is; never checked.                                                                                                                                                                                                                                                                                                              |
+| `server`      | server.properties values; deploy.json's `server` overrides them, the platform's own keys (RCON, online mode, ...) cannot be set.                                                                                                                                                                                                                                         |
+| `rules`       | Coordinates and other map values for the rules datapack; the match file's `rules` merge over them.                                                                                                                                                                                                                                                                       |
+| `commands`    | RCON commands per phase (gamerules); the match file's run after them.                                                                                                                                                                                                                                                                                                    |
+| `briefing`    | What the map is like; the match file's briefing is appended.                                                                                                                                                                                                                                                                                                             |
 | `agents.<id>` | One participant container. The id is `[a-z0-9][a-z0-9_-]{0,31}`.                                                                                                                                                                                                                                                                                                          |
 | `team`        | Optional. Agents with a team make up `config.teams`; without teams the session has none (open mode).                                                                                                                                                                                                                                                                      |
-| `bots`        | Player names this agent controls, the main bot first. Each runs as a Mineflayer bot inside its agent's participant container through a login gate. A bot belongs to one agent.                                                                                                                                                                                                                                                          |
+| `bots`        | Player names this agent controls, the main bot first. Each runs as a Mineflayer bot inside its agent's participant container through a login gate. A bot belongs to one agent.                                                                                                                                                                                         |
 | `files`       | `{source, target, mode}`. `source` is relative to the map directory. `target` is under `/arena/config/` (read-only in the container; the files the launcher and extension read, see the [Pi extension README](../pi-extension/README.md#config-directory)) or `/workspace/` (copied by the launcher before Pi starts; `mode: "once"` keeps a file that is already there). |
 | `defaults`    | `team`, `bots` and `files` for every agent. An agent's own value replaces the default; lists are not merged.                                                                                                                                                                                                                                                              |
 
-The match file is the usual one. `config.teams` can be left out (provision fills it in) or must equal what the map implies. An optional `agents` object binds agents to model relays: `{"red1": {"relay": "red", "model": "model.red.json"}}`. The relay defaults to the agent's team, else its id; the model descriptor defaults to `model.<relay>.json` in `MODEL_DIR` (default: next to the match file); a `model` the match file names is relative to the match file.
+`deploy` writes, in `DIR`:
 
-`OUT_DIR` may exist, but none of the outputs may:
+| Output                    | Contents                                                                                                                                                                                       |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `compose.yaml`            | `minecraft`, `arena` (tools), `gate-<agent>` per agent, `model-<relay>` per relay, `participant-<agent>` per agent, one internal network per agent                                              |
+| `generated/match.json`    | the compiled match file above                                                                                                                                                                  |
+| `generated/agents/<id>/`  | mounted read-only at `/arena/provision`: `manifest.json` (agent, team, bot names, workspace files), `files/`; its `config/` is mounted at `/arena/config`                                     |
+| `minecraft-data/`         | `server.properties`, `eula.txt`, and the world, copied once from `map-original/world`                                                                                                          |
+| `server/`                 | the checked Minecraft server build                                                                                                                                                             |
+| `map-original/world`      | the save, copied on the first deploy or with `--replace-save`                                                                                                                                  |
+| `.env`                    | created with `MC_RCON_PASSWORD`; never rewritten; the operator adds the model keys                                                                                                             |
 
-| Output                | Contents                                                                                                                                                                                     |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `match.json`          | the match file with `config.teams`, without `agents`                                                                                                                                         |
-| `compose.agents.yaml` | `gate-<agent>` per agent, `model-<relay>` per relay (`<RELAY>_MODEL_URL`, `<RELAY>_MODEL_KEY`), `participant-<id>` per agent, one internal network per agent       |
-| `agents/<id>/`        | mounted read-only at `/arena/provision`: `manifest.json` (agent, team, bot names, workspace files), `model.json`, `files/`; its `config/` is mounted at `/arena/config` |
-
-The participant gets `ARENA_BOT` (its main bot) and `ARENA_PROVISION_DIR`. The participant launcher starts one `mf` character per name in the manifest; the model picks another character with `mf run --bot NAME`.
+The participant gets `ARENA_BOT` (its main bot), `ARENA_PROVISION_DIR` and its model access (`ARENA_PI_MODEL`, and `ARENA_PI_BASE_URL`, `ARENA_PI_API_KEY`, `ARENA_PI_THINKING`, `ARENA_PI_COMPACT_AT` as needed; see the [Pi extension README](../pi-extension/README.md)). The participant launcher starts one `mf` character per name in the manifest; the model picks another character with `mf run --bot NAME`.
 
 ## RCON
 

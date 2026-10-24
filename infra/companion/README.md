@@ -16,7 +16,6 @@
 | ------------------------------ | ----------------------------------------------------------------------------------------------- |
 | [`compose.yaml`](compose.yaml) | 三个服务                                                                                        |
 | [`.env.example`](.env.example) | 需要填的变量：服务器地址和版本、bot 账号、登录方式、模型地址和 key                              |
-| [`model.json`](model.json)     | 上游那个模型的描述，参赛容器读它生成 Pi 配置                                                    |
 | [`PROMPT.md`](PROMPT.md)       | 陪玩提示词（英文，模型读）：陪玩家玩、回答聊天、遵守服务器规则、不搞破坏                        |
 | [`rules/`](rules/)             | 可选：服务器规则等文件，只读挂到参赛容器的 `/arena/rules`，开局提示会列出（`.` 开头的文件除外） |
 
@@ -64,7 +63,7 @@ docker compose down
 | `ARENA_CHAT_WAKE`                                           | `mention`          | `mention`／`all`：提到 bot 或私聊（`all` 为所有聊天）在 `mf inbox` 里排在前面；`none`：不区分 |
 | `ARENA_MEMORY_LIMIT`、`ARENA_CPU_LIMIT`、`ARENA_PIDS_LIMIT` | `2g`、`2.0`、`256` | 每个容器的资源上限                                                                            |
 
-换上游或模型时，同时改 `.env` 的 `MODEL_UPSTREAM_URL`／`MODEL_UPSTREAM_KEY` 和 `model.json`。上游可以是宿主机上的服务（`http://host.docker.internal:PORT/v1`）。
+换模型时在 `.env` 里设 `ARENA_PI_MODEL`（Pi 内置模型名，`供应商/模型`，默认 `deepseek/deepseek-flash`，上下文和价格都用 Pi 自带的），同时把 `MODEL_UPSTREAM_URL`／`MODEL_UPSTREAM_KEY` 换成这个供应商的。压缩阈值是 `ARENA_PI_COMPACT_AT`，默认 250000 token。上游可以是宿主机上的服务（`http://host.docker.internal:PORT/v1`）。
 
 ## 局限
 

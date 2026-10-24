@@ -51,9 +51,11 @@ services:
       MF_AUTH: ${MF_AUTH:-offline}
       MF_PROFILES_DIR: /profiles
       ARENA_RULES_DIR: /arena/rules
-      OPENAI_BASE_URL: http://model-relay:8080
+      # A Pi built-in model (provider/id); the relay serves its API.
+      ARENA_PI_MODEL: ${ARENA_PI_MODEL:-deepseek/deepseek-flash}
+      ARENA_PI_BASE_URL: http://model-relay:8080
+      ARENA_PI_COMPACT_AT: ${ARENA_PI_COMPACT_AT:-250000}
       ARENA_COST_PER_HOUR: ${MODEL_COST_PER_HOUR:-}
-      ARENA_MODEL_CONFIG: /config/model.json
       TEAM_GIT_DIR: /team-git
       # The bot host can wait for Microsoft device login
       # can take longer than the default 10-minute start wait.
@@ -64,7 +66,6 @@ services:
       [
         companion-work:/workspace,
         companion-git:/team-git,
-        ./model.json:/config/model.json:ro,
         ./PROMPT.md:/arena/rules/PROMPT.md:ro,
         ./mf-profiles:/profiles,
       ]

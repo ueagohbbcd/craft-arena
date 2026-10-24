@@ -1,8 +1,8 @@
 # Model relay
 
-A participant's model endpoint when the participant container has no network of its own. It forwards every request to one configured base URL and reaches no other host, so it is the participant's whole egress allowlist. Any path below the base is forwarded, so with a key configured the participant can use every endpoint the upstream serves there (files, batches, …), not only chat completions; put a filtering service behind it when that matters. With a key configured it replaces the caller's `Authorization` header, so the key stays outside the participant container.
+A participant's model endpoint when the participant container has no network of its own. It forwards every request to one configured base URL and reaches no other host, so it is the participant's whole egress allowlist. Any path below the base is forwarded, so with a key configured the participant can use every endpoint the upstream serves there (files, batches, …), not only chat completions; put a filtering service behind it when that matters. With a key configured it puts the key into whichever key header the caller sent (`Authorization: Bearer`, `x-api-key`, `x-goog-api-key` or `api-key`), so the key stays outside the participant container and every API Pi speaks works through it.
 
-It does nothing else: no metering, rate limits, queueing, request rewriting or protocol translation. The spending limit is applied inside the participant's Pi session ([`ARENA_COST_PER_HOUR`](../pi-extension/README.md#spending-limit)); anything else belongs in whatever service the upstream URL points at. That can be an official API, or any service on the host (an OAuth-to-API bridge, a metering proxy, a proxy chain); this project does not ship or depend on one. When the participant container has its own network and Pi profile, the relay is not used at all. Both setups are described in [infra/README.md](../../infra/README.md#模型接入).
+It does nothing else: no metering, rate limits, queueing, request rewriting or protocol translation. The spending limit is applied inside the participant's Pi session ([`ARENA_COST_PER_HOUR`](../pi-extension/README.md#spending-limit)); anything else belongs in whatever service the upstream URL points at. That can be an official API, or any service on the host (an OAuth-to-API bridge, a metering proxy, a proxy chain); this project does not ship or depend on one. An agent with `"relay": false` in the match file calls its model itself and has no relay. Both setups are described in [infra/README.md](../../infra/README.md#模型接入).
 
 ```sh
 MODEL_RELAY_UPSTREAM=https://api.openai.com/v1 MODEL_RELAY_API_KEY=... node packages/model-relay/cli.mjs
@@ -11,7 +11,7 @@ MODEL_RELAY_UPSTREAM=https://api.openai.com/v1 MODEL_RELAY_API_KEY=... node pack
 | Variable               | Default   | Meaning                                                                                                            |
 | ---------------------- | --------- | ------------------------------------------------------------------------------------------------------------------ |
 | `MODEL_RELAY_UPSTREAM` | required  | Base URL, `http(s)`, no credentials, query or fragment. `POST /chat/completions` goes to `<base>/chat/completions` |
-| `MODEL_RELAY_API_KEY`  | unset     | Sent as `Authorization: Bearer <key>` in place of the caller's header. Unset: the caller's header passes through   |
+| `MODEL_RELAY_API_KEY`  | unset     | Replaces the value of the caller's key header (`Authorization` gets `Bearer <key>`); none sent: added as `Authorization: Bearer <key>`. Unset: the caller's header passes through |
 | `MODEL_RELAY_PORT`     | `8080`    | Listen port                                                                                                        |
 | `MODEL_RELAY_HOST`     | `0.0.0.0` | Listen address                                                                                                     |
 
@@ -21,6 +21,6 @@ Behaviour:
 - Bodies stream both ways, with no request or response timeout. When the caller disconnects, the upstream request is cancelled; when the upstream drops mid-response, the caller's connection is closed too.
 - An unreachable upstream returns `502`. Each finished request logs one JSON line: method, path, status and duration, never headers or bodies.
 
-The launcher points Pi at the relay with `OPENAI_BASE_URL=http://<relay>:8080` and no `OPENAI_API_KEY`; Pi then sends `Bearer unused`, which the relay replaces.
+The launcher points Pi's built-in provider at the relay with `ARENA_PI_BASE_URL=http://<relay>:8080` and no `ARENA_PI_API_KEY`; Pi then sends a placeholder key in its usual header, which the relay replaces. The relay's upstream is the provider's own base URL from Pi's model table unless the match file gives `baseUrl`.
 
 Tests: [tests/model-relay.test.mjs](../../tests/model-relay.test.mjs), and the relay paths in [tests/integration-pi.test.mjs](../../tests/integration-pi.test.mjs) (real Pi through the relay, image tool results, the shipped launcher).

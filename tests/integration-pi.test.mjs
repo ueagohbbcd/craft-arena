@@ -15,6 +15,10 @@ import {
   SessionManager,
 } from "@earendil-works/pi-coding-agent";
 import { createModelRelay } from "../packages/model-relay/index.mjs";
+import { piBuiltinModel } from "../packages/pi-extension/pi-models.mjs";
+
+// A Pi built-in OpenAI-compatible model; tests point it at local fakes.
+const TEST_MODEL = "groq/qwen/qwen3.8-27b";
 import inboxExtension from "../packages/pi-extension/index.mjs";
 process.env.PI_OFFLINE = "1";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -567,9 +571,9 @@ async function runBootstrapPrint(t, configure) {
     "PI_MAX_TOKENS",
     "PI_CONTEXT_WINDOW",
     "ARENA_EXTRA_EXTENSIONS",
-    "ARENA_MODEL_CONFIG",
-    "OPENAI_BASE_URL",
-    "OPENAI_API_KEY",
+    "ARENA_PI_MODEL",
+    "ARENA_PI_BASE_URL",
+    "ARENA_PI_API_KEY",
     "PI_CODING_AGENT_DIR",
     "PI_CODING_AGENT_SESSION_DIR",
   ])
@@ -643,34 +647,34 @@ test(
         listen(relay);
         relay.listen(0, "127.0.0.1");
         await once(relay, "listening");
-        await writeFile(
-          join(dir, "model.json"),
-          JSON.stringify({
-            id: "fixture",
-            api: "openai-completions",
-            contextWindow: 32768,
-            maxOutputTokens: 2048,
-          }),
-        );
-        // No OPENAI_API_KEY: the participant never sees a credential.
+        // No key: the participant never sees a credential.
         return {
-          ARENA_MODEL_CONFIG: join(dir, "model.json"),
-          OPENAI_BASE_URL: `http://127.0.0.1:${relay.address().port}`,
+          ARENA_PI_MODEL: TEST_MODEL,
+          ARENA_PI_BASE_URL: `http://127.0.0.1:${relay.address().port}`,
         };
       },
     );
     assert.deepEqual(relayed, [
-      { method: "POST", url: "/chat/completions", auth: "Bearer unused" },
+      {
+        method: "POST",
+        url: "/chat/completions",
+        auth: "Bearer relay-holds-the-key",
+      },
     ]);
     assert.equal(received[0].url, "/v1/chat/completions");
     assert.equal(received[0].auth, "Bearer fake-upstream-credential");
-    assert.equal(received[0].body.model, "fixture");
-    assert.equal(received[0].body.max_completion_tokens, 2048);
+    // Pi's built-in model, limits included.
+    const builtin = piBuiltinModel(TEST_MODEL);
+    assert.equal(received[0].body.model, builtin.id);
+    assert.equal(
+      received[0].body.max_completion_tokens ?? received[0].body.max_tokens,
+      builtin.maxTokens,
+    );
   },
 );
 
 test(
-  "bootstrap without OPENAI_BASE_URL runs Pi on the operator's own profile, unchanged",
+  "bootstrap without ARENA_PI_MODEL runs Pi on the operator's own profile, unchanged",
   { timeout: 25000 },
   async (t) => {
     let agentDir, models;
@@ -813,21 +817,12 @@ test(
       await new Promise((r) => sessionGate.close(r));
       await rm(dir, { recursive: true, force: true });
     });
-    await writeFile(
-      join(dir, "model.json"),
-      JSON.stringify({
-        id: "fixture",
-        api: "openai-completions",
-        contextWindow: 32768,
-        maxOutputTokens: 2048,
-      }),
-    );
     const env = {
       ...process.env,
       HOME: dir,
-      ARENA_MODEL_CONFIG: join(dir, "model.json"),
-      OPENAI_BASE_URL: `http://127.0.0.1:${upstream.address().port}`,
-      OPENAI_API_KEY: "resident-fixture-key",
+      ARENA_PI_MODEL: TEST_MODEL,
+      ARENA_PI_BASE_URL: `http://127.0.0.1:${upstream.address().port}`,
+      ARENA_PI_API_KEY: "resident-fixture-key",
       ARENA_PROMPT: "Start the resident fixture and keep its program alive.",
       ARENA_SESSION_URL: `http://127.0.0.1:${sessionGate.address().port}/v1/session`,
       ARENA_BOT: "arena_red1",

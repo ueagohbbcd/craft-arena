@@ -4,30 +4,39 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
-  provision,
+  compileMatch,
+  deploymentCompose,
   resolveAgents,
+  resolveModels,
   shareWithParticipant,
+  writeAgents,
 } from "../packages/arena/src/provision.mjs";
 import { applyProvisionFiles } from "../packages/pi-extension/participant-config.mjs";
 import { runSocket } from "mineflayer-world-memory/runtime/host/run.mjs";
 
-async function fixture(t, map, match = { config: { sessionId: "s1" } }) {
+const MODEL = { defaults: { model: "deepseek/deepseek-flash" } };
+
+async function fixture(t, map) {
   const root = await mkdtemp(join(tmpdir(), "arena-provision-"));
   t.after(() => rm(root, { recursive: true, force: true }));
   const mapDir = join(root, "map");
   await mkdir(join(mapDir, "agents.d"), { recursive: true });
   await writeFile(join(mapDir, "agents.d", "20-mode.md"), "Mode rules.");
   await writeFile(join(mapDir, "notes.md"), "Starter notes.");
-  await writeFile(join(mapDir, "map.json"), JSON.stringify(map));
-  await writeFile(join(root, "match.json"), JSON.stringify(match));
-  for (const name of ["red", "blue", "solo", "shared"])
-    await writeFile(join(root, `model.${name}.json`), `{"id":"${name}"}`);
-  return {
-    root,
-    mapDir,
-    matchPath: join(root, "match.json"),
-    outDir: join(root, "out"),
-  };
+  return { root, map, mapDir, outDir: join(root, "out") };
+}
+
+/** What deployment.mjs does with a map: agent files and the Compose project. */
+async function build(f, match = MODEL) {
+  const agents = resolveAgents(f.map);
+  await writeAgents({ agents, mapDir: f.mapDir, outDir: f.outDir });
+  return deploymentCompose({
+    name: "t",
+    agents,
+    models: resolveModels(agents, match),
+    mapId: "map",
+    source: "/src",
+  });
 }
 
 const twoBots = {
@@ -51,17 +60,9 @@ const twoBots = {
   },
 };
 
-test("provision writes per-agent config, manifests, teams and Compose services", async (t) => {
+test("agent files, manifests and Compose services follow the map's agents", async (t) => {
   const f = await fixture(t, twoBots);
-  const result = await provision(f);
-  assert.deepEqual(result.teams, [
-    { id: "red", players: ["arena_red1", "arena_red2"] },
-    { id: "blue", players: ["arena_blue1"] },
-  ]);
-  const match = JSON.parse(
-    await readFile(join(f.outDir, "match.json"), "utf8"),
-  );
-  assert.deepEqual(match.config.teams, result.teams);
+  const compose = await build(f);
   assert.equal(
     await readFile(
       join(f.outDir, "agents/red1/config/agents.d/20-mode.md"),
@@ -80,131 +81,87 @@ test("provision writes per-agent config, manifests, teams and Compose services",
     await readFile(join(f.outDir, "agents/red1/manifest.json"), "utf8"),
   );
   assert.deepEqual(red.bots, [{ name: "arena_red1" }, { name: "arena_red2" }]);
-  assert.equal(
-    await readFile(join(f.outDir, "agents/red1/model.json"), "utf8"),
-    '{"id":"red"}',
-  );
-  const compose = JSON.parse(
-    (await readFile(join(f.outDir, "compose.agents.yaml"), "utf8")).replace(
-      /^#.*\n/,
-      "",
-    ),
-  );
-  assert.deepEqual(Object.keys(compose.services).sort(), [
-    "gate-blue1",
-    "gate-red1",
-    "model-blue",
-    "model-red",
-    "participant-blue1",
-    "participant-red1",
-  ]);
+  const gate = compose.services["gate-red1"];
+  assert.equal(gate.environment.GATE_USERNAMES, "arena_red1,arena_red2");
+  assert.deepEqual(gate.networks, ["backend", "agent-red1"]);
+  assert.ok(gate.build, "the first gate builds the trusted image");
+  assert.equal(compose.services["gate-blue1"].build, undefined);
   const participant = compose.services["participant-red1"];
-  assert.equal(participant.environment.ARENA_BOT, "arena_red1");
-  for (const [name, service] of Object.entries(compose.services)) {
-    if (!name.startsWith("participant-")) continue;
-    assert.equal(
-      service.environment.ARENA_WORLD_MEMORY_MODE,
-      "${ARENA_WORLD_MEMORY_MODE:-off}",
-    );
-    assert.equal(service.environment.ARENA_WORLD_MEMORY_DIR, undefined);
-  }
-  assert.equal(
-    participant.environment.OPENAI_BASE_URL,
-    "http://model-red:8080",
-  );
-  assert.deepEqual(participant.networks, ["agent-red1"]);
+  const env = participant.environment;
+  assert.equal(env.ARENA_BOT, "arena_red1");
+  assert.equal(env.ARENA_MINECRAFT_HOST, "gate-red1");
+  assert.equal(env.ARENA_SESSION_URL, "http://gate-red1:8080/v1/session");
+  assert.equal(env.ARENA_WORLD_MEMORY_MODE, "${ARENA_WORLD_MEMORY_MODE:-off}");
+  assert.equal(env.ARENA_WORLD_MEMORY_DIR, undefined);
+  assert.equal(env.ARENA_BRIDGE_URL, undefined);
+  for (const [name, service] of Object.entries(compose.services))
+    if (name.startsWith("participant-"))
+      assert.doesNotMatch(
+        JSON.stringify(service.volumes),
+        /replay-config|:\/results|minecraft-data/,
+      );
   assert.ok(
-    participant.volumes.includes("./agents/red1/config:/arena/config:ro"),
+    participant.volumes.includes(
+      "./generated/agents/red1/config:/arena/config:ro",
+    ),
   );
   assert.ok(participant.volumes.includes("team-red-git:/team-git"));
   assert.ok(
     "team-red-git" in compose.volumes && "red1-work" in compose.volumes,
   );
-  assert.equal(
-    await readFile(join(f.outDir, "agents.env")).catch(() => ""),
-    "",
-  );
-  await assert.rejects(provision(f), /already exists/);
+  assert.match(compose.services.minecraft.volumes.join(" "), /replay-config/);
+  assert.equal(compose.services.minecraft.stop_grace_period, "180s");
+  assert.deepEqual(compose.services.arena.profiles, ["tools"]);
+  await assert.rejects(build(f), /already exists/);
 });
 
-test("the native runtime gives each agent a login gate and no bridge", async (t) => {
-  const f = await fixture(t, twoBots);
-  await provision(f);
-  const match = JSON.parse(
-    await readFile(join(f.outDir, "match.json"), "utf8"),
-  );
-  assert.equal(match.runtime, undefined);
-  const red = JSON.parse(
-    await readFile(join(f.outDir, "agents/red1/manifest.json"), "utf8"),
-  );
-  assert.deepEqual(red.bots, [{ name: "arena_red1" }, { name: "arena_red2" }]);
-  assert.equal(
-    await readFile(join(f.outDir, "agents.env")).catch(() => ""),
-    "",
-  );
-  const compose = JSON.parse(
-    (await readFile(join(f.outDir, "compose.agents.yaml"), "utf8")).replace(
-      /^#.*\n/,
-      "",
-    ),
-  );
-  assert.deepEqual(Object.keys(compose.services).sort(), [
-    "gate-blue1",
-    "gate-red1",
-    "model-blue",
-    "model-red",
-    "participant-blue1",
-    "participant-red1",
-  ]);
-  const gate = compose.services["gate-red1"];
-  assert.equal(gate.environment.GATE_USERNAMES, "arena_red1,arena_red2");
-  assert.deepEqual(gate.networks, ["backend", "agent-red1"]);
-  const participant = compose.services["participant-red1"].environment;
-  assert.equal(participant.ARENA_MINECRAFT_HOST, "gate-red1");
-  assert.equal(
-    participant.ARENA_SESSION_URL,
-    "http://gate-red1:8080/v1/session",
-  );
-  assert.equal(participant.ARENA_BRIDGE_URL, undefined);
-  assert.deepEqual(compose.services["participant-red1"].networks, [
-    "agent-red1",
-  ]);
-});
-
-test("provision refuses a legacy runtime selector", async (t) => {
-  const f = await fixture(t, twoBots, { config: {}, runtime: "bridge" });
-  await assert.rejects(provision(f), /runtime has been removed/);
-});
-
-test("relays and models can be shared through the match file", async (t) => {
-  const f = await fixture(
-    t,
-    { agents: { a: { bots: ["bot_a"] }, b: { bots: ["bot_b"] } } },
+test("the match file adds rules, briefing and commands after the map's", () => {
+  const map = {
+    rules: { goals: [1], durationMs: 5 },
+    briefing: "Map text.",
+    commands: { prepare: ["gamerule a false"], stop: ["say map"] },
+    agents: { a: { team: "red", bots: ["bot_a"] }, b: { bots: ["bot_b"] } },
+  };
+  const agents = resolveAgents(map);
+  const { config, commands } = compileMatch(
+    map,
     {
-      config: { sessionId: "open1", kind: "open" },
-      agents: { a: { relay: "shared" }, b: { relay: "shared" } },
+      map: "../map",
+      sessionId: "s1",
+      rules: { durationMs: 10 },
+      briefing: " Match text. ",
+      commands: { stop: ["say match"] },
     },
+    agents,
   );
-  const result = await provision(f);
-  assert.deepEqual(result.teams, []);
-  const compose = JSON.parse(
-    (await readFile(join(f.outDir, "compose.agents.yaml"), "utf8")).replace(
-      /^#.*\n/,
-      "",
-    ),
+  assert.deepEqual(config, {
+    sessionId: "s1",
+    kind: "match",
+    teams: [{ id: "red", players: ["bot_a"] }],
+    rules: { goals: [1], durationMs: 10 },
+    briefing: "Map text.\n\nMatch text.",
+  });
+  assert.deepEqual(commands, {
+    prepare: ["gamerule a false"],
+    stop: ["say map", "say match"],
+  });
+  const fails = (match, error, m = map) =>
+    assert.throws(() => compileMatch(m, match, agents), error);
+  fails({ sessionId: "s1", teams: [] }, /teams come from the map's agents/);
+  fails({ config: {} }, /the match file is flat now/);
+  fails({ sessionId: "s1", runtime: "bridge" }, /native participant hosts/);
+  fails({ sessionId: "bad id" }, /sessionId must match/);
+  fails(
+    { sessionId: "s1", commands: { end: [] } },
+    /unknown command phase end/,
   );
-  assert.deepEqual(compose.services["model-shared"].networks, [
-    "agent-a",
-    "agent-b",
-    "model-egress",
-  ]);
-  assert.equal(
-    JSON.parse(await readFile(join(f.outDir, "match.json"), "utf8")).agents,
-    undefined,
-  );
+  fails({ sessionId: "s1" }, /datapacks are chosen by deploy.json/, {
+    ...map,
+    datapacks: [],
+  });
 });
 
-test("provision refuses unsafe or inconsistent maps and match files", async (t) => {
+test("provision refuses unsafe or inconsistent maps", async (t) => {
   const bad = (agents, defaults) => () => resolveAgents({ agents, defaults });
   assert.throws(
     bad({ a: { bots: ["x_1"] }, b: { bots: ["X_1"] } }),
@@ -245,20 +202,6 @@ test("provision refuses unsafe or inconsistent maps and match files", async (t) 
     }),
     /read-only/,
   );
-  const mismatch = await fixture(t, twoBots, {
-    config: {
-      sessionId: "s1",
-      teams: [{ id: "red", players: ["arena_red1"] }],
-    },
-  });
-  await assert.rejects(provision(mismatch), /differs from the map's agents/);
-  const noModel = await fixture(t, {
-    agents: { z: { team: "zeta", bots: ["bot_z"] } },
-  });
-  await assert.rejects(
-    provision(noModel),
-    /model descriptor .*model\.zeta\.json not found/,
-  );
   const missing = await fixture(t, {
     agents: {
       solo: {
@@ -267,7 +210,7 @@ test("provision refuses unsafe or inconsistent maps and match files", async (t) 
       },
     },
   });
-  await assert.rejects(provision(missing), /absent\.md not found/);
+  await assert.rejects(build(missing), /absent\.md not found/);
 });
 
 test("teammates share one Git volume and keep their own workspaces", async (t) => {
@@ -278,14 +221,7 @@ test("teammates share one Git volume and keep their own workspaces", async (t) =
       c: { bots: ["bot_c"] },
     },
   });
-  await writeFile(join(f.root, "model.c.json"), "{}");
-  await provision(f);
-  const { services } = JSON.parse(
-    (await readFile(join(f.outDir, "compose.agents.yaml"), "utf8")).replace(
-      /^#.*\n/,
-      "",
-    ),
-  );
+  const { services } = await build(f);
   const git = (id) =>
     services[`participant-${id}`].volumes.find((v) => v.endsWith(":/team-git"));
   assert.equal(git("a"), "team-red-git:/team-git");
@@ -298,25 +234,8 @@ test("teammates share one Git volume and keep their own workspaces", async (t) =
   assert.deepEqual(await teammates("a"), ["b"]);
   assert.deepEqual(await teammates("c"), []);
   assert.ok(services["participant-a"].volumes.includes("a-work:/workspace"));
-});
-
-test("default model descriptors come from modelDir; named ones from the match file", async (t) => {
-  const f = await fixture(t, twoBots, {
-    config: { sessionId: "s1" },
-    agents: { blue1: { model: "models/blue.json" } },
-  });
-  const modelDir = join(f.root, "templates");
-  await mkdir(join(f.root, "models"));
-  await mkdir(modelDir);
-  await writeFile(join(f.root, "models/blue.json"), '{"id":"named"}');
-  await writeFile(join(modelDir, "model.red.json"), '{"id":"template"}');
-  await provision({ ...f, modelDir });
-  const model = async (id) =>
-    JSON.parse(
-      await readFile(join(f.outDir, "agents", id, "model.json"), "utf8"),
-    ).id;
-  assert.equal(await model("red1"), "template");
-  assert.equal(await model("blue1"), "named");
+  // An agent without a team gets a relay of its own.
+  assert.deepEqual(services["model-c"].networks, ["agent-c", "egress-c"]);
 });
 
 test("the manifest is handed to the participant user", async () => {
@@ -360,7 +279,7 @@ test("manifest permission errors other than unsupported chown still fail", async
 
 test("the launcher copies workspace files; once keeps an existing file", async (t) => {
   const f = await fixture(t, twoBots);
-  await provision(f);
+  await build(f);
   const workspace = join(f.root, "workspace");
   await mkdir(workspace);
   const dir = join(f.outDir, "agents/blue1");
@@ -378,7 +297,7 @@ test("the launcher copies workspace files; once keeps an existing file", async (
 
 test("native run socket lookup uses the participant manifest for any owned bot", async (t) => {
   const f = await fixture(t, twoBots);
-  await provision(f);
+  await build(f);
   const botsFile = join(f.root, "runtime-bots.json");
   await writeFile(
     botsFile,

@@ -112,16 +112,6 @@ test(
       join(overridden, "AGENTS.override.md"),
       "KEEP_USER_OVERRIDE_CONTEXT\n",
     );
-    const modelPath = join(dir, "model.json");
-    await writeFile(
-      modelPath,
-      JSON.stringify({
-        id: "fixture",
-        api: "openai-completions",
-        contextWindow: 32768,
-        maxOutputTokens: 2048,
-      }),
-    );
     const content = await readFile(guidance, "utf8");
     for (const [name, cwd, flags, marker] of [
       ["separate workspace", workspace, []],
@@ -148,9 +138,9 @@ test(
             env: {
               PATH: process.env.PATH,
               HOME: dir,
-              ARENA_MODEL_CONFIG: modelPath,
-              OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
-              OPENAI_API_KEY: "entry-fixture-only",
+              ARENA_PI_MODEL: "groq/qwen/qwen3.8-27b",
+              ARENA_PI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
+              ARENA_PI_API_KEY: "entry-fixture-only",
               PI_CODING_AGENT_SESSION_DIR: join(dir, "sessions"),
               // Task files would otherwise go under <cwd>/.arena.
               ARENA_TASK_DIR: join(dir, "tasks"),
@@ -171,8 +161,9 @@ test(
               : defaultTools,
           "default tools and explicit CLI selection reach the real provider",
         );
-        const system = request.messages.find(
-          (message) => message.role === "system",
+        // Pi sends the system prompt as `developer` to reasoning models.
+        const system = request.messages.find((message) =>
+          ["system", "developer"].includes(message.role),
         ).content;
         assert.equal(system.split(content.trim()).length - 1, 1, name);
         if (marker)

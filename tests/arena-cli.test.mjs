@@ -182,15 +182,23 @@ test("match files and arena:config values are checked", () => {
   assert.throws(() => parseMatch("{}"), /arena:config must be an object/);
 });
 
-test("shipped match files parse", async () => {
+test("the shipped map and match file compile to a valid operator match file", async () => {
   const { readFile } = await import("node:fs/promises");
-  for (const name of [
-    "match.live.template.json",
-    "windows-local/match.direct-fire.json",
-  ])
-    parseMatch(
-      await readFile(new URL(`../infra/${name}`, import.meta.url), "utf8"),
+  const { compileMatch, resolveAgents } =
+    await import("../packages/arena/src/provision.mjs");
+  const read = async (path) =>
+    JSON.parse(
+      await readFile(new URL(`../infra/${path}`, import.meta.url), "utf8"),
     );
+  const map = await read("maps/direct-fire/map.json");
+  const compiled = compileMatch(
+    map,
+    await read("deploy/match.direct-fire.json"),
+    resolveAgents(map),
+  );
+  parseMatch(JSON.stringify(compiled));
+  assert.equal(compiled.config.rules.durationMs, 1800000);
+  assert.deepEqual(compiled.config.rules.goals, map.rules.goals);
 });
 
 test("an expect does not fail on a reply lost to another RCON client", async () => {
@@ -319,4 +327,44 @@ test("RCON waits for command response before sending its fence", async (t) => {
     ["firstsecond", "firstsecond"],
   );
   assert.equal(earlyFence, false);
+});
+
+test("a long arena:config is written in commands RCON accepts", async () => {
+  const { configCommands, MAX_COMMAND_BYTES } =
+    await import("../packages/arena/src/server-protocol.mjs");
+  const goals = Array.from({ length: 40 }, (_, i) => ({
+    team: "red",
+    objective: `goal-${i}`,
+    x: i,
+    y: 64,
+    z: -i,
+    block: "minecraft:red_wool",
+  }));
+  const commands = configCommands({
+    version: 1,
+    sessionId: "s1",
+    briefing: "b".repeat(900),
+    rules: { durationMs: 1000, goals, publishGoals: true },
+  });
+  assert.ok(commands.every((c) => Buffer.byteLength(c) <= MAX_COMMAND_BYTES));
+  assert.deepEqual(commands.slice(0, 5), [
+    "data modify storage arena:config version set value 1",
+    'data modify storage arena:config sessionId set value "s1"',
+    `data modify storage arena:config briefing set value "${"b".repeat(900)}"`,
+    "data modify storage arena:config rules set value {}",
+    "data modify storage arena:config rules.durationMs set value 1000",
+  ]);
+  assert.equal(
+    commands[5],
+    "data modify storage arena:config rules.goals set value []",
+  );
+  assert.equal(commands.length, 6 + goals.length + 1);
+  assert.equal(
+    commands.at(-1),
+    "data modify storage arena:config rules.publishGoals set value 1b",
+  );
+  // A short config stays one merge.
+  assert.deepEqual(configCommands({ sessionId: "s1" }), [
+    'data merge storage arena:config {sessionId:"s1"}',
+  ]);
 });

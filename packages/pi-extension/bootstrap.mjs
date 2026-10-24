@@ -3,7 +3,6 @@ import {
   mkdtemp,
   mkdir,
   writeFile,
-  readFile,
   rm,
   symlink,
   lstat,
@@ -32,6 +31,7 @@ import {
   readParticipantConfig,
 } from "./participant-config.mjs";
 import { botNames, startMf } from "./mf-supervisor.mjs";
+import { piBuiltinModel } from "./pi-models.mjs";
 
 const extensionPath = fileURLToPath(new URL("./index.mjs", import.meta.url));
 const projectRoot = resolve(dirname(extensionPath), "../..");
@@ -107,141 +107,130 @@ export function openingPromptText(
 }
 
 /**
- * Model access for Pi. With OPENAI_BASE_URL, write a private Pi profile whose
- * one provider, `arena`, points at that endpoint (usually the model relay) and
- * whose model comes from ARENA_MODEL_CONFIG; the key is stored as the reference
- * `${OPENAI_API_KEY}`, never its value. Without OPENAI_BASE_URL, Pi runs on the
- * operator's own profile (PI_CODING_AGENT_DIR, else ~/.pi/agent) unchanged:
- * provider logins, API keys and settings are whatever the operator put there.
+ * Model access for Pi. ARENA_PI_MODEL names one of Pi's built-in models as
+ * `provider/id`; the launcher then writes a private Pi profile that selects it,
+ * so the model's limits, prices and request quirks come from Pi's own table.
+ * Optional knobs, each independent of the others:
+ *
+ *   ARENA_PI_BASE_URL    send the provider's requests here instead (a model
+ *                        relay, or another endpoint for the same API)
+ *   ARENA_PI_API_KEY     the key, stored in the profile as the reference
+ *                        `${ARENA_PI_API_KEY}`, never its value. Without it and
+ *                        with a base URL, the key is a placeholder the relay
+ *                        replaces; without either, Pi reads the provider's own
+ *                        variable (DEEPSEEK_API_KEY, ...)
+ *   ARENA_PI_THINKING    startup thinking level (off, minimal, ... max)
+ *   ARENA_PI_COMPACT_AT  context tokens at which Pi compacts the history
+ *
+ * Without ARENA_PI_MODEL, Pi runs on the operator's own profile
+ * (PI_CODING_AGENT_DIR, else ~/.pi/agent) unchanged.
  */
-async function modelProfile({ env, directory, cwd }) {
+const THINKING = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+async function modelProfile({ env, directory }) {
   const limited = modelRateOptions(env);
-  if (!env.OPENAI_BASE_URL) {
-    if (env.ARENA_MODEL_CONFIG)
+  for (const removed of ["OPENAI_BASE_URL", "ARENA_MODEL_CONFIG"])
+    if (env[removed])
       throw new Error(
-        "ARENA_MODEL_CONFIG describes the model behind OPENAI_BASE_URL; set both, or neither to use the Pi profile as configured",
+        `${removed} is no longer read: name a Pi built-in model in ARENA_PI_MODEL (provider/id) and the endpoint in ARENA_PI_BASE_URL`,
       );
+  if (!env.ARENA_PI_MODEL) {
+    const knob = [
+      "ARENA_PI_BASE_URL",
+      "ARENA_PI_API_KEY",
+      "ARENA_PI_THINKING",
+      "ARENA_PI_COMPACT_AT",
+    ].find((name) => env[name]);
+    if (knob) throw new Error(`${knob} needs ARENA_PI_MODEL`);
     return {
       agentDir: env.PI_CODING_AGENT_DIR || join(homedir(), ".pi", "agent"),
       generated: false,
     };
   }
-  if (!env.ARENA_MODEL_CONFIG)
-    throw new Error(
-      "OPENAI_BASE_URL needs ARENA_MODEL_CONFIG, the model served there",
-    );
-  const base = new URL(env.OPENAI_BASE_URL);
-  if (
-    !["http:", "https:"].includes(base.protocol) ||
-    base.username ||
-    base.password ||
-    base.search ||
-    base.hash
-  )
-    throw new Error(
-      "OPENAI_BASE_URL must be an HTTP(S) URL without embedded credentials, query or fragment",
-    );
-  const model = JSON.parse(
-    await readFile(resolve(cwd, env.ARENA_MODEL_CONFIG), "utf8"),
-  );
-  const positive = (value) => Number.isSafeInteger(value) && value > 0;
-  if (
-    typeof model.id !== "string" ||
-    !model.id ||
-    typeof model.api !== "string" ||
-    !model.api ||
-    !positive(model.contextWindow) ||
-    !positive(model.maxOutputTokens)
-  )
-    throw new Error(
-      "ARENA_MODEL_CONFIG needs id and api strings and positive integer contextWindow and maxOutputTokens",
-    );
-  const price = (value) => typeof value === "number" && value >= 0;
-  const cost = model.cost ?? {
-    input: 0,
-    output: 0,
-    cacheRead: 0,
-    cacheWrite: 0,
-  };
-  if (
-    !["input", "output", "cacheRead", "cacheWrite"].every((key) =>
-      price(cost[key]),
+  const model = piBuiltinModel(env.ARENA_PI_MODEL);
+  const { provider, id, contextWindow, maxTokens } = model;
+  let baseUrl;
+  if (env.ARENA_PI_BASE_URL) {
+    const base = new URL(env.ARENA_PI_BASE_URL);
+    if (
+      !["http:", "https:"].includes(base.protocol) ||
+      base.username ||
+      base.password ||
+      base.search ||
+      base.hash
     )
-  )
+      throw new Error(
+        "ARENA_PI_BASE_URL must be an HTTP(S) URL without embedded credentials, query or fragment",
+      );
+    baseUrl = base.toString().replace(/\/$/, "");
+  }
+  if (env.ARENA_PI_THINKING && !THINKING.includes(env.ARENA_PI_THINKING))
+    throw new Error(`ARENA_PI_THINKING must be one of ${THINKING.join(", ")}`);
+  if (limited && !(model.cost?.input > 0 || model.cost?.output > 0))
     throw new Error(
-      "ARENA_MODEL_CONFIG cost needs input, output, cacheRead and cacheWrite (USD per million tokens)",
+      `ARENA_COST_PER_HOUR needs list prices; Pi lists none for ${provider}/${id}`,
     );
-  if (limited && !(cost.input > 0 || cost.output > 0))
-    throw new Error(
-      "ARENA_COST_PER_HOUR needs list prices: add cost to ARENA_MODEL_CONFIG",
-    );
-  const { contextWindow, maxOutputTokens: maxTokens } = model;
-  const compaction = {
+  let compaction = {
     enabled: true,
     reserveTokens: Math.min(
       Math.floor(contextWindow / 2),
       Math.max(maxTokens * 2, Math.floor(contextWindow / 4)),
     ),
     keepRecentTokens: Math.floor(contextWindow / 4),
-    ...model.compaction,
   };
-  if (maxTokens >= contextWindow)
-    throw new Error(
-      "ARENA_MODEL_CONFIG maxOutputTokens must be smaller than contextWindow",
-    );
-  if (
-    typeof compaction.enabled !== "boolean" ||
-    !positive(compaction.reserveTokens) ||
-    !Number.isSafeInteger(compaction.keepRecentTokens) ||
-    compaction.keepRecentTokens < 0 ||
-    compaction.reserveTokens + compaction.keepRecentTokens >= contextWindow
-  )
-    throw new Error(
-      "ARENA_MODEL_CONFIG compaction needs a boolean enabled, positive integer reserveTokens, nonnegative integer keepRecentTokens, and room for history within contextWindow",
-    );
-  if (compaction.enabled && compaction.reserveTokens < maxTokens)
-    throw new Error(
-      "ARENA_MODEL_CONFIG compaction.reserveTokens must cover maxOutputTokens",
-    );
+  if (env.ARENA_PI_COMPACT_AT) {
+    const at = Number(env.ARENA_PI_COMPACT_AT);
+    if (!Number.isSafeInteger(at) || at < 1 || at >= contextWindow)
+      throw new Error(
+        `ARENA_PI_COMPACT_AT must be a positive integer below the context window (${contextWindow})`,
+      );
+    if (contextWindow - at < maxTokens)
+      throw new Error(
+        `ARENA_PI_COMPACT_AT leaves less than the model's ${maxTokens} output tokens free; use at most ${contextWindow - maxTokens}`,
+      );
+    compaction = {
+      enabled: true,
+      reserveTokens: contextWindow - at,
+      keepRecentTokens: Math.min(
+        Math.floor(contextWindow / 4),
+        Math.floor(at / 2),
+      ),
+    };
+  }
   const agentDir = directory || (await mkdtemp(join(tmpdir(), "arena-pi-")));
   await mkdir(agentDir, { recursive: true, mode: 0o700 });
-  const models = {
-    providers: {
-      arena: {
-        baseUrl: base.toString().replace(/\/$/, ""),
-        api: model.api,
-        // A relay that holds the real key ignores this one.
-        apiKey: env.OPENAI_API_KEY ? "${OPENAI_API_KEY}" : "unused",
-        models: [
-          {
-            id: model.id,
-            name: model.id,
-            reasoning: model.reasoning ?? false,
-            input: model.input ?? ["text", "image"],
-            contextWindow,
-            maxTokens,
-            cost: {
-              input: cost.input,
-              output: cost.output,
-              cacheRead: cost.cacheRead,
-              cacheWrite: cost.cacheWrite,
+  // Only what differs from the built-in provider: its models, request quirks
+  // and authentication stay Pi's own.
+  const apiKey = env.ARENA_PI_API_KEY
+    ? "${ARENA_PI_API_KEY}"
+    : baseUrl
+      ? "relay-holds-the-key"
+      : undefined;
+  if (baseUrl || apiKey)
+    await writeFile(
+      join(agentDir, "models.json"),
+      JSON.stringify(
+        {
+          providers: {
+            [provider]: {
+              ...(baseUrl ? { baseUrl } : {}),
+              ...(apiKey ? { apiKey } : {}),
             },
           },
-        ],
-      },
-    },
-  };
-  await writeFile(
-    join(agentDir, "models.json"),
-    JSON.stringify(models, null, 2),
-    { mode: 0o600 },
-  );
+        },
+        null,
+        2,
+      ),
+      { mode: 0o600 },
+    );
   await writeFile(
     join(agentDir, "settings.json"),
     JSON.stringify(
       {
-        defaultProvider: "arena",
-        defaultModel: model.id,
+        defaultProvider: provider,
+        defaultModel: id,
+        ...(env.ARENA_PI_THINKING
+          ? { defaultThinkingLevel: env.ARENA_PI_THINKING }
+          : {}),
         retry: { enabled: false },
         compaction,
         cacheWarming: "off",
@@ -251,7 +240,7 @@ async function modelProfile({ env, directory, cwd }) {
     ),
     { mode: 0o600 },
   );
-  return { agentDir, generated: true, modelId: model.id, models };
+  return { agentDir, generated: true, model };
 }
 
 /** Model access plus the arena extensions and toolkit links in the workspace. */
@@ -260,7 +249,7 @@ export async function preparePiProfile({
   directory,
   cwd = process.cwd(),
 } = {}) {
-  const profile = await modelProfile({ env, directory, cwd });
+  const profile = await modelProfile({ env, directory });
   const extras = (env.ARENA_EXTRA_EXTENSIONS || "")
     .split(",")
     .map((x) => x.trim())
@@ -361,7 +350,7 @@ async function launchPi({
     "Play the Minecraft session by writing Node programs and running them with `mf run` in bash, as your system prompt describes. Read `mf inbox` for what happened in the game. Follow the session briefing if there is one, and keep going until its goal is complete or the session ends.";
   const cliArgs = [
     ...(profile.generated
-      ? ["--provider", "arena", "--model", profile.modelId]
+      ? ["--provider", profile.model.provider, "--model", profile.model.id]
       : []),
     ...(args.includes("--mode") ? [] : ["--mode", resident ? "rpc" : "json"]),
     ...guidanceArgs,

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { parseSnbt } from "../packages/arena/src/snbt.mjs";
+import { resolveAgents, teamsOf } from "../packages/arena/src/provision.mjs";
 import {
   commandLines as lines,
   datapackFiles,
@@ -88,18 +89,32 @@ test("race-of-wool counts down arena:config.rules.durationMs and draws at zero",
   assert.match(timeout, /state set value "ended"/);
 });
 
-test("map.mcfunction matches the Direct Fire match config", async () => {
-  const text = await fn("map");
-  const merge = text.match(/^data merge storage race_of_wool:map (\{.*\})$/m);
-  const map = parseSnbt(merge[1]);
-  const config = JSON.parse(
+test("the Direct Fire map package fits the race-of-wool datapack", async () => {
+  const mapJson = JSON.parse(
     await readFile(
-      new URL("../infra/windows-local/match.direct-fire.json", import.meta.url),
+      new URL("../infra/maps/direct-fire/map.json", import.meta.url),
       "utf8",
     ),
   );
-  const teams = config.config.teams.map((t) => t.id);
-  assert.equal(map.publishGoals, 1);
+  const map = mapJson.rules;
+  const config = mapJson;
+  const teams = teamsOf(resolveAgents(mapJson)).map((t) => t.id);
+  // prepare copies each map value out of arena:config rules.
+  const prepare = lines(await fn("prepare"));
+  for (const key of [
+    "objectives",
+    "goals",
+    "watchItems",
+    "starts",
+    "publishGoals",
+  ])
+    assert(
+      prepare.includes(
+        `data modify storage race_of_wool:map ${key} set from storage arena:config rules.${key}`,
+      ),
+      key,
+    );
+  assert.equal(map.publishGoals, true);
   assert.equal(new Set(map.objectives).size, map.objectives.length);
   assert.equal(map.goals.length, teams.length * map.objectives.length);
   for (const team of teams)
@@ -120,7 +135,7 @@ test("map.mcfunction matches the Direct Fire match config", async () => {
     assert.match(goal.block, /^minecraft:[a-z_]+(\[.*\])?$/);
   }
   assert.ok(map.watchItems.every((item) => /^[a-z_]+$/.test(item)));
-  // Every team has one start; the datapack, not the match file, moves players.
+  // Every team has one start; the datapack, not the map's commands, moves players.
   for (const team of teams)
     assert.equal(map.starts.filter((s) => s.team === team).length, 1, team);
   for (const start of map.starts)

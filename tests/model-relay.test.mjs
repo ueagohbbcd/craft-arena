@@ -83,6 +83,30 @@ test("relay forwards below the upstream base, streams, and swaps in its own key"
   assert.equal(seen.headers.host, new URL(upstream.url).host);
 });
 
+test("the key goes into whichever key header the caller's API uses", async (t) => {
+  const upstream = await upstreamFixture(t);
+  upstream.release();
+  const relay = await relayFor(t, {
+    upstream: upstream.url,
+    apiKey: "relay-held-key",
+  });
+  for (const header of ["x-api-key", "x-goog-api-key"])
+    await (
+      await fetch(`${relay}/v1/messages`, {
+        method: "POST",
+        headers: { [header]: "placeholder" },
+        body: "{}",
+      })
+    ).text();
+  await (await fetch(`${relay}/models`)).text();
+  const [anthropic, google, none] = upstream.seen.map((r) => r.headers);
+  assert.equal(anthropic["x-api-key"], "relay-held-key");
+  assert.equal(anthropic.authorization, undefined);
+  assert.equal(google["x-goog-api-key"], "relay-held-key");
+  assert.equal(google.authorization, undefined);
+  assert.equal(none.authorization, "Bearer relay-held-key");
+});
+
 test("without a key the caller's own credential passes through", async (t) => {
   const upstream = await upstreamFixture(t);
   upstream.release();

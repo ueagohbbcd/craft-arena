@@ -125,11 +125,7 @@ test("bad config files are rejected before Pi starts", async (t) => {
 });
 
 test("images go only to a generated model that declares image input", () => {
-  const profile = (input) => ({
-    generated: true,
-    modelId: "m",
-    models: { providers: { arena: { models: [{ id: "m", input }] } } },
-  });
+  const profile = (input) => ({ generated: true, model: { id: "m", input } });
   assert.equal(profileAcceptsImages(profile(["text", "image"])), true);
   assert.equal(profileAcceptsImages(profile(["text"])), false);
   assert.equal(profileAcceptsImages({ generated: false }), true);
@@ -162,22 +158,14 @@ async function fakeProvider(t) {
 }
 
 async function launcherEnv(dir, provider, extra = {}) {
-  const model = join(dir, "model.json");
-  await writeFile(
-    model,
-    JSON.stringify({
-      id: "fixture",
-      api: "openai-completions",
-      contextWindow: 32768,
-      maxOutputTokens: 2048,
-      ...extra.model,
-    }),
-  );
   const env = {
     ...process.env,
-    ARENA_MODEL_CONFIG: model,
-    OPENAI_BASE_URL: provider.url,
-    OPENAI_API_KEY: "config-fixture-token",
+    // Pi built-in models with and without image input.
+    ARENA_PI_MODEL: extra.textOnly
+      ? "groq/llama-3.3-70b-versatile"
+      : "groq/qwen/qwen3.8-27b",
+    ARENA_PI_BASE_URL: provider.url,
+    ARENA_PI_API_KEY: "config-fixture-token",
     ARENA_CONFIG_DIR: join(dir, "config"),
   };
   for (const key of [
@@ -294,7 +282,7 @@ test(
     const provider = await fakeProvider(t);
     const child = spawn(process.execPath, [bootstrap], {
       cwd: workspace,
-      env: await launcherEnv(dir, provider, { model: { input: ["text"] } }),
+      env: await launcherEnv(dir, provider, { textOnly: true }),
       stdio: ["ignore", "pipe", "pipe"],
     });
     t.after(() => {

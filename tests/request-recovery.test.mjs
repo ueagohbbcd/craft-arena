@@ -445,15 +445,6 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
       });
       const base = `http://127.0.0.1:${server.address().port}`;
       const root = fileURLToPath(new URL("../", import.meta.url));
-      await writeFile(
-        join(dir, "model.json"),
-        JSON.stringify({
-          id: "fixture",
-          api: "openai-completions",
-          contextWindow: 32768,
-          maxOutputTokens: 64,
-        }),
-      );
       const queuedExtension = join(dir, "queued-extension.mjs");
       if (scenario === "queued")
         await writeFile(
@@ -471,9 +462,9 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
           cwd: root,
           env: {
             ...process.env,
-            ARENA_MODEL_CONFIG: join(dir, "model.json"),
-            OPENAI_BASE_URL: `${base}/v1`,
-            OPENAI_API_KEY: "model-fixture",
+            ARENA_PI_MODEL: "groq/qwen/qwen3.8-27b",
+            ARENA_PI_BASE_URL: `${base}/v1`,
+            ARENA_PI_API_KEY: "model-fixture",
             ARENA_SESSION_URL: `${base}/v1/session`,
             ARENA_BOT: "recovery-fixture",
             ARENA_PROMPT: "Complete the local fixture objective.",

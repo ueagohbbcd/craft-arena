@@ -67,7 +67,6 @@ npm ci
 npm run check                     # 语法检查
 npm run format:check              # prettier
 npm test                          # 全部测试（npm run validate = check + test）
-node packages/arena/src/cli.mjs check infra/match.live.template.json
 npm run demo:screenshot           # 需要可选依赖 gl、canvas 和 Xvfb
 ```
 
@@ -93,8 +92,8 @@ npm run demo:screenshot           # 需要可选依赖 gl、canvas 和 Xvfb
 | `real codemode can filter its raw nested result`                | 显式启用 codemode（默认关闭）时，嵌套命令的输出被脚本过滤掉，另一个已结束命令的结果仍附在 codemode 自己的结果上送到模型                                |
 | `ordinary Pi read ... preserves PNG`                            | `read` 读到的 PNG 经模型转发进入下一次请求（直接调用和 codemode 两种）；转发把参赛者的 key 换成自己的                                                  |
 | `after compaction the next request carries the current state`   | 上下文压缩后，下一次请求带上仍在运行的命令和角色状态                                                                                                   |
-| `bootstrap launches shipped Pi CLI through the model relay`     | 启动器生成的配置启动随包 Pi CLI，经模型转发访问上游；参赛者没有 key；模型收到 4 个默认工具（`read`、`edit`、`write`、`bash`）和系统提示                |
-| `bootstrap without OPENAI_BASE_URL`                             | 不设端点时 Pi 按运营者自己的配置目录运行，启动器不改写这个目录                                                                                         |
+| `bootstrap launches shipped Pi CLI through the model relay`     | 启动器为 Pi 内置模型生成的配置（只改 baseUrl）启动随包 Pi CLI，经模型转发访问上游；请求用的是内置模型的 id 和输出上限；参赛者没有 key；模型收到 4 个默认工具（`read`、`edit`、`write`、`bash`）和系统提示 |
+| `bootstrap without ARENA_PI_MODEL`                              | 不设模型时 Pi 按运营者自己的配置目录运行，启动器不改写这个目录                                                                                         |
 | `resident bootstrap keeps child alive`                          | 持续会话：最终回答后命令继续运行，空闲时不调用模型；命令结束时在同一对话里恰好开启一次新回合；会话状态作为平台消息送达，不带时钟；会话结束时启动器退出 |
 | `real Pi: a command finishing during the final response stream` | 模型正在输出最终回答时有命令结束：恰好续一轮                                                                                                           |
 

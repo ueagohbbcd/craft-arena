@@ -121,7 +121,7 @@ export async function writeServerConfig(rcon, config) {
   // merge (lists and scalars in the merge replace the old values).
   for (const key of OPTIONAL_KEYS)
     await rcon.command(`data remove storage arena:config ${key}`);
-  await rcon.command(`data merge storage arena:config ${serializeSnbt(value)}`);
+  for (const command of configCommands(value)) await rcon.command(command);
   // Vanilla RCON shares one output buffer between clients, so the merge
   // reply may carry other RCON clients' text; read the storage back instead.
   const written = JSON.parse(JSON.stringify(value));
@@ -133,8 +133,57 @@ export async function writeServerConfig(rcon, config) {
     throw new Error(`arena:config was not written: ${wrong.join(", ")} differ`);
 }
 
-/** Deep equality of parsed SNBT and JSON values, ignoring key order. */
+/**
+ * Vanilla RCON reads a request into a 1460-byte buffer, so one command's text
+ * stays well below that; longer values are written in parts.
+ */
+export const MAX_COMMAND_BYTES = 1400;
+const fits = (command) => Buffer.byteLength(command) <= MAX_COMMAND_BYTES;
+const BARE_KEY = /^[A-Za-z0-9_+.-]+$/;
+
+/**
+ * Commands that write `value` to arena:config: one `data merge` when it fits,
+ * else each top-level key on its own, and a value still too long as an empty
+ * list or compound filled one element or key at a time.
+ */
+export function configCommands(value) {
+  const merge = `data merge storage arena:config ${serializeSnbt(value)}`;
+  if (fits(merge)) return [merge];
+  const out = [];
+  const write = (path, item) => {
+    const set = `data modify storage arena:config ${path} set value ${serializeSnbt(item)}`;
+    if (fits(set)) return out.push(set);
+    if (Array.isArray(item)) {
+      out.push(`data modify storage arena:config ${path} set value []`);
+      for (const element of item) {
+        const append = `data modify storage arena:config ${path} append value ${serializeSnbt(element)}`;
+        if (!fits(append))
+          throw new Error(
+            `arena:config ${path} has an element too long for one RCON command`,
+          );
+        out.push(append);
+      }
+    } else if (item && typeof item === "object") {
+      out.push(`data modify storage arena:config ${path} set value {}`);
+      for (const [key, inner] of Object.entries(item))
+        if (inner !== undefined && inner !== null)
+          write(
+            `${path}.${BARE_KEY.test(key) ? key : JSON.stringify(key)}`,
+            inner,
+          );
+    } else
+      throw new Error(`arena:config ${path} is too long for one RCON command`);
+  };
+  for (const [key, item] of Object.entries(value)) write(key, item);
+  return out;
+}
+
+/**
+ * Deep equality of parsed SNBT and JSON values, ignoring key order. SNBT has
+ * no booleans: true and false are stored as bytes 1 and 0.
+ */
 function same(a, b) {
+  if (typeof b === "boolean") b = b ? 1 : 0;
   if (a === b) return true;
   if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
