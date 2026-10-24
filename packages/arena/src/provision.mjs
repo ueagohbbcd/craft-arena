@@ -23,8 +23,8 @@
  *
  * Each bot runs inside its participant container through its agent's login
  * gate (packages/login-gate), which admits only that agent's characters and
- * serves the session read-only. The participant launcher starts bot-host
- * processes and exposes their sockets to Pi and participant runs.
+ * serves the session read-only. The participant launcher starts the
+ * toolkit's `mf` supervisor for the manifest's characters.
  *
  * The match file may add "agents": { "red1": { "relay": "red", "model": "model.red.json" } };
  * the relay defaults to the agent's team (else its id) and the model to
@@ -179,6 +179,13 @@ export async function shareWithParticipant(
   } else await ops.chmod(file, 0o644);
 }
 
+/**
+ * Image tag, resolved by Compose: a deployment's own ARENA_DEPLOYMENT (set by
+ * the Windows initializer), so two deployments never overwrite each other's
+ * builds; `local` without one.
+ */
+const imageTag = "${ARENA_DEPLOYMENT:-local}";
+
 /** The Compose services, networks and volumes for the agents (plain data). */
 export function agentsCompose(agents, { mapId, relays }) {
   const common = {
@@ -196,7 +203,7 @@ export function agentsCompose(agents, { mapId, relays }) {
     volumes = {};
   let built = false;
   const trusted = () => ({
-    image: "craft-arena-trusted:local",
+    image: `craft-arena-trusted:${imageTag}`,
     ...(built
       ? {}
       : {
@@ -228,7 +235,7 @@ export function agentsCompose(agents, { mapId, relays }) {
     services[`model-${relay}`] = {
       ...common,
       profiles: ["agents"],
-      image: "craft-arena-trusted:local",
+      image: `craft-arena-trusted:${imageTag}`,
       command: ["node", "packages/model-relay/cli.mjs"],
       environment: {
         MODEL_RELAY_UPSTREAM: `\${${envName(relay)}_MODEL_URL:?Set ${envName(relay)}_MODEL_URL in .env}`,
@@ -244,7 +251,7 @@ export function agentsCompose(agents, { mapId, relays }) {
     services[`participant-${agent.id}`] = {
       ...common,
       profiles: ["agents"],
-      image: "craft-arena-participant:local",
+      image: `craft-arena-participant:${imageTag}`,
       ...(participantBuilt
         ? {}
         : {

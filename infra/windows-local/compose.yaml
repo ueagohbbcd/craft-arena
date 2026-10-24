@@ -1,4 +1,6 @@
-name: craft-arena-local
+# ARENA_DEPLOYMENT (written to .env by initialize-windows-arena.ps1) names the
+# Compose project and tags the images, so deployments never share either.
+name: ${ARENA_DEPLOYMENT:-craft-arena-local}
 x-common: &common
   user: '1000:1000'
   cap_drop: [ALL]
@@ -12,7 +14,7 @@ services:
   minecraft:
     <<: *common
     build: ./server
-    image: craft-arena-minecraft:local
+    image: craft-arena-minecraft:${ARENA_DEPLOYMENT:-local}
     mem_limit: ${MC_MEMORY_LIMIT:-3g}
     # Login gates connect after the server accepts players (cold start).
     healthcheck:
@@ -35,7 +37,7 @@ services:
   arena:
     <<: *common
     profiles: [tools]
-    image: craft-arena-trusted:local
+    image: craft-arena-trusted:${ARENA_DEPLOYMENT:-local}
     entrypoint: [node, packages/arena/src/cli.mjs]
     environment:
       MC_RCON_HOST: minecraft

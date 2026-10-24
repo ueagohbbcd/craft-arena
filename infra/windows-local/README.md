@@ -2,14 +2,15 @@
 
 在一台 Windows 机器上用 Docker Desktop 跑一场比赛。参赛者由地图包决定，默认的 Race of Wool 是 1v1：红队 `red1`、蓝队 `blue1`，每队一个模型转发。本目录是模板，初始化脚本把它复制到部署目录后再使用。通用的配置、录像和开赛前检查见 [infra/README.md](../README.md)。
 
-> **未验证。** 这里的 PowerShell 脚本在 2026-10-13 之后没有在 Windows 上运行过；自动测试只检查模板和配置文件，见[已知问题](#已知问题)。
+> **只验证过一次。** 2026-10-24 有人在一条落后 main 的分支上，用这套脚本在 Windows 上跑通了 `build` → `up` → `start`。main 上之后的改动（包括下面的部署名）还没在 Windows 上跑过；自动测试只检查模板和配置文件，见[已知问题](#已知问题)。
 
 ## 前提
 
-- PowerShell 7、Node.js 24 或更高、Docker Desktop（Linux 容器）。
+- PowerShell 7、Node.js 24 或更高（初始化脚本会检查；系统里的 Node 太旧时，把便携版 Node 24 的目录放到 `PATH` 最前面即可）、Docker Desktop（Linux 容器）。
 - 在仓库根目录执行过 `npm ci`。
-- 一个解压好的 Minecraft 世界目录（含 `level.dat`），以及这张地图的比赛文件（格式见 [packages/arena/README.md](../../packages/arena/README.md#match-file)）。Direct Fire 地图的示例是 [`match.direct-fire.json`](match.direct-fire.json)，纪念碑和 30 分钟时限由 [`race-of-wool` 数据包](../datapacks/race-of-wool/README.md)执行；初始化脚本把它复制进世界（`-Datapacks` 可换成别的数据包目录）。别的地图要改数据包的 `map.mcfunction`（纪念碑和各队开赛起点，开赛传送由数据包做），并自己写准备／开赛／结束命令和比赛简报；比赛文件里不写 `tp` 和 `spawnpoint`，死亡后按地图自己的重生规则。服务器版本固定为 1.21.1（与 [`minecraft-download.json`](../minecraft-download.json) 一致）。
-- 比赛文件不写 `teams`：队伍和玩家名由地图包的 `map.json` 推出（写了就必须一致）。
+- 一个解压好的 Minecraft 世界目录（含 `level.dat`）。仓库不带世界存档，只带规则数据包；用你手里干净的原始世界（例如旧部署的 `map-original/world`），以及这张地图的比赛文件（格式见 [packages/arena/README.md](../../packages/arena/README.md#match-file)）。Direct Fire 地图的示例是 [`match.direct-fire.json`](match.direct-fire.json)，纪念碑和 30 分钟时限由 [`race-of-wool` 数据包](../datapacks/race-of-wool/README.md)执行；初始化脚本把它复制进世界（`-Datapacks` 可换成别的数据包目录）。别的地图要改数据包的 `map.mcfunction`（纪念碑和各队开赛起点，开赛传送由数据包做），并自己写准备／开赛／结束命令和比赛简报；比赛文件里不写 `tp` 和 `spawnpoint`，死亡后按地图自己的重生规则。服务器版本固定为 1.21.1（与 [`minecraft-download.json`](../minecraft-download.json) 一致）。
+- 比赛文件不写 `teams`：队伍和玩家名由地图包的 `map.json` 推出。写了就必须和地图包完全一致，手写容易漏，最好不写。
+- 初始化要联网下载 Fabric 和模组。本机需要代理才能访问时，先设 `$env:NODE_USE_ENV_PROXY = '1'` 和 `$env:HTTPS_PROXY = 'http://127.0.0.1:端口'`（Node 24 默认不读代理环境变量）。
 - 已阅读并接受 [Minecraft EULA](https://www.minecraft.net/eula)。
 
 ## 初始化部署
@@ -20,35 +21,36 @@ $env:BLUE_MODEL_KEY = '蓝队上游的 key'
 ./scripts/initialize-windows-arena.ps1 -WorldDir 'C:\maps\my-world' -MatchConfig 'C:\maps\match.json' -AcceptEula
 ```
 
-| 参数               | 默认值                          | 作用                                                              |
-| ------------------ | ------------------------------- | ----------------------------------------------------------------- |
-| `-WorldDir`        | 必填                            | 世界目录，必须含 `level.dat`                                      |
-| `-MatchConfig`     | 必填                            | 比赛文件 JSON，初始化时用 `cli.mjs check` 检查                    |
-| `-MapDir`          | `infra/maps/race-of-wool`       | 地图包：`map.json` 的角色位和要写进参赛容器的文件，见下文         |
-| `-AcceptEula`      | 必填                            | 表示已接受 Minecraft EULA                                         |
-| `-DeploymentDir`   | `runtime/deploy`                | 部署目录。必须不存在，脚本不会覆盖已有部署                        |
+| 参数               | 默认值                          | 作用                                                                                                                                                 |
+| ------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `-WorldDir`        | 必填                            | 世界目录，必须含 `level.dat`                                                                                                                         |
+| `-MatchConfig`     | 必填                            | 比赛文件 JSON，初始化时用 `cli.mjs check` 检查                                                                                                       |
+| `-MapDir`          | `infra/maps/race-of-wool`       | 地图包：`map.json` 的角色位和要写进参赛容器的文件，见下文                                                                                            |
+| `-AcceptEula`      | 必填                            | 表示已接受 Minecraft EULA                                                                                                                            |
+| `-DeploymentDir`   | `runtime/deploy`                | 部署目录。必须不存在，脚本不会覆盖已有部署                                                                                                           |
+| `-DeploymentName`  | `craft-arena-<部署目录名>`      | 部署名：Compose 项目名和镜像 tag，写进 `.env` 的 `ARENA_DEPLOYMENT`。只能用小写字母、数字、`-`、`_`                                                  |
 | `-ServerDownload`  | `infra/minecraft-download.json` | 服务器下载清单。`infra/minecraft-anticheat.json` 是加了 Grim 的反作弊端，只记录不干预，见 [infra/README.md](../README.md#服务端配置原版端和反作弊端) |
-| `-ServerJar`       | 无                              | 本地已校验的 Mojang 服务器 JAR，省去下载它；Fabric 和模组仍要下载 |
-| `-Datapacks`       | `infra/datapacks/race-of-wool`  | 复制进原始世界 `datapacks/` 的数据包目录，可传多个                |
-| `-RedModelUrl`     | `https://api.openai.com/v1`     | 红队模型的 OpenAI 兼容基地址                                      |
-| `-BlueModelUrl`    | `https://api.deepseek.com`      | 蓝队模型的 OpenAI 兼容基地址                                      |
-| `-RedModelKeyEnv`  | `RED_MODEL_KEY`                 | 从哪个环境变量读红队 key                                          |
-| `-BlueModelKeyEnv` | `BLUE_MODEL_KEY`                | 从哪个环境变量读蓝队 key                                          |
+| `-ServerJar`       | 无                              | 本地已校验的 Mojang 服务器 JAR，省去下载它；Fabric 和模组仍要下载                                                                                    |
+| `-Datapacks`       | `infra/datapacks/race-of-wool`  | 复制进原始世界 `datapacks/` 的数据包目录，可传多个                                                                                                   |
+| `-RedModelUrl`     | `https://api.openai.com/v1`     | 红队模型的 OpenAI 兼容基地址                                                                                                                         |
+| `-BlueModelUrl`    | `https://api.deepseek.com`      | 蓝队模型的 OpenAI 兼容基地址                                                                                                                         |
+| `-RedModelKeyEnv`  | `RED_MODEL_KEY`                 | 从哪个环境变量读红队 key                                                                                                                             |
+| `-BlueModelKeyEnv` | `BLUE_MODEL_KEY`                | 从哪个环境变量读蓝队 key                                                                                                                             |
 
 地址和 key 写进部署目录的 `.env`，名字固定为 `RED_MODEL_URL`、`BLUE_MODEL_URL`、`RED_MODEL_KEY`、`BLUE_MODEL_KEY`。key 都可以不提供（上游不要 key 时），之后也可以自己加进 `.env`，或在运行 `windows-arena.ps1` 前设到当前 shell。
 
 脚本生成的部署目录（只有当前用户、SYSTEM 和管理员组能访问；`runtime/` 不进 Git）：
 
-| 路径                                           | 内容                                                                      |
-| ---------------------------------------------- | ------------------------------------------------------------------------- |
-| `compose.yaml`                                 | 从本目录复制。之后改部署目录里的副本                                      |
-| `match.source.json`                            | 你给的比赛文件的副本                                                      |
-| `match.json`、`compose.agents.yaml`、`agents/` | `cli.mjs provision` 由地图包和比赛文件生成，见下文                        |
-| `server/`                                      | 校验过的 Minecraft 服务器构建目录                                         |
-| `map-original/world`                           | 原始世界，`reset` 从这里恢复                                              |
-| `minecraft-data/`                              | 服务器数据：世界副本、`eula.txt`、`server.properties`                     |
-| `results/`、`replay-config/`                   | 录像文件、录像模组配置                                                    |
-| `.env`                                         | 随机生成的 RCON 密码、`ARENA_SOURCE_DIR`、模型地址和 key |
+| 路径                                           | 内容                                                                                |
+| ---------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `compose.yaml`                                 | 从本目录复制。之后改部署目录里的副本                                                |
+| `match.source.json`                            | 你给的比赛文件的副本                                                                |
+| `match.json`、`compose.agents.yaml`、`agents/` | `cli.mjs provision` 由地图包和比赛文件生成，见下文                                  |
+| `server/`                                      | 校验过的 Minecraft 服务器构建目录                                                   |
+| `map-original/world`                           | 原始世界，`reset` 从这里恢复                                                        |
+| `minecraft-data/`                              | 服务器数据：世界副本、`eula.txt`、`server.properties`                               |
+| `results/`、`replay-config/`                   | 录像文件、录像模组配置                                                              |
+| `.env`                                         | 部署名 `ARENA_DEPLOYMENT`、随机生成的 RCON 密码、`ARENA_SOURCE_DIR`、模型地址和 key |
 
 生成的 `server.properties` 为离线模式、开启 PvP、RCON 在 25575、视距 8、关闭命令方块。按地图需要检查后再启动。
 
@@ -62,7 +64,7 @@ $env:BLUE_MODEL_KEY = '蓝队上游的 key'
 
 初始化时模型文件按转发名从本目录的 `model.red.json`、`model.blue.json` 复制到各角色位的 `agents/<角色位>/model.json`；之后改模型就改 `agents/<角色位>/model.json`，部署目录里不再有按队的模型文件。想改地图包或比赛文件，就用新的部署目录重新初始化。
 
-Compose 项目名固定为 `craft-arena-local`，一台机器同一时间只运行一个部署。
+Compose 项目名和镜像 tag 都取部署名（`ARENA_DEPLOYMENT`），所以每个部署有自己的容器、卷和镜像：几个部署可以同时存在，一个部署 `build` 不会覆盖另一个的镜像。要同时**运行**几个部署，除了部署名还要错开资源上限；Minecraft 不映射到宿主机端口，所以端口不冲突。`.env` 里没有 `ARENA_DEPLOYMENT` 的旧部署照旧使用项目名 `craft-arena-local` 和 `:local` 镜像。
 
 ## 操作命令
 
@@ -75,15 +77,15 @@ Compose 项目名固定为 `craft-arena-local`，一台机器同一时间只运�
 
 所有动作都接受 `-DeploymentDir`（默认 `runtime/deploy`，用了别的目录就每次都传）。
 
-| 动作     | 做什么                                                                                                                                                                    |
-| -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `build`  | 构建 Minecraft 镜像、可信侧镜像（登录门、模型转发和 `arena` 命令行共用）和参赛镜像                                                                                        |
+| 动作     | 做什么                                                                                                                                                                              |
+| -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `build`  | 构建 Minecraft 镜像、可信侧镜像（登录门、模型转发和 `arena` 命令行共用）和参赛镜像                                                                                                  |
 | `up`     | 启动 Minecraft → 等 RCON 可用 → 启动登录门和参赛容器并等两个 bot 上线 → `arena prepare` → 为每队初始化 `/team-git/project.git` → 启动模型转发和参赛容器。参赛者加载好工具后等待开赛 |
-| `start`  | 确认会话状态为 `waiting`，然后 `arena start`                                                                                                                              |
-| `status` | `docker compose ps -a`，以及 `arena:session`（状态、胜者、分数）                                                                                                          |
-| `logs`   | 各服务最后 80 行日志                                                                                                                                                      |
-| `stop`   | 会话还在 `running` 时先 `arena stop`（数据包记下分数并结束），再停登录门、模型转发和参赛容器，最后停 Minecraft                                                            |
-| `reset`  | 执行 `stop`，然后归档并恢复，见下文                                                                                                                                       |
+| `start`  | 确认会话状态为 `waiting`，然后 `arena start`                                                                                                                                        |
+| `status` | `docker compose ps -a`，以及 `arena:session`（状态、胜者、分数）                                                                                                                    |
+| `logs`   | 各服务最后 80 行日志                                                                                                                                                                |
+| `stop`   | 会话还在 `running` 时先 `arena stop`（数据包记下分数并结束），再停登录门、模型转发和参赛容器，最后停 Minecraft                                                                      |
+| `reset`  | 执行 `stop`，然后归档并恢复，见下文                                                                                                                                                 |
 
 `arena` 是部署里 `tools` 配置组的一次性容器，运行 [packages/arena/src/cli.mjs](../../packages/arena/README.md)，读部署目录的 `match.json`。比赛由数据包在目标完成或时间到时结束，`status` 显示结果；需要存档时自己保存这份输出。
 
@@ -117,7 +119,8 @@ Compose 项目名固定为 `craft-arena-local`，一台机器同一时间只运�
 
 ## 已知问题
 
-- **PowerShell 流程未实际运行。** 初始化和操作脚本在改用模型转发之后没有在 Windows 上跑过。
+- **部署名还没在 Windows 上跑过。** `docker compose config` 已确认 `ARENA_DEPLOYMENT` 会同时改掉项目名和全部镜像 tag，但初始化脚本里生成和检查部署名的那几行没在 PowerShell 里运行过。
+- **部署目录不能原地升级。** 换地图包、角色名单或比赛文件都要新建部署目录重新初始化；旧部署的工作卷和队伍 Git 不会自动带过来。
 
 ## 升级已有部署
 

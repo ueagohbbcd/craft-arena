@@ -8,6 +8,10 @@ param(
     # participant container (cli.mjs provision compiles it with the match file).
     [string]$MapDir = (Join-Path $PSScriptRoot '../infra/maps/race-of-wool'),
     [string]$DeploymentDir = (Join-Path $PSScriptRoot '../runtime/deploy'),
+    # Compose project name and image tag of this deployment (default:
+    # craft-arena-<DeploymentDir folder name>), so deployments run side by side
+    # and a build never replaces another deployment's images.
+    [string]$DeploymentName,
     [switch]$AcceptEula,
     [string]$ServerJar,
     [string]$ServerDownload = (Join-Path $PSScriptRoot '../infra/minecraft-download.json'),
@@ -28,6 +32,9 @@ if (-not $AcceptEula) { throw 'Pass -AcceptEula after reading https://www.minecr
 $repo = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 $destination = Assert-ArenaPath $DeploymentDir
 if (Test-Path -LiteralPath $destination) { throw 'DeploymentDir already exists; initialization never overwrites a deployment.' }
+if (-not $DeploymentName) { $DeploymentName = ('craft-arena-' + ((Split-Path -Leaf $destination).ToLowerInvariant() -replace '[^a-z0-9_-]+','-')).Trim('-') }
+# Valid both as a Compose project name and as an image tag.
+if ($DeploymentName -cnotmatch '^[a-z0-9][a-z0-9_-]{0,62}$') { throw 'DeploymentName must be lowercase letters, digits, - and _, starting with a letter or digit.' }
 $world = Assert-ArenaPath $WorldDir -Tree
 if (-not (Test-Path -LiteralPath (Join-Path $world 'level.dat') -PathType Leaf)) { throw 'WorldDir must be a prepared Minecraft world containing level.dat.' }
 if ($destination.StartsWith($world.TrimEnd('\','/') + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) { throw 'DeploymentDir must not be inside WorldDir.' }
@@ -101,6 +108,7 @@ try {
         return "'" + $value + "'"
     }
     $envLines.Add('ARENA_SOURCE_DIR=' + (Quote-DotEnv $repo.Replace('\','/')))
+    $envLines.Add("ARENA_DEPLOYMENT=$DeploymentName")
     $rcon = [Convert]::ToHexString([Security.Cryptography.RandomNumberGenerator]::GetBytes(32)).ToLowerInvariant()
     $envLines.Add("MC_RCON_PASSWORD=$rcon")
     foreach ($name in $modelSettings.Keys) { if ($modelSettings[$name]) { $envLines.Add("$name=" + (Quote-DotEnv $modelSettings[$name])) } }
@@ -116,4 +124,4 @@ try {
         Remove-Item -LiteralPath $stage -Recurse -Force
     }
 }
-Write-Output "Initialized deployment at $destination. Review server.properties, match.json, agents/*/config, agents/*/model.json and the model settings in .env (RED_MODEL_URL, BLUE_MODEL_URL and optional RED_MODEL_KEY, BLUE_MODEL_KEY) before starting agents."
+Write-Output "Initialized deployment $DeploymentName at $destination. Review server.properties, match.json, agents/*/config, agents/*/model.json and the model settings in .env (RED_MODEL_URL, BLUE_MODEL_URL and optional RED_MODEL_KEY, BLUE_MODEL_KEY) before starting agents."
