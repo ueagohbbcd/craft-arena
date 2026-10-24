@@ -85,7 +85,7 @@
 | ✅   | 比赛配置改为 `session`／`judge`／`briefing` 三块；去掉写死的 `race-of-wool`                                                                                                                                                                                                                                         |
 | ✅   | 只读 session 接口（含 `kind`）；Pi 扩展和启动器支持 `open` 会话：空闲提醒不再要求比赛主控                                                                                                                                                                                                                           |
 | ✅   | 参赛提示拆成通用部分（`participant/PROMPT.md`）和玩法部分（由会话配置的 `briefing.promptFile` 提供）                                                                                                                                                                                                                |
-| ✅   | 独立原生角色会话：`open` 会话、`MF_AUTH=microsoft`；陪玩部署模板（`infra/companion`）                                                                                                                                                                                                                               |
+| ✅   | 独立原生角色会话：`open` 会话、`MF_AUTH=microsoft`；陪玩部署模板（`infra/companion`，2026-10-24 删除）                                                                                                                                                                                                                             |
 | ✅   | 聊天转发：提到 bot 名字的消息和私聊可设为紧急（`ARENA_CHAT_WAKE`）；改用 `mf` 后紧急表示在 `mf inbox` 里排前面，并让正在等待的 `mf run` 提前返回（程序继续跑）                                                                                                                                                      |
 | ✅   | 最小示例数据包（`infra/datapacks/arena-example`）                                                                                                                                                                                                                                                                   |
 | ✅   | 把羊毛竞速地图移植成数据包（`infra/datapacks/race-of-wool`），删除 `monument-blocks`、旧配置转换和 `/v1/match` 别名；实服验证                                                                                                                                                                                       |
@@ -93,7 +93,7 @@
 | ⬜   | 协议 v1 给没有队伍的 `open` 会话传玩家名单（现在 `arena:config` 的 `teams` 为空，数据包看不到 bot）                                                                                                                                                                                                                 |
 | ✅   | 会话目录：启动器把简报复制到 `ARENA_SESSION_DIR`（`session.json`、`briefing.md`、`public.json`，`public` 变化时更新），开局提示列出这些文件和 `ARENA_RULES_DIR` 下的规则书                                                                                                                                          |
 | ✅   | 可信消息统一走平台消息（`deliverPlatform`）：`public` 变化发 `public` 段（超过 4096 字节只报路径），`public.notice` 变化发 `notice` 段并唤醒空闲的模型；空闲提醒也用平台消息格式                                                                                                                                    |
-| ⬜   | `open` 会话的通知：没有服务器协议时运营者怎样给模型发 `notice`（例如增加只供运营者使用的会话通知入口）                                                                                                                                                                                                              |
+| ⬜   | `open` 会话的场外消息：没有服务器协议时运营者怎样给模型发话（例如启动器把运营者输入转成 Pi rpc 的 `follow_up`，即直接接口）                                                                                                                                                                                                              |
 | ✅   | 删除比赛主控（2026-10-16）：会话由数据包维护，原生角色进程只读会话状态；时限移进羊毛竞速数据包（`arena:config.durationMs` 倒数，到时判平）；`packages/arena` 只剩 RCON、协议和运营命令行（`prepare`／`start`／`stop`／`status`／`command`），读一份比赛文件；录像、结果文件、参赛容器监督删除，交给运营者自己的脚本 |
 | ✅   | 模型不再看到时钟：平台消息只在会话状态或胜者变化时发 `session` 段，会话对象去掉开始时间、时长和已用时间                                                                                                                                                                                                             |
 | ✅   | 观察器的目标物品和关注物品改读 `briefing.public.goals`／`watchItems`（不再写死羊毛）                                                                                                                                                                                                                                |
@@ -144,7 +144,7 @@
 - ✅ 右键床设重生点：白天也能设；回执 `Respawn point set` 的位置是 `system`，按普通 `game.chat` 进收件箱（不紧急）；同时动作栏的“只能在夜间睡觉”不转发（CI `verify:server` 实测）。
 - ⬜ 路点和地点连通图（`examples/place-graph.mjs`，只查阅不移动）、截图（`screenshot.mjs`：自选框、小框当剖面、顶视图）和点选取坐标（`pick.mjs`）在真实比赛里模型会不会用、用了有没有帮助；图像尺寸默认值（`screenshot.json`）要按参赛模型实际的图像 token 计费来定。
 - ✅ 服务器协议 v1 和两个数据包在真实的 1.21.1 服务器上跑过（2026-10-14 手工，之后 CI 每次推送跑 `npm run verify:server`）。
-- ⬜ 陪玩模板：`MF_AUTH=microsoft` 设备登录、正版服务器、聊天唤醒（没有实际运行过）。
+- ⬜ `MF_AUTH=microsoft` 设备登录、正版服务器（没有实际运行过）。
 
 ## 可能要做的：真实客户端渲染（2026-10-23，先不急着做）
 

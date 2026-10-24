@@ -1,6 +1,6 @@
 # 运营部署指南
 
-这份指南写给部署和主持比赛的运营者，按操作顺序排列。Linux 和 Windows 用同一套 Node 命令（[`packages/arena/src/deployment.mjs`](../packages/arena/src/deployment.mjs)）；Windows 上的两个 PowerShell 脚本只是外壳，见 [windows-local/README.md](windows-local/README.md)。陪玩部署（登录入口 + 一个参赛容器，接入普通服务器）见 [companion/README.md](companion/README.md)。架构说明见 [README](../README.md)。
+这份指南写给部署和主持比赛的运营者，按操作顺序排列。Linux 和 Windows 用同一套 Node 命令（[`packages/arena/src/deployment.mjs`](../packages/arena/src/deployment.mjs)）；Windows 上的两个 PowerShell 脚本只是外壳，见 [windows-local/README.md](windows-local/README.md)。架构说明见 [README](../README.md)。
 
 ## 四样输入
 
@@ -86,8 +86,6 @@ node packages/arena/src/deployment.mjs status D
 ### 玩法与判定
 
 规则、计分、胜负和时限都在服务器上的数据包或插件里，平台通过服务器协议 v1 交换 `arena:config` 和 `arena:session`，设计见 [docs/GAME-MODES.md](../docs/GAME-MODES.md)。羊毛竞速见 [datapacks/race-of-wool](datapacks/race-of-wool/README.md)，最小示例见 [datapacks/arena-example](datapacks/arena-example/README.md)。管理员也可以直接在游戏里执行 `function #arena:start`／`#arena:stop`。`#arena:prepare` 读的是 `arena:config`，只在命令行 `prepare` 写好它之后才有用；命令行的 `prepare` 还会生成新的 `runId`。
-
-不比赛、只想让模型在普通服务器上陪玩时，参赛容器在未设置会话 URL 时提供一个 `open` 会话，部署模板见 [companion/README.md](companion/README.md)。
 
 ### 规则书和会话文件
 

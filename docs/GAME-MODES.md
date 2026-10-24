@@ -1,12 +1,12 @@
 # 玩法、会话与服务器协议
 
-状态：已实现（2026-10-14），本页作为设计和协议参考。代码在 `packages/arena/src/server-protocol.mjs`（协议读写）、`packages/arena/src/cli.mjs`（运营命令行）、`packages/arena/src/snbt.mjs`（SNBT）、角色运行时的只读 session reader；比赛文件格式见 [packages/arena/README.md](../packages/arena/README.md)，羊毛竞速数据包见 [infra/datapacks/race-of-wool](../infra/datapacks/race-of-wool/README.md)，最小示例数据包见 [infra/datapacks/arena-example](../infra/datapacks/arena-example/README.md)，陪玩模板见 [infra/companion](../infra/companion/README.md)。
+状态：已实现（2026-10-14），本页作为设计和协议参考。代码在 `packages/arena/src/server-protocol.mjs`（协议读写）、`packages/arena/src/cli.mjs`（运营命令行）、`packages/arena/src/snbt.mjs`（SNBT）、角色运行时的只读 session reader；比赛文件格式见 [packages/arena/README.md](../packages/arena/README.md)，羊毛竞速数据包见 [infra/datapacks/race-of-wool](../infra/datapacks/race-of-wool/README.md)，最小示例数据包见 [infra/datapacks/arena-example](../infra/datapacks/arena-example/README.md)。
 
-**真实服务器验证（2026-10-14，1.21.1 原版）：** 协议 v1、示例数据包和羊毛竞速数据包都在真实服务器上跑过，包括带两个真实 Mineflayer bot 的完整一局（见 [VALIDATION](VALIDATION.md)）。**2026-10-16 删除了比赛主控**：时限移进数据包，会话由服务器规则维护，角色运行时只读会话状态；开局和结束由运营命令行或运营者自己的脚本完成。这套流程由 CI 的 `server-protocol` 任务在真实服务器上验证。`MF_AUTH=microsoft` 登录和陪玩模板还没有实际跑过。剩下的事项见 [ROADMAP](ROADMAP.md)。
+**真实服务器验证（2026-10-14，1.21.1 原版）：** 协议 v1、示例数据包和羊毛竞速数据包都在真实服务器上跑过，包括带两个真实 Mineflayer bot 的完整一局（见 [VALIDATION](VALIDATION.md)）。**2026-10-16 删除了比赛主控**：时限移进数据包，会话由服务器规则维护，角色运行时只读会话状态；开局和结束由运营命令行或运营者自己的脚本完成。这套流程由 CI 的 `server-protocol` 任务在真实服务器上验证。`MF_AUTH=microsoft` 登录还没有实际跑过。剩下的事项见 [ROADMAP](ROADMAP.md)。
 
 ## 适用范围
 
-玩法、计分、时限和胜负都在服务器上的数据包或插件里，按下面的服务器协议和平台交换数据；陪玩使用没有胜负和时限的 `open` 会话。
+玩法、计分、时限和胜负都在服务器上的数据包或插件里，按下面的服务器协议和平台交换数据；没有规则数据包时是没有胜负和时限的 `open` 会话。
 
 ## 原则：规则归服务器，平台只管会话
 
@@ -25,7 +25,7 @@
 | 类型    | 用途                 | 结束条件                               | 判定                 |
 | ------- | -------------------- | -------------------------------------- | -------------------- |
 | `match` | 比赛                 | 服务器宣布结束（含时限到）、运营者中止 | 服务器给出胜者或平局 |
-| `open`  | 陪玩、长期在线、实验 | 只有运营者中止                         | 无                   |
+| `open`  | 长期在线、实验       | 只有运营者中止                         | 无                   |
 
 两种类型共用同一套参赛容器、原生角色运行时和模型接入。区别只在会话状态的来源，以及会不会自动结束。
 
@@ -87,9 +87,9 @@ data merge storage arena:config {version:1, kind:"match", teams:[{id:"red", play
   - 平台消息不带时钟，只在会话状态或胜者变化时通知模型（2026-10-16 起）。
 - **提示词：** `participant/agents.d/10-arena.md` 改为和玩法无关的通用说明，只讲怎样控制角色、程序怎样运行、信息怎样到达。玩法提示词由会话配置提供（`briefing.promptFile`），启动器把它追加在通用说明后面。
 
-## 陪玩：独立原生角色
+## `open` 会话：没有规则数据包
 
-陪玩之类的场景不需要规则数据包。角色进程没有配置 `ARENA_SESSION_URL` 时，自身提供一个持续运行的 `open` 会话：
+角色进程没有配置 `ARENA_SESSION_URL` 时，自身提供一个持续运行的 `open` 会话：
 
 | 环境变量                   | 作用                                           |
 | -------------------------- | ---------------------------------------------- |
@@ -100,7 +100,9 @@ data merge storage arena:config {version:1, kind:"match", teams:[{id:"red", play
 
 参赛容器、模型接入不用改。行为限制照样由服务器负责：服主给 bot 的账号设权限，和给真人设权限一样。
 
-陪玩不需要专门的唤醒机制：和其他模式一样，模型要等玩家说话时，写一个程序等聊天、有人提到它或私聊时结束，命令结束就会唤醒它。`ARENA_CHAT_WAKE`（`mention`／`all`）让这类聊天成为紧急报告：在 `mf inbox` 里排在前面，并让正在等待的 `mf run` 提前返回（程序继续跑），所以不写等待程序也能较快听到。
+陪玩部署模板（`infra/companion`）已删除（2026-10-24）：在真机或 WSL 上陪玩，直接用工具箱的 `mf` 和自己的 agent，不需要容器，也不需要本平台；人通过 harness 自己的输入和模型说话（见 [模型上下文：场外消息](CONTEXT-DELIVERY.md#场外消息两种接口)）。
+
+`open` 会话不需要专门的唤醒机制：和其他模式一样，模型要等玩家说话时，写一个程序等聊天、有人提到它或私聊时结束，命令结束就会唤醒它。`ARENA_CHAT_WAKE`（`mention`／`all`）让这类聊天成为紧急报告：在 `mf inbox` 里排在前面，并让正在等待的 `mf run` 提前返回（程序继续跑），所以不写等待程序也能较快听到。
 
 **规则由服务器跑（2026-10-16 起是比赛的唯一方式）。** 可信侧通过 RCON 读 `arena:session`（状态、胜者、分数、公开数据）和 `arena:config`（会话 ID、队伍、简报，有人写过才有）。运营者用命令行，或在游戏里、控制台执行 `function #arena:prepare`／`#arena:start`／`#arena:stop` 就能一轮一轮地玩；角色进程只读 session 状态，不接受游戏动作 RPC。结果记录、录像、参赛容器故障、批量运行这类编排由运营者自己的脚本调用命令行完成。
 
@@ -108,4 +110,4 @@ data merge storage arena:config {version:1, kind:"match", teams:[{id:"red", play
 
 SNBT 解析器支持复合、列表、字符串、数值（含后缀），不是通用解析器。协议 v1 使用 RCON 轮询。
 
-`public` 可在会话中更新：最新值放进 `briefing.public`，参赛容器里的 `public.json` 跟着更新，下一条平台消息带 `public` 段（超过 4096 字节时只报大小和文件路径）。`public.notice` 变化时另带 `notice` 段，空闲的模型会被唤醒。运营者在服务器控制台执行 `data modify storage arena:session public.notice set value "..."` 即可发通知。`open` 会话没有服务器协议，`public` 恒为空，发不了通知。后续工作统一记在 [路线图](ROADMAP.md)。
+`public` 可在会话中更新：最新值放进 `briefing.public`，参赛容器里的 `public.json` 跟着更新，下一条平台消息带 `public` 段（超过 4096 字节时只报大小和文件路径）。`public.notice` 变化时另带 `notice` 段，空闲的模型会被唤醒。运营者在服务器控制台执行 `data modify storage arena:session public.notice set value "..."` 即可发通知。`open` 会话没有服务器协议，`public` 恒为空，发不了通知（见 [场外消息](CONTEXT-DELIVERY.md#场外消息两种接口)）。后续工作统一记在 [路线图](ROADMAP.md)。
