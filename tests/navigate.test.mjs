@@ -110,6 +110,17 @@ test("real displacement resets stall time; a later stopped route stalls", async 
   assert.ok(result.elapsedMs >= 120_000);
 });
 
+test("native goto success is accepted without a second coordinate threshold", async (t) => {
+  const h = await harness(t);
+  // The mock's native goto promise resolves; a separately calculated
+  // isEnd check would reject this slightly different reported position.
+  h.bot.entity.position = new Vec3(7, 1, 0);
+  // harness does not expose resolve directly; report the native goal reached
+  // using the same completion helper, then verify the documented reason.
+  await h.arrive();
+  assert.equal((await h.done).reason, "pathfinder_goal_reached");
+});
+
 test("arrival cleans up its path listener and timer", async (t) => {
   const h = await harness(t);
   h.advance(1000, 10);
