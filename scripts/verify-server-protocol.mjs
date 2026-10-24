@@ -39,6 +39,10 @@ import {
 } from "../packages/arena/src/server-protocol.mjs";
 import { parseSnbt } from "../packages/arena/src/snbt.mjs";
 import {
+  compileMatch,
+  resolveAgents,
+} from "../packages/arena/src/provision.mjs";
+import {
   validateServerDownload,
   verifyDownload,
 } from "./prepare-minecraft-server.mjs";
@@ -151,6 +155,13 @@ function startServer(dir, jar) {
 
 const writeConfig = writeServerConfig;
 
+/** infra/maps/direct-fire/map.json. */
+async function directFire() {
+  return JSON.parse(
+    await readFile(join(root, "infra/maps/direct-fire/map.json"), "utf8"),
+  );
+}
+
 const twoTeams = {
   sessionId: "verify",
   kind: "match",
@@ -193,21 +204,13 @@ async function arenaExample(rcon) {
 
 async function raceOfWool(rcon) {
   await useOnly(rcon, "race-of-wool");
-  const map = parseSnbt(
-    (
-      await readFile(
-        join(
-          root,
-          "infra/datapacks/race-of-wool/data/race_of_wool/function/map.mcfunction",
-        ),
-        "utf8",
-      )
-    ).match(/^data merge storage race_of_wool:map (\{.*\})$/m)[1],
-  );
+  // The Direct Fire map package's coordinates, as a deployment writes them.
+  const map = (await directFire()).rules;
+  const woolTeams = { ...twoTeams, rules: { ...map, ...twoTeams.rules } };
   const goals = (team) => map.goals.filter((g) => g.team === team);
   const place = async (goal, block = goal.block) =>
     rcon.command(`setblock ${goal.x} ${goal.y} ${goal.z} ${block}`);
-  const ready = async (config = twoTeams) => {
+  const ready = async (config = woolTeams) => {
     await writeConfig(rcon, config);
     await rcon.command("function #arena:prepare");
   };
@@ -264,7 +267,7 @@ async function raceOfWool(rcon) {
   log("ok race-of-wool: #arena:stop records held objectives");
 
   // One second (20 ticks) limit: the datapack ends the match as a draw.
-  await ready({ ...twoTeams, rules: { durationMs: 1000 } });
+  await ready({ ...woolTeams, rules: { ...map, durationMs: 1000 } });
   await rcon.command("function #arena:start");
   await place(goals("red")[0]);
   await waitFor(
@@ -277,8 +280,7 @@ async function raceOfWool(rcon) {
   assert.equal(s.message, "time limit reached");
   assert.equal(s.scores.red, 1);
   // Without rules.durationMs there is no limit.
-  const { rules, ...unlimited } = twoTeams;
-  await ready(unlimited);
+  await ready({ ...twoTeams, rules: map });
   await rcon.command("function #arena:start");
   await delay(1500);
   assert.equal((await readSession(rcon)).state, "running");
@@ -350,11 +352,13 @@ async function live(rcon, dir, map) {
     `fill ${x0} ${y - 1} ${z0} ${x1} ${y - 1} ${z1} minecraft:stone`,
   );
   await rcon.command("forceload remove all");
-  const match = JSON.parse(
-    await readFile(
-      join(root, "infra/windows-local/match.direct-fire.json"),
-      "utf8",
+  const mapJson = await directFire();
+  const match = compileMatch(
+    mapJson,
+    JSON.parse(
+      await readFile(join(root, "infra/deploy/match.direct-fire.json"), "utf8"),
     ),
+    resolveAgents(mapJson),
   );
   match.config.sessionId = "verify-live";
   match.config.rules = { ...match.config.rules, durationMs: 120000 };

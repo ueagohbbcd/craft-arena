@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { piBuiltinModel } from "../packages/pi-extension/pi-models.mjs";
 
 const dir = new URL("../infra/companion/", import.meta.url);
 const read = (name) => readFile(new URL(name, dir), "utf8");
@@ -78,9 +79,10 @@ test("companion compose runs a native bot host behind a login gate and an isolat
   assert.equal(participant.ARENA_BRIDGE_URL, undefined);
   assert.equal(participant.ARENA_BRIDGE_TOKEN, undefined);
   assert.match(participant.ARENA_CHAT_WAKE, /mention/);
-  assert.equal(participant.OPENAI_BASE_URL, "http://model-relay:8080");
+  assert.equal(participant.ARENA_PI_BASE_URL, "http://model-relay:8080");
+  assert.match(participant.ARENA_PI_MODEL, /^\$\{ARENA_PI_MODEL:-[^/]+\/.+\}$/);
   assert.equal(
-    participant.OPENAI_API_KEY,
+    participant.ARENA_PI_API_KEY,
     undefined,
     "the key stays in the relay",
   );
@@ -134,11 +136,10 @@ test("every gate and participant variable is defined by the code or the contract
   }
 });
 
-test("model and env examples agree with the compose file", async () => {
+test("the default model and env example agree with the compose file", async () => {
   const compose = await read("compose.yaml");
-  const model = JSON.parse(await read("model.json"));
-  for (const key of ["id", "api", "contextWindow", "maxOutputTokens"])
-    assert(key in model, key);
+  // The default model is one of Pi's built-in models.
+  piBuiltinModel(/ARENA_PI_MODEL:-([^}]+)\}/.exec(compose)[1]);
 
   const example = await read(".env.example");
   const required = [...compose.matchAll(/\$\{([A-Z0-9_]+):\?/g)].map(

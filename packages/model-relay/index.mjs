@@ -29,6 +29,16 @@ function endToEnd(headers, skip = []) {
   return out;
 }
 
+// Where the APIs Pi speaks carry their key: OpenAI-style and most others
+// `Authorization: Bearer`, Anthropic `x-api-key`, Google `x-goog-api-key`,
+// Azure `api-key`.
+const AUTH_HEADERS = [
+  "authorization",
+  "x-api-key",
+  "x-goog-api-key",
+  "api-key",
+];
+
 /** Parse and check the one upstream base URL the relay may reach. */
 export function parseUpstream(value) {
   let url;
@@ -51,9 +61,9 @@ export function parseUpstream(value) {
 /**
  * A participant's model endpoint: forwards every request to one configured
  * upstream base URL (any path below it), streaming both ways, and reaches no
- * other host. With
- * `apiKey` it replaces the caller's Authorization header, so the key stays
- * outside the participant container. It does no metering, queueing or
+ * other host. With `apiKey` it puts the real key into whichever key header the
+ * caller sent (see AUTH_HEADERS; `Authorization: Bearer` when none), so the
+ * key stays outside the participant container and any API Pi speaks works. It does no metering, queueing or
  * rewriting; anything more belongs in a service the upstream URL points at.
  */
 export function createModelRelay({ upstream, apiKey, onEvent = () => {} }) {
@@ -72,7 +82,12 @@ export function createModelRelay({ upstream, apiKey, onEvent = () => {} }) {
       return;
     }
     const headers = endToEnd(req.headers, ["host"]);
-    if (apiKey) headers.authorization = `Bearer ${apiKey}`;
+    if (apiKey) {
+      const sent = AUTH_HEADERS.filter((name) => name in headers);
+      for (const name of sent)
+        headers[name] = name === "authorization" ? `Bearer ${apiKey}` : apiKey;
+      if (!sent.length) headers.authorization = `Bearer ${apiKey}`;
+    }
     const started = Date.now();
     const outgoing = client.request(
       {

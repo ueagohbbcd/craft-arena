@@ -25,10 +25,7 @@ test("download manifest is the single pinned Minecraft/Fabric/mod source", async
   assert.equal(manifest.mods.length, 3);
   assert.ok(manifest.mods.every((mod) => mod.sha512 && mod.release_url));
   // Native bot hosts connect to servers running the pinned Minecraft version.
-  for (const name of [
-    "compose.live.yaml",
-    "../packages/arena/src/provision.mjs",
-  ]) {
+  for (const name of ["../packages/arena/src/provision.mjs"]) {
     const text = await readFile(
       new URL(`../infra/${name}`, import.meta.url),
       "utf8",

@@ -129,9 +129,7 @@ export async function readParticipantConfig(
 /** Whether a generated model profile declares image input. */
 export function profileAcceptsImages(profile) {
   if (!profile?.generated) return true; // The operator's own profile: Pi decides.
-  const models = profile.models?.providers?.arena?.models ?? [];
-  const model = models.find((m) => m.id === profile.modelId);
-  return Boolean(model?.input?.includes("image"));
+  return Boolean(profile.model?.input?.includes("image"));
 }
 
 /** Other agents on this agent's team, from the provisioned manifest.json. */

@@ -8,14 +8,14 @@
  *   node packages/arena/src/cli.mjs status
  *   node packages/arena/src/cli.mjs check MATCH.json    (no server needed)
  *   node packages/arena/src/cli.mjs command say Five minutes left
- *   node packages/arena/src/cli.mjs provision MAP_DIR MATCH.json OUT_DIR [MODEL_DIR]
- *                                       (no server needed; see provision.mjs)
  *
- * MATCH.json is `{config, commands?: {prepare?, start?, stop?}}`: `config` is
+ * MATCH.json is the compiled `{config, commands?: {prepare?, start?, stop?}}`
+ * that deployment.mjs writes to generated/match.json from the map package and
+ * the operator's match file (provision.mjs): `config` is
  * written to `arena:config` before `#arena:prepare`; each command list runs
  * around its phase (prepare and start before the function tag, stop after).
- * The rules datapack does the rest, time limit included. Scripts outside the
- * repo chain these commands to run matches.
+ * The rules datapack does the rest, time limit included. deployment.mjs
+ * chains these commands to run matches.
  *
  * Connects to MC_RCON_HOST (default 127.0.0.1), MC_RCON_PORT (default 25575)
  * with MC_RCON_PASSWORD.
@@ -24,7 +24,6 @@ import { randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { provision } from "./provision.mjs";
 import { RconClient } from "./rcon.mjs";
 import {
   readSession,
@@ -35,7 +34,7 @@ import {
 } from "./server-protocol.mjs";
 
 const USAGE =
-  "Usage: cli.mjs prepare MATCH.json | start [MATCH.json] | stop [MATCH.json] | status | command TEXT... | check MATCH.json | provision MAP_DIR MATCH.json OUT_DIR [MODEL_DIR]";
+  "Usage: cli.mjs prepare MATCH.json | start [MATCH.json] | stop [MATCH.json] | status | command TEXT... | check MATCH.json";
 const PHASES = ["prepare", "start", "stop"];
 
 /** Reads and checks a match file. */
@@ -92,15 +91,6 @@ export async function runCli(
     case "check":
       await match(true);
       return { valid: true };
-    case "provision":
-      if (rest.length < 3 || rest.length > 4) throw new Error(USAGE);
-      // The compiled match file must still be a valid one.
-      return provision({
-        mapDir: rest[0],
-        matchPath: rest[1],
-        outDir: rest[2],
-        ...(rest[3] ? { modelDir: rest[3] } : {}),
-      });
     case "command":
       if (!rest.length) throw new Error(USAGE);
       return { reply: (await runCommands(rcon, [rest.join(" ")]))[0] };
@@ -122,10 +112,10 @@ if (
   try {
     if (
       !PHASES.includes(process.argv[2]) &&
-      !["status", "command", "check", "provision"].includes(process.argv[2])
+      !["status", "command", "check"].includes(process.argv[2])
     )
       throw new Error(USAGE);
-    if (!["check", "provision"].includes(process.argv[2])) await rcon.connect();
+    if (process.argv[2] !== "check") await rcon.connect();
     console.log(JSON.stringify(await runCli(process.argv.slice(2), { rcon })));
   } catch (e) {
     console.error(e.message);

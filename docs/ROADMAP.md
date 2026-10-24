@@ -56,8 +56,8 @@
 | 状态 | 事项                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ✅   | 容器组件从 `/arena/config/`（`ARENA_CONFIG_DIR`）读约定文件，启动器在拉起 Pi 之前处理：`default-scripts.json` 按 bot 配置默认脚本，启动器把它转成 `ARENA_DEFAULT_SCRIPTS` 交给扩展；`first-message.md` 和 `images/` 组成第一条消息，竞技场在后面附上会话事实；`agents.d/*.md` 和镜像自带的 `participant/agents.d/` 按文件名合并，逐个用 `--append-system-prompt` 加进系统提示；`skills/` 作为额外的 skill 目录交给 Pi。文件不存在时用组件的默认值 |
-| ✅   | 地图包 `infra/maps/<地图>/`：数据包，加 `map.json` 的角色位（`team`、`bots`、`files`，`defaults` 显式覆盖）。`cli.mjs provision` 生成每个角色位的只读清单和配置、`compose.agents.yaml`（每个角色一个 bot 进程）及 `match.json` 的 `teams`。Windows 部署已改用生成的文件；`compose.live.yaml` 和 `compose.yaml` 模板还是写死的两人                                                                                                                 |
-| 🟡   | Direct Fire 迁移到地图包：地图已提供大厅出生点、两个开闸按钮、两个起点箱的路径点（`infra/maps/race-of-wool/waypoints.json`，以 `once` 复制到 `/workspace/waypoints.json`，坐标从原图区域文件读出）。开赛传送还在数据包里（`start_player.mcfunction`）；改为从大厅走进赛道之前，要先在地图副本里确认大厅机关和起点箱活塞复位（见上面“下一场比赛之前”）                                                                                             |
+| ✅   | 配置分四层（2026-10-24）：部署 `deploy.json`（名字、存档、数据包路径、server.properties、资源上限）→ 比赛文件（地图包路径、会话、`rules`、补充简报、每个 agent 的模型开关）→ 地图包 `map.json`（坐标 `rules`、server、gamerule 命令、地图简报、角色位）；数据包只读挂载，不进存档。`deployment.mjs init/deploy` 一次生成整个部署，重跑就是升级；`up/start/stop/status/reset` 改用 Node，Linux 和 Windows 共用，`.ps1` 只是外壳；删除手写的 compose 模板 |
+| 🟡   | Direct Fire 迁移到地图包：地图已提供大厅出生点、两个开闸按钮、两个起点箱的路径点（`infra/maps/direct-fire/waypoints.json`，以 `once` 复制到 `/workspace/waypoints.json`，坐标从原图区域文件读出）。开赛传送还在数据包里（`start_player.mcfunction`）；改为从大厅走进赛道之前，要先在地图副本里确认大厅机关和起点箱活塞复位（见上面“下一场比赛之前”）                                                                                             |
 | 🟡   | 多 bot：按清单用 `mf run --bot NAME` 选择角色；确认副 bot 按需登录、收件箱消息标明 bot、默认脚本按 bot 启动的完整语义                                                                                                                                                                                                                                                                                                                             |
 | ✅   | `bash` 等待"无进展"时提前返回：等待期间程序无输出、角色没移动约两格、背包也没变，超过 `stall_seconds`（默认 60 秒）就返回 `running`，原因是 `no progress`。只在这一次等待里生效，设 0 可关闭                                                                                                                                                                                                                                                      |
 | ✅   | 看门狗库函数 `watchdog(bot, { report })` 在通用库（工具包 `watchdog.mjs`），只依赖 Mineflayer，查卡住、同步死循环（`worker_threads` 心跳）、重复（无路、同一目标、同一错误）。arena 的 `packages/observation/watchdog.mjs` 把报告接到收件箱；`participant/agents.d/40-watchdog.md` 提醒使用                                                                                                                                                       |
@@ -96,7 +96,7 @@
 | ✅   | 删除比赛主控（2026-10-16）：会话由数据包维护，原生角色进程只读会话状态；时限移进羊毛竞速数据包（`arena:config.durationMs` 倒数，到时判平）；`packages/arena` 只剩 RCON、协议和运营命令行（`prepare`／`start`／`stop`／`status`／`command`），读一份比赛文件；录像、结果文件、参赛容器监督删除，交给运营者自己的脚本 |
 | ✅   | 模型不再看到时钟：平台消息只在会话状态或胜者变化时发 `session` 段，会话对象去掉开始时间、时长和已用时间                                                                                                                                                                                                             |
 | ✅   | 观察器的目标物品和关注物品改读 `briefing.public.goals`／`watchItems`（不再写死羊毛）                                                                                                                                                                                                                                |
-| ✅   | 开局传送移进羊毛竞速数据包：`map.mcfunction` 的 `starts` 写各队起点，`#arena:start` 传送 `arena:config.teams` 里的玩家；不设出生点，死后回大厅的世界出生点，可用赛道里的床设重生点；Direct Fire 比赛文件删掉 `tp`／`spawnpoint`，简报去掉时限和“重生回赛道”。迁移到地图包后改为从大厅走进赛道，见目标架构           |
+| ✅   | 开局传送移进羊毛竞速数据包：地图包 `rules.starts` 写各队起点，`#arena:start` 传送 `arena:config.teams` 里的玩家；不设出生点，死后回大厅的世界出生点，可用赛道里的床设重生点；Direct Fire 比赛文件删掉 `tp`／`spawnpoint`，简报去掉时限和“重生回赛道”。迁移到地图包后改为从大厅走进赛道，见目标架构           |
 
 ## 模型接入
 
@@ -105,7 +105,9 @@
 | 状态 | 事项                                                                                                                         |
 | ---- | ---------------------------------------------------------------------------------------------------------------------------- |
 | ✅   | 删除预算网关和 Windows 系统代理中转；模板改用模型转发 `model-relay`：只转发到一个配置好的地址，key 只在转发里                |
-| ✅   | 启动器两种模型接入：`OPENAI_BASE_URL` 指向的端点，或者不设、用运营者自己的 Pi 配置（API key、Pi 自己登录），参赛容器自己出网 |
+| ✅   | 模型只写 Pi 内置模型名（`供应商/模型`），不再有模型描述文件；relay、baseUrl、key 变量、联网、思考档位、压缩阈值是独立开关。relay 把 key 换进调用方原来的 key 头，Pi 支持的接口都能走 |
+| ⬜   | 新的 Node 部署命令在 Windows 上实跑一遍（`init` → `deploy` → `build` → `up` → `start` → `reset`），确认数据包只读挂进世界目录 |
+| ⬜   | 比赛结束后启动器多等几秒再关 Pi，让结束消息送到模型（`codex/direct-model-20261019` 里的 `ARENA_END_GRACE_MS`）；搬过来后删掉那个分支 |
 | ⬜   | 错误恢复改用 Pi 自带重试（调大次数），只保留重试耗尽后的兜底和输出截断后的续写                                               |
 
 ## 代码整理（简化审查中暂缓的项）

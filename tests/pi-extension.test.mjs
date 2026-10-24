@@ -14,21 +14,11 @@ import extension, {
   defaultToolWaitSeconds,
 } from "../packages/pi-extension/index.mjs";
 import { preparePiProfile } from "../packages/pi-extension/bootstrap.mjs";
+import { piBuiltinModel } from "../packages/pi-extension/pi-models.mjs";
 
-async function modelConfig(dir, overrides = {}) {
-  const path = join(dir, "model.json");
-  await writeFile(
-    path,
-    JSON.stringify({
-      id: "fixture",
-      api: "openai-completions",
-      contextWindow: 32768,
-      maxOutputTokens: 2048,
-      ...overrides,
-    }),
-  );
-  return path;
-}
+// A Pi built-in OpenAI-compatible model with image input; tests point it at
+// local fake providers through ARENA_PI_BASE_URL.
+const TEST_MODEL = "groq/qwen/qwen3.8-27b";
 
 async function harness(t, { env = {} } = {}) {
   const saved = { ...process.env };
@@ -270,7 +260,7 @@ test("over the spending limit the next request waits, and the model hears it at 
   );
 });
 
-test("bootstrap prepares an exact endpoint provider without saving its bearer token", async (t) => {
+test("bootstrap selects a Pi built-in model behind a base URL without saving its key", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-profile-test-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
   const token = "participant-only-test-token";
@@ -278,45 +268,52 @@ test("bootstrap prepares an exact endpoint provider without saving its bearer to
     directory: join(dir, "agent"),
     cwd: dir,
     env: {
-      ARENA_MODEL_CONFIG: await modelConfig(dir, { id: "fake-model" }),
-      OPENAI_BASE_URL: "http://127.0.0.1:1234/v1",
-      OPENAI_API_KEY: token,
+      ARENA_PI_MODEL: TEST_MODEL,
+      ARENA_PI_BASE_URL: "http://127.0.0.1:1234/v1/",
+      ARENA_PI_API_KEY: token,
+      ARENA_PI_THINKING: "low",
       ARENA_EXTRA_EXTENSIONS: "./local-extension.mjs",
     },
   });
   const written = await readFile(join(profile.agentDir, "models.json"), "utf8");
+  // Only the differences from the built-in provider.
+  assert.deepEqual(JSON.parse(written), {
+    providers: {
+      groq: {
+        baseUrl: "http://127.0.0.1:1234/v1",
+        apiKey: "${ARENA_PI_API_KEY}",
+      },
+    },
+  });
+  assert.ok(!written.includes(token));
   const settings = JSON.parse(
     await readFile(join(profile.agentDir, "settings.json"), "utf8"),
   );
+  assert.equal(settings.defaultProvider, "groq");
+  assert.equal(settings.defaultModel, "qwen/qwen3.8-27b");
+  assert.equal(settings.defaultThinkingLevel, "low");
   assert.deepEqual(settings.compaction, {
     enabled: true,
-    reserveTokens: 8192,
-    keepRecentTokens: 8192,
+    reserveTokens: 32768,
+    keepRecentTokens: 32768,
   });
   const { SettingsManager } = await import("@earendil-works/pi-coding-agent");
   const resolvedSettings = SettingsManager.inMemory(settings);
   assert.equal(resolvedSettings.getCompactionEnabled(), true);
   assert.equal(
     resolvedSettings.getCompactionReserveTokens({
-      provider: "arena",
-      id: "fake-model",
+      provider: "groq",
+      id: "qwen/qwen3.8-27b",
     }),
-    8192,
+    32768,
   );
-  assert.equal(
-    resolvedSettings.getCompactionKeepRecentTokens({
-      provider: "arena",
-      id: "fake-model",
-    }),
-    8192,
-  );
-  assert.ok(!written.includes(token));
-  assert.equal(JSON.parse(written).providers.arena.apiKey, "${OPENAI_API_KEY}");
   assert.equal(profile.extensions.length, 2);
   assert.equal(profile.extensions[1], "./local-extension.mjs");
   assert.equal((await lstat(join(dir, "node_modules"))).isSymbolicLink(), true);
   for (const name of ["examples", "participant", "packages", "docs"])
     assert.equal((await lstat(join(dir, name))).isSymbolicLink(), true);
+  // Pi itself: the built-in model keeps its limits and request quirks; only
+  // the base URL moves.
   const { ModelRuntime } = await import("@earendil-works/pi-coding-agent");
   const runtime = await ModelRuntime.create({
     authPath: join(dir, "auth.json"),
@@ -324,96 +321,82 @@ test("bootstrap prepares an exact endpoint provider without saving its bearer to
     allowModelNetwork: false,
     refreshOnCreate: false,
   });
-  const model = runtime.getModel("arena", "fake-model");
-  assert.equal(model.id, "fake-model");
-  assert.equal(model.api, "openai-completions");
+  const model = runtime.getModel("groq", "qwen/qwen3.8-27b");
+  const builtin = piBuiltinModel(TEST_MODEL);
   assert.equal(model.baseUrl, "http://127.0.0.1:1234/v1");
+  assert.equal(model.api, builtin.api);
+  assert.equal(model.contextWindow, builtin.contextWindow);
+  assert.deepEqual(model.compat, builtin.compat);
+  assert.deepEqual(model.cost, builtin.cost);
 });
 
-test("bootstrap model access: a relay needs no participant key; without an endpoint Pi keeps its own profile", async (t) => {
+test("bootstrap model access: a relay needs no participant key; without a model Pi keeps its own profile", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "pi-profile-modes-"));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const config = await modelConfig(dir, { id: "relay-model" });
   const relayed = await preparePiProfile({
     directory: join(dir, "relay"),
     cwd: dir,
-    env: { ARENA_MODEL_CONFIG: config, OPENAI_BASE_URL: "http://relay:8080" },
+    env: { ARENA_PI_MODEL: TEST_MODEL, ARENA_PI_BASE_URL: "http://relay:8080" },
   });
   assert.equal(relayed.generated, true);
-  assert.equal(relayed.models.providers.arena.apiKey, "unused");
+  assert.deepEqual(
+    JSON.parse(await readFile(join(dir, "relay", "models.json"), "utf8"))
+      .providers.groq,
+    { baseUrl: "http://relay:8080", apiKey: "relay-holds-the-key" },
+  );
+  // Direct, with Pi's own key variable: nothing to override.
+  const direct = await preparePiProfile({
+    directory: join(dir, "direct"),
+    cwd: dir,
+    env: { ARENA_PI_MODEL: TEST_MODEL, ARENA_PI_COMPACT_AT: "100000" },
+  });
+  assert.equal(direct.generated, true);
+  await assert.rejects(lstat(join(dir, "direct", "models.json")), {
+    code: "ENOENT",
+  });
+  assert.deepEqual(
+    JSON.parse(await readFile(join(dir, "direct", "settings.json"), "utf8"))
+      .compaction,
+    { enabled: true, reserveTokens: 31072, keepRecentTokens: 32768 },
+  );
   const own = await preparePiProfile({
     cwd: dir,
     env: { PI_CODING_AGENT_DIR: join(dir, "operator-profile") },
   });
   assert.equal(own.generated, false);
   assert.equal(own.agentDir, join(dir, "operator-profile"));
-  assert.equal(own.models, undefined);
-  await assert.rejects(
-    preparePiProfile({ cwd: dir, env: { ARENA_MODEL_CONFIG: config } }),
-    /set both, or neither/,
-  );
-  await assert.rejects(
-    preparePiProfile({
-      cwd: dir,
-      env: { OPENAI_BASE_URL: "http://relay:8080" },
-    }),
-    /needs ARENA_MODEL_CONFIG/,
-  );
-  await assert.rejects(
-    preparePiProfile({
-      cwd: dir,
-      env: { ARENA_MODEL_CONFIG: config, OPENAI_BASE_URL: "http://u:p@relay" },
-    }),
-    /without embedded credentials/,
-  );
-  await assert.rejects(
-    preparePiProfile({
-      cwd: dir,
-      env: {
-        ARENA_MODEL_CONFIG: await modelConfig(dir, { contextWindow: "big" }),
-        OPENAI_BASE_URL: "http://relay:8080",
-      },
-    }),
-    /positive integer contextWindow/,
-  );
+  assert.equal(own.model, undefined);
+  for (const [env, error] of [
+    [{ ARENA_PI_BASE_URL: "http://relay:8080" }, /needs ARENA_PI_MODEL/],
+    [{ ARENA_PI_MODEL: "nobody/nothing" }, /not a Pi built-in model/],
+    [
+      { ARENA_PI_MODEL: TEST_MODEL, ARENA_PI_BASE_URL: "http://u:p@relay" },
+      /without embedded credentials/,
+    ],
+    [
+      { ARENA_PI_MODEL: TEST_MODEL, ARENA_PI_THINKING: "very" },
+      /ARENA_PI_THINKING must be one of/,
+    ],
+    [
+      { ARENA_PI_MODEL: TEST_MODEL, ARENA_PI_COMPACT_AT: "120000" },
+      /less than the model's 16384 output tokens/,
+    ],
+    [
+      { OPENAI_BASE_URL: "http://relay:8080" },
+      /OPENAI_BASE_URL is no longer read/,
+    ],
+    [
+      { ARENA_MODEL_CONFIG: "model.json" },
+      /ARENA_MODEL_CONFIG is no longer read/,
+    ],
+  ])
+    await assert.rejects(preparePiProfile({ cwd: dir, env }), error);
   const priced = await preparePiProfile({
     directory: join(dir, "priced"),
     cwd: dir,
-    env: {
-      ARENA_MODEL_CONFIG: await modelConfig(dir, {
-        cost: { input: 1, output: 4, cacheRead: 0.1, cacheWrite: 1.25 },
-      }),
-      OPENAI_BASE_URL: "http://relay:8080",
-      ARENA_COST_PER_HOUR: "2",
-    },
+    env: { ARENA_PI_MODEL: TEST_MODEL, ARENA_COST_PER_HOUR: "2" },
   });
-  assert.deepEqual(priced.models.providers.arena.models[0].cost, {
-    input: 1,
-    output: 4,
-    cacheRead: 0.1,
-    cacheWrite: 1.25,
-  });
-  await assert.rejects(
-    preparePiProfile({
-      cwd: dir,
-      env: {
-        ARENA_MODEL_CONFIG: await modelConfig(dir),
-        OPENAI_BASE_URL: "http://relay:8080",
-        ARENA_COST_PER_HOUR: "2",
-      },
-    }),
-    /needs list prices/,
-  );
-  await assert.rejects(
-    preparePiProfile({
-      cwd: dir,
-      env: {
-        ARENA_MODEL_CONFIG: await modelConfig(dir, { cost: { input: 1 } }),
-        OPENAI_BASE_URL: "http://relay:8080",
-      },
-    }),
-    /cost needs input, output, cacheRead and cacheWrite/,
-  );
+  assert.ok(priced.model.cost.input > 0);
   await assert.rejects(
     preparePiProfile({ cwd: dir, env: { ARENA_COST_PER_HOUR: "free" } }),
     /ARENA_COST_PER_HOUR must be a positive number/,
@@ -469,11 +452,9 @@ test(
         timeout: 15000,
         env: {
           ...process.env,
-          ARENA_MODEL_CONFIG: await modelConfig(dir, {
-            cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 },
-          }),
-          OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
-          OPENAI_API_KEY: "scoped-fixture-token",
+          ARENA_PI_MODEL: TEST_MODEL,
+          ARENA_PI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
+          ARENA_PI_API_KEY: "scoped-fixture-token",
         },
       },
     );
@@ -673,11 +654,9 @@ test(
     });
     const env = {
       ...process.env,
-      ARENA_MODEL_CONFIG: await modelConfig(dir, {
-        cost: { input: 1, output: 1, cacheRead: 1, cacheWrite: 1 },
-      }),
-      OPENAI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
-      OPENAI_API_KEY: "resident-scoped-fixture-token",
+      ARENA_PI_MODEL: TEST_MODEL,
+      ARENA_PI_BASE_URL: `http://127.0.0.1:${server.address().port}/v1`,
+      ARENA_PI_API_KEY: "resident-scoped-fixture-token",
       ARENA_SESSION_URL: `http://127.0.0.1:${server.address().port}/v1/session`,
       ARENA_BOT: "host-resident-fixture",
       ARENA_IDLE_REMINDER_MS: "30",
@@ -831,9 +810,9 @@ test(
         cwd: dir,
         env: {
           ...process.env,
-          ARENA_MODEL_CONFIG: await modelConfig(dir),
-          OPENAI_BASE_URL: `${url}/v1`,
-          OPENAI_API_KEY: "model-scoped-token",
+          ARENA_PI_MODEL: TEST_MODEL,
+          ARENA_PI_BASE_URL: `${url}/v1`,
+          ARENA_PI_API_KEY: "model-scoped-token",
           ARENA_SESSION_URL: url,
           ARENA_BOT: "blue-one",
           ARENA_START_TIMEOUT_MS: "10000",
@@ -889,51 +868,6 @@ test(
     assert.equal(requests.length, 1);
   },
 );
-
-test("bootstrap derives capabilities and compaction from the shared model descriptor", async (t) => {
-  const dir = await mkdtemp(join(tmpdir(), "pi-compaction-config-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
-  const env = {
-    ARENA_MODEL_CONFIG: await modelConfig(dir, {
-      contextWindow: 65536,
-      maxOutputTokens: 4096,
-    }),
-    OPENAI_BASE_URL: "http://127.0.0.1:1234/v1",
-    OPENAI_API_KEY: "fake",
-    // Stale duplicate environment values no longer override the shared file.
-    MODEL_ID: "stale",
-    PI_CONTEXT_WINDOW: "10",
-    PI_MAX_TOKENS: "1",
-  };
-  const profile = await preparePiProfile({
-    env,
-    directory: join(dir, "a"),
-    cwd: dir,
-  });
-  assert.equal(profile.modelId, "fixture");
-  assert.equal(profile.models.providers.arena.models[0].contextWindow, 65536);
-  assert.equal(profile.models.providers.arena.models[0].maxTokens, 4096);
-  assert.deepEqual(
-    JSON.parse(await readFile(join(profile.agentDir, "settings.json"), "utf8"))
-      .compaction,
-    { enabled: true, reserveTokens: 16384, keepRecentTokens: 16384 },
-  );
-  await modelConfig(dir, {
-    contextWindow: 65536,
-    maxOutputTokens: 4096,
-    compaction: { reserveTokens: 8192, keepRecentTokens: 10000 },
-  });
-  const custom = await preparePiProfile({
-    env,
-    directory: join(dir, "b"),
-    cwd: dir,
-  });
-  assert.deepEqual(
-    JSON.parse(await readFile(join(custom.agentDir, "settings.json"), "utf8"))
-      .compaction,
-    { enabled: true, reserveTokens: 8192, keepRecentTokens: 10000 },
-  );
-});
 
 function residentHost(t) {
   let state = "running";

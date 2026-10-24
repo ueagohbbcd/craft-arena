@@ -18,6 +18,9 @@ Participant guidance is in [the system prompt](../../participant/agents.d/10-are
 | `ARENA_DEFAULT_SCRIPTS`                                      | Default modules to start (`observer`, `chat`, `watchdog`); empty starts none. Passed to `mf` as `MF_DEFAULT_SCRIPTS` |
 | `ARENA_CHAT_WAKE`                                            | `mention` or `all`: matching chat makes the `game.chat` report urgent (listed first, and a waiting `mf run` returns early) |
 | `ARENA_TASK_KILL_GRACE_MS`                                   | How long TaskManager waits after SIGTERM before killing a task process group (default 2500 ms)                       |
-| `OPENAI_BASE_URL`, `ARENA_MODEL_CONFIG`                      | Optional configured model endpoint and descriptor                                                                    |
+| `ARENA_PI_MODEL`                                             | A Pi built-in model, `provider/id`; the launcher writes a private Pi profile selecting it. Unset: Pi runs on `PI_CODING_AGENT_DIR` (else `~/.pi/agent`) unchanged |
+| `ARENA_PI_BASE_URL`                                          | Optional: the provider's requests go here (a model relay, or another endpoint for the same API)                      |
+| `ARENA_PI_API_KEY`                                           | Optional: the key, stored in the profile as the reference `${ARENA_PI_API_KEY}`. Unset with a base URL: a placeholder the relay replaces; unset without one: Pi reads the provider's own variable |
+| `ARENA_PI_THINKING`, `ARENA_PI_COMPACT_AT`                   | Optional: startup thinking level; context tokens at which Pi compacts (default about half the context window)        |
 
 Other Pi/model configuration and participant files are described in [infra/README.md](../../infra/README.md).

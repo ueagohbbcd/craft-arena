@@ -1,0 +1,10 @@
+{
+  "map": "../maps/direct-fire",
+  "sessionId": "direct-fire-local",
+  "rules": { "durationMs": 1800000 },
+  "defaults": { "model": "deepseek/deepseek-flash" },
+  "agents": {
+    "red1": {},
+    "blue1": {}
+  }
+}
