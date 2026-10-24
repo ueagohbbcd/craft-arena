@@ -102,7 +102,7 @@ export default function arenaExtension(pi) {
     process.env.ARENA_SESSION_URL && process.env.ARENA_BOT
       ? `${process.env.ARENA_SESSION_URL}${process.env.ARENA_SESSION_URL.includes("?") ? "&" : "?"}username=${encodeURIComponent(process.env.ARENA_BOT)}`
       : undefined;
-  const snapshotAfterCompactionMs = 5000;
+  const inboxAfterCompactionMs = 5000;
   const readSession = createSessionReader({
     url: sessionUrl,
   });
@@ -309,47 +309,44 @@ export default function arenaExtension(pi) {
     await ensure(ctx);
   });
   pi.on("session_shutdown", stop);
-  /** `mf snapshot` of the main character, or why there is none. */
-  const snapshotCharacter = (cwd) =>
+  /** The output of `mf inbox --full`, or why there is none. */
+  const fullInbox = (cwd) =>
     new Promise((resolve) => {
       if (!native)
         return resolve({ unavailable: "no characters in this container" });
       execFile(
         process.execPath,
-        [mfBin, "snapshot"],
+        [mfBin, "inbox", "--full"],
         {
           cwd,
-          timeout: snapshotAfterCompactionMs,
+          timeout: inboxAfterCompactionMs,
           maxBuffer: 4 * 1024 * 1024,
         },
         (error, stdout) => {
-          try {
-            if (error) throw error;
-            resolve(JSON.parse(stdout));
-          } catch (failure) {
-            resolve({ unavailable: failure.message.split("\n")[0] });
-          }
+          if (error) resolve({ unavailable: error.message.split("\n")[0] });
+          else resolve({ text: stdout.trimEnd() });
         },
       );
     });
   // Compaction summarizes away the reports the model built its picture from,
-  // and `mf inbox` then shows only changes. Before the next request, send the
-  // commands still running and one full sample of the character.
+  // and the observer's reports only say what changed since the last one.
+  // Before the next request, send the commands still running and
+  // `mf inbox --full` (the observer's whole state plus every unread report),
+  // which later reports change against.
   pi.on("session_compact", async (_event, ctx) => {
     const r = await ensure(ctx);
-    const character = await snapshotCharacter(ctx.cwd);
+    const game = await fullInbox(ctx.cwd);
     if (runtime !== r || r.closed) return;
     const state = {
-      character,
       tasks: currentTasks(r.tasks).filter((task) => task.status === "running"),
     };
     const batch = r.inbox.pending ? r.inbox.drain() : undefined;
     pi.sendMessage(
       {
         customType: "arena-after-compaction",
-        content: `Context was compacted. Current state, in full (\`mf inbox\` shows changes against it):\n${JSON.stringify(state)}${batch ? `\n${batchText(batch)}` : ""}`,
+        content: `Context was compacted. Commands still running: ${JSON.stringify(state.tasks)}\n${game.text !== undefined ? `\`mf inbox --full\` (the observer's whole current state and every unread report; later reports say what changed against it):\n${game.text}` : `\`mf inbox --full\` failed (${game.unavailable}).`}${batch ? `\n${batchText(batch)}` : ""}`,
         display: true,
-        details: { ...state, batch },
+        details: { ...state, game, batch },
       },
       { deliverAs: "steer" },
     );

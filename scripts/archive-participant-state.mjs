@@ -15,7 +15,12 @@ async function directory(path) {
   }
 }
 
-/** Reset only known match state. Code, Git, and participant settings stay in place. */
+/**
+ * Reset only known match state: the Pi transcripts, match artifacts, the `mf`
+ * state directory (its `inbox.jsonl`, `supervisor.log` and program logs) and
+ * the Pi extension's command logs. Code, Git, and participant settings stay in
+ * place.
+ */
 export async function archiveParticipantState(cwd, archiveId) {
   if (!/^[A-Za-z0-9_-]+$/.test(archiveId ?? ""))
     throw new Error("A simple archive ID is required");
@@ -23,11 +28,15 @@ export async function archiveParticipantState(cwd, archiveId) {
   await directory(root);
   const history = join(root, ".arena-history");
   const pi = join(root, ".pi");
+  const arena = join(root, ".arena");
   await directory(history);
   await directory(pi);
+  await directory(arena);
   const sources = [
     [join(pi, "sessions"), "sessions"],
     [join(root, "match-artifacts"), "match-artifacts"],
+    [join(root, ".mf"), "mf"],
+    [join(arena, "tasks"), "tasks"],
   ];
   // Validate all paths before moving anything; never follow participant-created links.
   const existing = [];

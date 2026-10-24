@@ -33,8 +33,8 @@ test("persistent deployment mode gives each bot its own history directory", () =
     ),
   );
   assert.notEqual(
-    environments[0].ARENA_WORLD_MEMORY_DIR,
-    environments[1].ARENA_WORLD_MEMORY_DIR,
+    environments[0].MF_WORLD_MEMORY_DIR,
+    environments[1].MF_WORLD_MEMORY_DIR,
   );
   for (const env of environments)
     assert.equal(env.ARENA_WORLD_MEMORY_MODE, "persistent");

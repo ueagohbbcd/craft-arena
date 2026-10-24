@@ -159,7 +159,7 @@ test("Pi hooks coalesce at one top-level return and preserve existing result con
   assert.equal(h.sent.length, 0);
 });
 
-test("after compaction the model gets finished tasks, the commands still running and the character state before its next request", async (t) => {
+test("after compaction the model gets finished tasks, the commands still running and `mf inbox --full` before its next request", async (t) => {
   const h = await harness(t, {
     env: { ARENA_SESSION_URL: "" },
   });
@@ -178,7 +178,7 @@ test("after compaction the model gets finished tasks, the commands still running
     [running.details.taskId],
   );
   assert.equal(
-    message.details.character.unavailable,
+    message.details.game.unavailable,
     "no characters in this container",
   );
   assert.equal(message.details.batch.messages[0].data.stdout, "unseen");

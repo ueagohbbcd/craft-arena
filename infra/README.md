@@ -148,8 +148,38 @@ node packages/arena/src/deployment.mjs status D
 
 ### 下一场之前
 
-- `deployment.mjs reset D`：停掉服务；把每个参赛者工作区里上一场的会话记录移进工作卷的 `.arena-history/<id>`；当前世界移进 `history/<id>/world`，再从 `map-original/world` 复制一份；删掉登录入口、relay 和参赛容器（卷保留，代码和队伍 Git 留着）。然后 `up`。
+- `deployment.mjs reset D`：停掉服务；把每个参赛者工作区里上一场的记录（Pi 对话、`match-artifacts`、`.mf`、`.arena/tasks`，见下面“导出一局的记录”）移进工作卷的 `.arena-history/<id>`；当前世界移进 `history/<id>/world`，再从 `map-original/world` 复制一份；删掉登录入口、relay 和参赛容器（卷保留，代码和队伍 Git 留着）。然后 `up`。
 - 冷启动时，登录入口等 Minecraft 的健康检查通过（端口 25565 能连上）才启动；RCON 还没就绪或服务器之后重启时，会话接口先返回错误，连上后自动恢复。
+
+### 导出一局的记录
+
+没有一键导出命令。值得留的记录大多在每个参赛者的工作卷里（容器内的 `/workspace`）：
+
+| 路径                    | 内容                                                                                       |
+| ----------------------- | ------------------------------------------------------------------------------------------ |
+| `.pi/sessions/*.jsonl`  | Pi 的完整对话：模型收到的每条消息、它的回复和工具调用                                      |
+| `.mf/inbox.jsonl`       | 每次 `mf inbox`（或 `mf run --inbox`）交给模型的报告，一行一次；超过 20 MB 时旧的在 `inbox.1.jsonl` |
+| `.mf/supervisor.log`    | `mf` 监督进程的日志：角色进程的启动、崩溃和重启                                            |
+| `.mf/tasks/<id>/`       | 每个角色程序的 `stdout.log`、`stderr.log`、`status.json`（只留最新 100 个）                |
+| `.arena/tasks/<id>/`    | 模型每条 `bash` 命令的输出和状态                                                           |
+| 其他文件                | 模型自己写的程序、笔记，`out/shot-*.png` 截图                                              |
+
+工作卷之外：`deployment.mjs status D` 打印的结果（胜者、分数），以及各服务的日志（参赛容器里启动器和 Pi 的输出、登录入口、relay、Minecraft）。
+
+在 `reset` 之前导出（`reset` 会把 `.pi/sessions`、`match-artifacts`、`.mf`、`.arena/tasks` 移进工作卷的 `.arena-history/<id>`，之后也还能从那里取）。参赛容器停了也能复制：
+
+```sh
+mkdir -p D/export
+for id in red1 blue1; do
+  docker compose --project-directory D -f D/compose.yaml --profile agents \
+    cp participant-$id:/workspace D/export/$id
+done
+docker compose --project-directory D -f D/compose.yaml --profile agents \
+  logs --no-color > D/export/services.log
+node packages/arena/src/deployment.mjs status D > D/export/status.txt
+```
+
+`red1`、`blue1` 换成你比赛文件里的 agent id。导出的目录含模型写的全部代码和对话，公开前审查；工作卷里不会有模型 key（key 只在 relay，或 `relay: false` 时在容器环境变量里）。
 
 ## 比赛录像
 

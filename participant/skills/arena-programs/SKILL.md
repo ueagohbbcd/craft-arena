@@ -148,4 +148,4 @@ rg -n "canDig|allowParkour" "$ARENA_REFERENCE_ROOT/mineflayer-pathfinder/readme.
 
 When a call behaves differently from its documentation, read its source in the same directory. The `mf` runtime itself is documented in `$MF_TOOLKIT_ROOT/runtime/README.md`.
 
-See `arena-navigation`, `arena-places`, `arena-items`, `arena-survival` and `arena-surroundings` for focused examples.
+See `arena-navigation`, `arena-places`, `arena-items`, `arena-survival` and `arena-surroundings` for focused examples. The example programs there are examples, not a fixed toolset: read one to see how it is done, then run it as it is or copy it into your directory and change it.
