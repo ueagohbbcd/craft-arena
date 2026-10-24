@@ -72,6 +72,9 @@ async function harness(t) {
       bot.entity.position.x = x;
       tick();
     },
+    nativeResolve() {
+      resolve();
+    },
     async arrive() {
       bot.entity.position = new Vec3(10, 1, 0);
       resolve();
@@ -115,10 +118,10 @@ test("native goto success is accepted without a second coordinate threshold", as
   // The mock's native goto promise resolves; a separately calculated
   // isEnd check would reject this slightly different reported position.
   h.bot.entity.position = new Vec3(7, 1, 0);
-  // harness does not expose resolve directly; report the native goal reached
-  // using the same completion helper, then verify the documented reason.
-  await h.arrive();
-  assert.equal((await h.done).reason, "pathfinder_goal_reached");
+  h.nativeResolve();
+  const result = await h.done;
+  assert.equal(result.status, "arrived");
+  assert.equal(result.reason, "pathfinder_goal_reached");
 });
 
 test("arrival cleans up its path listener and timer", async (t) => {
