@@ -243,7 +243,7 @@ test("successful stops and handled prompts are not model failures", async () => 
   h.controller.close();
 });
 
-test("queued inbox turns, compaction and urgent-start races cannot create parallel prompts", async () => {
+test("queued task turns, compaction and urgent-start races cannot create parallel prompts", async () => {
   const h = harness();
   h.settle("length");
   h.setStatus({ pendingMessageCount: 1 });
@@ -261,7 +261,7 @@ test("queued inbox turns, compaction and urgent-start races cannot create parall
       }),
   );
   await h.tick(100);
-  h.controller.receive({ type: "agent_start" }); // Existing inbox urgent wake wins the slot.
+  h.controller.receive({ type: "agent_start" }); // An existing wake wins the slot.
   release("running");
   await h.flush();
   assert.equal(h.prompts().length, 0);
@@ -475,7 +475,6 @@ for (const scenario of ["transient", "fatal", "queued", "background"])
               scenario === "queued" ? queuedExtension : "",
             PI_CODING_AGENT_SESSION_DIR: join(dir, "sessions"),
             ARENA_TASK_DIR: join(dir, "tasks"),
-            MC_INBOX_SOCKET: "",
           },
           stdio: ["ignore", "pipe", "pipe"],
         },

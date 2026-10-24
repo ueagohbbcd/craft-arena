@@ -2,7 +2,7 @@
 
 This package draws pictures of the blocks your character has loaded. Nothing sends you a picture on its own: run [examples/screenshot.mjs](../../examples/screenshot.mjs) when a decision depends on shape, such as a doorway, a wall or stacked levels.
 
-There is no built-in image tool, and `mf snapshot` and `mf inbox` print text only. If the renderer's native packages or Xvfb are missing, images fail but text reports keep working.
+There is no built-in image tool, and `mf snapshot` and `mf log` print text only. If the renderer's native packages or Xvfb are missing, images fail but text reports keep working.
 
 ## Take a screenshot
 

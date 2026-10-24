@@ -9,7 +9,7 @@ import {
 import { openingPromptText } from "../packages/pi-extension/bootstrap.mjs";
 import {
   chatWakes,
-  startChatForwarder,
+  startChatLog,
 } from "mineflayer-world-memory/runtime/default-scripts/chat.mjs";
 
 async function serve(t, handler) {
@@ -237,15 +237,15 @@ test("chatWakes mentions are whole-word and case-insensitive", () => {
   );
 });
 
-// Whispers and the bot's own lines are decided by sender in startChatForwarder
-// (tests/chat-forwarder.test.mjs): Mineflayer passes the body without "<name>".
+// Whispers and the bot's own lines are decided by sender in startChatLog
+// (the toolkit's tests/runtime/chat-forwarder.test.mjs): Mineflayer passes the body without "<name>".
 
-test("startChatForwarder rejects an unknown wake mode", () => {
+test("startChatLog rejects an unknown wake mode", () => {
   assert.throws(
     () =>
-      startChatForwarder({
+      startChatLog({
         bot: {},
-        inbox: {},
+        log: {},
         wake: "loud",
       }),
     /MF_CHAT_WAKE/,

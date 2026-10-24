@@ -347,7 +347,7 @@ async function launchPi({
   const initialPrompt =
     config.firstMessage ||
     env.ARENA_PROMPT ||
-    "Play the Minecraft session by writing Node programs and running them with `mf run` in bash, as your system prompt describes. Read `mf inbox` for what happened in the game. Follow the session briefing if there is one, and keep going until its goal is complete or the session ends.";
+    "Play the Minecraft session by writing Node programs and running them with `mf run` in bash, as your system prompt describes. Read `mf log` for what happened in the game. Follow the session briefing if there is one, and keep going until its goal is complete or the session ends.";
   const cliArgs = [
     ...(profile.generated
       ? ["--provider", profile.model.provider, "--model", profile.model.id]

@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Minecraft coding-agent race arena with native Mineflayer bot hosts and Pi inbox integration",
+  "description": "Minecraft coding-agent race arena with native Mineflayer bot hosts and Pi integration",
   "engines": {
     "node": ">=24.0.0"
   },

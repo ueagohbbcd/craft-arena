@@ -19,7 +19,7 @@ import { piBuiltinModel } from "../packages/pi-extension/pi-models.mjs";
 
 // A Pi built-in OpenAI-compatible model; tests point it at local fakes.
 const TEST_MODEL = "groq/qwen/qwen3.8-27b";
-import inboxExtension from "../packages/pi-extension/index.mjs";
+import arenaExtension from "../packages/pi-extension/index.mjs";
 process.env.PI_OFFLINE = "1";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function withTimeout(promise, ms) {
@@ -145,7 +145,7 @@ async function harness(
     noThemes: true,
     noContextFiles: true,
     noExtensions: true,
-    extensionFactories: [inboxExtension, ...extensions],
+    extensionFactories: [arenaExtension, ...extensions],
   });
   await resourceLoader.reload();
   assert.deepEqual(resourceLoader.getExtensions().errors, []);
@@ -215,7 +215,7 @@ test(
               name: "bash",
               args: {
                 command: nodeCommand(
-                  `import{appendFile,writeFile,access}from'node:fs/promises';await appendFile(${JSON.stringify(join(dir, "starts"))},'start\\n');await writeFile(${JSON.stringify(join(dir, "worker.json"))},JSON.stringify({pid:process.pid,taskId:process.env.MC_INBOX_TASK_ID}));while(await access(${JSON.stringify(join(dir, "release"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,10));await new Promise(r=>setTimeout(r,250));console.log('one-command-finished');`,
+                  `import{appendFile,writeFile,access}from'node:fs/promises';await appendFile(${JSON.stringify(join(dir, "starts"))},'start\\n');await writeFile(${JSON.stringify(join(dir, "worker.json"))},JSON.stringify({pid:process.pid,taskId:process.env.MF_TASK_ID}));while(await access(${JSON.stringify(join(dir, "release"))}).then(()=>false,()=>true))await new Promise(r=>setTimeout(r,10));await new Promise(r=>setTimeout(r,250));console.log('one-command-finished');`,
                 ),
               },
             },
@@ -960,8 +960,8 @@ test(
     assert.equal(h.requests.length, 3);
     const delivered = h.session.messages
       .filter((m) => m.role === "custom" && m.customType === "arena-tasks")
-      .flatMap((m) => m.details?.messages ?? [])
-      .filter((m) => m.data.stdout?.includes("during-final-stream-event"));
+      .flatMap((m) => m.details ?? [])
+      .filter((task) => task.stdout?.includes("during-final-stream-event"));
     assert.equal(delivered.length, 1, "delivered once at the final boundary");
     const context = JSON.stringify(h.requests[2].messages);
     assert.match(context, /Exercise the final streaming boundary/);
