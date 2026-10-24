@@ -1,18 +1,27 @@
 FROM node:24-bookworm-slim
 # Bootstrap HTTPS with Node's bundled CA roots; Debian then installs its managed CA bundle.
+# The native renderer needs libraries at runtime: node-canvas has no bundled
+# copy of cairo, pango, gdk-pixbuf, rsvg, gif and jpeg, and headless-gl opens an
+# X display through Xvfb.
 RUN node -e "const fs=require('node:fs');fs.mkdirSync('/etc/ssl/certs',{recursive:true});fs.writeFileSync('/etc/ssl/certs/ca-certificates.crt',require('node:tls').rootCertificates.join('\n'))" \
     && sed -i 's|http://deb.debian.org|https://deb.debian.org|g' /etc/apt/sources.list.d/debian.sources \
-    && apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates git python3 xvfb xauth fonts-dejavu-core ripgrep fd-find && rm -rf /var/lib/apt/lists/*
+    && apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends ca-certificates git python3 xvfb xauth fonts-dejavu-core ripgrep fd-find libcairo2 libpango-1.0-0 libpangocairo-1.0-0 libgdk-pixbuf-2.0-0 libgif7 libjpeg62-turbo librsvg2-2 libxi6 libx11-6 libxext6 libstdc++6 && rm -rf /var/lib/apt/lists/*
 WORKDIR /opt/arena
 COPY scripts/mf-reference.json scripts/prepare-mf-reference.mjs scripts/prune-node-modules.mjs ./scripts/
 RUN node scripts/prepare-mf-reference.mjs /opt/mf-reference && chown -R node:node /opt/mf-reference
 ENV ARENA_REFERENCE_ROOT="/opt/mf-reference"
 COPY --chown=node:node package.json package-lock.json ./
-# Drop Bedrock data and viewer assets for other versions (about 600 MB); the
-# arena server is 1.21.1.
-# Install scripts stay off except for the two native renderer packages,
-# which download their prebuilt binaries (headless-gl, node-canvas).
-RUN npm ci --ignore-scripts && npm rebuild gl canvas && node scripts/prune-node-modules.mjs node_modules 1.21.1 && chown -R node:node /opt/arena
+# headless-gl publishes prebuilds for Node 20, Node 22 and a Node 24 pre-release
+# ABI (134); Node 24 final is ABI 137, so its install script falls back to
+# node-gyp and the module is compiled here. node-canvas installs an N-API
+# prebuild and needs no compiler. The toolchain is installed, used and removed
+# in this one layer so that it never reaches the image, and the same layer drops
+# Bedrock data and viewer assets for other versions (about 600 MB): the arena
+# server is 1.21.1.
+RUN apt-get -o Acquire::Retries=3 update && apt-get -o Acquire::Retries=3 install -y --no-install-recommends build-essential pkg-config libxi-dev libglu1-mesa-dev libglew-dev && npm ci --ignore-scripts && npm rebuild gl canvas && apt-get purge -y --auto-remove build-essential pkg-config libxi-dev libglu1-mesa-dev libglew-dev && rm -rf /var/lib/apt/lists/* /root/.npm /root/.cache && node scripts/prune-node-modules.mjs node_modules 1.21.1 && chown -R node:node /opt/arena
+# A native module that cannot load has to fail the build, not a match: the
+# participant image is the only place where screenshots are ever exercised.
+RUN xvfb-run -a node -e "const gl=require('gl')(4,4); if (!gl) throw new Error('headless-gl cannot create a context'); const canvas=require('canvas').createCanvas(2,2); canvas.getContext('2d').fillRect(0,0,1,1); if (canvas.toBuffer('image/png').length===0) throw new Error('node-canvas cannot render');"
 # Only participant-side code and its documentation enter this image: no
 # trusted-side source (arena commands, login gate, model relay), no
 # tests, no developer docs, no operator configuration. The list is checked by
