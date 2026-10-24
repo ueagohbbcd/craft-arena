@@ -23,6 +23,17 @@ jobs:
       - run: npm run format:check
       - run: npm test
 
+  participant-image:
+    # Screenshots only break in a match if the participant image is wrong, and a
+    # unit test on the runner cannot see the image's own system libraries: `gl`
+    # and `canvas` are optional dependencies, so their install failures leave the
+    # test job green. Build the image instead, which includes its load check.
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f infra/Dockerfile.participant -t craft-arena-participant:ci .
+
   server-protocol:
     # Real Minecraft 1.21.1 server: protocol v1, the rule datapacks and one
     # live match with two real bots (scripts/verify-server-protocol.mjs).
