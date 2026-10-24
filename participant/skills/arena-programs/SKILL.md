@@ -26,6 +26,8 @@ export default async function (bot) {
 { "command": "mf run --inbox 25 inspect.mjs" }
 ```
 
+**Prefer the installed Mineflayer/Pathfinder/PvP plugins and their documented APIs, events, results and errors.** Do not reimplement arrival distance tests, path termination, or attack completion from coordinates or arbitrary sleep durations if the plugin already reports the outcome. Use a timeout only as a bounded fallback, and return the plugin's failure reason with it. Read the installed plugin documentation before inventing a controller.
+
 Plugins and other packages load from the arena's installed packages:
 
 ```js
@@ -41,8 +43,14 @@ export default async function (bot, { signal, args, log }) {
   const stop = () => bot.pathfinder.setGoal(null);
   signal.addEventListener("abort", stop, { once: true });
   try {
-    await bot.pathfinder.goto(new goals.GoalNear(x, y, z, 1));
-    return { arrived: bot.entity.position };
+    // Native goto resolves when Pathfinder considers GoalNear reached.
+    // Do not apply a second, stricter coordinate threshold.
+    try {
+      await bot.pathfinder.goto(new goals.GoalNear(x, y, z, 1));
+      return { status: "arrived", reason: "pathfinder_goal_reached", at: bot.entity.position };
+    } catch (error) {
+      return { status: "failed", reason: error.name, error: error.message, at: bot.entity.position };
+    }
   } finally {
     signal.removeEventListener("abort", stop);
   }
