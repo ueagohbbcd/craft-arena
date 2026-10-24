@@ -9,7 +9,7 @@ The game does not wait for you. Between programs, `idle` only fights mobs within
 
 - **Eat while walking:** `$MF_TOOLKIT_ROOT/examples/navigate-with-autoeat.mjs`. Eating in your own program: `await bot.consume()` returns after eating, with the inventory updated.
 - **Defend yourself while walking:** `$MF_TOOLKIT_ROOT/examples/navigate-with-defense.mjs`. Use it rather than plain `navigate.mjs` when a trip may meet mobs. It never digs, and if one fight lasts more than 10 seconds it gives up the trip (`defense_timeout`, exit code 1): check where you are before going on.
-- **Fight a chosen entity:** `$MF_TOOLKIT_ROOT/examples/fight-target.mjs`. In your own program, `const pvp = loadPvp(bot)` from ``await import(`${process.env.MF_TOOLKIT_ROOT}/examples/native.mjs`)`` (it also loads Pathfinder), then `await pvp.attack(entity)` and `await pvp.stop()`. fight-target.mjs reports the fight, see below.
+- **Fight a chosen entity:** `$MF_TOOLKIT_ROOT/examples/fight-target.mjs`. In your own program, `const pvp = loadPvp(bot)` from ``await import(`${process.env.MF_TOOLKIT_ROOT}/examples/native.mjs`)`` (it also loads Pathfinder), then `await pvp.attack(entity)` and `await pvp.stop()`. Build on PvP's own `stoppedAttacking` and `target` and on entity events rather than an attack loop of your own; a timeout is a safety limit, not evidence that the target died. fight-target.mjs reports the fight, see below.
 - **PvP digs even with Pathfinder digging off:** PvP has its own movement settings, `bot.pvp.movements`, and gives them to Pathfinder when it attacks. Set `bot.pvp.movements.canDig = false` to keep terrain intact during a fight, as fight-target.mjs does.
 - Reminder: in water get to air first (hold `jump`); check below before digging down.
 
