@@ -26,10 +26,16 @@ keepOnly(
 );
 
 const viewer = join(root, "prismarine-viewer/public");
+// prismarine-viewer's entity meshes always read the 1.16.4 texture layout
+// (`new Entity('1.16.4', ...)` in viewer/lib/entities.js), even when the world
+// renders as 1.21.1. Keep only that directory (about 0.5 MB) so screenshots
+// with players or mobs still find their skins after the other versions are
+// pruned; without it the async texture load kills the renderer process.
 keepOnly(
   join(viewer, "textures"),
-  (name) => name === version || name === `${version}.png`,
+  (name) => name === version || name === `${version}.png` || name === "1.16.4",
 );
+keepOnly(join(viewer, "textures/1.16.4"), (name) => name === "entity");
 keepOnly(join(viewer, "blocksStates"), (name) => name === `${version}.json`);
 
 // The toolkit tarball carries its own general-purpose skill. Participants get
