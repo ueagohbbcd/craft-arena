@@ -5,13 +5,20 @@
  * JOB.json. The job is written by prismarine.mjs (renderJob): the scenes'
  * chunk columns and entities, and each view's camera, clip box, label and
  * marks. Writes the stitched PNG (or one raw view) and prints
- * `{crops, filled}` as JSON.
+ * `{crops, filled, width, height}` (one panel's size) as JSON.
  */
 import Module, { createRequire } from "node:module";
 import { writeSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { Worker } from "node:worker_threads";
 import { createTextureLoader } from "./viewer-texture.mjs";
+import {
+  cropFor,
+  legendOf,
+  paddedBox,
+  panelSize,
+  sharedAspect,
+} from "./panel-layout.mjs";
 
 const require = createRequire(import.meta.url);
 const { createCanvas, loadImage, Canvas, Image } = require("canvas");
@@ -94,26 +101,6 @@ function contentBox(d, W, H) {
         if (py > y1) y1 = py;
       }
   return x1 < 0 ? null : { x0, y0, x1: x1 + 1, y1: y1 + 1 };
-}
-
-/** Grow the content box to the cell's shape, with a small margin, inside the render. */
-function cropFor(box, W, H, aspect) {
-  if (!box) return { x: 0, y: 0, w: W, h: H };
-  const pad = Math.round(W * 0.02);
-  let w = box.x1 - box.x0 + 2 * pad,
-    h = box.y1 - box.y0 + 2 * pad;
-  if (w / h > aspect) h = w / aspect;
-  else w = h * aspect;
-  if (w > W) [w, h] = [W, W / aspect];
-  if (h > H) [w, h] = [H * aspect, H];
-  const cx = (box.x0 + box.x1) / 2,
-    cy = (box.y0 + box.y1) / 2;
-  return {
-    x: Math.min(Math.max(cx - w / 2, 0), W - w),
-    y: Math.min(Math.max(cy - h / 2, 0), H - h),
-    w,
-    h,
-  };
 }
 
 /**
@@ -266,7 +253,21 @@ async function main() {
     return { crops: [{ x: 0, y: 0, w: RW, h: RH }], filled: null };
   }
 
-  const { width, height, columns, rows } = job;
+  const { columns, rows } = job;
+  const boxes = renders.map((d) => paddedBox(contentBox(d, RW, RH), RW));
+  // With `aspect: "content"` every panel gets the shape of what the views
+  // show (one shape for all of them) and keeps the pixel budget of a
+  // width × height panel; otherwise the panels are width × height.
+  let { width, height } = job;
+  if (job.cropToContent && job.aspect === "content")
+    ({ width, height } = panelSize(
+      width * height,
+      sharedAspect(boxes, width / height),
+    ));
+  const viewport = (i) => ({
+    x: (i % columns) * width,
+    y: Math.floor(i / columns) * height,
+  });
   const out = createCanvas(width * columns, height * rows);
   const ctx = out.getContext("2d");
   const tag = (
@@ -284,10 +285,10 @@ async function main() {
   };
   const crops = [];
   const sources = renders.map(image);
-  for (const [i, v] of job.views.entries()) {
-    const { x, y } = v.viewport;
+  for (const [i] of job.views.entries()) {
+    const { x, y } = viewport(i);
     const crop = job.cropToContent
-      ? cropFor(contentBox(renders[i], RW, RH), RW, RH, width / height)
+      ? cropFor(boxes[i], RW, RH, width / height)
       : { x: 0, y: 0, w: RW, h: RH };
     crops.push(crop);
     ctx.drawImage(
@@ -307,7 +308,7 @@ async function main() {
   let content = 0;
   for (let i = 0; i < d.length; i += 4) if (!isSky(d, i)) content++;
   for (const [i, v] of job.views.entries()) {
-    const { x, y } = v.viewport;
+    const { x, y } = viewport(i);
     const crop = crops[i];
     ctx.save();
     ctx.beginPath();
@@ -325,13 +326,27 @@ async function main() {
         ctx.strokeStyle = "#fff";
         ctx.stroke();
       }
-      if (m.label)
+      if (m.label && !m.legend)
         tag(m.label, px + 6, py - 9, {
           size: m.size ?? 13,
           color: m.textColor ?? "#fff",
           bg: m.bg ?? "rgba(0,0,0,0.65)",
         });
     }
+    // Names given to the legend: one line each in the top-left corner,
+    // with the colour of their dots.
+    legendOf(v.marks).forEach((line, n) => {
+      const ly = y + 6 + n * 18;
+      tag(
+        `   ${line.label}${line.count > 1 ? ` ×${line.count}` : ""}`,
+        x + 6,
+        ly,
+      );
+      ctx.beginPath();
+      ctx.arc(x + 15, ly + 9.5, 4, 0, Math.PI * 2);
+      ctx.fillStyle = line.color ?? "#a3e";
+      ctx.fill();
+    });
     ctx.restore();
     ctx.strokeStyle = "#000";
     ctx.lineWidth = 2;
@@ -340,7 +355,7 @@ async function main() {
       tag(v.label, x + 6, y + height - 30, { size: 16 });
   }
   await writeFile(job.outputPath, out.toBuffer("image/png"));
-  return { crops, filled: content / (out.width * out.height) };
+  return { crops, filled: content / (out.width * out.height), width, height };
 }
 
 // Written synchronously: output to a pipe is otherwise lost at process.exit

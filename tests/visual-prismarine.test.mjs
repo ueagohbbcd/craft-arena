@@ -191,6 +191,52 @@ test(
 );
 
 test(
+  "with a content aspect all panels share the shape of what they show",
+  { skip: !render },
+  async () => {
+    const dir = await mkdtemp(join(tmpdir(), "visual-aspect-"));
+    try {
+      // Seen level from two sides, the flat fixture (16 wide, at most 6
+      // high) is much wider than tall.
+      const result = await capturePrismarineViews(fixtureWorld(), {
+        outputPath: join(dir, "aspect.png"),
+        directions: ["+x", "-z"],
+        width: 200,
+        height: 150,
+        aspect: "content",
+        annotate: (view) => [
+          {
+            x: view.viewport.width / 2,
+            y: view.viewport.height / 2,
+            label: "cow",
+            color: "#2bd",
+            dot: "small",
+            legend: true,
+          },
+        ],
+      });
+      const png = await readFile(result.imagePath);
+      const [a, b] = result.metadata.views.map((v) => v.viewport);
+      assert.equal(png.readUInt32BE(16), result.metadata.width);
+      assert.equal(png.readUInt32BE(20), result.metadata.height);
+      assert.equal(result.metadata.width, a.width * 2);
+      assert.equal(result.metadata.height, a.height);
+      assert.deepEqual(
+        [b.x, b.y, b.width, b.height],
+        [a.width, 0, a.width, a.height],
+      );
+      // Much wider than the 4:3 default, about the same number of pixels.
+      assert.ok(a.width / a.height > 1.8, `${a.width}x${a.height}`);
+      assert.ok(Math.abs(a.width * a.height - 200 * 150) < 400);
+      for (const v of result.metadata.views)
+        assert.ok(Math.abs(v.crop.w / v.crop.h - a.width / a.height) < 0.01);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  },
+);
+
+test(
   "entities are drawn where they stand, not at the origin",
   { skip: !render },
   async () => {

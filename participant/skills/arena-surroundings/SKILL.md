@@ -31,14 +31,14 @@ mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY ma
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" BOX se nw BOX se nw open          # the same box, two edges
 ```
 
-A box is six integers. After it come the views it is seen from, its edge and optionally `grid`; a box without them gets `se nw` and `solid`. One image holds 1, 2 or 4 pictures in reading order (all the boxes' views together): one, two side by side, or four in two rows.
+A box is six integers. After it come the views it is seen from, its edge, optionally `grid`, and optionally `names` or `nonames`; a box without them gets `se nw` and `solid`. One image holds 1, 2 or 4 pictures in reading order (all the boxes' views together): one, two side by side, or four in two rows. All pictures of one image have the same shape, which follows what they show: wide for a flat area, tall for a tower.
 
 - **The box.** Only blocks inside it are drawn, and the camera frames them, not empty sky. Without a box it covers 25×25 blocks around you, from 8 below to 16 above your feet; views and an edge given with no box are for that one.
 - **Seeing inside.** A second, smaller box B inside A is drawn without whatever lies outside it.
 - **Views:** `se`, `sw`, `nw`, `ne` (from that corner, above), `top` (straight down, north up), `east`, `west`, `south`, `north` (level, from that side). Give several, separated by spaces or commas. For a structure, look from the corners first; for a large area, `top` works well.
 - **Edge:** one of three, for how faces are drawn where the box cuts through blocks. `solid` draws every cut face, so the box looks like a solid cut. `open` draws none, as if your eye were inside the rock: underground, only the walls of tunnels and caves remain. `game` draws an edge face only where the block just outside the box is not opaque, as the game would: the outside of a building is drawn where it meets air, a face against rock is not. Edge faces have no thickness, so where a box ends just at the surface of a structure they look like thin sheets. To see a box with another edge, give the box again.
 - **`grid`:** draws the edges of every block on full block faces as dark lines. Slabs, plants and other blocks that are not full faces get none.
-- **Drawn on top:** `you`, your waypoints from `waypoints.json` and the names of mobs. Players and mobs themselves are drawn too.
+- **Drawn on top:** `you` and your waypoints from `waypoints.json`. Players and mobs are drawn as themselves; each mob also gets a small coloured dot, and the picture's top-left corner lists the names with their dot colour and how many there are. `names` writes the names beside the mobs instead; `nonames` leaves out the dots and names.
 
 It prints JSON with `imagePath`, the image `size` and, for each box, its `bounds` and `knownFraction`. Open `imagePath` with `read`. Blank areas are blocks the character has not received, not air; `knownFraction` says how much of the box is known.
 
