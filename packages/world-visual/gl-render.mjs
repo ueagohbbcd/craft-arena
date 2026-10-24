@@ -11,16 +11,20 @@ import Module, { createRequire } from "node:module";
 import { writeSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
 import { Worker } from "node:worker_threads";
+import { createTextureLoader } from "./viewer-texture.mjs";
 
 const require = createRequire(import.meta.url);
 const { createCanvas, loadImage, Canvas, Image } = require("canvas");
 const createGLContext = require("gl");
 
 // The viewer loads its textures with `require("node-canvas-webgl/lib").loadImage`;
-// node-canvas has the same function, so answer that require with it.
+// node-canvas has the same function. Missing textures resolve to a transparent
+// placeholder (see viewer-texture.mjs) instead of killing the render.
+const loadViewerTexture = createTextureLoader({ loadImage, createCanvas });
 const load = Module._load;
 Module._load = function (request, ...rest) {
-  if (request === "node-canvas-webgl/lib") return { loadImage };
+  if (request === "node-canvas-webgl/lib")
+    return { loadImage: loadViewerTexture };
   return load.call(this, request, ...rest);
 };
 
