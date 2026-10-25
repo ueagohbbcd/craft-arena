@@ -1,6 +1,6 @@
 ---
 name: arena-surroundings
-description: "Seeing the world around you: full state on request, pictures of boxes you choose (a smaller box shows the inside) and coordinates picked from them, notes on places, nearby entities, signs, game chat, a lookout that ends when something appears, and background modules that log players, mobs, blocks and signs you pass. Use when a decision depends on what is around you or on the shape of a place."
+description: "Seeing the world around you: full state on request, pictures of boxes you choose (smaller boxes cut away walls or roofs to show the inside) and coordinates picked from them, notes on places, nearby entities, signs, game chat, a lookout that ends when something appears, and background modules that log players, mobs, blocks and signs you pass. Use when a decision depends on what is around you or on the shape of a place."
 ---
 
 # Looking at the world
@@ -28,17 +28,17 @@ When a decision depends on shape, such as a doorway, a wall or stacked levels, t
 ```sh
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                                   # around you
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ     # one box, two corner views
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" A_BOX B_BOX                       # A, and inside it the smaller B
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" A_BOX B_BOX                       # overall box and cutaway together in one image
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" minX minY minZ maxX maxY maxZ top
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" BOX se nw BOX se nw open          # the same box, two edges
 ```
 
 A box is six integers. After it come the views it is seen from, its edge, optionally `grid`, and optionally `names` or `nonames`; a box without them gets `se nw` and `solid`. One image holds 1, 2 or 4 pictures in reading order (all the boxes' views together): one, two side by side, or four in two rows. All pictures of one image have the same shape, which follows what they show: wide for a flat area, tall for a tower.
 
-- **The box.** Only blocks inside it are drawn, and the camera frames them, not the empty space around them. Without a box it covers 25×25 blocks around you, from 8 below to 16 above your feet; views and an edge given with no box are for that one.
-- **Seeing inside.** A second, smaller box B inside A is drawn without whatever lies outside it.
+- **The box.** Each box independently selects the blocks to draw; the camera frames those blocks, not the empty space around them. Without a box it covers 25×25 blocks around you, from 8 below to 16 above your feet; views and an edge given with no box are for that one.
+- **Seeing inside.** When walls or a roof hide stairs and connections between floors, a smaller box can expose them: a side boundary beyond the obstructing wall excludes it, and `maxY` below the roof excludes the roof. The coordinates for these cuts can come from `pick.mjs` below. A cutaway can be shown on its own; combining an overall box and a cutaway in one image makes their positions easier to compare.
 - **Views:** `se`, `sw`, `nw`, `ne` (from that corner, above), `top` (straight down, north up), `east`, `west`, `south`, `north` (level, from that side). Give several, separated by spaces or commas. For a structure, look from the corners first; for a large area, `top` works well.
-- **Edge:** one of three, for how faces are drawn where the box cuts through blocks. `solid` draws every cut face, so the box looks like a solid cut. `open` draws none, as if your eye were inside the rock: underground, only the walls of tunnels and caves remain. `game` draws an edge face only where the block just outside the box is not opaque, as the game would: the outside of a building is drawn where it meets air, a face against rock is not. Edge faces have no thickness, so where a box ends just at the surface of a structure they look like thin sheets. To see a box with another edge, give the box again.
+- **Edge:** one of three, for how faces are drawn where the box cuts through blocks. `solid` draws every cut face, so the box looks like a solid cut. `open` draws none, as if your eye were inside the rock: underground, this exposes tunnel and cave surfaces behind the cut. Walls, roofs and floors still inside the box continue to occlude what is behind them; excluding them depends on the box bounds. `game` draws an edge face only where the block just outside the box is not opaque, as the game would: the outside of a building is drawn where it meets air, a face against rock is not. Edge faces have no thickness, so where a box ends just at the surface of a structure they look like thin sheets. To see a box with another edge, give the box again.
 - **`grid`:** draws the edges of every block on full block faces as dark lines. Slabs, plants and other blocks that are not full faces get none.
 - **Drawn on top:** `you` and your waypoints from `waypoints.json`. Players and mobs are drawn as themselves; each mob also gets a small coloured dot, and the picture's top-left corner lists the names with their dot colour and how many there are. `names` writes the names beside the mobs instead; `nonames` leaves out the dots and names.
 
@@ -53,7 +53,9 @@ mf run "$ARENA_TOOLKIT_ROOT/examples/pick.mjs" IMAGE 272 180 694 144    # the sa
 
 For each pixel it returns the block the picture shows there (`name`, `x y z`, the `face` you see), the cell in front of that face (for a `top` face, `standable` says whether you can stand there: use it as a waypoint) and an entity in front of it. Check `name`: if it is not what you meant, pick again a little to the side. Pixels of the same thing in two views also give `meet`, the point nearest to both rays, which can be in the air (the middle of a room, a gap to cross); a `spread` over about 1 means the two pixels show different things.
 
-Each picture costs a few seconds and tokens. For exact checks, `blockAt` and `findBlocks` in a program are cheaper.
+A visible wall or roof can be located with a single pick. For example, if the picked wall block is at `x=10` and the interior lies toward increasing X, `minX=11` leaves that layer outside the picture. A thick wall may still hide the interior; `blockAt` queries along that axis can locate its inner edge. Position and continuity help distinguish the wall from floors or pillars made of the same block type.
+
+Each picture costs a few seconds and tokens. For exact checks, `blockAt` and `findBlocks` in a program are cheaper. When the structure is unclear, several boxes with different cut boundaries can share one image, rather than taking a new picture after every one-block adjustment.
 
 ## Notes on places
 
