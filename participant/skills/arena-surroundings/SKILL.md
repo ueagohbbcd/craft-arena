@@ -1,6 +1,6 @@
 ---
 name: arena-surroundings
-description: "Seeing the world around you: full state on request, pictures of boxes you choose (smaller boxes cut away walls or roofs to show the inside) and coordinates picked from them, notes on places, nearby entities, signs, game chat, a lookout that ends when something appears, and background modules that log players, mobs, blocks and signs you pass. Use when a decision depends on what is around you or on the shape of a place."
+description: "Seeing the world around you: full state on request, pictures of boxes you choose (smaller boxes cut away walls or roofs to show the inside; one image carries a lot of information at once) and coordinates picked from them, notes on places, nearby entities, signs, game chat, a lookout that ends when something appears, and background modules that log players, mobs, blocks and signs you pass. Use when a decision depends on what is around you or on the shape of a place."
 ---
 
 # Looking at the world
@@ -23,7 +23,7 @@ The `chat` module logs other players' chat and whispers, and server system lines
 
 ## Pictures
 
-When a decision depends on shape, such as a doorway, a wall or stacked levels, take a picture of the box you care about:
+A picture is the most information you can get in one look: terrain and its heights, walls and openings, floors and how they connect, what is built, the entities around, and where you stand, all in one image instead of many separate checks. When a decision depends on shape, such as a doorway, a wall or stacked levels, or when you are simply curious about your situation or unsure where to go next, take a picture of the box you care about:
 
 ```sh
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                                   # around you
