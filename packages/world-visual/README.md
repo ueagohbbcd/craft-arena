@@ -1,6 +1,6 @@
 # World images
 
-This package draws pictures of the blocks your character has loaded. Nothing sends you a picture on its own: run [examples/screenshot.mjs](../../examples/screenshot.mjs) when a decision depends on shape, such as a doorway, a wall or stacked levels.
+This package draws pictures of the blocks your character has loaded. Nothing sends you a picture on its own: run [examples/screenshot.mjs](../../examples/screenshot.mjs) when a decision depends on shape, such as a doorway, a wall or stacked levels, or when you just want a look at the situation. A render is dense - terrain and its heights, walls and openings, floors and connections, built structures, entities and your own spot in one image - so one look often answers several questions at once.
 
 There is no built-in image tool, and `mf snapshot` and `mf log` print text only. If the renderer's native packages or Xvfb are missing, images fail but text reports keep working.
 
