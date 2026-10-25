@@ -6,12 +6,12 @@ There is no built-in image tool, and `mf snapshot` and `mf log` print text only.
 
 ## Take a screenshot
 
-Only blocks inside the chosen box are drawn. A side boundary past an obstructing wall, or `maxY` below a roof, leaves those blocks out and exposes the interior. Two boxes can show the whole structure and a smaller cutaway together.
+Only blocks inside the chosen box are drawn. A side boundary past an obstructing wall, or `maxY` below a roof, leaves those blocks out and exposes the interior. Each box is independent: a cutaway can stand alone, or share one image with an overall view for comparison. `open` hides cut faces at the box boundary; walls and floors inside the box still occlude what is behind them.
 
 ```sh
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                                  # around your feet, two corner views
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20              # minX minY minZ maxX maxY maxZ
-mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20 -19 60 -19 19 70 19   # box A, then the smaller box B: a 2×2 image
+mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20 -19 60 -19 19 70 19   # overall box and cutaway together: a 2×2 image
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -40 60 -40 40 80 40 top
 mf run "$ARENA_TOOLKIT_ROOT/examples/pick.mjs" out/shot-3.png 410 285                 # the block under that pixel
 ```
