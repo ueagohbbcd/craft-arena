@@ -6,6 +6,8 @@ There is no built-in image tool, and `mf snapshot` and `mf log` print text only.
 
 ## Take a screenshot
 
+Only blocks inside the chosen box are drawn. A side boundary past an obstructing wall, or `maxY` below a roof, leaves those blocks out and exposes the interior. Two boxes can show the whole structure and a smaller cutaway together.
+
 ```sh
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs"                                  # around your feet, two corner views
 mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" -20 60 -20 20 80 20              # minX minY minZ maxX maxY maxZ
