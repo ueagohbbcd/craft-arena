@@ -2,8 +2,9 @@
 // Run when a decision depends on shape: a doorway, a wall, stacked levels.
 // Usage: mf run "$ARENA_TOOLKIT_ROOT/examples/screenshot.mjs" [BOX [VIEW...] [EDGE] [grid]]...
 // A BOX is minX minY minZ maxX maxY maxZ; without one it frames the area
-// around your feet. Only blocks inside a box are drawn, so a second, smaller
-// box shows the inside of the first. After a box come the views it is seen
+// around your feet. Each box independently selects the blocks to draw;
+// excluding an obstructing wall or roof can expose the interior.
+// After a box come the views it is seen
 // from (se sw nw ne top east west south north; default se nw) and one EDGE,
 // how faces where it cuts through blocks are drawn: all (solid, default),
 // none (open) or as in the game. `grid` draws block edges on its block
