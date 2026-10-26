@@ -85,7 +85,7 @@ End the program, returning what you need, only when it cannot go on usefully:
 - **Failing:** the same step failed a few times despite the fallbacks; return the last error instead of retrying forever.
 - **No way forward:** something it watches for that it cannot handle itself (a watchdog finding it cannot work around, a player it must not fight).
 
-Every controlling program gets a watchdog: when the character tries to move but does not (15 s), or the same failure repeats (Pathfinder `noPath`, the same goal again, the same error passed to `watchdog.failure()`), a `[watchdog] …` line appears in the program's output. To end the program on a finding instead, turn the built-in one off and start your own with a `report`:
+Every controlling program gets a watchdog: when the character tries to move but does not (15 s), or the same failure repeats (Pathfinder `noPath`, the same goal again, the same error passed to `watchdog.failure()`), a `[watchdog] …` line appears in the program's output and an urgent entry in `mf log --source program-watchdog` makes a waiting `mf run` return early. The program keeps running. Each persistent finding is reported once until its detector re-arms after progress or the repeat count falls below its threshold. To end the program on a finding instead, turn the built-in one off and start your own with a `report`:
 
 ```js
 const { watchdog: startWatchdog } = await import(
