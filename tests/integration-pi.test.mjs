@@ -6,6 +6,9 @@ import { once } from "node:events";
 import { mkdir, mkdtemp, rm, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { request as runtimeRequest } from "mineflayer-world-memory/runtime/host/rpc.mjs";
+import { socketPath } from "mineflayer-world-memory/runtime/socket-path.mjs";
 import {
   createCodemodeExtension,
   createAgentSession,
@@ -191,6 +194,161 @@ async function harness(
 function nodeCommand(script) {
   return `${quote(process.execPath)} --input-type=module -e ${quote(script)}`;
 }
+
+test(
+  "real Pi: a program watchdog wakes the idle model through the finished mf run command while control continues",
+  { timeout: 25000 },
+  async (t) => {
+    let supervisor, h;
+    let supervisorOutput = "";
+    t.after(async () => {
+      await h?.session.abort();
+      if (supervisor?.exitCode === null) {
+        const exited = once(supervisor, "exit");
+        supervisor.kill("SIGTERM");
+        const result = await withTimeout(exited, 2000);
+        if (result.timeout)
+          try {
+            process.kill(-supervisor.pid, "SIGKILL");
+          } catch {}
+      }
+    });
+    h = await harness(t, (_body, n, dir) => {
+      if (n === 1) {
+        const mf = fileURLToPath(
+          import.meta.resolve("mineflayer-world-memory/runtime/bin/mf.mjs"),
+        );
+        return [
+          {
+            id: "watchdog-control",
+            name: "bash",
+            args: {
+              command: `MF_STATE_DIR=${quote(join(dir, ".mf"))} ${quote(process.execPath)} ${quote(mf)} run ${quote(join(dir, "stuck.mjs"))} ${quote(join(dir, "trigger"))} ${quote(join(dir, "program.json"))}`,
+              wait_seconds: 0.05,
+            },
+          },
+        ];
+      }
+      return "Waiting for the controlling program.";
+    });
+    const stateDir = join(h.dir, ".mf");
+    const controlSocket = socketPath(stateDir, "control.sock");
+    await writeFile(
+      join(h.dir, "stuck.mjs"),
+      `import { access, writeFile } from 'node:fs/promises';
+export const watchdog = { stuckMs: 150, checkMs: 20 };
+export default async function(bot, { args, signal, watchdog }) {
+  watchdog.pause();
+  await writeFile(args[1], JSON.stringify({ taskId: process.env.MF_TASK_ID, pid: process.pid }));
+  while (!signal.aborted && await access(args[0]).then(() => false, () => true))
+    await new Promise(resolve => setTimeout(resolve, 20));
+  if (signal.aborted) return;
+  bot.setControlState('forward', true);
+  watchdog.resume();
+  await new Promise(resolve => signal.addEventListener('abort', resolve, { once: true }));
+}
+`,
+    );
+    supervisor = spawn(
+      process.execPath,
+      [
+        fileURLToPath(
+          import.meta.resolve("mineflayer-world-memory/runtime/supervisor.mjs"),
+        ),
+      ],
+      {
+        cwd: h.dir,
+        detached: true,
+        env: {
+          ...process.env,
+          NODE_OPTIONS: `${process.env.NODE_OPTIONS ?? ""} --import=${pathToFileURL(resolve("tests/helpers/watchdog-native-bot.mjs")).href}`,
+          MF_STATE_DIR: stateDir,
+          MF_USERNAME: "watchdog_fixture",
+          MF_HOST: "unused-fixture-host",
+          MF_DEFAULT_SCRIPTS: "",
+          MF_IDLE: "off",
+          MF_WORLD_MEMORY_MODE: "off",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      },
+    );
+    for (const stream of [supervisor.stdout, supervisor.stderr])
+      stream.on("data", (chunk) => (supervisorOutput += chunk));
+    const until = async (predicate, label) => {
+      const deadline = Date.now() + 10000;
+      while (!(await predicate())) {
+        assert.equal(supervisor.exitCode, null, supervisorOutput);
+        assert.ok(Date.now() < deadline, `${label}: ${supervisorOutput}`);
+        await sleep(20);
+      }
+    };
+    await until(
+      () => supervisorOutput.includes("Supervisor ready:"),
+      "supervisor startup",
+    );
+    await h.session.prompt(
+      "Run the controlling program and wait for its result.",
+    );
+    const initialResult = JSON.parse(
+      h.requests.at(-1).messages.findLast((message) => message.role === "tool")
+        .content,
+    );
+    assert.equal(initialResult.status, "running");
+    assert.equal(h.session.isStreaming, false, "model ended its initial turn");
+    await until(
+      () =>
+        readFile(join(h.dir, "program.json")).then(
+          () => true,
+          () => false,
+        ),
+      "controlling program startup",
+    );
+    const program = JSON.parse(
+      await readFile(join(h.dir, "program.json"), "utf8"),
+    );
+    const { bots } = JSON.parse(
+      await readFile(join(stateDir, "bots", "bots.json"), "utf8"),
+    );
+    const before = await runtimeRequest(bots[0].runSocket, { type: "status" });
+    assert.ok(before.active.length > 0, "native runner started the program");
+    const baseline = h.requests.length;
+    await sleep(100);
+    assert.equal(h.requests.length, baseline, "idle model is not polling");
+    await writeFile(join(h.dir, "trigger"), "try moving into the wall");
+    await until(
+      () => h.requests.length > baseline && !h.session.isStreaming,
+      "watchdog completion continuation",
+    );
+    const completion = h.session.messages
+      .filter((message) => message.customType === "arena-tasks")
+      .flatMap((message) => message.details ?? [])
+      .find((task) => task.taskId === initialResult.taskId);
+    assert.ok(completion, "the existing finished-command path woke Pi");
+    assert.equal(completion.status, "completed");
+    assert.equal(completion.exitCode, 0);
+    assert.match(completion.stdout, /\[watchdog\]/);
+    assert.match(completion.stdout, /returned early:.*watchdog/);
+    assert.match(completion.stdout, /the program keeps running/);
+    assert.match(
+      JSON.stringify(h.requests.at(-1).messages),
+      /returned early:.*watchdog/,
+      "the new real model request receives the early return",
+    );
+    const status = await runtimeRequest(controlSocket, { type: "status" });
+    assert.ok(
+      status.tasks.some(
+        (task) => task.taskId === program.taskId && task.role === "controlling",
+      ),
+      "ending the waiting shell did not cancel the controlling program",
+    );
+    const host = await runtimeRequest(bots[0].runSocket, { type: "status" });
+    assert.ok(
+      before.active.every((id) => host.active.includes(id)),
+      "the same native run is still active",
+    );
+    assert.doesNotThrow(() => process.kill(program.pid, 0));
+  },
+);
 
 test(
   "real Pi omitted bash wait budgets resume with fresh state while one command continues",
