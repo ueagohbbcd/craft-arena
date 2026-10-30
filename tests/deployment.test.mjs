@@ -104,7 +104,7 @@ test("Docker dependency layers precede source copies and participant image exclu
     const manifests = dockerfile.indexOf(
       "COPY --chown=node:node package.json package-lock.json ./",
     );
-    const install = dockerfile.indexOf("RUN npm ci");
+    const install = dockerfile.search(/^RUN[^\n]*\bnpm ci\b/m);
     const source = dockerfile.indexOf(
       name === "participant"
         ? "COPY --chown=node:node packages"
@@ -121,8 +121,17 @@ test("Docker dependency layers precede source copies and participant image exclu
       );
       assert.match(
         dockerfile,
-        /RUN npm ci[^\n]*&& node scripts\/prune-node-modules\.mjs node_modules 1\.21\.1/,
+        /^RUN[^\n]*\bnpm ci\b[^\n]*&& node scripts\/prune-node-modules\.mjs node_modules 1\.21\.1/m,
         "participant image drops Minecraft data for other versions",
+      );
+      // headless-gl has no prebuild for a released Node 24, so the image
+      // compiles it. A build toolchain left in the image would give the
+      // participants a compiler they never had; it has to be purged in the
+      // same layer that installed it.
+      assert.match(
+        dockerfile,
+        /^RUN[^\n]*apt-get[^\n]*install[^\n]*\bbuild-essential\b[^\n]*apt-get purge[^\n]*\bbuild-essential\b[^\n]*$/m,
+        "the native build toolchain is installed and removed in one layer",
       );
     }
   }
